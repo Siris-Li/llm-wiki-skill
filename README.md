@@ -128,7 +128,7 @@ bash install.sh --platform claude --with-optional-adapters
 | 平台 | 路径 |
 |---|---|
 | Claude Code | `~/.claude/skills/llm-wiki` |
-| Codex | `~/.codex/skills/llm-wiki` |
+| Codex | `~/.agents/skills/llm-wiki` |
 | OpenClaw | `~/.openclaw/skills/llm-wiki` |
 | Hermes | `~/.hermes/skills/llm-wiki` |
 

@@ -11,6 +11,10 @@ description: |
   消化、查询、健康检查等操作。不要在用户只是要求"总结这篇文章"时触发——必须是明确的
   知识库相关意图。
 metadata:
+  source: https://github.com/Siris-Li/llm-wiki-skill.git
+  source_path: .
+  upstream: https://github.com/sdyckjq-lab/llm-wiki-skill.git
+  upgrade_skill: llm-wiki-upgrade
   hermes:
     tags:
       - knowledge-base

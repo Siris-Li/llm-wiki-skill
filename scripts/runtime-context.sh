@@ -7,7 +7,9 @@ resolve_platform_skill_root() {
       printf '%s\n' "$HOME/.claude/skills"
       ;;
     codex)
-      if [ -d "$HOME/.codex/skills" ] || [ ! -d "$HOME/.Codex/skills" ]; then
+      if [ -d "$HOME/.agents/skills" ] || { [ ! -d "$HOME/.codex/skills" ] && [ ! -d "$HOME/.Codex/skills" ]; }; then
+        printf '%s\n' "$HOME/.agents/skills"
+      elif [ -d "$HOME/.codex/skills" ]; then
         printf '%s\n' "$HOME/.codex/skills"
       else
         printf '%s\n' "$HOME/.Codex/skills"

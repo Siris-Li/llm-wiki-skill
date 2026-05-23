@@ -43,6 +43,9 @@ list_companion_skill_sources() {
     claude)
       printf '%s\n' "platforms/claude/companions/llm-wiki-upgrade"
       ;;
+    codex)
+      printf '%s\n' "platforms/codex/companions/llm-wiki-upgrade"
+      ;;
   esac
 }
 
@@ -228,7 +231,7 @@ detect_available_platforms() {
     found+=("claude")
   fi
 
-  if [ -d "$HOME/.codex" ] || [ -d "$HOME/.codex/skills" ] || [ -d "$HOME/.Codex" ] || [ -d "$HOME/.Codex/skills" ]; then
+  if [ -d "$HOME/.agents" ] || [ -d "$HOME/.agents/skills" ] || [ -d "$HOME/.codex" ] || [ -d "$HOME/.codex/skills" ] || [ -d "$HOME/.Codex" ] || [ -d "$HOME/.Codex/skills" ]; then
     found+=("codex")
   fi
 

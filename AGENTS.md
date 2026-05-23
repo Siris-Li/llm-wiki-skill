@@ -16,7 +16,7 @@
 bash install.sh --platform codex
 ```
 
-默认安装到 `~/.codex/skills/llm-wiki`。如果用户机器上还是旧的 `~/.Codex/skills`，安装器也会自动兼容。
+默认安装到 `~/.agents/skills/llm-wiki`。如果用户机器上还是旧的 `~/.codex/skills` 或 `~/.Codex/skills`，安装器也会自动兼容。
 
 默认只准备知识库核心主线。如果这次要自动提取网页 / X / 微信公众号 / YouTube / 知乎，再执行：
 

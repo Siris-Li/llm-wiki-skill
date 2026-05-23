@@ -18,6 +18,8 @@ bash install.sh --platform codex
 bash install.sh --platform codex --with-optional-adapters
 ```
 
-默认安装位置：`~/.codex/skills/llm-wiki`
+默认安装位置：`~/.agents/skills/llm-wiki`
 
-如果用户环境仍然在用旧的 `~/.Codex/skills`，安装器会自动兼容。
+如果用户环境仍然在用旧的 `~/.codex/skills` 或 `~/.Codex/skills`，安装器会自动兼容。
+
+安装完成后，还会一并带上 `llm-wiki-upgrade` companion。以后要更新核心主线，可以直接让 Codex 执行这个更新 skill；如果还要刷新网页 / X / 微信公众号 / YouTube / 知乎自动提取能力，再继续执行带 `--with-optional-adapters` 的升级。
