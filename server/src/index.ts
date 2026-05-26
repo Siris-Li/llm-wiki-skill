@@ -1,18 +1,22 @@
 /**
  * llm-wiki-agent 后端入口
  *
- * 阶段一 step 2：最小 Hono 服务器，验证全链路通。
- * 仅提供 /api/health（心跳）和 /api/echo（原样回显）。
- * agent 接入在 step 4。
+ * 阶段一 step 4：接入 pi-coding-agent SDK，提供 /api/prompt（POST + SSE）
+ * 端点：
+ *   GET  /api/health    心跳
+ *   POST /api/echo      JSON 回显（诊断用，未来不删）
+ *   POST /api/prompt    发送用户输入，agent 事件流通过 SSE 推回
+ *   POST /api/reset     重置 session（开新对话）
  */
 
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
+import { getSession, resetSession } from "./agent.js";
+
 const app = new Hono();
 
-// 心跳：用于前端 / 用户确认后端已起
 app.get("/api/health", (c) => {
 	return c.json({
 		status: "ok",
@@ -21,7 +25,6 @@ app.get("/api/health", (c) => {
 	});
 });
 
-// 回显：用于验证 POST + JSON 解析链路
 app.post("/api/echo", async (c) => {
 	let body: unknown;
 	try {
@@ -32,24 +35,98 @@ app.post("/api/echo", async (c) => {
 	return c.json({ ok: true, received: body });
 });
 
-// 流式回显（SSE）：为后续 agent 事件流排练
-// 每 50ms 推一个字符（按 Unicode codepoint），完成后推 done 事件
-app.get("/api/stream-echo", (c) => {
-	const text = c.req.query("text") ?? "Hello, world!";
+app.post("/api/reset", async (c) => {
+	await resetSession();
+	return c.json({ ok: true });
+});
+
+/**
+ * POST /api/prompt
+ * body: { "message": "用户输入" }
+ *
+ * SSE 事件类型：
+ *   text_delta     data: <文本块>                    流式 token
+ *   tool_start     data: {"toolName","toolCallId"}   工具调用开始
+ *   tool_end       data: {"toolName","toolCallId"}   工具调用结束
+ *   done           data: ""                          本次对话完成
+ *   error          data: {"message","hint"?}         发生错误
+ */
+app.post("/api/prompt", async (c) => {
+	let body: { message?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+
+	const message = body.message;
+	if (typeof message !== "string" || !message.trim()) {
+		return c.json({ ok: false, error: "Missing or empty 'message'" }, 400);
+	}
+
 	return streamSSE(c, async (stream) => {
-		// 用扩展运算符按 Unicode codepoint 切分，避免把中文 / emoji 切坏
-		const chars = [...text];
-		for (const char of chars) {
+		// 1) 拿 session（首次会触发创建）
+		let session: Awaited<ReturnType<typeof getSession>>;
+		try {
+			session = await getSession();
+		} catch (err) {
 			await stream.writeSSE({
-				event: "token",
-				data: char,
+				event: "error",
+				data: JSON.stringify({
+					message: `创建 agent session 失败：${err instanceof Error ? err.message : String(err)}`,
+					hint: "确认已运行 `pi login` 或设置 ANTHROPIC_API_KEY 环境变量",
+				}),
 			});
-			await stream.sleep(50);
+			return;
 		}
-		await stream.writeSSE({
-			event: "done",
-			data: JSON.stringify({ total: chars.length }),
+
+		// 2) 订阅事件 → 翻译成 SSE
+		const unsubscribe = session.subscribe(async (event) => {
+			try {
+				if (event.type === "message_update") {
+					const inner = event.assistantMessageEvent;
+					if (inner.type === "text_delta") {
+						await stream.writeSSE({
+							event: "text_delta",
+							data: inner.delta,
+						});
+					}
+				} else if (event.type === "tool_execution_start") {
+					await stream.writeSSE({
+						event: "tool_start",
+						data: JSON.stringify({
+							toolName: event.toolName,
+							toolCallId: event.toolCallId,
+						}),
+					});
+				} else if (event.type === "tool_execution_end") {
+					await stream.writeSSE({
+						event: "tool_end",
+						data: JSON.stringify({
+							toolName: event.toolName,
+							toolCallId: event.toolCallId,
+						}),
+					});
+				}
+			} catch {
+				// 客户端可能已断开，吞掉写错误避免污染日志
+			}
 		});
+
+		// 3) 跑 prompt（事件在执行期间推送），完成发 done
+		try {
+			await session.prompt(message);
+			await stream.writeSSE({ event: "done", data: "" });
+		} catch (err) {
+			await stream.writeSSE({
+				event: "error",
+				data: JSON.stringify({
+					message: err instanceof Error ? err.message : String(err),
+				}),
+			});
+		} finally {
+			unsubscribe();
+		}
 	});
 });
 
@@ -59,5 +136,6 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
 	console.log(`[llm-wiki-agent/server] listening on http://localhost:${info.port}`);
 	console.log(`  GET  /api/health`);
 	console.log(`  POST /api/echo`);
-	console.log(`  GET  /api/stream-echo?text=...`);
+	console.log(`  POST /api/prompt`);
+	console.log(`  POST /api/reset`);
 });
