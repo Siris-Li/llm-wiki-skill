@@ -8,6 +8,7 @@
 
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 
 const app = new Hono();
 
@@ -31,10 +32,32 @@ app.post("/api/echo", async (c) => {
 	return c.json({ ok: true, received: body });
 });
 
+// 流式回显（SSE）：为后续 agent 事件流排练
+// 每 50ms 推一个字符（按 Unicode codepoint），完成后推 done 事件
+app.get("/api/stream-echo", (c) => {
+	const text = c.req.query("text") ?? "Hello, world!";
+	return streamSSE(c, async (stream) => {
+		// 用扩展运算符按 Unicode codepoint 切分，避免把中文 / emoji 切坏
+		const chars = [...text];
+		for (const char of chars) {
+			await stream.writeSSE({
+				event: "token",
+				data: char,
+			});
+			await stream.sleep(50);
+		}
+		await stream.writeSSE({
+			event: "done",
+			data: JSON.stringify({ total: chars.length }),
+		});
+	});
+});
+
 const PORT = Number(process.env.PORT ?? 8787);
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
 	console.log(`[llm-wiki-agent/server] listening on http://localhost:${info.port}`);
 	console.log(`  GET  /api/health`);
 	console.log(`  POST /api/echo`);
+	console.log(`  GET  /api/stream-echo?text=...`);
 });
