@@ -14,6 +14,11 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
 import { getSession, resetSession } from "./agent.js";
+import {
+	clearCurrentKnowledgeBase,
+	getCurrentKnowledgeBase,
+	setCurrentKnowledgeBase,
+} from "./extensions/knowledge-base.js";
 
 const app = new Hono();
 
@@ -37,6 +42,41 @@ app.post("/api/echo", async (c) => {
 
 app.post("/api/reset", async (c) => {
 	await resetSession();
+	return c.json({ ok: true });
+});
+
+// 当前知识库（GET 查询 / POST 设置 / DELETE 清空）
+app.get("/api/knowledge-base", (c) => {
+	const kb = getCurrentKnowledgeBase();
+	return c.json({ ok: true, current: kb });
+});
+
+app.post("/api/knowledge-base", async (c) => {
+	let body: { path?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+	if (typeof body.path !== "string" || !body.path.trim()) {
+		return c.json({ ok: false, error: "Missing or empty 'path'" }, 400);
+	}
+	try {
+		const kb = await setCurrentKnowledgeBase(body.path);
+		return c.json({ ok: true, current: kb });
+	} catch (err) {
+		return c.json(
+			{
+				ok: false,
+				error: err instanceof Error ? err.message : String(err),
+			},
+			400,
+		);
+	}
+});
+
+app.delete("/api/knowledge-base", (c) => {
+	clearCurrentKnowledgeBase();
 	return c.json({ ok: true });
 });
 
@@ -134,8 +174,11 @@ const PORT = Number(process.env.PORT ?? 8787);
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
 	console.log(`[llm-wiki-agent/server] listening on http://localhost:${info.port}`);
-	console.log(`  GET  /api/health`);
-	console.log(`  POST /api/echo`);
-	console.log(`  POST /api/prompt`);
-	console.log(`  POST /api/reset`);
+	console.log(`  GET    /api/health`);
+	console.log(`  POST   /api/echo`);
+	console.log(`  POST   /api/prompt`);
+	console.log(`  POST   /api/reset`);
+	console.log(`  GET    /api/knowledge-base`);
+	console.log(`  POST   /api/knowledge-base   body: {path}`);
+	console.log(`  DELETE /api/knowledge-base`);
 });
