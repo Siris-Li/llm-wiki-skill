@@ -1,24 +1,37 @@
 /**
  * llm-wiki-agent 后端入口
  *
- * 阶段一 step 4：接入 pi-coding-agent SDK，提供 /api/prompt（POST + SSE）
- * 端点：
- *   GET  /api/health    心跳
- *   POST /api/echo      JSON 回显（诊断用，未来不删）
- *   POST /api/prompt    发送用户输入，agent 事件流通过 SSE 推回
- *   POST /api/reset     重置 session（开新对话）
+ * 阶段一 step 8 完整端点：
+ *   GET    /api/health                          心跳
+ *   POST   /api/echo                            诊断回显
+ *   POST   /api/prompt                          发消息（SSE 回 agent 事件流）
+ *
+ *   GET    /api/knowledge-bases                 列出所有已知知识库
+ *   POST   /api/knowledge-bases/external        登记外部库
+ *   DELETE /api/knowledge-bases/external        取消登记
+ *
+ *   GET    /api/knowledge-base                  当前活跃上下文（含 kb + conversation + messages）
+ *   POST   /api/knowledge-base                  选择 KB（自动加载/新建对话）
+ *   DELETE /api/knowledge-base                  清空活跃上下文
+ *
+ *   GET    /api/conversations?kb=<path>         列出某 KB 下所有对话
+ *   POST   /api/conversations                   切到指定对话 body: {kbPath, conversationId}
+ *   POST   /api/conversations/new               在指定 KB 新建对话 body: {kbPath}
  */
 
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
-import { getSession, resetSession } from "./agent.js";
 import {
-	clearCurrentKnowledgeBase,
-	getCurrentKnowledgeBase,
-	setCurrentKnowledgeBase,
-} from "./extensions/knowledge-base.js";
+	clearActive,
+	createNewConversation,
+	getActive,
+	getActiveSession,
+	selectConversation,
+	selectKb,
+} from "./agent.js";
+import { listConversations, piMessagesToUIMessages } from "./conversations.js";
 import {
 	listKnowledgeBases,
 	registerExternalKnowledgeBase,
@@ -45,51 +58,12 @@ app.post("/api/echo", async (c) => {
 	return c.json({ ok: true, received: body });
 });
 
-app.post("/api/reset", async (c) => {
-	await resetSession();
-	return c.json({ ok: true });
-});
+// ============= 知识库列表（库的管理） =============
 
-// 当前知识库（GET 查询 / POST 设置 / DELETE 清空）
-app.get("/api/knowledge-base", (c) => {
-	const kb = getCurrentKnowledgeBase();
-	return c.json({ ok: true, current: kb });
-});
-
-app.post("/api/knowledge-base", async (c) => {
-	let body: { path?: unknown };
-	try {
-		body = await c.req.json();
-	} catch {
-		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
-	}
-	if (typeof body.path !== "string" || !body.path.trim()) {
-		return c.json({ ok: false, error: "Missing or empty 'path'" }, 400);
-	}
-	try {
-		const kb = await setCurrentKnowledgeBase(body.path);
-		return c.json({ ok: true, current: kb });
-	} catch (err) {
-		return c.json(
-			{
-				ok: false,
-				error: err instanceof Error ? err.message : String(err),
-			},
-			400,
-		);
-	}
-});
-
-app.delete("/api/knowledge-base", (c) => {
-	clearCurrentKnowledgeBase();
-	return c.json({ ok: true });
-});
-
-// 所有已知知识库列表（默认根扫描 + 外部登记，带 valid 标志）
 app.get("/api/knowledge-bases", async (c) => {
 	try {
-		const list = await listKnowledgeBases();
-		return c.json({ ok: true, items: list });
+		const items = await listKnowledgeBases();
+		return c.json({ ok: true, items });
 	} catch (err) {
 		return c.json(
 			{ ok: false, error: err instanceof Error ? err.message : String(err) },
@@ -98,7 +72,6 @@ app.get("/api/knowledge-bases", async (c) => {
 	}
 });
 
-// 登记外部知识库
 app.post("/api/knowledge-bases/external", async (c) => {
 	let body: { path?: unknown };
 	try {
@@ -120,7 +93,6 @@ app.post("/api/knowledge-bases/external", async (c) => {
 	}
 });
 
-// 取消登记外部知识库
 app.delete("/api/knowledge-bases/external", async (c) => {
 	let body: { path?: unknown };
 	try {
@@ -135,17 +107,152 @@ app.delete("/api/knowledge-bases/external", async (c) => {
 	return c.json({ ok: true, ...result });
 });
 
-/**
- * POST /api/prompt
- * body: { "message": "用户输入" }
- *
- * SSE 事件类型：
- *   text_delta     data: <文本块>                    流式 token
- *   tool_start     data: {"toolName","toolCallId"}   工具调用开始
- *   tool_end       data: {"toolName","toolCallId"}   工具调用结束
- *   done           data: ""                          本次对话完成
- *   error          data: {"message","hint"?}         发生错误
- */
+// ============= 活跃上下文（当前选中的 KB + 对话） =============
+
+app.get("/api/knowledge-base", async (c) => {
+	const ctx = getActive();
+	if (!ctx) return c.json({ ok: true, active: null });
+	return c.json({
+		ok: true,
+		active: {
+			kb: ctx.kb,
+			conversation: {
+				id: ctx.conversationId,
+				messages: piMessagesToUIMessages(ctx.session.state.messages),
+			},
+		},
+	});
+});
+
+app.post("/api/knowledge-base", async (c) => {
+	let body: { path?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+	if (typeof body.path !== "string" || !body.path.trim()) {
+		return c.json({ ok: false, error: "Missing or empty 'path'" }, 400);
+	}
+	try {
+		const ctx = await selectKb(body.path);
+		return c.json({
+			ok: true,
+			active: {
+				kb: ctx.kb,
+				conversation: {
+					id: ctx.conversationId,
+					isNew: ctx.isNew,
+					messages: piMessagesToUIMessages(ctx.session.state.messages),
+				},
+			},
+		});
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			400,
+		);
+	}
+});
+
+app.delete("/api/knowledge-base", async (c) => {
+	await clearActive();
+	return c.json({ ok: true });
+});
+
+// ============= 对话列表与切换 =============
+
+app.get("/api/conversations", async (c) => {
+	const kbPath = c.req.query("kb");
+	if (!kbPath) {
+		return c.json({ ok: false, error: "Missing query param 'kb'" }, 400);
+	}
+	try {
+		const items = await listConversations(kbPath);
+		// 新建后未发消息的活跃对话，pi 不会写盘 → list 不含 → UI 找不到。
+		// 这里前置一个合成 stub 让 UI 看得到。
+		const ctx = getActive();
+		if (
+			ctx &&
+			ctx.kb.path === kbPath &&
+			!items.some((i) => i.id === ctx.conversationId)
+		) {
+			items.unshift({
+				id: ctx.conversationId,
+				path: "",
+				firstMessage: "(新对话)",
+				modifiedAt: Date.now(),
+			});
+		}
+		return c.json({ ok: true, items });
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			500,
+		);
+	}
+});
+
+app.post("/api/conversations", async (c) => {
+	let body: { kbPath?: unknown; conversationId?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+	if (typeof body.kbPath !== "string" || typeof body.conversationId !== "string") {
+		return c.json({ ok: false, error: "Missing 'kbPath' or 'conversationId'" }, 400);
+	}
+	try {
+		const ctx = await selectConversation(body.kbPath, body.conversationId);
+		return c.json({
+			ok: true,
+			active: {
+				kb: ctx.kb,
+				conversation: {
+					id: ctx.conversationId,
+					isNew: false,
+					messages: piMessagesToUIMessages(ctx.session.state.messages),
+				},
+			},
+		});
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			400,
+		);
+	}
+});
+
+app.post("/api/conversations/new", async (c) => {
+	let body: { kbPath?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+	if (typeof body.kbPath !== "string") {
+		return c.json({ ok: false, error: "Missing 'kbPath'" }, 400);
+	}
+	try {
+		const ctx = await createNewConversation(body.kbPath);
+		return c.json({
+			ok: true,
+			active: {
+				kb: ctx.kb,
+				conversation: { id: ctx.conversationId, isNew: true, messages: [] },
+			},
+		});
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			400,
+		);
+	}
+});
+
+// ============= Prompt（agent 事件流） =============
+
 app.post("/api/prompt", async (c) => {
 	let body: { message?: unknown };
 	try {
@@ -153,38 +260,32 @@ app.post("/api/prompt", async (c) => {
 	} catch {
 		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
 	}
-
 	const message = body.message;
 	if (typeof message !== "string" || !message.trim()) {
 		return c.json({ ok: false, error: "Missing or empty 'message'" }, 400);
 	}
 
 	return streamSSE(c, async (stream) => {
-		// 1) 拿 session（首次会触发创建）
-		let session: Awaited<ReturnType<typeof getSession>>;
+		let session;
 		try {
-			session = await getSession();
+			session = await getActiveSession();
 		} catch (err) {
 			await stream.writeSSE({
 				event: "error",
 				data: JSON.stringify({
-					message: `创建 agent session 失败：${err instanceof Error ? err.message : String(err)}`,
-					hint: "确认已运行 `pi login` 或设置 ANTHROPIC_API_KEY 环境变量",
+					message: err instanceof Error ? err.message : String(err),
+					hint: "请先在侧栏选择一个知识库",
 				}),
 			});
 			return;
 		}
 
-		// 2) 订阅事件 → 翻译成 SSE
 		const unsubscribe = session.subscribe(async (event) => {
 			try {
 				if (event.type === "message_update") {
 					const inner = event.assistantMessageEvent;
 					if (inner.type === "text_delta") {
-						await stream.writeSSE({
-							event: "text_delta",
-							data: inner.delta,
-						});
+						await stream.writeSSE({ event: "text_delta", data: inner.delta });
 					}
 				} else if (event.type === "tool_execution_start") {
 					await stream.writeSSE({
@@ -204,11 +305,10 @@ app.post("/api/prompt", async (c) => {
 					});
 				}
 			} catch {
-				// 客户端可能已断开，吞掉写错误避免污染日志
+				// 客户端断开，吞
 			}
 		});
 
-		// 3) 跑 prompt（事件在执行期间推送），完成发 done
 		try {
 			await session.prompt(message);
 			await stream.writeSSE({ event: "done", data: "" });
@@ -232,11 +332,13 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
 	console.log(`  GET    /api/health`);
 	console.log(`  POST   /api/echo`);
 	console.log(`  POST   /api/prompt`);
-	console.log(`  POST   /api/reset`);
-	console.log(`  GET    /api/knowledge-base`);
-	console.log(`  POST   /api/knowledge-base            body: {path}`);
-	console.log(`  DELETE /api/knowledge-base`);
 	console.log(`  GET    /api/knowledge-bases`);
-	console.log(`  POST   /api/knowledge-bases/external  body: {path}`);
-	console.log(`  DELETE /api/knowledge-bases/external  body: {path}`);
+	console.log(`  POST   /api/knowledge-bases/external`);
+	console.log(`  DELETE /api/knowledge-bases/external`);
+	console.log(`  GET    /api/knowledge-base`);
+	console.log(`  POST   /api/knowledge-base`);
+	console.log(`  DELETE /api/knowledge-base`);
+	console.log(`  GET    /api/conversations?kb=<path>`);
+	console.log(`  POST   /api/conversations`);
+	console.log(`  POST   /api/conversations/new`);
 });

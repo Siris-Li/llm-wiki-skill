@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { resetSession, streamPrompt } from "@/lib/api";
+import { streamPrompt, type UIMessage } from "@/lib/api";
 
 type ToolMark = { name: string; status: "running" | "done" };
 
@@ -16,14 +16,35 @@ function newId() {
 	return Math.random().toString(36).slice(2, 10);
 }
 
+function fromUIMessage(m: UIMessage): Message {
+	return {
+		id: m.id,
+		role: m.role,
+		content: m.content,
+		tools: m.tools.map((t) => ({ name: t.name, status: "done" as const })),
+	};
+}
+
 /**
  * 多轮对话主区。
  *
- * 阶段一 step 7：消息状态本地，发新消息走 /api/prompt SSE。
- * 重置由父组件触发（切库时调），通过 key prop 让 React 重新挂载本组件清状态。
+ * 阶段一 step 8：
+ *   - 接受 initialMessages（历史消息）作为初始状态
+ *   - 父组件通过 key 在切换会话时强制重挂载本组件
+ *   - 发新消息会追加到本地状态；session 由后端 pi-agent 持久化
  */
-export function ChatPanel({ currentKnowledgeBaseName }: { currentKnowledgeBaseName: string | null }) {
-	const [messages, setMessages] = useState<Message[]>([]);
+interface Props {
+	currentKnowledgeBaseName: string | null;
+	initialMessages: UIMessage[];
+	onMessageSent?: () => void; // 发完一次 prompt 后回调，父组件可借此刷新对话列表
+}
+
+export function ChatPanel({
+	currentKnowledgeBaseName,
+	initialMessages,
+	onMessageSent,
+}: Props) {
+	const [messages, setMessages] = useState<Message[]>(() => initialMessages.map(fromUIMessage));
 	const [input, setInput] = useState("");
 	const [status, setStatus] = useState<"idle" | "streaming" | "error">("idle");
 	const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -77,6 +98,7 @@ export function ChatPanel({ currentKnowledgeBaseName }: { currentKnowledgeBaseNa
 					);
 				} else if (event === "done") {
 					setStatus("idle");
+					onMessageSent?.();
 				} else if (event === "error") {
 					const payload = JSON.parse(data) as { message: string; hint?: string };
 					setErrorMsg(payload.message + (payload.hint ? `\n提示：${payload.hint}` : ""));
@@ -102,14 +124,6 @@ export function ChatPanel({ currentKnowledgeBaseName }: { currentKnowledgeBaseNa
 		}
 	};
 
-	const handleNewConversation = async () => {
-		abortRef.current?.abort();
-		await resetSession();
-		setMessages([]);
-		setErrorMsg(null);
-		setStatus("idle");
-	};
-
 	return (
 		<div className="flex h-full flex-col">
 			<header className="flex items-center justify-between border-b border-input px-6 py-3">
@@ -119,9 +133,9 @@ export function ChatPanel({ currentKnowledgeBaseName }: { currentKnowledgeBaseNa
 						{currentKnowledgeBaseName ?? <span className="italic opacity-60">未选择</span>}
 					</div>
 				</div>
-				<Button variant="outline" size="sm" onClick={handleNewConversation} disabled={status === "streaming"}>
-					新对话
-				</Button>
+				<div className="text-xs text-muted-foreground">
+					{messages.length > 0 && `${messages.length} 条消息`}
+				</div>
 			</header>
 
 			<div className="flex-1 space-y-4 overflow-y-auto bg-card p-6">
@@ -132,9 +146,7 @@ export function ChatPanel({ currentKnowledgeBaseName }: { currentKnowledgeBaseNa
 								试试问：<code className="rounded bg-muted px-1.5 py-0.5">列出我知识库里的页面</code>
 							</>
 						) : (
-							<>
-								左侧选一个知识库进入。或先和 agent 随便聊聊也行（agent 看到的是 server cwd）。
-							</>
+							<>左侧选一个知识库进入对话</>
 						)}
 					</div>
 				)}
@@ -161,12 +173,16 @@ export function ChatPanel({ currentKnowledgeBaseName }: { currentKnowledgeBaseNa
 					onKeyDown={handleKeyDown}
 					rows={3}
 					className="w-full rounded-md border border-input bg-background p-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-					placeholder="输入消息… Cmd/Ctrl + Enter 发送"
-					disabled={status === "streaming"}
+					placeholder={
+						currentKnowledgeBaseName
+							? "输入消息… Cmd/Ctrl + Enter 发送"
+							: "请先在左侧选择一个知识库…"
+					}
+					disabled={status === "streaming" || !currentKnowledgeBaseName}
 				/>
 				<div className="mt-2 flex items-center justify-between">
 					<span className="text-xs text-muted-foreground">状态：{status}</span>
-					<Button onClick={sendPrompt} disabled={status === "streaming" || !input.trim()}>
+					<Button onClick={sendPrompt} disabled={status === "streaming" || !input.trim() || !currentKnowledgeBaseName}>
 						{status === "streaming" ? "等待中…" : "发送"}
 					</Button>
 				</div>

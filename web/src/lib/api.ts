@@ -1,8 +1,7 @@
 /**
  * api.ts - 类型化的后端调用层
  *
- * 所有走 Vite proxy 到 :8787 的后端调用集中在这里，
- * UI 组件不直接 fetch，避免散落与类型漂移。
+ * 所有走 Vite proxy 到 :8787 的后端调用集中在这里。
  */
 
 import { parseSSE, type SSEMessage } from "./sse";
@@ -20,6 +19,29 @@ export interface KnowledgeBaseInfo {
 export interface CurrentKnowledgeBase {
 	path: string;
 	name: string;
+}
+
+export interface ConversationInfo {
+	id: string;
+	path: string;
+	firstMessage: string;
+	modifiedAt: number;
+}
+
+export interface UIMessage {
+	id: string;
+	role: "user" | "assistant";
+	content: string;
+	tools: { name: string; status: "done" }[];
+}
+
+export interface ActiveContext {
+	kb: CurrentKnowledgeBase;
+	conversation: {
+		id: string;
+		isNew?: boolean;
+		messages: UIMessage[];
+	};
 }
 
 // ============= API =============
@@ -42,14 +64,14 @@ export async function listKnowledgeBases(): Promise<KnowledgeBaseInfo[]> {
 	return json.items ?? [];
 }
 
-export async function getCurrentKnowledgeBase(): Promise<CurrentKnowledgeBase | null> {
+export async function getActiveContext(): Promise<ActiveContext | null> {
 	const res = await fetch("/api/knowledge-base");
 	if (!res.ok) throw new Error(`HTTP ${res.status}`);
-	const json = (await res.json()) as { ok: boolean; current: CurrentKnowledgeBase | null };
-	return json.current;
+	const json = (await res.json()) as { ok: boolean; active: ActiveContext | null };
+	return json.active;
 }
 
-export async function setCurrentKnowledgeBase(path: string): Promise<CurrentKnowledgeBase> {
+export async function selectKnowledgeBase(path: string): Promise<ActiveContext> {
 	const res = await fetch("/api/knowledge-base", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -57,16 +79,16 @@ export async function setCurrentKnowledgeBase(path: string): Promise<CurrentKnow
 	});
 	const json = (await res.json()) as {
 		ok: boolean;
-		current?: CurrentKnowledgeBase;
+		active?: ActiveContext;
 		error?: string;
 	};
-	if (!res.ok || !json.ok || !json.current) {
+	if (!res.ok || !json.ok || !json.active) {
 		throw new Error(json.error ?? `HTTP ${res.status}`);
 	}
-	return json.current;
+	return json.active;
 }
 
-export async function clearCurrentKnowledgeBase(): Promise<void> {
+export async function clearActiveContext(): Promise<void> {
 	await fetch("/api/knowledge-base", { method: "DELETE" });
 }
 
@@ -102,13 +124,56 @@ export async function unregisterExternalKnowledgeBase(path: string): Promise<{ r
 	return { removed: json.removed ?? false };
 }
 
-export async function resetSession(): Promise<void> {
-	await fetch("/api/reset", { method: "POST" });
+// ============= 对话 =============
+
+export async function listConversations(kbPath: string): Promise<ConversationInfo[]> {
+	const url = `/api/conversations?kb=${encodeURIComponent(kbPath)}`;
+	const res = await fetch(url);
+	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	const json = (await res.json()) as { ok: boolean; items?: ConversationInfo[]; error?: string };
+	if (!json.ok) throw new Error(json.error ?? "未知错误");
+	return json.items ?? [];
 }
 
-/**
- * 流式 prompt：返回一个 AsyncGenerator of SSE 消息。调用方按 event 类型分发。
- */
+export async function selectConversation(
+	kbPath: string,
+	conversationId: string,
+): Promise<ActiveContext> {
+	const res = await fetch("/api/conversations", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ kbPath, conversationId }),
+	});
+	const json = (await res.json()) as {
+		ok: boolean;
+		active?: ActiveContext;
+		error?: string;
+	};
+	if (!res.ok || !json.ok || !json.active) {
+		throw new Error(json.error ?? `HTTP ${res.status}`);
+	}
+	return json.active;
+}
+
+export async function createNewConversation(kbPath: string): Promise<ActiveContext> {
+	const res = await fetch("/api/conversations/new", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ kbPath }),
+	});
+	const json = (await res.json()) as {
+		ok: boolean;
+		active?: ActiveContext;
+		error?: string;
+	};
+	if (!res.ok || !json.ok || !json.active) {
+		throw new Error(json.error ?? `HTTP ${res.status}`);
+	}
+	return json.active;
+}
+
+// ============= Prompt =============
+
 export async function streamPrompt(
 	message: string,
 	signal?: AbortSignal,

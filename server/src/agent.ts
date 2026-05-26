@@ -1,14 +1,17 @@
 /**
- * agent.ts - pi-coding-agent SDK 的会话管理
+ * agent.ts - pi-coding-agent SDK 的活跃会话管理
  *
- * 阶段一 step 4：单 in-memory session。
- * 阶段一 step 5：用 DefaultResourceLoader 注入我们自己的 Extension
- *   - 通过 extensionFactories 注册"当前知识库"工具
- *   - 同时仍会自动加载用户 ~/.pi/agent/extensions/ 和 ~/.pi/agent/skills/
+ * 阶段一 step 8：从单 in-memory session 升级为
+ *   "活跃上下文 = (当前 KB, 当前对话, pi session 实例)"
  *
- * 凭证与模型：完全依赖 pi-agent 默认行为
- *   - AuthStorage 自动读 ~/.pi/agent/auth.json
- *   - 模型从 ~/.pi/agent/settings.json 读默认值
+ * 会话持久化到 ~/.llm-wiki-agent/sessions/<kb-hash>/，由 pi SessionManager 管理。
+ * 任一时刻只有一个 active session（单用户、单浏览器假设）。
+ *
+ * 切换逻辑：
+ *   selectKb(kbPath)            → 先 dispose 老 session，再尝试 continueRecent，
+ *                                 如果该 KB 无任何对话则创建新的
+ *   selectConversation(kbPath, conversationId) → dispose 老 + 打开指定文件
+ *   createNewConversation(kbPath)              → dispose 老 + 新建空白对话
  */
 
 import {
@@ -19,10 +22,19 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 
+import { ensureKbSessionDir, listConversations } from "./conversations.js";
 import knowledgeBaseExtension from "./extensions/knowledge-base.js";
+import { setCurrentKnowledgeBase } from "./extensions/knowledge-base.js";
+
+export interface ActiveContext {
+	kb: { path: string; name: string };
+	session: AgentSession;
+	conversationId: string;
+	isNew: boolean; // 本次 select 是否新建的会话
+}
 
 let resourceLoaderPromise: Promise<DefaultResourceLoader> | null = null;
-let sessionPromise: Promise<AgentSession> | null = null;
+let active: ActiveContext | null = null;
 
 function getResourceLoader(): Promise<DefaultResourceLoader> {
 	if (!resourceLoaderPromise) {
@@ -33,7 +45,7 @@ function getResourceLoader(): Promise<DefaultResourceLoader> {
 				extensionFactories: [knowledgeBaseExtension],
 			});
 			await loader.reload();
-			console.log("[agent] ResourceLoader ready, extensions/skills discovered");
+			console.log("[agent] ResourceLoader ready");
 			return loader;
 		})().catch((err) => {
 			resourceLoaderPromise = null;
@@ -43,41 +55,117 @@ function getResourceLoader(): Promise<DefaultResourceLoader> {
 	return resourceLoaderPromise;
 }
 
-/**
- * 获取（或惰性创建）单一 agent session。
- */
-export function getSession(): Promise<AgentSession> {
-	if (!sessionPromise) {
-		sessionPromise = (async () => {
-			const loader = await getResourceLoader();
-			const { session, modelFallbackMessage } = await createAgentSession({
-				resourceLoader: loader,
-				sessionManager: SessionManager.inMemory(),
-			});
-			if (modelFallbackMessage) {
-				console.log(`[agent] ${modelFallbackMessage}`);
-			}
-			console.log(`[agent] session created: ${session.sessionId}`);
-			return session;
-		})().catch((err) => {
-			sessionPromise = null;
-			throw err;
-		});
+async function disposeActive(): Promise<void> {
+	if (active) {
+		try {
+			active.session.dispose();
+		} catch {
+			// noop
+		}
+		active = null;
 	}
-	return sessionPromise;
+}
+
+export function getActive(): ActiveContext | null {
+	return active;
+}
+
+export async function getActiveSession(): Promise<AgentSession> {
+	if (!active) {
+		throw new Error("没有活跃对话。请先选择知识库或新建对话。");
+	}
+	return active.session;
 }
 
 /**
- * 重置 session（用户主动开新对话时调）。
+ * 选择/进入一个知识库：dispose 老 session，加载/新建该库下的活跃对话。
+ *   - 该 KB 有对话：opens most recent
+ *   - 该 KB 无对话：creates a new one
  */
-export async function resetSession(): Promise<void> {
-	if (sessionPromise) {
-		try {
-			const session = await sessionPromise;
-			session.dispose();
-		} catch {
-			// 创建失败时无 session 可释放
-		}
+export async function selectKb(kbPath: string): Promise<ActiveContext> {
+	await disposeActive();
+	const kb = await setCurrentKnowledgeBase(kbPath);
+	const dir = await ensureKbSessionDir(kbPath);
+	const loader = await getResourceLoader();
+
+	const existing = await listConversations(kbPath);
+
+	let isNew = false;
+	let sessionManager: ReturnType<typeof SessionManager.create>;
+	const mostRecent = existing[0];
+	if (mostRecent) {
+		sessionManager = SessionManager.open(mostRecent.path);
+	} else {
+		sessionManager = SessionManager.create(process.cwd(), dir);
+		isNew = true;
 	}
-	sessionPromise = null;
+
+	const { session, modelFallbackMessage } = await createAgentSession({
+		resourceLoader: loader,
+		sessionManager,
+	});
+	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
+
+	active = { kb, session, conversationId: session.sessionId, isNew };
+	console.log(
+		`[agent] selectKb ${kb.name} → conversation ${active.conversationId.slice(0, 8)} (${isNew ? "new" : "resumed"})`,
+	);
+	return active;
+}
+
+/**
+ * 切到该 KB 下指定的对话。
+ */
+export async function selectConversation(
+	kbPath: string,
+	conversationId: string,
+): Promise<ActiveContext> {
+	const list = await listConversations(kbPath);
+	const target = list.find((c) => c.id === conversationId);
+	if (!target) {
+		throw new Error(`对话不存在：${conversationId}`);
+	}
+
+	await disposeActive();
+	const kb = await setCurrentKnowledgeBase(kbPath);
+	const loader = await getResourceLoader();
+
+	const { session, modelFallbackMessage } = await createAgentSession({
+		resourceLoader: loader,
+		sessionManager: SessionManager.open(target.path),
+	});
+	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
+
+	active = { kb, session, conversationId: session.sessionId, isNew: false };
+	console.log(
+		`[agent] selectConversation ${kb.name} → ${active.conversationId.slice(0, 8)}`,
+	);
+	return active;
+}
+
+/**
+ * 在该 KB 下新建一个空白对话，并设为活跃。
+ */
+export async function createNewConversation(kbPath: string): Promise<ActiveContext> {
+	await disposeActive();
+	const kb = await setCurrentKnowledgeBase(kbPath);
+	const dir = await ensureKbSessionDir(kbPath);
+	const loader = await getResourceLoader();
+
+	const { session, modelFallbackMessage } = await createAgentSession({
+		resourceLoader: loader,
+		sessionManager: SessionManager.create(process.cwd(), dir),
+	});
+	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
+
+	active = { kb, session, conversationId: session.sessionId, isNew: true };
+	console.log(`[agent] createNewConversation ${kb.name} → ${active.conversationId.slice(0, 8)}`);
+	return active;
+}
+
+/**
+ * 完全清空活跃上下文（不删除磁盘上的会话文件）。
+ */
+export async function clearActive(): Promise<void> {
+	await disposeActive();
 }
