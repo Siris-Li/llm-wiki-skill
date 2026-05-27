@@ -53,6 +53,7 @@ import {
 	registerExternalKnowledgeBase,
 	unregisterExternalKnowledgeBase,
 } from "./knowledge-bases.js";
+import { listPageRefs } from "./pages.js";
 
 const app = new Hono();
 
@@ -176,6 +177,25 @@ app.post("/api/knowledge-base", async (c) => {
 app.delete("/api/knowledge-base", async (c) => {
 	await clearActive();
 	return c.json({ ok: true });
+});
+
+// ============= Wiki 页面引用候选 =============
+
+app.get("/api/refs", async (c) => {
+	const kbPath = c.req.query("kb");
+	if (!kbPath) return c.json({ ok: false, error: "Missing query param 'kb'" }, 400);
+	const q = c.req.query("q") ?? "";
+	const rawLimit = Number(c.req.query("limit") ?? 20);
+	const limit = Number.isFinite(rawLimit) ? rawLimit : 20;
+	try {
+		const items = await listPageRefs(kbPath, q, limit);
+		return c.json({ ok: true, items });
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			400,
+		);
+	}
 });
 
 // ============= 对话列表与切换 =============
