@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +14,17 @@ interface Props {
 }
 
 export function RightDrawer({ path, content, loading, error, onClose }: Props) {
+	useEffect(() => {
+		if (!path) return;
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") onClose();
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [path, onClose]);
+
 	if (!path) return null;
 	return (
 		<aside className="fixed right-0 top-0 z-30 flex h-full w-[400px] max-w-[85vw] flex-col border-l border-input bg-background shadow-xl">
