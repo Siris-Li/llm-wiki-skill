@@ -46,6 +46,15 @@ export function SettingsPanel({ open, onOpenChange }: Props) {
 		);
 	}, [open]);
 
+	useEffect(() => {
+		if (!open) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") onOpenChange(false);
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [onOpenChange, open]);
+
 	const saveAndTest = async () => {
 		if (!key.trim()) return;
 		setLoading(true);
@@ -68,10 +77,15 @@ export function SettingsPanel({ open, onOpenChange }: Props) {
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="max-w-2xl">
-				<DialogHeader>
-					<DialogTitle>设置</DialogTitle>
-					<DialogDescription>认证</DialogDescription>
+			<DialogContent className="max-w-2xl" showCloseButton={false}>
+				<DialogHeader className="flex-row items-start justify-between gap-4 space-y-0">
+					<div>
+						<DialogTitle>设置</DialogTitle>
+						<DialogDescription>认证</DialogDescription>
+					</div>
+					<Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label="关闭">
+						<XCircle className="size-4" />
+					</Button>
 				</DialogHeader>
 
 				<div className="space-y-5">
