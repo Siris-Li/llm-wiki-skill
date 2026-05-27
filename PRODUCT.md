@@ -268,7 +268,7 @@ llm-wiki-agent/                       ← 你的仓库
 2. 丢一篇文章链接 → agent 消化进库 → 在对话里基于这篇讨论 → 一键结晶为新页面 → 在 `wiki/synthesis/sessions/` 目录里能看到新文件
 3. 在 UI 里填一个 Anthropic API key → 测试连接成功 → key 出现在 `~/.pi/agent/auth.json`，未泄露到 `~/.llm-wiki-agent/`
 
-### 阶段三：产出能力（产品亮点）
+### 阶段三：产出能力（产品亮点）✅ 已完成 2026-05-27
 
 **目标**：把"内容产出"做成视觉冲击力强的功能，作为产品宣传点和小白吸引力来源。
 
@@ -777,7 +777,36 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
   - 阶段二完整设计 + 8 step 细则 + 总验收剧本归档在 `docs/stage-2-design.md`（已标 ✅）
 - **新增依赖**：见 §3.2 + ADR-17
 
-### 阶段三 / 四 / 五：未开始（详见 §4）
+### 阶段三：产出能力（产品亮点）✅ 已完成 2026-05-27
+
+**最终分支**：`stage-3`（base: main, head: `1f1f591`）
+
+**8 step commit + 1 fix commit**：
+
+| # | 任务 | Commit |
+|---|---|---|
+| 1 | vendor 4 个 anthropics Skills + 收紧命令源标签 | `6d2e218` |
+| 2 | 产物 manifest 存储 + CRUD API | `f19687c` |
+| 3 | 导出按钮 + prompt 模板（3 通道触发） | `bf6b878` |
+| 4 | 产物右抽屉多 Tab 切换 | `bc70b2c` |
+| 5 | HtmlRenderer：iframe sandbox 预览 | `862265a` |
+| 6 | DownloadOnlyRenderer：元数据卡片 + 下载 | `38006a7` |
+| 7 | 全局 Skill 可见性开关（settings toggle） | `1016601` |
+| 8 | 产物工作流 UX 打磨 | `91a9761` |
+| – | fix: 修复导出工作流 review 问题 | `1f1f591` |
+
+**阶段三完成情况** ✅ 2026-05-27（审查通过，合并到 main）
+- 范围全部交付：5 个导出按钮（PDF/Word/PPT/Excel/HTML）+ 4 个 vendored Skills + 2 个 Extension 工具 + 6 个新 API + 1 个新 SSE event
+- 关键架构决策：**E13（D9 落地）**——产出操作走 Skill，`prepare_artifact` / `finalize_artifact` 作为 agent 元能力 Extension；HTML 导出不依赖 Skill，由 agent 内置能力直接生成
+- 新增 4 个端点：`GET /api/artifacts`、`GET /api/artifacts/:id`、`GET /api/artifacts/:id/files/:filename`、`POST /api/config` + `GET /api/config` 扩展 `showUserGlobalSkills`
+- 安全验证通过：path traversal 防护、iframe sandbox（无 `allow-same-origin`）、UIID 验证、文件名净化
+- **接受的妥协**（不阻塞阶段四）：
+  - PPTX 在浏览器内无预览（DownloadOnlyRenderer），设计文档原定的 PPTXjs 方案未落地
+  - HTML 导出不依赖外部 Skill，由 agent 内置 fs 能力直接生成（TBD-5 方案）
+  - 阶段三完整设计 + 8 step 细则 + 总验收剧本归档在 `docs/stage-3-design.md`
+- **新增依赖**：无（0 个新 npm package）
+
+### 阶段四 / 五：未开始（详见 §4）
 
 ### 协作约定（持续生效）
 
@@ -873,3 +902,8 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
   - 新增 ADR-13b：明确不抄 open-design 的多 CLI 子进程模式
   - 重写 6.3 应用数据目录，澄清"应用数据 / 知识库数据 / 模型凭证"三类彻底分离
   - 阶段二范围细化：设置面板 UI 改为"三层认证 + 偏好"，验收标准更新
+- **2026-05-27 v9（阶段三完成标记）**：阶段三全部 8 step + 1 fix commit 完成，审查通过合并到 main
+  - §4 阶段三标题加 `✅ 已完成 2026-05-27`
+  - §10 阶段三标记已完成，补充 9 commit 表 + 完成情况（范围、决策、妥协）
+  - CLAUDE.md 更新"项目当前阶段"：阶段二 → 阶段三
+  - 阶段三完整设计 + 8 step 细则 + 总验收剧本归档在 `docs/stage-3-design.md`
