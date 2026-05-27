@@ -10,8 +10,10 @@ import {
 	type ConversationInfo,
 	createNewConversation,
 	createKnowledgeBase,
+	type ArtifactManifest,
 	getActiveContext,
 	type KnowledgeBaseInfo,
+	listArtifacts,
 	listConversations,
 	listKnowledgeBases,
 	registerExternalKnowledgeBase,
@@ -50,10 +52,14 @@ function App() {
 	const [chatKey, setChatKey] = useState(0);
 	const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [drawerMode, setDrawerMode] = useState<"closed" | "wiki" | "artifacts">("closed");
 	const [drawerPage, setDrawerPage] = useState<string | null>(null);
 	const [drawerContent, setDrawerContent] = useState("");
 	const [drawerLoading, setDrawerLoading] = useState(false);
 	const [drawerError, setDrawerError] = useState<string | null>(null);
+	const [artifacts, setArtifacts] = useState<ArtifactManifest[]>([]);
+	const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
+	const [drawerFullscreen, setDrawerFullscreen] = useState(false);
 
 	const refreshConversations = useCallback(async (kbPath: string) => {
 		try {
@@ -94,6 +100,9 @@ function App() {
 		setActive(ctx);
 		setInitialMessages(ctx.conversation.messages);
 		setChatKey((k) => k + 1);
+		setDrawerMode("closed");
+		setActiveArtifactId(null);
+		setArtifacts([]);
 	};
 
 	const handleSelectKb = async (item: KnowledgeBaseInfo) => {
@@ -155,6 +164,7 @@ function App() {
 
 	const handleOpenPage = async (pagePath: string) => {
 		if (!active) return;
+		setDrawerMode("wiki");
 		setDrawerPage(pagePath);
 		setDrawerLoading(true);
 		setDrawerError(null);
@@ -165,6 +175,22 @@ function App() {
 			setDrawerError(err instanceof Error ? err.message : String(err));
 		} finally {
 			setDrawerLoading(false);
+		}
+	};
+
+	const refreshArtifacts = async (conversationId: string, focusId?: string) => {
+		const items = await listArtifacts(conversationId);
+		setArtifacts(items);
+		setActiveArtifactId(focusId ?? items.at(-1)?.id ?? null);
+		setDrawerMode("artifacts");
+	};
+
+	const handleArtifactCreated = async (id: string) => {
+		if (!active) return;
+		try {
+			await refreshArtifacts(active.conversation.id, id);
+		} catch (err) {
+			setSidebarError(err instanceof Error ? err.message : String(err));
 		}
 	};
 
@@ -195,14 +221,23 @@ function App() {
 						onOpenSettings={() => setSettingsOpen(true)}
 						currentKnowledgeBasePath={active?.kb.path ?? null}
 						onOpenPage={handleOpenPage}
+						onArtifactCreated={handleArtifactCreated}
 					/>
 				</main>
 				<RightDrawer
-					path={drawerPage}
-					content={drawerContent}
-					loading={drawerLoading}
-					error={drawerError}
-					onClose={() => setDrawerPage(null)}
+					mode={drawerMode}
+					wiki={{
+						path: drawerPage,
+						content: drawerContent,
+						loading: drawerLoading,
+						error: drawerError,
+					}}
+					artifacts={artifacts}
+					activeArtifactId={activeArtifactId}
+					fullscreen={drawerFullscreen}
+					onSelectArtifact={setActiveArtifactId}
+					onToggleFullscreen={() => setDrawerFullscreen((value) => !value)}
+					onClose={() => setDrawerMode("closed")}
 				/>
 				<SettingsPanel open={settingsOpen} onOpenChange={setSettingsOpen} />
 			</div>

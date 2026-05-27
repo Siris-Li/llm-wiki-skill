@@ -62,6 +62,7 @@ interface Props {
 	onMessageSent?: () => void;
 	onOpenSettings?: () => void;
 	onOpenPage?: (path: string) => void;
+	onArtifactCreated?: (id: string) => void;
 }
 
 export function ChatPanel({
@@ -72,6 +73,7 @@ export function ChatPanel({
 	onMessageSent,
 	onOpenSettings,
 	onOpenPage,
+	onArtifactCreated,
 }: Props) {
 	const [messages, setMessages] = useState<Message[]>(() => initialMessages.map(fromUIMessage));
 	const [input, setInput] = useState("");
@@ -270,6 +272,9 @@ const [refs, setRefs] = useState<PageRef[]>([]);
 				} else if (event === "done") {
 					setStatus("idle");
 					onMessageSent?.();
+				} else if (event === "artifact_created") {
+					const payload = JSON.parse(data) as { id: string };
+					onArtifactCreated?.(payload.id);
 				} else if (event === "error") {
 					const payload = JSON.parse(data) as { message: string; hint?: string };
 					setErrorMsg(payload.message + (payload.hint ? `\n提示：${payload.hint}` : ""));
