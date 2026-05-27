@@ -2,11 +2,15 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { CommandMenu } from "@/components/CommandMenu";
+import { MarkdownView } from "@/components/MarkdownView";
+import { RefMenu } from "@/components/RefMenu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
 	type CommandItem,
 	listCommands,
+	listRefs,
 	type ModelInfo,
+	type PageRef,
 	streamPrompt,
 	type UIMessage,
 } from "@/lib/api";
@@ -44,18 +48,22 @@ function fromUIMessage(m: UIMessage): Message {
  */
 interface Props {
 	currentKnowledgeBaseName: string | null;
+	currentKnowledgeBasePath: string | null;
 	model: ModelInfo | null;
 	initialMessages: UIMessage[];
 	onMessageSent?: () => void;
 	onOpenSettings?: () => void;
+	onOpenPage?: (path: string) => void;
 }
 
 export function ChatPanel({
 	currentKnowledgeBaseName,
+	currentKnowledgeBasePath,
 	model,
 	initialMessages,
 	onMessageSent,
 	onOpenSettings,
+	onOpenPage,
 }: Props) {
 	const [messages, setMessages] = useState<Message[]>(() => initialMessages.map(fromUIMessage));
 	const [input, setInput] = useState("");
@@ -68,6 +76,13 @@ export function ChatPanel({
 		start: 0,
 		selected: 0,
 	});
+	const [refMenu, setRefMenu] = useState<{ open: boolean; query: string; start: number; selected: number }>({
+		open: false,
+		query: "",
+		start: 0,
+		selected: 0,
+	});
+	const [refs, setRefs] = useState<PageRef[]>([]);
 	const abortRef = useRef<AbortController | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -77,15 +92,45 @@ export function ChatPanel({
 			.catch(() => setCommands([]));
 	}, [currentKnowledgeBaseName]);
 
-	const updateCommandMenu = (value: string, cursor: number) => {
+	useEffect(() => {
+		if (!refMenu.open || !currentKnowledgeBasePath) {
+			setRefs([]);
+			return;
+		}
+		let cancelled = false;
+		const timer = window.setTimeout(() => {
+			listRefs(currentKnowledgeBasePath, refMenu.query)
+				.then((items) => {
+					if (!cancelled) setRefs(items);
+				})
+				.catch(() => {
+					if (!cancelled) setRefs([]);
+				});
+		}, 120);
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timer);
+		};
+	}, [currentKnowledgeBasePath, refMenu.open, refMenu.query]);
+
+	const updateMenus = (value: string, cursor: number) => {
 		const before = value.slice(0, cursor);
-		const match = before.match(/(^|\s)\/(\S*)$/);
-		if (!match) {
+		const commandMatch = before.match(/(^|\s)\/(\S*)$/);
+		if (commandMatch) {
+			const query = commandMatch[2] ?? "";
+			setCommandMenu({ open: true, query, start: cursor - query.length - 1, selected: 0 });
+			setRefMenu((prev) => ({ ...prev, open: false }));
+			return;
+		}
+		const refMatch = before.match(/(^|\s)@(\S*)$/);
+		if (refMatch && currentKnowledgeBasePath) {
+			const query = refMatch[2] ?? "";
+			setRefMenu({ open: true, query, start: cursor - query.length - 1, selected: 0 });
 			setCommandMenu((prev) => ({ ...prev, open: false }));
 			return;
 		}
-		const query = match[2] ?? "";
-		setCommandMenu({ open: true, query, start: cursor - query.length - 1, selected: 0 });
+		setCommandMenu((prev) => ({ ...prev, open: false }));
+		setRefMenu((prev) => ({ ...prev, open: false }));
 	};
 
 	const visibleCommands = (() => {
@@ -111,6 +156,20 @@ export function ChatPanel({
 		const nextCursor = commandMenu.start + item.slug.length + 1;
 		setInput(next);
 		setCommandMenu((prev) => ({ ...prev, open: false }));
+		requestAnimationFrame(() => {
+			textareaRef.current?.focus();
+			textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+		});
+	};
+
+	const replaceRefToken = (item: PageRef) => {
+		const textarea = textareaRef.current;
+		const cursor = textarea?.selectionStart ?? input.length;
+		const link = `[[${item.path}]]`;
+		const next = `${input.slice(0, refMenu.start)}${link} ${input.slice(cursor)}`;
+		const nextCursor = refMenu.start + link.length + 1;
+		setInput(next);
+		setRefMenu((prev) => ({ ...prev, open: false }));
 		requestAnimationFrame(() => {
 			textareaRef.current?.focus();
 			textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
@@ -185,9 +244,10 @@ export function ChatPanel({
 	};
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-		if (e.key === "Escape" && commandMenu.open) {
+		if (e.key === "Escape" && (commandMenu.open || refMenu.open)) {
 			e.preventDefault();
 			setCommandMenu((prev) => ({ ...prev, open: false }));
+			setRefMenu((prev) => ({ ...prev, open: false }));
 			return;
 		}
 		if (commandMenu.open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
@@ -206,9 +266,30 @@ export function ChatPanel({
 			}));
 			return;
 		}
+		if (refMenu.open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+			e.preventDefault();
+			const max = Math.max(refs.length - 1, 0);
+			setRefMenu((prev) => ({
+				...prev,
+				selected:
+					e.key === "ArrowDown"
+						? prev.selected >= max
+							? 0
+							: prev.selected + 1
+						: prev.selected <= 0
+							? max
+							: prev.selected - 1,
+			}));
+			return;
+		}
 		if (commandMenu.open && e.key === "Enter" && visibleCommands[commandMenu.selected]) {
 			e.preventDefault();
 			replaceCommandToken(visibleCommands[commandMenu.selected]);
+			return;
+		}
+		if (refMenu.open && e.key === "Enter" && refs[refMenu.selected]) {
+			e.preventDefault();
+			replaceRefToken(refs[refMenu.selected]);
 			return;
 		}
 		if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -272,7 +353,12 @@ export function ChatPanel({
 					</div>
 				)}
 				{messages.map((m) => (
-					<MessageBubble key={m.id} message={m} showCursor={m.id === showCursorOn} />
+					<MessageBubble
+						key={m.id}
+						message={m}
+						showCursor={m.id === showCursorOn}
+						onOpenPage={onOpenPage}
+					/>
 				))}
 			</div>
 
@@ -291,17 +377,24 @@ export function ChatPanel({
 						selectedIndex={commandMenu.selected}
 						onSelect={replaceCommandToken}
 					/>
+					<RefMenu
+						open={refMenu.open}
+						query={refMenu.query}
+						items={refs}
+						selectedIndex={refMenu.selected}
+						onSelect={replaceRefToken}
+					/>
 					<textarea
 						ref={textareaRef}
 						value={input}
 						onChange={(e) => {
 							setInput(e.target.value);
-							updateCommandMenu(e.target.value, e.target.selectionStart);
+							updateMenus(e.target.value, e.target.selectionStart);
 						}}
-						onClick={(e) => updateCommandMenu(e.currentTarget.value, e.currentTarget.selectionStart)}
+						onClick={(e) => updateMenus(e.currentTarget.value, e.currentTarget.selectionStart)}
 						onKeyUp={(e) => {
 							if (["Escape", "ArrowDown", "ArrowUp", "Enter"].includes(e.key)) return;
-							updateCommandMenu(e.currentTarget.value, e.currentTarget.selectionStart);
+							updateMenus(e.currentTarget.value, e.currentTarget.selectionStart);
 						}}
 						onKeyDown={handleKeyDown}
 						rows={3}
@@ -325,7 +418,15 @@ export function ChatPanel({
 	);
 }
 
-function MessageBubble({ message, showCursor }: { message: Message; showCursor: boolean }) {
+function MessageBubble({
+	message,
+	showCursor,
+	onOpenPage,
+}: {
+	message: Message;
+	showCursor: boolean;
+	onOpenPage?: (path: string) => void;
+}) {
 	const isUser = message.role === "user";
 	return (
 		<div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -344,8 +445,12 @@ function MessageBubble({ message, showCursor }: { message: Message; showCursor: 
 						))}
 					</div>
 				)}
-				<div className="whitespace-pre-wrap break-words">
-					{message.content}
+				<div className="break-words">
+					{isUser ? (
+						<span className="whitespace-pre-wrap">{message.content}</span>
+					) : (
+						<MarkdownView content={message.content} onOpenPage={onOpenPage} />
+					)}
 					{showCursor && <span className="animate-cursor-blink ml-0.5">▍</span>}
 				</div>
 			</div>

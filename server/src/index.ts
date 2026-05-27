@@ -55,7 +55,7 @@ import {
 	registerExternalKnowledgeBase,
 	unregisterExternalKnowledgeBase,
 } from "./knowledge-bases.js";
-import { listPageRefs } from "./pages.js";
+import { listPageRefs, readWikiPage } from "./pages.js";
 
 const app = new Hono();
 
@@ -192,6 +192,23 @@ app.get("/api/refs", async (c) => {
 	try {
 		const items = await listPageRefs(kbPath, q, limit);
 		return c.json({ ok: true, items });
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			400,
+		);
+	}
+});
+
+app.get("/api/page", async (c) => {
+	const kbPath = c.req.query("kb");
+	const relPath = c.req.query("path");
+	if (!kbPath || !relPath) {
+		return c.json({ ok: false, error: "Missing query params 'kb' or 'path'" }, 400);
+	}
+	try {
+		const content = await readWikiPage(kbPath, relPath);
+		return c.json({ ok: true, content });
 	} catch (err) {
 		return c.json(
 			{ ok: false, error: err instanceof Error ? err.message : String(err) },

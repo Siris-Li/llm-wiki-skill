@@ -114,3 +114,17 @@ export async function listPageRefs(
 		.slice(0, Math.max(1, Math.min(limit, 100)))
 		.map((entry) => entry.item);
 }
+
+export async function readWikiPage(kbPath: string, relPath: string): Promise<string> {
+	await assertRegisteredKb(kbPath);
+	if (!relPath || path.isAbsolute(relPath)) throw new Error("path must be relative");
+	if (!relPath.endsWith(".md")) throw new Error("path must be a markdown file");
+	if (!relPath.split(/[\\/]/).includes("wiki")) throw new Error("path must be inside wiki");
+
+	const kbRoot = path.resolve(kbPath);
+	const requested = path.resolve(kbRoot, relPath);
+	if (requested !== kbRoot && !requested.startsWith(kbRoot + path.sep)) {
+		throw new Error("path must be inside kb");
+	}
+	return readFile(requested, "utf8");
+}

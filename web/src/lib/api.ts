@@ -57,6 +57,13 @@ export interface CommandItem {
 	source: string;
 }
 
+export interface PageRef {
+	path: string;
+	name: string;
+	category: string;
+	title: string;
+}
+
 export interface AuthStatus {
 	authFileExists: boolean;
 	providers: { id: string; type: string; configured: boolean }[];
@@ -216,6 +223,22 @@ export async function listCommands(): Promise<CommandItem[]> {
 	const json = (await res.json()) as { ok: boolean; items?: CommandItem[]; error?: string };
 	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
 	return json.items ?? [];
+}
+
+export async function listRefs(kbPath: string, query: string): Promise<PageRef[]> {
+	const url = `/api/refs?kb=${encodeURIComponent(kbPath)}&q=${encodeURIComponent(query)}&limit=20`;
+	const res = await fetch(url);
+	const json = (await res.json()) as { ok: boolean; items?: PageRef[]; error?: string };
+	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+	return json.items ?? [];
+}
+
+export async function readPage(kbPath: string, relPath: string): Promise<string> {
+	const url = `/api/page?kb=${encodeURIComponent(kbPath)}&path=${encodeURIComponent(relPath)}`;
+	const res = await fetch(url);
+	const json = (await res.json()) as { ok: boolean; content?: string; error?: string };
+	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+	return json.content ?? "";
 }
 
 export async function getAuthStatus(): Promise<AuthStatus> {

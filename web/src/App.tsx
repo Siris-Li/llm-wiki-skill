@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ChatPanel } from "@/components/ChatPanel";
+import { RightDrawer } from "@/components/RightDrawer";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -13,6 +14,7 @@ import {
 	listConversations,
 	listKnowledgeBases,
 	registerExternalKnowledgeBase,
+	readPage,
 	selectConversation,
 	selectKnowledgeBase,
 	type UIMessage,
@@ -47,6 +49,10 @@ function App() {
 	const [chatKey, setChatKey] = useState(0);
 	const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [drawerPage, setDrawerPage] = useState<string | null>(null);
+	const [drawerContent, setDrawerContent] = useState("");
+	const [drawerLoading, setDrawerLoading] = useState(false);
+	const [drawerError, setDrawerError] = useState<string | null>(null);
 
 	const refreshConversations = useCallback(async (kbPath: string) => {
 		try {
@@ -140,6 +146,21 @@ function App() {
 		if (active) await refreshConversations(active.kb.path);
 	};
 
+	const handleOpenPage = async (pagePath: string) => {
+		if (!active) return;
+		setDrawerPage(pagePath);
+		setDrawerLoading(true);
+		setDrawerError(null);
+		try {
+			setDrawerContent(await readPage(active.kb.path, pagePath));
+		} catch (err) {
+			setDrawerContent("");
+			setDrawerError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setDrawerLoading(false);
+		}
+	};
+
 	return (
 		<TooltipProvider delayDuration={200}>
 			<div className="flex h-screen w-screen">
@@ -164,8 +185,17 @@ function App() {
 						initialMessages={initialMessages}
 						onMessageSent={handleMessageSent}
 						onOpenSettings={() => setSettingsOpen(true)}
+						currentKnowledgeBasePath={active?.kb.path ?? null}
+						onOpenPage={handleOpenPage}
 					/>
 				</main>
+				<RightDrawer
+					path={drawerPage}
+					content={drawerContent}
+					loading={drawerLoading}
+					error={drawerError}
+					onClose={() => setDrawerPage(null)}
+				/>
 				<SettingsPanel open={settingsOpen} onOpenChange={setSettingsOpen} />
 			</div>
 		</TooltipProvider>
