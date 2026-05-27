@@ -282,6 +282,13 @@ app.get("/api/commands", async (c) => {
 				source: "builtin",
 				skillPath: null,
 			},
+			{
+				slug: "/html",
+				name: "html",
+				description: "把当前对话导出为自包含 HTML 页面",
+				source: "builtin",
+				skillPath: null,
+			},
 		];
 		const skills = (await listLoadedSkills())
 			.filter((skill) => includeUserGlobal || skill.source !== "user-global")

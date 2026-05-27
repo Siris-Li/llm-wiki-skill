@@ -3,11 +3,14 @@ import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { CommandMenu } from "@/components/CommandMenu";
+import { ExportButtons } from "@/components/ExportButtons";
 import { MarkdownView } from "@/components/MarkdownView";
 import { RefMenu } from "@/components/RefMenu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
+	buildExportPrompt,
 	type CommandItem,
+	type ExportKind,
 	listCommands,
 	listRefs,
 	type ModelInfo,
@@ -36,6 +39,10 @@ function fromUIMessage(m: UIMessage): Message {
 		content: m.content,
 		tools: m.tools.map((t) => ({ name: t.name, status: "done" as const })),
 	};
+}
+
+function isExportCommand(name: string): name is ExportKind {
+	return ["pdf", "docx", "pptx", "xlsx", "html"].includes(name);
 }
 
 /**
@@ -84,7 +91,7 @@ export function ChatPanel({
 		start: 0,
 		selected: 0,
 	});
-	const [refs, setRefs] = useState<PageRef[]>([]);
+const [refs, setRefs] = useState<PageRef[]>([]);
 	const abortRef = useRef<AbortController | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -169,6 +176,13 @@ export function ChatPanel({
 	})();
 
 	const replaceCommandToken = (item: CommandItem) => {
+		if (isExportCommand(item.name)) {
+			const prompt = buildExportPrompt(item.name as ExportKind, exportTitleSource());
+			setInput(prompt);
+			setCommandMenu((prev) => ({ ...prev, open: false }));
+			requestAnimationFrame(() => textareaRef.current?.focus());
+			return;
+		}
 		const textarea = textareaRef.current;
 		const cursor = textarea?.selectionStart ?? input.length;
 		const next = `${input.slice(0, commandMenu.start)}${item.slug} ${input.slice(cursor)}`;
@@ -195,11 +209,18 @@ export function ChatPanel({
 		});
 	};
 
-	const sendPrompt = async () => {
-		const text = input.trim();
+	const exportTitleSource = () =>
+		messages.find((message) => message.role === "user")?.content ?? input;
+
+	const handleExport = (kind: ExportKind) => {
+		void sendPrompt(buildExportPrompt(kind, exportTitleSource()));
+	};
+
+	const sendPrompt = async (overrideText?: string) => {
+		const text = (overrideText ?? input).trim();
 		if (!text || status === "streaming") return;
 		const outgoingText =
-			ingestChipVisible && detectedMaterial
+			!overrideText && ingestChipVisible && detectedMaterial
 				? `请调用 llm-wiki Skill 把以下素材消化到当前知识库的 raw/，完成后回到对话告诉我落地路径：\n${detectedMaterial.value}`
 				: text;
 
@@ -445,9 +466,20 @@ export function ChatPanel({
 						disabled={status === "streaming" || !currentKnowledgeBaseName}
 					/>
 				</div>
+				<ExportButtons
+					disabled={!currentKnowledgeBaseName || status === "streaming" || messages.length === 0}
+					disabledReason={
+						!currentKnowledgeBaseName
+							? "请先选择知识库"
+							: status === "streaming"
+								? "当前正在生成"
+								: "请先开始对话"
+					}
+					onExport={handleExport}
+				/>
 				<div className="mt-2 flex items-center justify-between">
 					<span className="text-xs text-muted-foreground">状态：{status}</span>
-					<Button onClick={sendPrompt} disabled={status === "streaming" || !input.trim() || !currentKnowledgeBaseName}>
+					<Button onClick={() => void sendPrompt()} disabled={status === "streaming" || !input.trim() || !currentKnowledgeBaseName}>
 						{status === "streaming" ? "等待中…" : "发送"}
 					</Button>
 				</div>
