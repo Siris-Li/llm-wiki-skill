@@ -9,6 +9,7 @@ import {
 	type ActiveContext,
 	type ConversationInfo,
 	createNewConversation,
+	createKnowledgeBase,
 	getActiveContext,
 	type KnowledgeBaseInfo,
 	listConversations,
@@ -141,6 +142,12 @@ function App() {
 		if (info.valid) await handleSelectKb(info);
 	};
 
+	const handleCreateWiki = async (name: string, purpose: string) => {
+		const info = await createKnowledgeBase(name, purpose);
+		await refreshAll();
+		await handleSelectKb(info);
+	};
+
 	const handleMessageSent = async () => {
 		// 用户发了一次消息后，刷新对话列表，把 "(新对话)" stub 替换为带 firstMessage 的真实条目
 		if (active) await refreshConversations(active.kb.path);
@@ -176,6 +183,7 @@ function App() {
 					onNewConversation={handleNewConversation}
 					onRefresh={refreshAll}
 					onAddExternal={handleAddExternal}
+					onCreateWiki={handleCreateWiki}
 				/>
 				<main className="flex-1 overflow-hidden">
 					<ChatPanel

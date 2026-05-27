@@ -15,7 +15,7 @@ const IGNORE_NAMES = new Set([".obsidian", ".DS_Store", ".wiki-tmp", ".git", "no
 
 interface CacheEntry {
 	items: PageRef[];
-	wikiMtimeMs: number;
+	fingerprint: string;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -79,14 +79,37 @@ async function scanPages(kbPath: string): Promise<PageRef[]> {
 	return items;
 }
 
+async function directoryFingerprint(root: string): Promise<string> {
+	const parts: string[] = [];
+
+	async function walk(dir: string): Promise<void> {
+		const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+		for (const entry of entries) {
+			if (shouldIgnore(entry.name)) continue;
+			const full = path.join(dir, entry.name);
+			const info = await stat(full).catch(() => null);
+			if (!info) continue;
+			if (entry.isDirectory()) {
+				parts.push(`d:${toPosix(path.relative(root, full))}:${info.mtimeMs}`);
+				await walk(full);
+			} else if (entry.isFile() && entry.name.endsWith(".md")) {
+				parts.push(`f:${toPosix(path.relative(root, full))}:${info.mtimeMs}:${info.size}`);
+			}
+		}
+	}
+
+	await walk(root);
+	return parts.sort().join("|");
+}
+
 async function getCachedPages(kbPath: string): Promise<PageRef[]> {
 	await assertRegisteredKb(kbPath);
 	const wikiDir = path.join(kbPath, "wiki");
-	const wikiStat = await stat(wikiDir);
+	const fingerprint = await directoryFingerprint(wikiDir);
 	const cached = cache.get(kbPath);
-	if (cached && cached.wikiMtimeMs === wikiStat.mtimeMs) return cached.items;
+	if (cached && cached.fingerprint === fingerprint) return cached.items;
 	const items = await scanPages(kbPath);
-	cache.set(kbPath, { items, wikiMtimeMs: wikiStat.mtimeMs });
+	cache.set(kbPath, { items, fingerprint });
 	return items;
 }
 

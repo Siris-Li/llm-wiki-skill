@@ -139,6 +139,19 @@ export async function registerExternalKnowledgeBase(path: string): Promise<{
 	return { registered: json.registered ?? false, info: json.info };
 }
 
+export async function createKnowledgeBase(name: string, purpose: string): Promise<KnowledgeBaseInfo> {
+	const res = await fetch("/api/knowledge-bases/new", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name, purpose }),
+	});
+	const json = (await res.json()) as { ok: boolean; info?: KnowledgeBaseInfo; error?: string };
+	if (!res.ok || !json.ok || !json.info) {
+		throw new Error(json.error ?? `HTTP ${res.status}`);
+	}
+	return json.info;
+}
+
 export async function unregisterExternalKnowledgeBase(path: string): Promise<{ removed: boolean }> {
 	const res = await fetch("/api/knowledge-bases/external", {
 		method: "DELETE",

@@ -56,6 +56,7 @@ import {
 	unregisterExternalKnowledgeBase,
 } from "./knowledge-bases.js";
 import { listPageRefs, readWikiPage } from "./pages.js";
+import { createWiki } from "./wiki-init.js";
 
 const app = new Hono();
 
@@ -124,6 +125,37 @@ app.delete("/api/knowledge-bases/external", async (c) => {
 	}
 	const result = await unregisterExternalKnowledgeBase(body.path);
 	return c.json({ ok: true, ...result });
+});
+
+app.post("/api/knowledge-bases/new", async (c) => {
+	let body: { name?: unknown; purpose?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+	if (typeof body.name !== "string" || typeof body.purpose !== "string") {
+		return c.json({ ok: false, error: "Missing 'name' or 'purpose'" }, 400);
+	}
+	try {
+		const result = await createWiki(body.name, body.purpose);
+		return c.json({
+			ok: true,
+			info: {
+				path: result.path,
+				name: result.name,
+				origin: "default",
+				valid: true,
+			},
+			stdout: result.stdout,
+			stderr: result.stderr,
+		});
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			400,
+		);
+	}
 });
 
 // ============= 活跃上下文（当前选中的 KB + 对话） =============
