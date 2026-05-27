@@ -16,9 +16,9 @@ interface Props {
 	onSelect: (item: CommandItemType) => void;
 }
 
-function sourceLabel(source: string): string {
-	if (source === "builtin") return "内置";
-	if (source === "pi-default") return "pi";
+function sourceLabel(item: CommandItemType): string {
+	if (item.source === "builtin") return item.skillPath ? "项目" : "内置";
+	if (item.source === "pi-default") return "pi";
 	return "全局";
 }
 
@@ -57,7 +57,7 @@ export function CommandMenu({ open, query, items, selectedIndex, onSelect }: Pro
 											<div className="truncate text-sm">{item.name}</div>
 											<div className="text-xs text-muted-foreground">{item.description}</div>
 										</div>
-										<div className="shrink-0 text-[10px] text-muted-foreground">{sourceLabel(item.source)}</div>
+										<div className="shrink-0 text-[10px] text-muted-foreground">{sourceLabel(item)}</div>
 									</CommandItem>
 								);
 							})}
