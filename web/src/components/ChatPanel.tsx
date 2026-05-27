@@ -40,6 +40,7 @@ interface Props {
 	model: ModelInfo | null;
 	initialMessages: UIMessage[];
 	onMessageSent?: () => void;
+	onOpenSettings?: () => void;
 }
 
 export function ChatPanel({
@@ -47,6 +48,7 @@ export function ChatPanel({
 	model,
 	initialMessages,
 	onMessageSent,
+	onOpenSettings,
 }: Props) {
 	const [messages, setMessages] = useState<Message[]>(() => initialMessages.map(fromUIMessage));
 	const [input, setInput] = useState("");
@@ -160,23 +162,13 @@ export function ChatPanel({
 							</div>
 						</TooltipContent>
 					</Tooltip>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button
-								type="button"
-								disabled
-								className="cursor-help rounded-md border border-input bg-background px-2 py-1 text-xs text-muted-foreground opacity-60"
-							>
-								⚙ 设置
-							</button>
-						</TooltipTrigger>
-						<TooltipContent side="bottom">
-							<div className="text-xs">设置面板在阶段二</div>
-							<div className="mt-0.5 text-[10px] opacity-70">
-								将含登录方式 / 默认模型 / UI 偏好 / 库管理
-							</div>
-						</TooltipContent>
-					</Tooltip>
+					<button
+						type="button"
+						onClick={onOpenSettings}
+						className="rounded-md border border-input bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+					>
+						⚙ 设置
+					</button>
 				</div>
 			</header>
 

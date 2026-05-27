@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ChatPanel } from "@/components/ChatPanel";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -45,6 +46,7 @@ function App() {
 	const [loading, setLoading] = useState(false);
 	const [chatKey, setChatKey] = useState(0);
 	const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
+	const [settingsOpen, setSettingsOpen] = useState(false);
 
 	const refreshConversations = useCallback(async (kbPath: string) => {
 		try {
@@ -161,8 +163,10 @@ function App() {
 						model={active?.model ?? null}
 						initialMessages={initialMessages}
 						onMessageSent={handleMessageSent}
+						onOpenSettings={() => setSettingsOpen(true)}
 					/>
 				</main>
+				<SettingsPanel open={settingsOpen} onOpenChange={setSettingsOpen} />
 			</div>
 		</TooltipProvider>
 	);

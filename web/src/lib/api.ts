@@ -50,6 +50,19 @@ export interface ActiveContext {
 	model: ModelInfo | null;
 }
 
+export interface CommandItem {
+	slug: string;
+	name: string;
+	description: string;
+	source: string;
+}
+
+export interface AuthStatus {
+	authFileExists: boolean;
+	providers: { id: string; type: string; configured: boolean }[];
+	envKeys: { name: string; present: boolean }[];
+}
+
 // ============= API =============
 
 export async function getHealth(): Promise<{
@@ -194,4 +207,41 @@ export async function streamPrompt(
 		throw new Error(`HTTP ${res.status} ${res.statusText}`);
 	}
 	return parseSSE(res.body);
+}
+
+// ============= 阶段二：命令与认证 =============
+
+export async function listCommands(): Promise<CommandItem[]> {
+	const res = await fetch("/api/commands");
+	const json = (await res.json()) as { ok: boolean; items?: CommandItem[]; error?: string };
+	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+	return json.items ?? [];
+}
+
+export async function getAuthStatus(): Promise<AuthStatus> {
+	const res = await fetch("/api/auth/status");
+	const json = (await res.json()) as ({ ok: true } & AuthStatus) | { ok: false; error?: string };
+	if (!res.ok || !json.ok) throw new Error(("error" in json && json.error) || `HTTP ${res.status}`);
+	return json;
+}
+
+export async function setAuthKey(provider: string, key: string): Promise<void> {
+	const res = await fetch("/api/auth/set", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ provider, type: "api_key", key }),
+	});
+	const json = (await res.json()) as { ok: boolean; error?: string };
+	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+}
+
+export async function testAuthConnection(provider: string): Promise<{ ok: boolean; message?: string; error?: string }> {
+	const res = await fetch("/api/auth/test", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ provider }),
+	});
+	const json = (await res.json()) as { ok: boolean; message?: string; error?: string };
+	if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+	return json;
 }

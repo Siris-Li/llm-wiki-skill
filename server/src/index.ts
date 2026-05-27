@@ -35,6 +35,7 @@ import {
 	selectConversation,
 	selectKb,
 } from "./agent.js";
+import { getAuthStatus, setAuthKey, testAuthConnection } from "./auth.js";
 import { listConversations, piMessagesToUIMessages } from "./conversations.js";
 
 /** 从 session 安全取出模型 provider+id（pi 类型未导出 Model，用结构化访问） */
@@ -230,6 +231,54 @@ app.get("/api/commands", async (c) => {
 			500,
 		);
 	}
+});
+
+// ============= 模型认证 =============
+
+app.get("/api/auth/status", async (c) => {
+	try {
+		return c.json({ ok: true, ...(await getAuthStatus()) });
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			500,
+		);
+	}
+});
+
+app.post("/api/auth/set", async (c) => {
+	let body: { provider?: unknown; type?: unknown; key?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+	if (body.type !== "api_key" || typeof body.provider !== "string" || typeof body.key !== "string") {
+		return c.json({ ok: false, error: "Missing provider/type/key" }, 400);
+	}
+	try {
+		await setAuthKey(body.provider, body.key);
+		return c.json({ ok: true });
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			400,
+		);
+	}
+});
+
+app.post("/api/auth/test", async (c) => {
+	let body: { provider?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+	if (typeof body.provider !== "string") {
+		return c.json({ ok: false, error: "Missing provider" }, 400);
+	}
+	const result = await testAuthConnection(body.provider);
+	return c.json(result);
 });
 
 // ============= 对话列表与切换 =============
