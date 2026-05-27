@@ -1,8 +1,14 @@
 # 阶段二设计文档：核心循环（@、/、结晶、消化）
 
-> 状态：**设计待 codex 实施** · 创建于 2026-05-27 · 阶段二验收通过后归档不再修改
+> 状态：**✅ 已完成 2026-05-27**（已归档，仅作历史参考）· 创建于 2026-05-27
 >
-> 与 PRODUCT.md 的关系：PRODUCT.md §4 阶段二 + §10 是**顶层意图**，本文档是**落地细则**。冲突时以 PRODUCT.md 为准；本文档外发现新决策需要先回写 PRODUCT.md。
+> **最终交付**：PR [#1 feat: complete stage 2 core loop](https://github.com/sdyckjq-lab/llm-wiki-agent/pull/1)（14 commit）
+>
+> **验收结果**：3 条总验收全过；6 个 issue 全部闭合；超出原设计 3 处增强（详见 PRODUCT.md §10 阶段二）
+>
+> 与 PRODUCT.md 的关系：PRODUCT.md §4 阶段二 + §10 是**顶层意图**，本文档是**落地细则**。冲突时以 PRODUCT.md 为准。
+>
+> ⚠️ 本文档已归档，**不再修改**。阶段三另开 `docs/stage-3-design.md`。
 
 ---
 
