@@ -253,26 +253,32 @@ app.get("/api/page", async (c) => {
 
 app.get("/api/commands", async (c) => {
 	try {
+		const includeUserGlobal = c.req.query("includeUserGlobal") === "true";
 		const builtin = [
 			{
 				slug: "/sediment",
 				name: "sediment_to_wiki",
 				description: "把当前对话结晶为 wiki/synthesis/sessions/ 下的页面",
 				source: "builtin",
+				skillPath: null,
 			},
 			{
 				slug: "/new-wiki",
 				name: "new_wiki",
 				description: "在默认目录下新建一个 llm-wiki 知识库",
 				source: "builtin",
+				skillPath: null,
 			},
 		];
-		const skills = (await listLoadedSkills()).map((skill) => ({
-			slug: `/${skill.name}`,
-			name: skill.name,
-			description: skill.description,
-			source: `skill:${skill.name}`,
-		}));
+		const skills = (await listLoadedSkills())
+			.filter((skill) => includeUserGlobal || skill.source !== "user-global")
+			.map((skill) => ({
+				slug: `/${skill.name}`,
+				name: skill.name,
+				description: skill.description,
+				source: skill.source,
+				skillPath: skill.skillPath,
+			}));
 		return c.json({ ok: true, items: [...builtin, ...skills] });
 	} catch (err) {
 		return c.json(

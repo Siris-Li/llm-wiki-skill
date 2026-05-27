@@ -17,6 +17,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
 	type AgentSession,
@@ -32,6 +33,11 @@ import knowledgeBaseExtension from "./extensions/knowledge-base.js";
 import { setCurrentKnowledgeBase } from "./extensions/knowledge-base.js";
 import { createNewWikiExtension } from "./extensions/new-wiki.js";
 import { createSynthesisExtension } from "./extensions/synthesis.js";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const PROJECT_SKILLS_DIR = path.join(REPO_ROOT, ".claude", "skills");
+const PI_DEFAULT_SKILLS_DIR = path.join(homedir(), ".pi", "agent", "skills");
+const USER_GLOBAL_SKILLS_DIR = path.join(homedir(), ".claude", "skills");
 
 async function rememberLastUsedKb(kbPath: string): Promise<void> {
 	try {
@@ -57,9 +63,9 @@ function getResourceLoader(): Promise<DefaultResourceLoader> {
 	if (!resourceLoaderPromise) {
 		resourceLoaderPromise = (async () => {
 			const loader = new DefaultResourceLoader({
-				cwd: process.cwd(),
+				cwd: REPO_ROOT,
 				agentDir: getAgentDir(),
-				additionalSkillPaths: [path.join(homedir(), ".claude", "skills")],
+				additionalSkillPaths: [USER_GLOBAL_SKILLS_DIR],
 				extensionFactories: [
 					knowledgeBaseExtension,
 					createSynthesisExtension(() => active),
@@ -102,6 +108,8 @@ export async function getActiveSession(): Promise<AgentSession> {
 export interface LoadedSkillInfo {
 	name: string;
 	description: string;
+	source: "builtin" | "pi-default" | "user-global";
+	skillPath: string;
 }
 
 async function findSkillFiles(root: string): Promise<string[]> {
@@ -127,7 +135,11 @@ async function findSkillFiles(root: string): Promise<string[]> {
 	return results;
 }
 
-function parseSkillFrontmatter(content: string): LoadedSkillInfo | null {
+function parseSkillFrontmatter(
+	content: string,
+	source: LoadedSkillInfo["source"],
+	skillPath: string,
+): LoadedSkillInfo | null {
 	const match = content.match(/^---\n([\s\S]*?)\n---/);
 	if (!match) return null;
 	const frontmatter = match[1] ?? "";
@@ -144,48 +156,70 @@ function parseSkillFrontmatter(content: string): LoadedSkillInfo | null {
 			.trim();
 	}
 	if (!name || !description) return null;
-	return { name, description };
+	return { name, description, source, skillPath };
 }
 
 async function scanSkillDirs(): Promise<LoadedSkillInfo[]> {
-	const activeKbPath = active?.kb.path;
 	const roots = [
-		activeKbPath ? path.join(activeKbPath, ".claude", "skills") : null,
-		path.join(homedir(), ".claude", "skills"),
-		path.join(homedir(), ".pi", "agent", "skills"),
-	].filter((item): item is string => Boolean(item));
+		{ root: PROJECT_SKILLS_DIR, source: "builtin" as const },
+		{ root: PI_DEFAULT_SKILLS_DIR, source: "pi-default" as const },
+		{ root: USER_GLOBAL_SKILLS_DIR, source: "user-global" as const },
+	];
 
 	const skills: LoadedSkillInfo[] = [];
-	for (const root of roots) {
+	for (const { root, source } of roots) {
 		for (const file of await findSkillFiles(root)) {
-			const parsed = parseSkillFrontmatter(await readFile(file, "utf8").catch(() => ""));
+			const parsed = parseSkillFrontmatter(
+				await readFile(file, "utf8").catch(() => ""),
+				source,
+				path.dirname(file),
+			);
 			if (parsed) skills.push(parsed);
 		}
 	}
 	return skills;
 }
 
+function sourceForSkillPath(skillPath: string): LoadedSkillInfo["source"] {
+	const resolved = path.resolve(skillPath);
+	if (resolved === PROJECT_SKILLS_DIR || resolved.startsWith(PROJECT_SKILLS_DIR + path.sep)) {
+		return "builtin";
+	}
+	if (resolved === PI_DEFAULT_SKILLS_DIR || resolved.startsWith(PI_DEFAULT_SKILLS_DIR + path.sep)) {
+		return "pi-default";
+	}
+	return "user-global";
+}
+
 export async function listLoadedSkills(): Promise<LoadedSkillInfo[]> {
 	const loader = await getResourceLoader();
-	const seen = new Set<string>();
-	const sdkSkills = loader
-		.getSkills()
-		.skills.filter((skill) => {
-			if (seen.has(skill.name)) return false;
-			seen.add(skill.name);
-			return true;
-		})
-		.map((skill) => ({
-			name: skill.name,
-			description: skill.description,
-		}));
+	const sdkSkills = loader.getSkills().skills;
 	const scanned = await scanSkillDirs();
+	const byPath = new Map(scanned.map((skill) => [path.resolve(skill.skillPath), skill]));
+	const results: LoadedSkillInfo[] = [];
+	const seen = new Set<string>();
+
 	for (const skill of scanned) {
 		if (seen.has(skill.name)) continue;
 		seen.add(skill.name);
-		sdkSkills.push(skill);
+		results.push(skill);
 	}
-	return sdkSkills;
+	for (const skill of sdkSkills) {
+		if (seen.has(skill.name)) continue;
+		const filePath = (skill as { filePath?: string }).filePath;
+		const dir = filePath ? path.dirname(filePath) : "";
+		const known = dir ? byPath.get(path.resolve(dir)) : undefined;
+		seen.add(skill.name);
+		results.push(
+			known ?? {
+				name: skill.name,
+				description: skill.description,
+				source: dir ? sourceForSkillPath(dir) : "user-global",
+				skillPath: dir,
+			},
+		);
+	}
+	return results;
 }
 
 /**

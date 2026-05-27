@@ -156,8 +156,10 @@ export function ChatPanel({
 			);
 		});
 		return [
-			...filtered.filter((item) => item.source === "builtin"),
-			...filtered.filter((item) => item.source !== "builtin"),
+			...filtered.filter((item) => item.source === "builtin" && !item.skillPath),
+			...filtered.filter((item) => item.source === "builtin" && item.skillPath),
+			...filtered.filter((item) => item.source === "pi-default"),
+			...filtered.filter((item) => item.source === "user-global"),
 		];
 	})();
 

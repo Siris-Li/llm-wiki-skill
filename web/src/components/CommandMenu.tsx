@@ -17,15 +17,19 @@ interface Props {
 }
 
 function sourceLabel(source: string): string {
-	return source === "builtin" ? "内置" : "Skill";
+	if (source === "builtin") return "内置";
+	if (source === "pi-default") return "pi";
+	return "全局";
 }
 
 export function CommandMenu({ open, query, items, selectedIndex, onSelect }: Props) {
 	if (!open) return null;
 
 	const groups = [
-		{ label: "内置", items: items.filter((item) => item.source === "builtin") },
-		{ label: "Skill", items: items.filter((item) => item.source !== "builtin") },
+		{ label: "内置", items: items.filter((item) => item.source === "builtin" && !item.skillPath) },
+		{ label: "项目 Skill", items: items.filter((item) => item.source === "builtin" && item.skillPath) },
+		{ label: "pi 默认", items: items.filter((item) => item.source === "pi-default") },
+		{ label: "用户全局", items: items.filter((item) => item.source === "user-global") },
 	].filter((group) => group.items.length > 0);
 	let index = -1;
 

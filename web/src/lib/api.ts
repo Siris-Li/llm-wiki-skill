@@ -54,7 +54,8 @@ export interface CommandItem {
 	slug: string;
 	name: string;
 	description: string;
-	source: string;
+	source: "builtin" | "pi-default" | "user-global";
+	skillPath: string | null;
 }
 
 export interface PageRef {
@@ -231,8 +232,9 @@ export async function streamPrompt(
 
 // ============= 阶段二：命令与认证 =============
 
-export async function listCommands(): Promise<CommandItem[]> {
-	const res = await fetch("/api/commands");
+export async function listCommands(includeUserGlobal = false): Promise<CommandItem[]> {
+	const suffix = includeUserGlobal ? "?includeUserGlobal=true" : "";
+	const res = await fetch(`/api/commands${suffix}`);
 	const json = (await res.json()) as { ok: boolean; items?: CommandItem[]; error?: string };
 	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
 	return json.items ?? [];
