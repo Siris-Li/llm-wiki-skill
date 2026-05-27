@@ -21,19 +21,24 @@
 
 ## 项目当前阶段
 
-**阶段一进行中**（主干打通，详见 PRODUCT.md §4）。
+**阶段一已完成** ✅ 2026-05-26（主干打通，MVP 可用）。**阶段二未开始**。
 
-阶段一拆解和下一步动作见 PRODUCT.md §10。
+阶段一完成情况见 PRODUCT.md §4 阶段一 末尾的"完成情况"小节（含**启动 & 运行速查表**）。
+完整进度追踪见 PRODUCT.md §10。
 
 ## 关键路径速查
 
-| 类型 | 位置 |
+| 类型 | 值 |
 |---|---|
+| 一行启动 | `npm run dev`（从仓库根，并行起前后端）|
+| 后端端口 | `8787` |
+| 前端端口 | `5180`（`strictPort: true`）|
 | 知识库默认根 | `~/llm-wiki/` |
 | 外部知识库 | 用户任意路径，登记在 `~/.llm-wiki-agent/config.json` |
-| 应用数据 | `~/.llm-wiki-agent/`（UI 偏好、外部库登记、对话历史；**不存 API key**）|
+| 应用数据 | `~/.llm-wiki-agent/`（UI 偏好、外部库登记、对话历史、`lastUsedKbPath`；**不存 API key**）|
+| 会话目录 | `~/.llm-wiki-agent/sessions/<sha256-of-kb-path>/*.jsonl` |
 | 模型凭证 | `~/.pi/agent/auth.json`（pi-agent 管理，权限 0600）|
-| 项目代码 | 本仓库（未来含 `server/` `web/`）|
+| 项目代码 | 本仓库 `server/`（Hono + pi-coding-agent SDK）+ `web/`（Vite + React + shadcn/ui）|
 
 ## Node 版本
 
