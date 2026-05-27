@@ -284,6 +284,43 @@ llm-wiki-agent/                       ← 你的仓库
 
 **验收标准**：一次对话能产出 HTML、PPT、docx 三种格式，且 UI 内可直接预览或下载。
 
+### 阶段 3.5：导航 UX 重构 + 多模型子代理批量消化 ✅ 已完成 2026-05-27
+
+**背景**：阶段 1-3 完成后作者实际使用 app 发现两类痛点——
+1. **导航 UX 反直觉**：侧栏强行把 KB 分成默认/外部两类（与"KB = 项目"心智冲突）、对话挂在侧栏中间看不出从属、"添加现有库"靠手输绝对路径常常失败、拖入非 wiki 目录直接报错
+2. **批量消化效率低**：阶段二的消化是"一次喂一篇"；TBD-2"多模型路由"也一直挂着没有承载场景——批量消化正好是
+
+**目标**：
+1. **导航统一**：侧栏一栏到底、KB 可展开对话子树、拖拽优先添加路径、非 wiki 目录提供"一键初始化 + 批量消化"路径
+2. **子代理批量消化**：基于 pi SDK 的 `createAgentSession` + 多模型注册落地"消化角色 → cheap / 聊天角色 → main"双角色路由；用一个 30 行的并发控制函数调度 N 个子代理并行处理 N 个文件，通过 SSE 推送进度
+
+**范围**（7 step）：
+- 侧栏重构：统一 KB 列表 + 折叠对话子树（去 default/external 分隔）
+- 拖拽 + 输入框双通道：HTML5 drag 先探测能否拿到真实路径，输入框兜底 + inspect 端点判定是不是 wiki
+- 非 wiki 目录初始化引导：弹窗提示 + 就地初始化 `.wiki-schema.md` + `index.md`
+- 多模型双角色：`config.json` 新增 `modelRoles: { main, digest }` + 设置面板选择
+- 后端子代理批量消化框架：30 行 `mapWithConcurrencyLimit` + `SessionManager.inMemory()` + 共享 `authStorage`/`modelRegistry`
+- 批量消化 UI + SSE 进度推送：浮窗实时显示每个子代理的"排队/进行中/完成/失败"
+- 总验收 + UX 体感打磨
+
+**不包含**：图谱（阶段四）、Tauri 打包（阶段五）、媒体创作 / 浏览器扩展（阶段后规划）、子代理嵌套 / 工作树隔离（omp 那一套）、main 角色对主对话的强制接管（暂不动，避免破坏现有 session 创建路径）
+
+**验收标准**（5 条）：
+1. **侧栏统一**：KB 列表一栏到底无 default/external 分隔；点 KB 展开对话子树；外部 KB 用文字 badge 而非分区
+2. **拖拽添加**：从 Finder 拖文件夹到 dialog 拖拽区；若浏览器暴露真实 `file://`，路径自动填入输入框；若不暴露，UI 明确提示用户粘贴路径（不立即提交，给用户最后修改机会）
+3. **非 wiki 兜底**：拖入无 `.wiki-schema.md` 的目录，弹"是否初始化并批量消化"对话框；选"是"→ 后台跑 init + 子代理并行消化
+4. **多模型双角色**：设置面板新增"模型分配"区，main / digest 两个角色各自的 provider+model；digest 写入 `config.json` 后对新批量消化立即生效，main 本阶段只保存与展示，不接管主对话
+5. **并发消化**：批量消化 10 个 `.md` 文件能看到 ≥3 个子代理同时跑（默认并发=3），SSE 实时推送状态，全部完成后右抽屉刷新出新增的 wiki 页面
+
+**完整设计**：[docs/stage-3.5-design.md](docs/stage-3.5-design.md)（含 7 step 细则、13 项关键决策、5 个 TBD、API 契约、验收剧本）
+
+**完成情况**：
+- 侧栏已统一为一栏 KB 列表，当前 KB 下直接展开对话子树，外部库用 badge 标记
+- 添加现有库支持拖拽探测、路径输入、目录检查；非 wiki 目录可就地初始化并可接着批量消化
+- 设置面板新增 main / digest 角色选择；digest 角色用于批量消化，main 本阶段只保存不接管主对话
+- 批量消化使用 pi SDK 原生 in-memory 子会话，并发档位为 1 / 3 / 5，通过 SSE 推送进度
+- **新增依赖**：无
+
 ### 阶段四：图谱集成
 
 **目标**：把 llm-wiki-skill 现有的知识图谱集成进工作台。
@@ -643,6 +680,8 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
 4. **代码组织模块化**：agent 端目录结构保持清晰，未来可 lift-and-shift 直接挪进 `llm-wiki/agent/` 子目录
 5. **不为合并提前优化**：今天该用 npm workspaces + 独立仓库就用，合并是未来的事，今天保持工程简单
 
+**阶段 3.5 的明确例外**：批量本地文件消化为了验证"便宜模型 + 并行子代理"路线，允许子代理不调用完整 llm-wiki Skill，而是只读单个文件并输出 wiki markdown，主进程负责写盘。这个例外只覆盖阶段 3.5 的 `.md/.txt/.pdf` 批量入库场景，不推翻"Skill 已有能力优先调 Skill"的长期原则。
+
 **未来扩展位**：媒体创作（阶段三）/ 子 agent 分工 / 多模型路由都依赖 agent 形态，是 Skill 给不了的。这些是 agent 形态存在的根本理由。
 
 **与既有 ADR 的关系**：
@@ -669,6 +708,36 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
 **与 ADR-9（shadcn/ui）的关系**：cmdk 即 shadcn 官方 Command 底层；react-markdown 在 shadcn 生态里是社区主流选型。两者都与现有 UI 体系自然契合，无破坏性。
 
 **长期**：阶段三引入产出类 Skill（docx / pdf / pptx）+ open-design 设计 Skill 时，UI 端会需要更多依赖（PPT 渲染、文件预览等）。届时再补 ADR-18+。
+
+### ADR-18：阶段 3.5 多模型双角色 + 轻量子代理框架
+
+**背景**：阶段 1-3 完成后两个痛点同时浮现——TBD-2（多模型路由）一直没有承载场景；阶段二的"一次喂一篇"消化模式拦住了批量进库的用户。两件事在阶段 3.5 合并解决：批量消化天然需要"便宜模型 + 并行"，正好把多模型路由落地。
+
+**决策**：
+
+1. **双角色而非 N 角色**：只引入 `main`（聊天）+ `digest`（消化）两个角色。拒绝项："per-task 模型路由"（消化/沉淀/产出/对话各自一个）太复杂、用户配不动；"只有一个 default model"则无法承载阶段 3.5 的核心需求
+2. **角色配置存项目 config.json 不写 pi settings.json**：跨工具污染坏处大于好处；`~/.llm-wiki-agent/config.json` 是我们自己的偏好文件
+3. **main 角色暂不强制接管主对话**：保持当前 pi 默认逻辑兜底，避免破坏现有 session 创建路径。digest 角色是新功能，强制走子代理才能保证"消化用便宜模型"的承诺
+4. **子代理用 pi SDK 原生 API 而非自建框架**：`createAgentSession({ model, authStorage, modelRegistry, sessionManager: inMemory(), tools: ["read"] })` 已经够用。拒绝项：抄 omp 的 `executor.ts` / `index.ts` 那 3000 行（工作树隔离 / 嵌套子代理 / worker IPC 我们都不需要）；自建独立子代理 runtime 重复造轮子
+5. **并发控制自写 30 行**：拒绝引入 p-limit / async-pool 等并发库（一个 while 循环就能做）；拒绝 `Promise.all` 一把开（N 个文件 = N 个并发模型请求会 429）
+6. **子代理不挂业务 extension**：阶段 3.5 的批量本地文件消化是 ADR-16 的明确例外，消化是裸 prompt + 只读工具的简单任务，挂 KB / synthesis / artifacts extension 反而让 cheap 模型困惑
+7. **写盘归主进程**：子代理只输出 wiki markdown 文本，主进程负责写到 `wiki/synthesis/sessions/`。让 cheap 模型决定文件路径风险大；主进程已知正确路径无需让 cheap 模型决策
+8. **SSE 沿用 ADR-3 路线**：批量消化接口直接返回 `text/event-stream`，不为此开 WebSocket，也不做轮询
+9. **拖拽优先于输入，但不假设浏览器一定暴露绝对路径**：阶段 3.5 先实测 macOS Finder 拖拽时 `DataTransfer` 是否提供 `file://`；若提供则自动填路径，若不提供则用输入框作为明确兜底。输入框不是降级体验，而是 web 沙箱下必须保留的可靠通道
+
+**与既有 ADR 的关系**：
+- 解决 **TBD-2**（多模型路由）：选项 B 落地——通过角色映射而非任务路由
+- 兼容 **ADR-3**（SSE）：批量消化进度沿用 SSE
+- 兼容 **ADR-7**（Extension 注入上下文）：子代理不需要 KB 上下文，直接 prompt 传入；主对话保持现有 extension 注入路径
+- 兼容 **ADR-16**（Skill 优先）：本阶段对子代理批量本地文件消化做一次受控例外，不扩展到 Skill 已覆盖的完整素材消化流程
+- 兼容 **ADR-10**（pi-agent 作 npm 依赖）：完全用 SDK 原生 API，不 fork 不 patch
+- 强化 **ADR-12**（会话绑定知识库）：子代理是临时 inMemory session，不污染 KB 的对话历史
+- 强化 **ADR-13**（凭证落 `~/.pi/agent/auth.json`）：modelRoles 只存 `{provider, modelId}`，不存任何 key
+
+**何时重新评估**：
+- 用户反馈"配了 main 但主对话没生效" → 把 `selectKb` 改为读 `modelRoles.main`
+- 用户反馈"批量消化输出格式漂移" → 引入 schema 校验 + 重试
+- 用户反馈"并发 3 还是太慢" → 提供更高档位 + 自适应降级（429 自动退避）
 
 ---
 
@@ -711,7 +780,7 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
 | 编号 | 事项 | 现状 | 何时定 |
 |---|---|---|---|
 | ~~TBD-1~~ | ~~项目正式名~~ | **已定：`llm-wiki-agent`**。桌面应用显示名留到阶段五前再定 | ✅ |
-| TBD-2 | 默认模型 | **沿用 pi-agent 默认设置**（用户在 pi CLI 里 `pi -m <model>` 切换或编辑 `~/.pi/agent/settings.json`）；llm-wiki-agent 不强制固定任何 provider，由 pi-agent 的 ResourceLoader 决定。阶段三再做"消化用便宜模型 / 对话用强模型"的智能路由 | 阶段三 |
+| TBD-2 | 默认模型 | **阶段 3.5 已落地**：双角色 `modelRoles.{main, digest}` 写入 `~/.llm-wiki-agent/config.json`；digest 角色强制走子代理用于批量消化；main 角色暂不强制接管主对话（保持 pi 默认兜底）。详见 ADR-18 | ✅ |
 | ~~TBD-3~~ | ~~多库会话隔离~~ | **已定：会话绑定知识库，同库支持多并行对话**（见 ADR-12） | ✅ |
 | TBD-4 | 危险操作确认 | 删除 / 覆盖类是否弹窗 | 阶段二 |
 | ~~TBD-5~~ | ~~API key 配置 UI~~ | **已定：三层 fallback（pi CLI 登录 / UI 填 key / env var），统一存 `~/.pi/agent/auth.json`**（见 ADR-13） | ✅ |
@@ -806,6 +875,35 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
   - 阶段三完整设计 + 8 step 细则 + 总验收剧本归档在 `docs/stage-3-design.md`
 - **新增依赖**：无（0 个新 npm package）
 
+### 阶段 3.5：导航 UX 重构 + 多模型子代理批量消化 ✅ 已完成 2026-05-27
+
+**当前分支**：`stage-3.5`（base: main）
+
+**设计文档**：[docs/stage-3.5-design.md](docs/stage-3.5-design.md)（1148 行：7 step 细则 + 13 项关键决策 + 5 个 TBD + API 契约 + 验收剧本）
+
+**7 step 概览**：
+
+| # | 任务 | 状态 |
+|---|---|---|
+| 1 | 侧栏重构：统一 KB 列表 + 折叠对话子树 | ✅ |
+| 2 | 拖拽 + 输入框路径填充（含 inspect 端点） | ✅ |
+| 3 | 非 wiki 目录初始化引导 | ✅ |
+| 4 | 多模型双角色（main / digest） | ✅ |
+| 5 | 后端子代理批量消化框架 | ✅ |
+| 6 | 批量消化 UI + SSE 进度推送 | ✅ |
+| 7 | 总验收 + UX 体感打磨 | ✅ |
+
+**关键风险**：
+- TBD-3.5-1：子代理 session 共享 `authStorage` / `modelRegistry` 的资源生命周期未实测（codex 起手第一件事写 60 行验证）
+- TBD-3.5-2：`init-wiki.sh` 就地初始化会写入固定文件，必须先做冲突检测与备份（Step 3 起手看源码确认文件列表）
+- TBD-3.5-3：main 角色是否接管主对话（本阶段不动）
+
+**验收实况**：
+- `npm run --silent typecheck` 通过
+- `node --import tsx --test server/src/digest/concurrency.test.ts` 通过
+- 本地接口实测通过：目录 inspect、初始化冲突 409、就地初始化成功、模型列表、模型角色保存、批量消化参数校验
+- 单文件批量消化真实跑通，SSE 返回 start / file_start / file_complete / done，并写入 `wiki/synthesis/sessions/`
+
 ### 阶段四 / 五：未开始（详见 §4）
 
 ### 协作约定（持续生效）
@@ -853,6 +951,15 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
 
 ## Changelog
 
+- **2026-05-27 v9（阶段 3.5 完成）**：阶段 3.5 实施完成并本地验证
+  - 侧栏统一、拖拽/输入路径检查、非 wiki 目录初始化、多模型角色、批量消化子代理、SSE 进度浮窗均已落地
+  - 保持零新增 npm 依赖；main 角色仍按 ADR-18 不接管主对话
+- **2026-05-27 v8（阶段 3.5 设计完成）**：阶段 3.5 设计完成，待 codex 实施
+  - §4 新增"阶段 3.5：导航 UX 重构 + 多模型子代理批量消化"小节，列出背景、7 step 范围、5 条验收标准、设计文档指引
+  - §7 新增 **ADR-18：阶段 3.5 多模型双角色 + 轻量子代理框架**（9 条核心决策 + 与既有 ADR 关系 + 重新评估触发条件）
+  - §9 TBD-2 状态更新："阶段三再做"→"阶段 3.5 落地中"
+  - §10 新增"阶段 3.5"小节：当前分支 `stage-3.5`、设计文档链接、7 step 占位、3 个关键风险
+  - 设计细则归档 `docs/stage-3.5-design.md`（1148 行，与阶段三同量级）
 - **2026-05-26 v7（阶段一完成标记）**：阶段一全部 step + review 修补完成，作者确认 MVP 可用
   - §4 阶段一标题加 `✅ 已完成 2026-05-26`
   - §4 阶段一末尾新增"完成情况"小节：含最终 commit、验收实况、接受的妥协、**启动 & 运行速查表**（compact 后从这里恢复上下文）

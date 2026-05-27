@@ -11,6 +11,8 @@ import {
 	buildExportPrompt,
 	type CommandItem,
 	type ExportKind,
+	inspectKnowledgeBasePath,
+	type InspectPathResult,
 	listCommands,
 	listRefs,
 	type ModelInfo,
@@ -65,6 +67,12 @@ interface Props {
 	onArtifactCreated?: (id: string) => void;
 	artifactCount?: number;
 	onOpenArtifacts?: () => void;
+	onStartBatchDigest?: (input: {
+		kbPath: string;
+		filePaths: string[];
+		sourceRoot?: string;
+		concurrency: 1 | 3 | 5;
+	}) => void;
 }
 
 export function ChatPanel({
@@ -78,12 +86,17 @@ export function ChatPanel({
 	onArtifactCreated,
 	artifactCount = 0,
 	onOpenArtifacts,
+	onStartBatchDigest,
 }: Props) {
 	const [messages, setMessages] = useState<Message[]>(() => initialMessages.map(fromUIMessage));
 	const [input, setInput] = useState("");
 	const [status, setStatus] = useState<"idle" | "streaming" | "error">("idle");
 	const [errorMsg, setErrorMsg] = useState<string | null>(null);
 	const [ingestDismissedFor, setIngestDismissedFor] = useState<string | null>(null);
+	const [detectedBatch, setDetectedBatch] = useState<{
+		path: string;
+		inspect: InspectPathResult;
+	} | null>(null);
 	const [commands, setCommands] = useState<CommandItem[]>([]);
 	const [commandMenu, setCommandMenu] = useState<{ open: boolean; query: string; start: number; selected: number }>({
 		open: false,
@@ -109,6 +122,9 @@ export function ChatPanel({
 	})();
 	const ingestChipVisible = Boolean(
 		detectedMaterial && ingestDismissedFor !== detectedMaterial.value,
+	);
+	const batchChipVisible = Boolean(
+		detectedBatch?.inspect.ingestibleFiles?.count && currentKnowledgeBasePath,
 	);
 
 	useEffect(() => {
@@ -324,6 +340,36 @@ export function ChatPanel({
 		}
 	};
 
+	const startDetectedBatchDigest = () => {
+		if (!currentKnowledgeBasePath || !detectedBatch?.inspect.ingestibleFiles?.paths.length) return;
+		onStartBatchDigest?.({
+			kbPath: currentKnowledgeBasePath,
+			filePaths: detectedBatch.inspect.ingestibleFiles.paths,
+			sourceRoot: detectedBatch.inspect.resolvedPath ?? detectedBatch.path,
+			concurrency: 3,
+		});
+		setDetectedBatch(null);
+	};
+
+	const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+		event.preventDefault();
+		const droppedPath = parseDroppedPath(event.dataTransfer);
+		if (!droppedPath) {
+			setErrorMsg("这次拖拽没有暴露真实路径，请直接粘贴路径");
+			return;
+		}
+		inspectKnowledgeBasePath(droppedPath)
+			.then((result) => {
+				if (result.isDirectory && result.ingestibleFiles?.count) {
+					setDetectedBatch({ path: droppedPath, inspect: result });
+					setInput(droppedPath);
+				} else {
+					setInput(droppedPath);
+				}
+			})
+			.catch((err) => setErrorMsg(err instanceof Error ? err.message : String(err)));
+	};
+
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Escape" && (commandMenu.open || refMenu.open)) {
 			e.preventDefault();
@@ -459,7 +505,30 @@ export function ChatPanel({
 				</div>
 			)}
 
-			<div className="border-t border-input p-4">
+			<div
+				className="border-t border-input p-4"
+				onDragOver={(event) => event.preventDefault()}
+				onDrop={handleDrop}
+			>
+				{batchChipVisible && detectedBatch?.inspect.ingestibleFiles && (
+					<div className="mb-2 flex max-w-xl items-center justify-between gap-3 rounded-md border border-input bg-muted px-3 py-2 text-xs text-muted-foreground">
+						<button
+							type="button"
+							onClick={startDetectedBatchDigest}
+							className="truncate text-left hover:text-foreground"
+						>
+							发现 {detectedBatch.inspect.ingestibleFiles.count} 个可消化文件，点击批量消化
+						</button>
+						<button
+							type="button"
+							onClick={() => setDetectedBatch(null)}
+							className="rounded-sm p-0.5 hover:bg-accent hover:text-accent-foreground"
+							aria-label="关闭批量消化提示"
+						>
+							<X className="size-3.5" />
+						</button>
+					</div>
+				)}
 				{ingestChipVisible && detectedMaterial && (
 					<div className="mb-2 flex max-w-xl items-center justify-between gap-3 rounded-md border border-input bg-muted px-3 py-2 text-xs text-muted-foreground">
 						<span className="truncate">检测到{detectedMaterial.kind}，发送时将作为消化素材</span>
@@ -572,4 +641,19 @@ function MessageBubble({
 			</div>
 		</div>
 	);
+}
+
+function parseDroppedPath(dataTransfer: DataTransfer): string | null {
+	for (const type of ["text/uri-list", "text/plain"]) {
+		const raw = dataTransfer.getData(type).trim();
+		if (!raw) continue;
+		const first = raw
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.find((line) => line && !line.startsWith("#"));
+		if (!first) continue;
+		if (first.startsWith("file://")) return decodeURIComponent(new URL(first).pathname);
+		if (first.startsWith("/") || first.startsWith("~/")) return first;
+	}
+	return null;
 }

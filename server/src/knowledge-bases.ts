@@ -10,8 +10,9 @@
  */
 
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, stat } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { mkdir, readdir, realpath, stat } from "node:fs/promises";
+import { basename, extname, join, resolve } from "node:path";
+import { homedir } from "node:os";
 
 import {
 	type AppConfig,
@@ -26,6 +27,40 @@ export interface KnowledgeBaseInfo {
 	origin: "default" | "external";
 	valid: boolean;
 	reason?: string; // valid=false 时说明
+}
+
+export interface InspectPathResult {
+	exists: boolean;
+	isDirectory: boolean;
+	hasWikiSchema: boolean;
+	resolvedPath?: string;
+	ingestibleFiles?: {
+		count: number;
+		samples: string[];
+		paths: string[];
+		truncated: boolean;
+	};
+}
+
+const SKIP_DIRS = new Set([
+	".git",
+	".obsidian",
+	".wiki-tmp",
+	"node_modules",
+	"venv",
+	".venv",
+	"dist",
+	"build",
+]);
+const INGEST_EXTS = new Set([".md", ".txt", ".pdf"]);
+const MAX_SCAN_DEPTH = 5;
+const MAX_INGESTIBLE_FILES = 500;
+
+export function expandUserPath(rawPath: string): string {
+	const trimmed = rawPath.trim();
+	if (trimmed === "~") return homedir();
+	if (trimmed.startsWith("~/")) return join(homedir(), trimmed.slice(2));
+	return trimmed;
 }
 
 /**
@@ -43,6 +78,66 @@ export async function inspectKnowledgeBasePath(
 	if (!schemaInfo) return { valid: false, reason: "Missing .wiki-schema.md" };
 
 	return { valid: true };
+}
+
+export async function inspectPath(rawPath: string): Promise<InspectPathResult> {
+	const expanded = expandUserPath(rawPath);
+	if (!expanded) throw new Error("path 不能为空");
+	const absolutePath = resolve(expanded);
+	const info = await stat(absolutePath).catch((err: NodeJS.ErrnoException) => {
+		if (err.code === "EACCES" || err.code === "EPERM") {
+			throw Object.assign(new Error(`没有权限访问：${absolutePath}`), { statusCode: 403 });
+		}
+		return null;
+	});
+	if (!info) return { exists: false, isDirectory: false, hasWikiSchema: false };
+
+	const resolvedPath = await realpath(absolutePath).catch(() => absolutePath);
+	const isDirectory = info.isDirectory();
+	const schemaInfo = isDirectory ? await stat(join(resolvedPath, ".wiki-schema.md")).catch(() => null) : null;
+	return {
+		exists: true,
+		isDirectory,
+		hasWikiSchema: Boolean(schemaInfo?.isFile()),
+		resolvedPath,
+		...(isDirectory ? { ingestibleFiles: await scanIngestibleFiles(resolvedPath) } : {}),
+	};
+}
+
+async function scanIngestibleFiles(root: string): Promise<NonNullable<InspectPathResult["ingestibleFiles"]>> {
+	const paths: string[] = [];
+	let truncated = false;
+
+	async function walk(dir: string, depth: number): Promise<void> {
+		if (depth > MAX_SCAN_DEPTH || paths.length >= MAX_INGESTIBLE_FILES) {
+			truncated = true;
+			return;
+		}
+		const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+		for (const entry of entries) {
+			if (paths.length >= MAX_INGESTIBLE_FILES) {
+				truncated = true;
+				return;
+			}
+			if (entry.name === ".DS_Store") continue;
+			const fullPath = join(dir, entry.name);
+			if (entry.isDirectory()) {
+				if (entry.name.startsWith(".") && ![".wiki-tmp"].includes(entry.name)) continue;
+				if (SKIP_DIRS.has(entry.name)) continue;
+				await walk(fullPath, depth + 1);
+			} else if (entry.isFile() && INGEST_EXTS.has(extname(entry.name).toLowerCase())) {
+				paths.push(fullPath);
+			}
+		}
+	}
+
+	await walk(root, 0);
+	return {
+		count: paths.length,
+		samples: paths.slice(0, 5).map((file) => file.slice(root.length + 1)),
+		paths,
+		truncated,
+	};
 }
 
 /**
@@ -113,7 +208,9 @@ export async function registerExternalKnowledgeBase(rawPath: string): Promise<{
 	path: string;
 	info: KnowledgeBaseInfo;
 }> {
-	const absolutePath = resolve(rawPath);
+	const absolutePath = await realpath(resolve(expandUserPath(rawPath))).catch(() =>
+		resolve(expandUserPath(rawPath)),
+	);
 
 	const check = await inspectKnowledgeBasePath(absolutePath);
 	if (!check.valid) {

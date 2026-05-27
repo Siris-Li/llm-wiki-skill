@@ -21,11 +21,15 @@ import { fileURLToPath } from "node:url";
 
 import {
 	type AgentSession,
+	AuthStorage,
 	createAgentSession,
 	DefaultResourceLoader,
 	getAgentDir,
+	ModelRegistry,
 	SessionManager,
+	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
 
 import { loadConfig, saveConfig } from "./config.js";
 import { ensureKbSessionDir, listConversations } from "./conversations.js";
@@ -40,6 +44,34 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 const PROJECT_SKILLS_DIR = path.join(REPO_ROOT, ".claude", "skills");
 const PI_DEFAULT_SKILLS_DIR = path.join(homedir(), ".pi", "agent", "skills");
 const USER_GLOBAL_SKILLS_DIR = path.join(homedir(), ".claude", "skills");
+
+export const authStorage = AuthStorage.create();
+export const modelRegistry = ModelRegistry.create(authStorage);
+const settingsManager = SettingsManager.create(REPO_ROOT, getAgentDir());
+
+function registerPendingProviders(loader: DefaultResourceLoader): void {
+	const extensions = loader.getExtensions();
+	const runtime = extensions.runtime as {
+		pendingProviderRegistrations?: Array<{
+			name: string;
+			config: Parameters<ModelRegistry["registerProvider"]>[1];
+			extensionPath?: string;
+		}>;
+	};
+	const pending = runtime.pendingProviderRegistrations ?? [];
+	for (const { name, config, extensionPath } of pending) {
+		try {
+			modelRegistry.registerProvider(name, config);
+		} catch (err) {
+			console.warn(
+				`[agent] register provider from ${extensionPath ?? "extension"} failed: ${
+					err instanceof Error ? err.message : err
+				}`,
+			);
+		}
+	}
+	runtime.pendingProviderRegistrations = [];
+}
 
 async function rememberLastUsedKb(kbPath: string): Promise<void> {
 	try {
@@ -64,7 +96,7 @@ let resourceLoaderState: {
 } | null = null;
 let active: ActiveContext | null = null;
 
-async function getResourceLoader(): Promise<DefaultResourceLoader> {
+export async function getResourceLoader(): Promise<DefaultResourceLoader> {
 	const includeUserGlobal = (await loadConfig()).showUserGlobalSkills === true;
 	if (!resourceLoaderState || resourceLoaderState.includeUserGlobal !== includeUserGlobal) {
 		const additionalSkillPaths = [
@@ -86,6 +118,7 @@ async function getResourceLoader(): Promise<DefaultResourceLoader> {
 					],
 				});
 				await loader.reload();
+				registerPendingProviders(loader);
 				console.log(
 					`[agent] ResourceLoader ready (project skills + user-global ${includeUserGlobal ? "on" : "off"})`,
 				);
@@ -244,6 +277,52 @@ export async function listLoadedSkills(): Promise<LoadedSkillInfo[]> {
 	return results;
 }
 
+export interface AvailableModelInfo {
+	provider: string;
+	modelId: string;
+	name: string;
+	reasoning: boolean;
+	contextWindow: number;
+	cost: { input: number; output: number };
+	hasAuth: boolean;
+}
+
+export function listAvailableModels(): AvailableModelInfo[] {
+	modelRegistry.refresh();
+	const available = modelRegistry.getAvailable();
+	return available.map((model) => ({
+		provider: model.provider,
+		modelId: model.id,
+		name: model.name,
+		reasoning: model.reasoning,
+		contextWindow: model.contextWindow,
+		cost: { input: model.cost.input, output: model.cost.output },
+		hasAuth: modelRegistry.hasConfiguredAuth(model),
+	}));
+}
+
+export function getPiDefaultModelRef(): { provider?: string; modelId?: string } {
+	return {
+		provider: settingsManager.getDefaultProvider(),
+		modelId: settingsManager.getDefaultModel(),
+	};
+}
+
+export async function getRoleModel(role: "main" | "digest"): Promise<Model<any> | undefined> {
+	const config = await loadConfig();
+	const ref = config.modelRoles?.[role];
+	if (ref) {
+		modelRegistry.refresh();
+		const model = modelRegistry.find(ref.provider, ref.modelId);
+		if (model && modelRegistry.hasConfiguredAuth(model)) {
+			console.log(`[agent] role=${role} model=${model.provider}/${model.id}`);
+			return model;
+		}
+		console.warn(`[agent] role=${role} model ${ref.provider}/${ref.modelId} 不可用，回退 pi 默认`);
+	}
+	return undefined;
+}
+
 /**
  * 选择/进入一个知识库：dispose 老 session，加载/新建该库下的活跃对话。
  *   - 该 KB 有对话：opens most recent
@@ -270,6 +349,8 @@ export async function selectKb(kbPath: string): Promise<ActiveContext> {
 	const { session, modelFallbackMessage } = await createAgentSession({
 		resourceLoader: loader,
 		sessionManager,
+		authStorage,
+		modelRegistry,
 	});
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 
@@ -301,6 +382,8 @@ export async function selectConversation(
 	const { session, modelFallbackMessage } = await createAgentSession({
 		resourceLoader: loader,
 		sessionManager: SessionManager.open(target.path),
+		authStorage,
+		modelRegistry,
 	});
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 
@@ -324,6 +407,8 @@ export async function createNewConversation(kbPath: string): Promise<ActiveConte
 	const { session, modelFallbackMessage } = await createAgentSession({
 		resourceLoader: loader,
 		sessionManager: SessionManager.create(process.cwd(), dir),
+		authStorage,
+		modelRegistry,
 	});
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 

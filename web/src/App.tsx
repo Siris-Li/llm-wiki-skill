@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { BatchDigestPanel, type BatchDigestJob } from "@/components/BatchDigestPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { RightDrawer } from "@/components/RightDrawer";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -20,6 +21,7 @@ import {
 	readPage,
 	selectConversation,
 	selectKnowledgeBase,
+	streamBatchDigest,
 	type UIMessage,
 } from "@/lib/api";
 
@@ -60,6 +62,7 @@ function App() {
 	const [artifacts, setArtifacts] = useState<ArtifactManifest[]>([]);
 	const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
 	const [drawerFullscreen, setDrawerFullscreen] = useState(false);
+	const [batchJob, setBatchJob] = useState<BatchDigestJob | null>(null);
 	const activeConversationId = active?.conversation.id ?? null;
 
 	const refreshConversations = useCallback(async (kbPath: string) => {
@@ -228,6 +231,90 @@ function App() {
 		}
 	};
 
+	const handleStartBatchDigest = (input: {
+		kbPath: string;
+		filePaths: string[];
+		sourceRoot?: string;
+		concurrency: 1 | 3 | 5;
+	}) => {
+		const jobId = Math.random().toString(36).slice(2, 10);
+		setBatchJob({
+			id: jobId,
+			status: "running",
+			total: input.filePaths.length,
+			completed: 0,
+			failed: 0,
+			events: [],
+		});
+		void (async () => {
+			try {
+				const stream = await streamBatchDigest(input);
+				for await (const message of stream) {
+					if (message.event === "error") {
+						const payload = JSON.parse(message.data) as { message: string };
+						throw new Error(payload.message);
+					}
+					const event = JSON.parse(message.data);
+					setBatchJob((current) => {
+						if (!current || current.id !== jobId) return current;
+						if (event.type === "start") {
+							return {
+								...current,
+								total: event.total,
+								outputDir: event.outputDir,
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "file_start") {
+							return {
+								...current,
+								current: event.filePath,
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "file_complete") {
+							return {
+								...current,
+								completed: current.completed + 1,
+								current: event.filePath,
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "file_error") {
+							return {
+								...current,
+								failed: current.failed + 1,
+								current: event.filePath,
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "done") {
+							return {
+								...current,
+								status: "done",
+								completed: event.completed,
+								failed: event.failed,
+								outputDir: event.outputDir,
+								events: [...current.events, event],
+							};
+						}
+						return current;
+					});
+				}
+			} catch (err) {
+				setBatchJob((current) =>
+					current && current.id === jobId
+						? {
+								...current,
+								status: "error",
+								error: err instanceof Error ? err.message : String(err),
+							}
+						: current,
+				);
+			}
+		})();
+	};
+
 	return (
 		<TooltipProvider delayDuration={200}>
 			<div className="flex h-screen w-screen">
@@ -244,6 +331,7 @@ function App() {
 					onRefresh={refreshAll}
 					onAddExternal={handleAddExternal}
 					onCreateWiki={handleCreateWiki}
+					onStartBatchDigest={handleStartBatchDigest}
 				/>
 				<main className="flex-1 overflow-hidden">
 					<ChatPanel
@@ -258,6 +346,7 @@ function App() {
 						onArtifactCreated={handleArtifactCreated}
 						artifactCount={artifacts.length}
 						onOpenArtifacts={handleOpenArtifacts}
+						onStartBatchDigest={handleStartBatchDigest}
 					/>
 				</main>
 				<RightDrawer
@@ -276,6 +365,7 @@ function App() {
 					onClose={() => setDrawerMode("closed")}
 				/>
 				<SettingsPanel open={settingsOpen} onOpenChange={setSettingsOpen} />
+				<BatchDigestPanel job={batchJob} onClose={() => setBatchJob(null)} />
 			</div>
 		</TooltipProvider>
 	);

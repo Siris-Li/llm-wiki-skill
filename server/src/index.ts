@@ -40,14 +40,24 @@ import {
 	createNewConversation,
 	getActive,
 	getActiveSession,
+	listAvailableModels,
 	listLoadedSkills,
 	reloadActiveResources,
 	selectConversation,
 	selectKb,
 } from "./agent.js";
 import { getAuthStatus, setAuthKey, testAuthConnection } from "./auth.js";
-import { loadConfig, saveConfig } from "./config.js";
+import { type AppConfig, loadConfig, saveConfig } from "./config.js";
 import { listConversations, piMessagesToUIMessages } from "./conversations.js";
+import { runBatchDigest } from "./digest/batch.js";
+import {
+	inspectPath,
+	listKnowledgeBases,
+	registerExternalKnowledgeBase,
+	unregisterExternalKnowledgeBase,
+} from "./knowledge-bases.js";
+import { listPageRefs, readWikiPage } from "./pages.js";
+import { createWiki, InitConflictError, initExistingWiki } from "./wiki-init.js";
 
 /** 从 session 安全取出模型 provider+id（pi 类型未导出 Model，用结构化访问） */
 function extractModelInfo(session: AgentSession): { provider: string; id: string } | null {
@@ -61,13 +71,19 @@ function extractModelInfo(session: AgentSession): { provider: string; id: string
 	}
 	return null;
 }
-import {
-	listKnowledgeBases,
-	registerExternalKnowledgeBase,
-	unregisterExternalKnowledgeBase,
-} from "./knowledge-bases.js";
-import { listPageRefs, readWikiPage } from "./pages.js";
-import { createWiki } from "./wiki-init.js";
+
+function normalizeRoleModelRef(raw: unknown): AppConfig["modelRoles"] extends infer Roles
+	? Roles extends { main?: infer Ref }
+		? Ref | undefined
+		: never
+	: never {
+	if (raw === null) return null;
+	if (typeof raw !== "object" || raw === undefined) return undefined;
+	const obj = raw as Record<string, unknown>;
+	if (typeof obj.provider !== "string" || typeof obj.modelId !== "string") return undefined;
+	if (!obj.provider.trim() || !obj.modelId.trim()) return undefined;
+	return { provider: obj.provider.trim(), modelId: obj.modelId.trim() };
+}
 
 const app = new Hono();
 
@@ -124,6 +140,27 @@ app.post("/api/knowledge-bases/external", async (c) => {
 	}
 });
 
+app.post("/api/knowledge-bases/inspect", async (c) => {
+	let body: { path?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+	if (typeof body.path !== "string" || !body.path.trim()) {
+		return c.json({ ok: false, error: "Missing or empty 'path'" }, 400);
+	}
+	try {
+		return c.json({ ok: true, result: await inspectPath(body.path) });
+	} catch (err) {
+		const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			statusCode === 403 ? 403 : 500,
+		);
+	}
+});
+
 app.delete("/api/knowledge-bases/external", async (c) => {
 	let body: { path?: unknown };
 	try {
@@ -162,6 +199,41 @@ app.post("/api/knowledge-bases/new", async (c) => {
 			stderr: result.stderr,
 		});
 	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			400,
+		);
+	}
+});
+
+app.post("/api/knowledge-bases/init-existing", async (c) => {
+	let body: { path?: unknown; purpose?: unknown; overwrite?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+	if (typeof body.path !== "string" || typeof body.purpose !== "string") {
+		return c.json({ ok: false, error: "Missing 'path' or 'purpose'" }, 400);
+	}
+	try {
+		const result = await initExistingWiki(body.path, body.purpose, body.overwrite === true);
+		return c.json({
+			ok: true,
+			info: {
+				path: result.path,
+				name: result.path.split("/").filter(Boolean).pop() ?? result.path,
+				origin: "external",
+				valid: true,
+			},
+			stdout: result.stdout,
+			stderr: result.stderr,
+			backedUpFiles: result.backedUpFiles,
+		});
+	} catch (err) {
+		if (err instanceof InitConflictError) {
+			return c.json({ ok: false, error: err.message, conflicts: err.conflicts }, 409);
+		}
 		return c.json(
 			{ ok: false, error: err instanceof Error ? err.message : String(err) },
 			400,
@@ -321,7 +393,11 @@ app.get("/api/config", async (c) => {
 });
 
 app.post("/api/config", async (c) => {
-	let body: { showUserGlobalSkills?: unknown };
+	let body: {
+		showUserGlobalSkills?: unknown;
+		modelRoles?: unknown;
+		uiPrefs?: unknown;
+	};
 	try {
 		body = await c.req.json();
 	} catch {
@@ -329,12 +405,37 @@ app.post("/api/config", async (c) => {
 	}
 	try {
 		const current = await loadConfig();
-			const next = {
-				...current,
-				...(typeof body.showUserGlobalSkills === "boolean"
-					? { showUserGlobalSkills: body.showUserGlobalSkills }
-					: {}),
+		const next: AppConfig = {
+			...current,
+			...(typeof body.showUserGlobalSkills === "boolean"
+				? { showUserGlobalSkills: body.showUserGlobalSkills }
+				: {}),
 		};
+		if (typeof body.modelRoles === "object" && body.modelRoles !== null) {
+			const roles = body.modelRoles as Record<string, unknown>;
+			next.modelRoles = {
+				...(current.modelRoles ?? {}),
+				...(normalizeRoleModelRef(roles.main) !== undefined
+					? { main: normalizeRoleModelRef(roles.main) }
+					: {}),
+				...(normalizeRoleModelRef(roles.digest) !== undefined
+					? { digest: normalizeRoleModelRef(roles.digest) }
+					: {}),
+			};
+		}
+		if (typeof body.uiPrefs === "object" && body.uiPrefs !== null) {
+			const prefs = body.uiPrefs as Record<string, unknown>;
+			next.uiPrefs = {
+				...(current.uiPrefs ?? {}),
+				...(Array.isArray(prefs.sidebarExpandedKbs)
+					? {
+							sidebarExpandedKbs: prefs.sidebarExpandedKbs.filter(
+								(value): value is string => typeof value === "string",
+							),
+						}
+					: {}),
+			};
+		}
 		await saveConfig(next);
 		if (
 			typeof body.showUserGlobalSkills === "boolean" &&
@@ -349,6 +450,66 @@ app.post("/api/config", async (c) => {
 			500,
 		);
 	}
+});
+
+app.get("/api/models", async (c) => {
+	try {
+		return c.json({ ok: true, items: listAvailableModels() });
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			500,
+		);
+	}
+});
+
+app.post("/api/knowledge-bases/batch-digest", async (c) => {
+	let body: {
+		kbPath?: unknown;
+		filePaths?: unknown;
+		concurrency?: unknown;
+		sourceRoot?: unknown;
+	};
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+	}
+	if (typeof body.kbPath !== "string") {
+		return c.json({ ok: false, error: "Missing 'kbPath'" }, 400);
+	}
+	if (!Array.isArray(body.filePaths) || !body.filePaths.every((item) => typeof item === "string")) {
+		return c.json({ ok: false, error: "Missing or invalid 'filePaths'" }, 400);
+	}
+	const concurrency = body.concurrency === undefined ? 3 : Number(body.concurrency);
+	if (![1, 3, 5].includes(concurrency)) {
+		return c.json({ ok: false, error: "concurrency 只能是 1、3 或 5" }, 400);
+	}
+	const sourceRoot = typeof body.sourceRoot === "string" ? body.sourceRoot : undefined;
+
+	return streamSSE(c, async (stream) => {
+		try {
+			await runBatchDigest(
+				{
+					kbPath: body.kbPath as string,
+					filePaths: body.filePaths as string[],
+					concurrency,
+					...(sourceRoot ? { sourceRoot } : {}),
+				},
+				async (event) => {
+					await stream.writeSSE({
+						event: event.type,
+						data: JSON.stringify(event),
+					});
+				},
+			);
+		} catch (err) {
+			await stream.writeSSE({
+				event: "error",
+				data: JSON.stringify({ message: err instanceof Error ? err.message : String(err) }),
+			});
+		}
+	});
 });
 
 // ============= 产物 Artifacts =============

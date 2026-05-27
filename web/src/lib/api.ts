@@ -40,6 +40,21 @@ export interface ModelInfo {
 	id: string;
 }
 
+export interface ModelRef {
+	provider: string;
+	modelId: string;
+}
+
+export interface AvailableModelInfo {
+	provider: string;
+	modelId: string;
+	name: string;
+	reasoning: boolean;
+	contextWindow: number;
+	cost: { input: number; output: number };
+	hasAuth: boolean;
+}
+
 export interface ActiveContext {
 	kb: CurrentKnowledgeBase;
 	conversation: {
@@ -98,7 +113,34 @@ export interface AppConfig {
 	externalKnowledgeBases: string[];
 	lastUsedKbPath?: string;
 	showUserGlobalSkills?: boolean;
+	modelRoles?: {
+		main?: ModelRef | null;
+		digest?: ModelRef | null;
+	};
+	uiPrefs?: {
+		sidebarExpandedKbs?: string[];
+	};
 }
+
+export interface InspectPathResult {
+	exists: boolean;
+	isDirectory: boolean;
+	hasWikiSchema: boolean;
+	resolvedPath?: string;
+	ingestibleFiles?: {
+		count: number;
+		samples: string[];
+		paths: string[];
+		truncated: boolean;
+	};
+}
+
+export type BatchDigestEvent =
+	| { type: "start"; total: number; concurrency: number; outputDir: string }
+	| { type: "file_start"; index: number; filePath: string }
+	| { type: "file_complete"; index: number; filePath: string; outputPath: string }
+	| { type: "file_error"; index: number; filePath: string; error: string }
+	| { type: "done"; total: number; completed: number; failed: number; outputDir: string };
 
 // ============= API =============
 
@@ -167,6 +209,42 @@ export async function registerExternalKnowledgeBase(path: string): Promise<{
 		throw new Error(json.error ?? `HTTP ${res.status}`);
 	}
 	return { registered: json.registered ?? false, info: json.info };
+}
+
+export async function inspectKnowledgeBasePath(path: string): Promise<InspectPathResult> {
+	const res = await fetch("/api/knowledge-bases/inspect", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ path }),
+	});
+	const json = (await res.json()) as { ok: boolean; result?: InspectPathResult; error?: string };
+	if (!res.ok || !json.ok || !json.result) throw new Error(json.error ?? `HTTP ${res.status}`);
+	return json.result;
+}
+
+export async function initExistingKnowledgeBase(
+	path: string,
+	purpose: string,
+	overwrite = false,
+): Promise<{ info: KnowledgeBaseInfo; backedUpFiles: string[] }> {
+	const res = await fetch("/api/knowledge-bases/init-existing", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ path, purpose, overwrite }),
+	});
+	const json = (await res.json()) as {
+		ok: boolean;
+		info?: KnowledgeBaseInfo;
+		backedUpFiles?: string[];
+		conflicts?: string[];
+		error?: string;
+	};
+	if (!res.ok || !json.ok || !json.info) {
+		const error = new Error(json.error ?? `HTTP ${res.status}`) as Error & { conflicts?: string[] };
+		error.conflicts = json.conflicts;
+		throw error;
+	}
+	return { info: json.info, backedUpFiles: json.backedUpFiles ?? [] };
 }
 
 export async function createKnowledgeBase(name: string, purpose: string): Promise<KnowledgeBaseInfo> {
@@ -285,6 +363,45 @@ export async function setConfig(partial: Partial<AppConfig>): Promise<AppConfig>
 	const json = (await res.json()) as { ok: boolean; config?: AppConfig; error?: string };
 	if (!res.ok || !json.ok || !json.config) throw new Error(json.error ?? `HTTP ${res.status}`);
 	return json.config;
+}
+
+export async function fetchAvailableModels(): Promise<AvailableModelInfo[]> {
+	const res = await fetch("/api/models");
+	const json = (await res.json()) as {
+		ok: boolean;
+		items?: AvailableModelInfo[];
+		error?: string;
+	};
+	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+	return json.items ?? [];
+}
+
+export async function streamBatchDigest(
+	input: {
+		kbPath: string;
+		filePaths: string[];
+		concurrency?: 1 | 3 | 5;
+		sourceRoot?: string;
+	},
+	signal?: AbortSignal,
+): Promise<AsyncGenerator<SSEMessage, void, undefined>> {
+	const res = await fetch("/api/knowledge-bases/batch-digest", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(input),
+		signal,
+	});
+	if (!res.ok || !res.body) {
+		let message = `HTTP ${res.status} ${res.statusText}`;
+		try {
+			const json = (await res.json()) as { error?: string };
+			if (json.error) message = json.error;
+		} catch {
+			// keep HTTP message
+		}
+		throw new Error(message);
+	}
+	return parseSSE(res.body);
 }
 
 export async function listRefs(kbPath: string, query: string): Promise<PageRef[]> {

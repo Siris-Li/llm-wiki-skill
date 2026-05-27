@@ -6,7 +6,7 @@
 
 ## 必读文档
 
-**[PRODUCT.md](PRODUCT.md)** —— 产品定位、架构、5 阶段路线、15 条 ADR、协作规则。任何动手前先读这份文档。
+**[PRODUCT.md](PRODUCT.md)** —— 产品定位、架构、5 阶段路线（+ 阶段 3.5）、18 条 ADR、协作规则。任何动手前先读这份文档。
 
 文档与代码 / 约定冲突时，**以 PRODUCT.md 为准**。
 
@@ -21,11 +21,13 @@
 
 ## 项目当前阶段
 
-**阶段三已完成** ✅ 2026-05-27（5 个导出按钮 + 4 个 vendored anthropics Skills + 产物右抽屉多 Tab + HTML iframe 预览 + 下载渲染器 + 全局 Skill 可见性开关）。
+**阶段 3.5 已完成** ✅ 2026-05-27（导航 UX 重构 + 多模型双角色 + 子代理批量消化）。下一阶段是阶段四图谱集成，详见 PRODUCT.md §4 / §10。
 
-阶段一 / 阶段二 / 阶段三的完成情况、commit 表、接受的妥协见 PRODUCT.md §10。
-阶段二完整设计 + 8 step 实施细则 + 总验收剧本归档在 `docs/stage-2-design.md`（已标 ✅）。
-阶段三完整设计 + 8 step 实施细则 + 总验收剧本归档在 `docs/stage-3-design.md`。
+阶段一 / 二 / 三已完成（详见 PRODUCT.md §10）：
+
+- 阶段一 ✅ 2026-05-26（主干打通）
+- 阶段二 ✅ 2026-05-27（@、/、结晶、消化）—— `docs/stage-2-design.md`
+- 阶段三 ✅ 2026-05-27（5 个导出按钮 + 4 个 vendored anthropics Skills + 产物右抽屉 + HTML iframe + 下载渲染器 + Skill 可见性开关）—— `docs/stage-3-design.md`
 
 ## 关键路径速查
 

@@ -25,7 +25,18 @@ export interface AppConfig {
 	/** 最后一次使用的 KB 绝对路径。下次启动用于自动恢复（PRODUCT.md §5.1.1）。 */
 	lastUsedKbPath?: string;
 	showUserGlobalSkills?: boolean;
-	// 未来扩展：默认模型、UI 偏好等
+	modelRoles?: {
+		main?: ModelRef | null;
+		digest?: ModelRef | null;
+	};
+	uiPrefs?: {
+		sidebarExpandedKbs?: string[];
+	};
+}
+
+export interface ModelRef {
+	provider: string;
+	modelId: string;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -73,12 +84,45 @@ function normalize(raw: unknown): AppConfig {
 	const lastUsedKbPath =
 		typeof obj.lastUsedKbPath === "string" && obj.lastUsedKbPath ? obj.lastUsedKbPath : undefined;
 	const showUserGlobalSkills = obj.showUserGlobalSkills === true;
+	const modelRoles = normalizeModelRoles(obj.modelRoles);
+	const uiPrefs = normalizeUiPrefs(obj.uiPrefs);
 	return {
 		version,
 		externalKnowledgeBases: external,
 		lastUsedKbPath,
 		showUserGlobalSkills,
+		...(modelRoles ? { modelRoles } : {}),
+		...(uiPrefs ? { uiPrefs } : {}),
 	};
+}
+
+function normalizeModelRef(raw: unknown): ModelRef | null | undefined {
+	if (raw === null) return null;
+	if (typeof raw !== "object" || raw === undefined) return undefined;
+	const obj = raw as Record<string, unknown>;
+	if (typeof obj.provider !== "string" || typeof obj.modelId !== "string") return undefined;
+	if (!obj.provider.trim() || !obj.modelId.trim()) return undefined;
+	return { provider: obj.provider.trim(), modelId: obj.modelId.trim() };
+}
+
+function normalizeModelRoles(raw: unknown): AppConfig["modelRoles"] | undefined {
+	if (typeof raw !== "object" || raw === null) return undefined;
+	const obj = raw as Record<string, unknown>;
+	const main = normalizeModelRef(obj.main);
+	const digest = normalizeModelRef(obj.digest);
+	const result: NonNullable<AppConfig["modelRoles"]> = {};
+	if (main !== undefined) result.main = main;
+	if (digest !== undefined) result.digest = digest;
+	return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normalizeUiPrefs(raw: unknown): AppConfig["uiPrefs"] | undefined {
+	if (typeof raw !== "object" || raw === null) return undefined;
+	const obj = raw as Record<string, unknown>;
+	const sidebarExpandedKbs = Array.isArray(obj.sidebarExpandedKbs)
+		? obj.sidebarExpandedKbs.filter((value): value is string => typeof value === "string")
+		: undefined;
+	return sidebarExpandedKbs ? { sidebarExpandedKbs } : undefined;
 }
 
 function isNotFound(err: unknown): boolean {

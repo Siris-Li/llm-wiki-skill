@@ -12,9 +12,12 @@ import {
 import { Input } from "@/components/ui/input";
 import {
 	type AuthStatus,
+	type AvailableModelInfo,
+	fetchAvailableModels,
 	getAuthStatus,
 	getConfig,
 	listCommands,
+	type ModelRef,
 	setAuthKey,
 	setConfig,
 	testAuthConnection,
@@ -37,17 +40,28 @@ export function SettingsPanel({ open, onOpenChange }: Props) {
 	const [key, setKey] = useState("");
 	const [loading, setLoading] = useState(false);
 	const [showUserGlobalSkills, setShowUserGlobalSkills] = useState(false);
+	const [models, setModels] = useState<AvailableModelInfo[]>([]);
+	const [modelRoles, setModelRoles] = useState<{ main: string; digest: string }>({
+		main: "",
+		digest: "",
+	});
 	const [skillCounts, setSkillCounts] = useState({ builtin: 0, piDefault: 0, userGlobal: 0 });
 	const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
 	const refresh = async () => {
-		const [auth, config, allCommands] = await Promise.all([
+		const [auth, config, allCommands, availableModels] = await Promise.all([
 			getAuthStatus(),
 			getConfig(),
 			listCommands(true),
+			fetchAvailableModels(),
 		]);
 		setStatus(auth);
+		setModels(availableModels);
 		setShowUserGlobalSkills(config.showUserGlobalSkills === true);
+		setModelRoles({
+			main: modelRefToValue(config.modelRoles?.main),
+			digest: modelRefToValue(config.modelRoles?.digest),
+		});
 		setSkillCounts({
 			builtin: allCommands.filter((item) => item.source === "builtin" && item.skillPath).length,
 			piDefault: allCommands.filter((item) => item.source === "pi-default").length,
@@ -98,6 +112,20 @@ export function SettingsPanel({ open, onOpenChange }: Props) {
 			window.dispatchEvent(new Event("llm-wiki-agent:commands-changed"));
 		} catch (err) {
 			setShowUserGlobalSkills(!checked);
+			setMessage({ type: "error", text: err instanceof Error ? err.message : String(err) });
+		}
+	};
+
+	const saveModelRole = async (role: "main" | "digest", value: string) => {
+		setModelRoles((prev) => ({ ...prev, [role]: value }));
+		try {
+			await setConfig({
+				modelRoles: {
+					[role]: valueToModelRef(value),
+				},
+			});
+			setMessage({ type: "success", text: "模型设置已保存" });
+		} catch (err) {
 			setMessage({ type: "error", text: err instanceof Error ? err.message : String(err) });
 		}
 	};
@@ -205,6 +233,27 @@ export function SettingsPanel({ open, onOpenChange }: Props) {
 
 					<section className="space-y-3 rounded-md border border-input p-3">
 						<div>
+							<div className="text-sm font-medium">模型角色</div>
+							<div className="mt-1 text-xs text-muted-foreground">
+								主对话保持当前默认；批量消化会使用 digest 角色
+							</div>
+						</div>
+						<ModelRoleSelect
+							label="主对话"
+							value={modelRoles.main}
+							models={models}
+							onChange={(value) => saveModelRole("main", value)}
+						/>
+						<ModelRoleSelect
+							label="批量消化"
+							value={modelRoles.digest}
+							models={models}
+							onChange={(value) => saveModelRole("digest", value)}
+						/>
+					</section>
+
+					<section className="space-y-3 rounded-md border border-input p-3">
+						<div>
 							<div className="text-sm font-medium">Skill 加载</div>
 							<div className="mt-1 text-xs text-muted-foreground">
 								项目内置 {skillCounts.builtin} 个 / pi 默认 {skillCounts.piDefault} 个 / 用户全局{" "}
@@ -228,4 +277,50 @@ export function SettingsPanel({ open, onOpenChange }: Props) {
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function ModelRoleSelect({
+	label,
+	value,
+	models,
+	onChange,
+}: {
+	label: string;
+	value: string;
+	models: AvailableModelInfo[];
+	onChange: (value: string) => void;
+}) {
+	return (
+		<label className="grid gap-2 text-sm sm:grid-cols-[100px_1fr] sm:items-center">
+			<span className="text-muted-foreground">{label}</span>
+			<select
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			>
+				<option value="">沿用 pi 默认</option>
+				{models.map((model) => (
+					<option
+						key={`${model.provider}/${model.modelId}`}
+						value={`${model.provider}/${model.modelId}`}
+						disabled={!model.hasAuth}
+					>
+						{model.provider}/{model.modelId}
+						{model.hasAuth ? "" : "（未配置）"}
+					</option>
+				))}
+			</select>
+		</label>
+	);
+}
+
+function modelRefToValue(ref?: ModelRef | null): string {
+	return ref ? `${ref.provider}/${ref.modelId}` : "";
+}
+
+function valueToModelRef(value: string): ModelRef | null {
+	const [provider, ...rest] = value.split("/");
+	const modelId = rest.join("/");
+	if (!provider || !modelId) return null;
+	return { provider, modelId };
 }

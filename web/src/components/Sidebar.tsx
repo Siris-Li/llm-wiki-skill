@@ -20,6 +20,12 @@ interface Props {
 	onRefresh: () => void;
 	onAddExternal: (path: string) => Promise<void>;
 	onCreateWiki: (name: string, purpose: string) => Promise<void>;
+	onStartBatchDigest?: (input: {
+		kbPath: string;
+		filePaths: string[];
+		sourceRoot?: string;
+		concurrency: 1 | 3 | 5;
+	}) => void;
 }
 
 export function Sidebar({
@@ -35,12 +41,21 @@ export function Sidebar({
 	onRefresh,
 	onAddExternal,
 	onCreateWiki,
+	onStartBatchDigest,
 }: Props) {
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [newWikiOpen, setNewWikiOpen] = useState(false);
+	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-	const defaultKbs = knowledgeBases.filter((i) => i.origin === "default");
-	const externalKbs = knowledgeBases.filter((i) => i.origin === "external");
+	const currentExpanded = currentKbPath ? expanded.has(currentKbPath) : false;
+	const toggleExpanded = (path: string) => {
+		setExpanded((prev) => {
+			const next = new Set(prev);
+			if (next.has(path)) next.delete(path);
+			else next.add(path);
+			return next;
+		});
+	};
 
 	return (
 		<aside className="flex h-full w-60 flex-col border-r border-input bg-muted/30">
@@ -58,64 +73,55 @@ export function Sidebar({
 					</div>
 				)}
 
-				{/* 知识库 */}
-				<Section title="知识库" hint="~/llm-wiki/">
-					{defaultKbs.length === 0 ? (
-						<EmptyHint text="默认根为空" />
+				<Section title="知识库" hint="~/llm-wiki/ + 外部">
+					{knowledgeBases.length === 0 ? (
+						<EmptyHint text="还没有知识库" />
 					) : (
-						defaultKbs.map((item) => (
-							<KbItem
-								key={item.path}
-								item={item}
-								active={item.path === currentKbPath}
-								onClick={() => onSelectKb(item)}
-							/>
-						))
-					)}
-					{externalKbs.length > 0 && (
-						<div className="mt-2 border-t border-input/50 pt-2">
-							<div className="mb-1 px-2 text-[10px] text-muted-foreground/60">外部</div>
-							{externalKbs.map((item) => (
-								<KbItem
-									key={item.path}
-									item={item}
-									active={item.path === currentKbPath}
-									onClick={() => onSelectKb(item)}
-								/>
-							))}
-						</div>
+						knowledgeBases.map((item) => {
+							const active = item.path === currentKbPath;
+							const opened = active && currentExpanded;
+							return (
+								<div key={item.path}>
+									<KbItem
+										item={item}
+										active={active}
+										expanded={opened}
+										onClick={() => {
+											onSelectKb(item);
+											if (item.valid && !expanded.has(item.path)) {
+												setExpanded((prev) => new Set(prev).add(item.path));
+											}
+										}}
+										onToggle={() => toggleExpanded(item.path)}
+									/>
+									{opened && (
+										<div className="ml-5 mt-1 space-y-1 border-l border-input/60 pl-2">
+											<button
+												type="button"
+												onClick={onNewConversation}
+												className="w-full rounded-md px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+											>
+												+ 新对话
+											</button>
+											{conversations.length === 0 ? (
+												<EmptyHint text="暂无对话" />
+											) : (
+												conversations.map((c) => (
+													<ConversationItem
+														key={c.id}
+														item={c}
+														active={c.id === currentConversationId}
+														onClick={() => onSelectConversation(c)}
+													/>
+												))
+											)}
+										</div>
+									)}
+								</div>
+							);
+						})
 					)}
 				</Section>
-
-				{/* 对话 */}
-				{currentKbPath && (
-					<Section
-						title="对话"
-						hint=""
-						action={
-							<button
-								type="button"
-								onClick={onNewConversation}
-								className="text-[10px] text-muted-foreground hover:text-foreground"
-							>
-								+ 新对话
-							</button>
-						}
-					>
-						{conversations.length === 0 ? (
-							<EmptyHint text="（点上方 + 新对话开始）" />
-						) : (
-							conversations.map((c) => (
-								<ConversationItem
-									key={c.id}
-									item={c}
-									active={c.id === currentConversationId}
-									onClick={() => onSelectConversation(c)}
-								/>
-							))
-						)}
-					</Section>
-				)}
 			</div>
 
 			<div className="space-y-2 border-t border-input p-2">
@@ -146,6 +152,7 @@ export function Sidebar({
 				open={dialogOpen}
 				onOpenChange={setDialogOpen}
 				onSubmit={onAddExternal}
+				onStartBatchDigest={onStartBatchDigest}
 			/>
 		</aside>
 	);
@@ -183,30 +190,48 @@ function EmptyHint({ text }: { text: string }) {
 function KbItem({
 	item,
 	active,
+	expanded,
 	onClick,
+	onToggle,
 }: {
 	item: KnowledgeBaseInfo;
 	active: boolean;
+	expanded: boolean;
 	onClick: () => void;
+	onToggle: () => void;
 }) {
 	const isDisabled = !item.valid;
 
 	const inner = (
-		<button
-			type="button"
-			onClick={onClick}
-			disabled={isDisabled}
-			className={cn(
-				"w-full truncate rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-				"hover:bg-accent hover:text-accent-foreground",
-				"disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
-				active && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
-			)}
-			title={item.path}
-		>
-			<span className="mr-1.5">{active ? "●" : "○"}</span>
-			{item.name}
-		</button>
+		<div className="flex items-center gap-1">
+			<button
+				type="button"
+				onClick={onToggle}
+				disabled={isDisabled || !active}
+				className="h-7 w-6 rounded-md text-xs text-muted-foreground hover:bg-accent disabled:opacity-40"
+				aria-label="展开对话"
+			>
+				{expanded ? "▾" : "▸"}
+			</button>
+			<button
+				type="button"
+				onClick={onClick}
+				disabled={isDisabled}
+				className={cn(
+					"min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+					"hover:bg-accent hover:text-accent-foreground",
+					"disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
+					active && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
+				)}
+				title={item.path}
+			>
+				<span className="mr-1.5">{active ? "●" : "○"}</span>
+				<span className="truncate">{item.name}</span>
+				{item.origin === "external" && (
+					<span className="ml-1 text-[10px] opacity-70">外部</span>
+				)}
+			</button>
+		</div>
 	);
 
 	if (!item.valid && item.reason) {
