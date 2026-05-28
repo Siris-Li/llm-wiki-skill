@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { type CSSProperties, useEffect, useRef } from "react";
 
 import { Download, FileText, Maximize2, Minimize2, X } from "lucide-react";
 
@@ -18,7 +18,10 @@ interface Props {
 	artifacts: ArtifactManifest[];
 	activeArtifactId: string | null;
 	fullscreen: boolean;
+	width: number;
+	defaultWidth: number;
 	onSelectArtifact: (id: string) => void;
+	onResize: (width: number) => void;
 	onToggleFullscreen: () => void;
 	onClose: () => void;
 }
@@ -37,10 +40,21 @@ export function RightDrawer({
 	artifacts,
 	activeArtifactId,
 	fullscreen,
+	width,
+	defaultWidth,
 	onSelectArtifact,
+	onResize,
 	onToggleFullscreen,
 	onClose,
 }: Props) {
+	const dragStart = useRef<{ x: number; width: number } | null>(null);
+
+	useEffect(() => {
+		return () => {
+			document.body.classList.remove("drawer-resizing");
+		};
+	}, []);
+
 	useEffect(() => {
 		if (mode === "closed") return;
 
@@ -55,7 +69,60 @@ export function RightDrawer({
 	if (mode === "closed") return null;
 	const activeArtifact = artifacts.find((item) => item.id === activeArtifactId) ?? null;
 	return (
-		<aside className={cn("drawer-panel drawer-panel-open", fullscreen && "drawer-panel-fullscreen")}>
+		<aside
+			className={cn("drawer-panel drawer-panel-open", fullscreen && "drawer-panel-fullscreen")}
+			style={{ "--drawer-width": `${width}px` } as CSSProperties}
+		>
+			{!fullscreen && (
+				<div
+					className="drawer-resize-handle"
+					role="separator"
+					aria-label="调整预览区宽度"
+					aria-orientation="vertical"
+					tabIndex={0}
+					onDoubleClick={() => onResize(defaultWidth)}
+					onKeyDown={(event) => {
+						if (event.key === "ArrowLeft") {
+							event.preventDefault();
+							onResize(width + 24);
+						}
+						if (event.key === "ArrowRight") {
+							event.preventDefault();
+							onResize(width - 24);
+						}
+						if (event.key === "Home") {
+							event.preventDefault();
+							onResize(defaultWidth);
+						}
+					}}
+					onPointerDown={(event) => {
+						event.preventDefault();
+						dragStart.current = { x: event.clientX, width };
+						document.body.classList.add("drawer-resizing");
+						const target = event.currentTarget;
+						target.setPointerCapture(event.pointerId);
+					}}
+					onPointerMove={(event) => {
+						if (!dragStart.current) return;
+						const delta = dragStart.current.x - event.clientX;
+						onResize(dragStart.current.width + delta);
+					}}
+					onPointerUp={(event) => {
+						dragStart.current = null;
+						document.body.classList.remove("drawer-resizing");
+						if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+							event.currentTarget.releasePointerCapture(event.pointerId);
+						}
+					}}
+					onPointerCancel={(event) => {
+						dragStart.current = null;
+						document.body.classList.remove("drawer-resizing");
+						if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+							event.currentTarget.releasePointerCapture(event.pointerId);
+						}
+					}}
+				/>
+			)}
 			<header className="drawer-header">
 				<div className="drawer-title">
 					{mode === "wiki" ? wiki.path : activeArtifact?.metadata.title ?? "产物"}

@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { ChevronRight, Download, Plus, RefreshCw, Settings } from "lucide-react";
+import {
+	BookOpen,
+	ChevronRight,
+	Download,
+	PanelLeftClose,
+	PanelLeftOpen,
+	Plus,
+	RefreshCw,
+	Settings,
+} from "lucide-react";
 
 import { AddExternalDialog } from "@/components/AddExternalDialog";
 import { NewWikiDialog } from "@/components/NewWikiDialog";
@@ -14,11 +23,13 @@ interface Props {
 	currentConversationId: string | null;
 	loading: boolean;
 	error: string | null;
+	collapsed: boolean;
 	onSelectKb: (item: KnowledgeBaseInfo) => void;
 	onSelectConversation: (item: ConversationInfo) => void;
 	onNewConversation: () => void;
 	onRefresh: () => void;
 	onOpenSettings?: () => void;
+	onToggleCollapsed: () => void;
 	onAddExternal: (path: string) => Promise<void>;
 	onCreateWiki: (name: string, purpose: string) => Promise<void>;
 	onStartBatchDigest?: (input: {
@@ -37,11 +48,13 @@ export function Sidebar({
 	currentConversationId,
 	loading,
 	error,
+	collapsed,
 	onSelectKb,
 	onSelectConversation,
 	onNewConversation,
 	onRefresh,
 	onOpenSettings,
+	onToggleCollapsed,
 	onAddExternal,
 	onCreateWiki,
 	onStartBatchDigest,
@@ -51,6 +64,7 @@ export function Sidebar({
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
 	const currentExpanded = currentKbPath ? expanded.has(currentKbPath) : false;
+	const currentKb = knowledgeBases.find((item) => item.path === currentKbPath) ?? null;
 	const toggleExpanded = (path: string) => {
 		setExpanded((prev) => {
 			const next = new Set(prev);
@@ -60,6 +74,57 @@ export function Sidebar({
 		});
 	};
 
+	const openCurrentKb = () => {
+		if (!currentKb || !currentKb.valid) return;
+		onSelectKb(currentKb);
+		setExpanded(new Set([currentKb.path]));
+	};
+
+	if (collapsed) {
+		return (
+			<aside className="shell-sidebar shell-sidebar-collapsed" aria-label="折叠侧栏">
+				<div className="sidebar-rail">
+					<RailButton label="展开侧栏" onClick={onToggleCollapsed}>
+						<PanelLeftOpen />
+					</RailButton>
+					<div className="sidebar-rail-separator" />
+					<RailButton
+						label={currentKb ? `当前知识库：${currentKb.name}` : "当前知识库"}
+						onClick={openCurrentKb}
+						disabled={!currentKb?.valid}
+						active={Boolean(currentKb)}
+					>
+						<BookOpen />
+					</RailButton>
+					<RailButton label="刷新" onClick={onRefresh} disabled={loading}>
+						<RefreshCw className={cn(loading && "animate-spin")} />
+					</RailButton>
+					<div className="sidebar-rail-spacer" />
+					<RailButton label="新建知识库" onClick={() => setNewWikiOpen(true)}>
+						<Plus />
+					</RailButton>
+					<RailButton label="添加现有库" onClick={() => setDialogOpen(true)}>
+						<Download />
+					</RailButton>
+					<RailButton label="设置" onClick={onOpenSettings}>
+						<Settings />
+					</RailButton>
+				</div>
+				<NewWikiDialog
+					open={newWikiOpen}
+					onOpenChange={setNewWikiOpen}
+					onSubmit={onCreateWiki}
+				/>
+				<AddExternalDialog
+					open={dialogOpen}
+					onOpenChange={setDialogOpen}
+					onSubmit={onAddExternal}
+					onStartBatchDigest={onStartBatchDigest}
+				/>
+			</aside>
+		);
+	}
+
 	return (
 		<aside className="shell-sidebar">
 			<div className="sidebar-header">
@@ -68,6 +133,15 @@ export function Sidebar({
 					<span>llm-wiki-agent</span>
 				</div>
 				<div className="flex items-center gap-0.5">
+					<button
+						className="icon-btn"
+						type="button"
+						onClick={onToggleCollapsed}
+						title="折叠侧栏"
+						aria-label="折叠侧栏"
+					>
+						<PanelLeftClose />
+					</button>
 					<button className="icon-btn" type="button" onClick={onRefresh} disabled={loading} title="刷新">
 						<RefreshCw className={cn(loading && "animate-spin")} />
 					</button>
@@ -166,6 +240,39 @@ export function Sidebar({
 				onStartBatchDigest={onStartBatchDigest}
 			/>
 		</aside>
+	);
+}
+
+function RailButton({
+	label,
+	active,
+	disabled,
+	onClick,
+	children,
+}: {
+	label: string;
+	active?: boolean;
+	disabled?: boolean;
+	onClick?: () => void;
+	children: React.ReactNode;
+}) {
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<button
+					type="button"
+					className={cn("sidebar-rail-btn", active && "sidebar-rail-btn-active")}
+					onClick={onClick}
+					disabled={disabled}
+					aria-label={label}
+				>
+					{children}
+				</button>
+			</TooltipTrigger>
+			<TooltipContent side="right">
+				<div className="text-xs">{label}</div>
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 

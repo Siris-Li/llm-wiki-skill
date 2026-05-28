@@ -28,6 +28,34 @@ import {
 
 type ThemeMode = "dark" | "light";
 const THEME_STORAGE_KEY = "llm-wiki-agent-theme";
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "llm-wiki-agent-sidebar-collapsed";
+const DRAWER_WIDTH_STORAGE_KEY = "llm-wiki-agent-drawer-width";
+const DEFAULT_DRAWER_WIDTH = 420;
+const MIN_DRAWER_WIDTH = 360;
+const MIN_CHAT_WIDTH = 420;
+const MAX_DRAWER_RATIO = 0.7;
+const FULL_SIDEBAR_WIDTH = 270;
+const COMPACT_SIDEBAR_WIDTH = 230;
+const COLLAPSED_SIDEBAR_WIDTH = 52;
+const MOBILE_BREAKPOINT = 768;
+const COMPACT_BREAKPOINT = 1024;
+
+function getSidebarLayoutWidth(collapsed: boolean): number {
+	if (typeof window === "undefined") return 0;
+	if (window.innerWidth <= MOBILE_BREAKPOINT) return 0;
+	if (collapsed) return COLLAPSED_SIDEBAR_WIDTH;
+	return window.innerWidth <= COMPACT_BREAKPOINT ? COMPACT_SIDEBAR_WIDTH : FULL_SIDEBAR_WIDTH;
+}
+
+function clampDrawerWidth(width: number, sidebarCollapsed: boolean): number {
+	if (typeof window === "undefined") return DEFAULT_DRAWER_WIDTH;
+	const sidebarWidth = getSidebarLayoutWidth(sidebarCollapsed);
+	const maxByRatio = Math.floor(window.innerWidth * MAX_DRAWER_RATIO);
+	const maxByChat = Math.max(0, window.innerWidth - sidebarWidth - MIN_CHAT_WIDTH);
+	const maxWidth = Math.max(0, Math.min(maxByRatio, maxByChat));
+	const minWidth = Math.min(MIN_DRAWER_WIDTH, maxWidth);
+	return Math.min(Math.max(width, minWidth), maxWidth);
+}
 
 /**
  * 阶段一 step 8 - 阶段一完结
@@ -54,6 +82,17 @@ function App() {
 		if (typeof window === "undefined") return "dark";
 		return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
 	});
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+		if (typeof window === "undefined") return false;
+		return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+	});
+	const [drawerWidth, setDrawerWidthState] = useState(() => {
+		if (typeof window === "undefined") return DEFAULT_DRAWER_WIDTH;
+		const stored = window.localStorage.getItem(DRAWER_WIDTH_STORAGE_KEY);
+		if (!stored) return DEFAULT_DRAWER_WIDTH;
+		const raw = Number(stored);
+		return Number.isFinite(raw) ? clampDrawerWidth(raw, sidebarCollapsed) : DEFAULT_DRAWER_WIDTH;
+	});
 	const [kbs, setKbs] = useState<KnowledgeBaseInfo[]>([]);
 	const [active, setActive] = useState<ActiveContext | null>(null);
 	const [conversations, setConversations] = useState<ConversationInfo[]>([]);
@@ -79,6 +118,24 @@ function App() {
 		root.classList.toggle("dark", theme === "dark");
 		window.localStorage.setItem(THEME_STORAGE_KEY, theme);
 	}, [theme]);
+
+	useEffect(() => {
+		window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(sidebarCollapsed));
+	}, [sidebarCollapsed]);
+
+	useEffect(() => {
+		const handleResize = () => setDrawerWidthState((width) => clampDrawerWidth(width, sidebarCollapsed));
+		window.addEventListener("resize", handleResize);
+		return () => window.removeEventListener("resize", handleResize);
+	}, [sidebarCollapsed]);
+
+	const setDrawerWidth = useCallback((width: number) => {
+		setDrawerWidthState(() => {
+			const next = clampDrawerWidth(width, sidebarCollapsed);
+			window.localStorage.setItem(DRAWER_WIDTH_STORAGE_KEY, String(next));
+			return next;
+		});
+	}, [sidebarCollapsed]);
 
 	const refreshConversations = useCallback(async (kbPath: string) => {
 		try {
@@ -400,11 +457,13 @@ function App() {
 					currentConversationId={active?.conversation.id ?? null}
 					loading={loading}
 					error={sidebarError}
+					collapsed={sidebarCollapsed}
 					onSelectKb={handleSelectKb}
 					onSelectConversation={handleSelectConversation}
 					onNewConversation={handleNewConversation}
 					onRefresh={refreshAll}
 					onOpenSettings={() => setSettingsOpen(true)}
+					onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
 					onAddExternal={handleAddExternal}
 					onCreateWiki={handleCreateWiki}
 					onStartBatchDigest={handleStartBatchDigest}
@@ -438,7 +497,10 @@ function App() {
 					artifacts={artifacts}
 					activeArtifactId={activeArtifactId}
 					fullscreen={drawerFullscreen}
+					width={drawerWidth}
+					defaultWidth={DEFAULT_DRAWER_WIDTH}
 					onSelectArtifact={setActiveArtifactId}
+					onResize={setDrawerWidth}
 					onToggleFullscreen={() => setDrawerFullscreen((value) => !value)}
 					onClose={() => setDrawerMode("closed")}
 				/>
