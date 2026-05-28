@@ -72,9 +72,11 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 
 	useEffect(() => {
 		if (!open) return;
-		refresh().catch((err) =>
-			setMessage({ type: "error", text: err instanceof Error ? err.message : String(err) }),
-		);
+		void Promise.resolve()
+			.then(refresh)
+			.catch((err) =>
+				setMessage({ type: "error", text: err instanceof Error ? err.message : String(err) }),
+			);
 	}, [open]);
 
 	useEffect(() => {
@@ -134,19 +136,19 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="max-w-2xl" showCloseButton={false}>
+			<DialogContent className="dialog-surface max-w-2xl" showCloseButton={false}>
 				<DialogHeader className="flex-row items-start justify-between gap-4 space-y-0">
 					<div>
 						<DialogTitle>设置</DialogTitle>
 						<DialogDescription>认证</DialogDescription>
 					</div>
-					<Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label="关闭">
+					<Button variant="ghost" size="icon" className="icon-btn" onClick={() => onOpenChange(false)} aria-label="关闭">
 						<XCircle className="size-4" />
 					</Button>
 				</DialogHeader>
 
 				<div className="space-y-5">
-					<section className="space-y-2 rounded-md border border-input p-3">
+					<section className="space-y-2 rounded-md border border-[var(--app-border)] p-3">
 						<div className="flex items-center gap-2 text-sm font-medium">
 							<KeyRound className="size-4" />
 							登录方式状态
@@ -159,7 +161,7 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 								status.providers.map((item) => (
 									<span
 										key={item.id}
-										className="rounded-md border border-input bg-muted px-2 py-1 text-xs"
+									className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-1 text-xs"
 									>
 										{item.id}：已配置
 									</span>
@@ -170,13 +172,13 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 						</div>
 					</section>
 
-					<section className="space-y-3 rounded-md border border-input p-3">
+					<section className="space-y-3 rounded-md border border-[var(--app-border)] p-3">
 						<div className="text-sm font-medium">添加 API key</div>
 						<div className="grid gap-2 sm:grid-cols-[160px_1fr]">
 							<select
 								value={provider}
 								onChange={(e) => setProvider(e.target.value)}
-								className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								className="form-field h-9"
 							>
 								{PROVIDERS.map((item) => (
 									<option key={item.id} value={item.id}>
@@ -190,6 +192,7 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 								onChange={(e) => setKey(e.target.value)}
 								autoComplete="off"
 								placeholder="API key"
+								className="form-field"
 							/>
 						</div>
 						<div className="flex items-center justify-between gap-3">
@@ -216,13 +219,13 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 						</div>
 					</section>
 
-					<section className="space-y-2 rounded-md border border-input p-3">
+					<section className="space-y-2 rounded-md border border-[var(--app-border)] p-3">
 						<div className="text-sm font-medium">环境变量</div>
 						<div className="grid gap-2 sm:grid-cols-2">
 							{status?.envKeys.map((item) => (
 								<div
 									key={item.name}
-									className="flex items-center justify-between rounded-md bg-muted px-2 py-1 text-xs"
+									className="flex items-center justify-between rounded-md bg-[var(--app-bg)] px-2 py-1 text-xs"
 								>
 									<span>{item.name}</span>
 									<span className={item.present ? "text-emerald-400" : "text-muted-foreground"}>
@@ -233,7 +236,7 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 						</div>
 					</section>
 
-					<section className="space-y-3 rounded-md border border-input p-3">
+					<section className="space-y-3 rounded-md border border-[var(--app-border)] p-3">
 						<div>
 							<div className="text-sm font-medium">模型角色</div>
 							<div className="mt-1 text-xs text-muted-foreground">
@@ -254,7 +257,7 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 						/>
 					</section>
 
-					<section className="space-y-3 rounded-md border border-input p-3">
+					<section className="space-y-3 rounded-md border border-[var(--app-border)] p-3">
 						<div>
 							<div className="text-sm font-medium">Skill 加载</div>
 							<div className="mt-1 text-xs text-muted-foreground">
@@ -262,7 +265,7 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 								{skillCounts.userGlobal} 个
 							</div>
 						</div>
-						<label className="flex items-center justify-between gap-4 rounded-md bg-muted px-3 py-2 text-sm">
+						<label className="flex items-center justify-between gap-4 rounded-md bg-[var(--app-bg)] px-3 py-2 text-sm">
 							<span>
 								<span className="block">展示用户全局 Skill</span>
 								<span className="text-xs text-muted-foreground">~/.claude/skills/</span>
@@ -271,7 +274,7 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 								type="checkbox"
 								checked={showUserGlobalSkills}
 								onChange={(e) => toggleUserGlobalSkills(e.target.checked)}
-								className="size-4 accent-primary"
+								className="size-4 accent-[var(--app-accent)]"
 							/>
 						</label>
 					</section>
@@ -298,7 +301,7 @@ function ModelRoleSelect({
 			<select
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
-				className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			className="form-field h-9"
 			>
 				<option value="">沿用 pi 默认</option>
 				{models.map((model) => (

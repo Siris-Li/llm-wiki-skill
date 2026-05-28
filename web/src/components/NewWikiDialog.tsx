@@ -54,7 +54,7 @@ export function NewWikiDialog({ open, onOpenChange, onSubmit }: Props) {
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="dialog-surface sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle>新建知识库</DialogTitle>
 					<DialogDescription>在默认目录下创建一个完整的 llm-wiki 知识库。</DialogDescription>
@@ -66,11 +66,13 @@ export function NewWikiDialog({ open, onOpenChange, onSubmit }: Props) {
 						onChange={(e) => setName(e.target.value)}
 						placeholder="stage2-research"
 						autoFocus
+						className="form-field"
 					/>
 					<Input
 						value={purpose}
 						onChange={(e) => setPurpose(e.target.value)}
 						placeholder="研究方向"
+						className="form-field"
 						onKeyDown={(e) => {
 							if (e.key === "Enter" && !submitting) {
 								e.preventDefault();

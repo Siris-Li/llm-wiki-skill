@@ -15,7 +15,9 @@ export function HtmlRenderer({ manifest }: Props) {
 
 	useEffect(() => {
 		let cancelled = false;
-		setStatus("loading");
+		const loadingTimer = window.setTimeout(() => {
+			if (!cancelled) setStatus("loading");
+		}, 0);
 		fetch(fileUrl)
 			.then((res) => {
 				if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -31,6 +33,7 @@ export function HtmlRenderer({ manifest }: Props) {
 			});
 		return () => {
 			cancelled = true;
+			window.clearTimeout(loadingTimer);
 		};
 	}, [fileUrl]);
 

@@ -398,10 +398,11 @@ llm-wiki-agent/                       ← 你的仓库
 
 ### 5.4 视觉风格
 
-- 默认深色模式
+- 默认深色模式，支持浅色 / 深色切换，用户选择只保存在本机
 - 等宽字体：JetBrains Mono / SF Mono
 - 中文 UI 字体：系统字体（San Francisco / Microsoft YaHei / PingFang）
 - 工具感优先，不追求"产品级精致"。参考 Codex / Claude Desktop / Linear
+- 阶段 3.5 收尾吸收本地 UI 原型：统一侧栏、状态条、对话区、输入区、菜单、抽屉和设置面板的工作台视觉，不改变既有三栏心智和功能范围
 
 ### 5.5 严禁项
 
@@ -928,6 +929,7 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
 - 单文件批量消化真实跑通，SSE 返回 start / file_start / file_complete / done，并写入 `wiki/synthesis/sessions/`
 - 验收后补强：批量消化改为逐文件失败隔离，进度面板显示每个文件状态、生成字数和结果入口；外部目录批量消化改用 inspect 扫描凭据，不再信任前端传任意 sourceRoot；初始化后批量消化可临时选择 digest 模型
 - 收尾补强：当前知识库自动检索已落地（见 [docs/current-kb-retrieval-design.md](docs/current-kb-retrieval-design.md)）；批量消化后直接提问会先检索当前知识库，普通寒暄和导出指令不会误触发检索
+- UI 视觉迁移补强：基于本地原型 `index.html` 统一工作台视觉，补齐浅色 / 深色主题切换；保持原有侧栏、对话、引用、命令、产物抽屉、设置、批量消化流程不变，不新增依赖
 
 ### 阶段四 / 五：未开始（详见 §4）
 
@@ -976,6 +978,10 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
 
 ## Changelog
 
+- **2026-05-28 v11（阶段 3.5 UI 收尾）**：补记原计划外的 UI 原型迁移
+  - 基于本地原型 `index.html` 统一工作台视觉，覆盖侧栏、顶部状态条、对话区、输入区、`@` / `/` 菜单、右抽屉、设置和批量消化面板
+  - 增加浅色 / 深色主题切换，默认深色，用户选择保存在本机
+  - 保持阶段 3.5 既有产品范围，不新增 npm 依赖；本次属于收尾视觉补强，不改变知识库和 agent 行为
 - **2026-05-28 v10（阶段 3.5 收尾）**：阶段 3.5 收尾补强完成，准备合并推送
   - 新增当前知识库自动检索：主对话提问时后端先检索当前 KB 并注入上下文，避免批量消化后模型反问用户提供文章
   - `query_knowledge_base` 工具与 `/api/prompt` 共用同一套检索逻辑，ADR-19 已写入 §7

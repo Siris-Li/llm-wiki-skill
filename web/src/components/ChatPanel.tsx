@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Files, X } from "lucide-react";
+import { Files, Monitor, Moon, Send, Settings, Sun, X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { CommandMenu } from "@/components/CommandMenu";
 import { ExportButtons } from "@/components/ExportButtons";
 import { MarkdownView } from "@/components/MarkdownView";
@@ -20,6 +19,7 @@ import {
 	streamPrompt,
 	type UIMessage,
 } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 type ToolMark = { name: string; status: "running" | "done" };
 
@@ -67,6 +67,8 @@ interface Props {
 	onArtifactCreated?: (id: string) => void;
 	artifactCount?: number;
 	onOpenArtifacts?: () => void;
+	theme?: "dark" | "light";
+	onToggleTheme?: () => void;
 	onStartBatchDigest?: (input: {
 		kbPath: string;
 		filePaths: string[];
@@ -86,6 +88,8 @@ export function ChatPanel({
 	onArtifactCreated,
 	artifactCount = 0,
 	onOpenArtifacts,
+	theme = "dark",
+	onToggleTheme,
 	onStartBatchDigest,
 }: Props) {
 	const [messages, setMessages] = useState<Message[]>(() => initialMessages.map(fromUIMessage));
@@ -140,8 +144,8 @@ export function ChatPanel({
 
 	useEffect(() => {
 		if (!refMenu.open || !currentKnowledgeBasePath) {
-			setRefs([]);
-			return;
+			const timer = window.setTimeout(() => setRefs([]), 0);
+			return () => window.clearTimeout(timer);
 		}
 		let cancelled = false;
 		const timer = window.setTimeout(() => {
@@ -464,61 +468,70 @@ export function ChatPanel({
 	const showCursorOn = status === "streaming" ? lastAssistantId : null;
 
 	return (
-		<div className="flex h-full flex-col">
-			<header className="flex items-center justify-between border-b border-input px-6 py-3">
-				<div className="min-w-0 truncate">
-					<div className="text-xs text-muted-foreground">当前知识库</div>
-					<div className="truncate text-sm font-medium">
+		<div className="chat-screen">
+			<header className="statusbar">
+				<div className="statusbar-left">
+					<span className="status-dot" />
+					<span className="status-kb">
 						{currentKnowledgeBaseName ?? <span className="italic opacity-60">未选择</span>}
-					</div>
+					</span>
 				</div>
-				<div className="flex items-center gap-2 text-xs">
-					{messages.length > 0 && (
-						<span className="text-muted-foreground">{messages.length} 条消息</span>
-					)}
+				<div className="statusbar-right">
+					<button
+						type="button"
+						className="status-pill status-pill-button"
+						onClick={onToggleTheme}
+						title={theme === "dark" ? "切换浅色主题" : "切换暗色主题"}
+						aria-label={theme === "dark" ? "切换浅色主题" : "切换暗色主题"}
+					>
+						{theme === "dark" ? <Moon /> : <Sun />}
+					</button>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<span className="status-pill cursor-help">
+								<Monitor />
+								{model ? `${model.provider}/${model.id}` : "无活跃模型"}
+							</span>
+						</TooltipTrigger>
+						<TooltipContent side="bottom">
+							<div className="text-xs">当前模型来自设置</div>
+						</TooltipContent>
+					</Tooltip>
 					{artifactCount > 0 && (
 						<button
 							type="button"
 							onClick={onOpenArtifacts}
-							className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+							className="status-pill status-pill-button"
+							title="查看产物"
 						>
-							<Files className="size-3.5" />
+							<Files />
 							产物 {artifactCount}
 						</button>
 					)}
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<span className="cursor-help rounded-md border border-input bg-background px-2 py-1 font-mono text-xs text-muted-foreground">
-								🤖 {model ? `${model.provider}/${model.id}` : "无活跃模型"}
-							</span>
-						</TooltipTrigger>
-						<TooltipContent side="bottom">
-							<div className="text-xs">模型路由切换在阶段三</div>
-							<div className="mt-0.5 text-[10px] opacity-70">
-								当前由 pi-agent 默认配置决定（~/.pi/agent/settings.json）
-							</div>
-						</TooltipContent>
-					</Tooltip>
 					<button
 						type="button"
 						onClick={onOpenSettings}
-						className="rounded-md border border-input bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+						className="status-pill status-pill-button"
 					>
-						⚙ 设置
+						<Settings />
+						设置
 					</button>
 				</div>
 			</header>
 
-			<div className="flex-1 space-y-4 overflow-y-auto bg-card p-6">
+			<div className="chat-messages">
 				{messages.length === 0 && (
-					<div className="text-sm text-muted-foreground">
-						{currentKnowledgeBaseName ? (
-							<>
-								试试问：<code className="rounded bg-muted px-1.5 py-0.5">列出我知识库里的页面</code>
-							</>
-						) : (
-							<>左侧选一个知识库进入对话</>
-						)}
+					<div className="chat-empty">
+						<div className="chat-empty-title">
+							{currentKnowledgeBaseName ? "开始和当前知识库对话" : "左侧选一个知识库进入对话"}
+						</div>
+						<div className="chat-empty-hint">
+							{currentKnowledgeBaseName ? (
+								<>可以用 <code>@</code> 引用页面，或用 <code>/</code> 调用命令。</>
+							) : (
+								<>选择知识库后，agent 会基于该库内容回答。</>
+							)}
+						</div>
 					</div>
 				)}
 				{messages.map((m) => (
@@ -532,18 +545,24 @@ export function ChatPanel({
 			</div>
 
 			{errorMsg && (
-				<div className="mx-6 my-2 whitespace-pre-wrap rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+				<div className="mx-4 my-2 whitespace-pre-wrap rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
 					{errorMsg}
 				</div>
 			)}
 
 			<div
-				className="border-t border-input p-4"
+				className="chat-input-area"
 				onDragOver={(event) => event.preventDefault()}
 				onDrop={handleDrop}
 			>
+				<div className="chat-input-hints">
+					<span className="chat-input-hint"><kbd>@</kbd> 引用页面</span>
+					<span className="chat-input-hint"><kbd>/</kbd> 调用命令</span>
+					<span className="chat-input-hint"><kbd>⌘↵</kbd> 发送</span>
+					<span className="chat-input-hint ml-auto opacity-60">拖入文件或链接进行消化</span>
+				</div>
 				{batchChipVisible && detectedBatch?.inspect.ingestibleFiles && (
-					<div className="mb-2 flex max-w-xl items-center justify-between gap-3 rounded-md border border-input bg-muted px-3 py-2 text-xs text-muted-foreground">
+					<div className="input-chip">
 						<button
 							type="button"
 							onClick={startDetectedBatchDigest}
@@ -562,7 +581,7 @@ export function ChatPanel({
 					</div>
 				)}
 				{ingestChipVisible && detectedMaterial && (
-					<div className="mb-2 flex max-w-xl items-center justify-between gap-3 rounded-md border border-input bg-muted px-3 py-2 text-xs text-muted-foreground">
+					<div className="input-chip">
 						<span className="truncate">检测到{detectedMaterial.kind}，发送时将作为消化素材</span>
 						<button
 							type="button"
@@ -604,10 +623,10 @@ export function ChatPanel({
 						}}
 						onKeyDown={handleKeyDown}
 						rows={3}
-						className="w-full rounded-md border border-input bg-background p-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+						className="chat-textarea"
 						placeholder={
 							currentKnowledgeBaseName
-								? "输入消息… Cmd/Ctrl + Enter 发送"
+								? "输入消息… @引用页面  /调用命令  Cmd+Enter 发送"
 								: "请先在左侧选择一个知识库…"
 						}
 						disabled={status === "streaming" || !currentKnowledgeBaseName}
@@ -624,11 +643,19 @@ export function ChatPanel({
 					}
 					onExport={handleExport}
 				/>
-				<div className="mt-2 flex items-center justify-between">
-					<span className="text-xs text-muted-foreground">状态：{status}</span>
-					<Button onClick={() => void sendPrompt()} disabled={status === "streaming" || !input.trim() || !currentKnowledgeBaseName}>
-						{status === "streaming" ? "等待中…" : "发送"}
-					</Button>
+				<div className="chat-send-row">
+					<span className="chat-status-text">
+						{status === "streaming" ? "生成中" : status === "error" ? "出错" : "就绪"}
+					</span>
+					<button
+						type="button"
+						className="send-btn"
+						onClick={() => void sendPrompt()}
+						disabled={status === "streaming" || !input.trim() || !currentKnowledgeBaseName}
+					>
+						<Send className="size-4" />
+						{status === "streaming" ? "等待中" : "发送"}
+					</button>
 				</div>
 			</div>
 		</div>
@@ -646,23 +673,23 @@ function MessageBubble({
 }) {
 	const isUser = message.role === "user";
 	return (
-		<div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-			<div
-				className={`max-w-[85%] rounded-lg px-4 py-2 text-sm ${
-					isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
-				}`}
-			>
-				<div className="mb-1 text-xs opacity-60">{isUser ? "你" : "assistant"}</div>
+		<div className={cn("msg-row", isUser ? "msg-row-user" : "msg-row-assistant")}>
+			<div className={cn("msg-avatar", isUser ? "msg-avatar-user" : "msg-avatar-assistant")}>
+				{isUser ? "U" : "A"}
+			</div>
+			<div className="msg-body">
+				<div className="msg-role">{isUser ? "你" : "assistant"}</div>
 				{message.tools.length > 0 && (
-					<div className="mb-2 space-y-0.5">
+					<div className="msg-tools">
 						{message.tools.map((t, i) => (
-							<div key={i} className="font-mono text-xs opacity-80">
-								{t.status === "running" ? "▶" : "✓"} {t.name}
+							<div key={i} className="msg-tool">
+								<span className={cn("msg-tool-dot", t.status === "running" ? "msg-tool-running" : "msg-tool-done")} />
+								<span>{t.name}</span>
 							</div>
 						))}
 					</div>
 				)}
-				<div className="break-words">
+				<div className="msg-content">
 					{isUser ? (
 						<span className="whitespace-pre-wrap">{message.content}</span>
 					) : (

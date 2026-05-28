@@ -26,6 +26,9 @@ import {
 	type UIMessage,
 } from "@/lib/api";
 
+type ThemeMode = "dark" | "light";
+const THEME_STORAGE_KEY = "llm-wiki-agent-theme";
+
 /**
  * 阶段一 step 8 - 阶段一完结
  *
@@ -47,6 +50,10 @@ import {
  *   3. ChatPanel 重挂载
  */
 function App() {
+	const [theme, setTheme] = useState<ThemeMode>(() => {
+		if (typeof window === "undefined") return "dark";
+		return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+	});
 	const [kbs, setKbs] = useState<KnowledgeBaseInfo[]>([]);
 	const [active, setActive] = useState<ActiveContext | null>(null);
 	const [conversations, setConversations] = useState<ConversationInfo[]>([]);
@@ -65,6 +72,13 @@ function App() {
 	const [drawerFullscreen, setDrawerFullscreen] = useState(false);
 	const [batchJob, setBatchJob] = useState<BatchDigestJob | null>(null);
 	const activeConversationId = active?.conversation.id ?? null;
+
+	useEffect(() => {
+		const root = document.documentElement;
+		root.dataset.theme = theme;
+		root.classList.toggle("dark", theme === "dark");
+		window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+	}, [theme]);
 
 	const refreshConversations = useCallback(async (kbPath: string) => {
 		try {
@@ -378,7 +392,7 @@ function App() {
 
 	return (
 		<TooltipProvider delayDuration={200}>
-			<div className="flex h-screen w-screen">
+			<div className="app-shell">
 				<Sidebar
 					knowledgeBases={kbs}
 					currentKbPath={active?.kb.path ?? null}
@@ -390,11 +404,12 @@ function App() {
 					onSelectConversation={handleSelectConversation}
 					onNewConversation={handleNewConversation}
 					onRefresh={refreshAll}
+					onOpenSettings={() => setSettingsOpen(true)}
 					onAddExternal={handleAddExternal}
 					onCreateWiki={handleCreateWiki}
 					onStartBatchDigest={handleStartBatchDigest}
 				/>
-				<main className="flex-1 overflow-hidden">
+				<main className="shell-main">
 					<ChatPanel
 						key={chatKey}
 						currentKnowledgeBaseName={active?.kb.name ?? null}
@@ -408,6 +423,8 @@ function App() {
 						artifactCount={artifacts.length}
 						onOpenArtifacts={handleOpenArtifacts}
 						onStartBatchDigest={handleStartBatchDigest}
+						theme={theme}
+						onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
 					/>
 				</main>
 				<RightDrawer

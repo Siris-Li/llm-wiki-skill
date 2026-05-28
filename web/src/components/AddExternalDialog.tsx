@@ -69,14 +69,16 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 
 	useEffect(() => {
 		if (!open || !path.trim()) {
-			setInspect(null);
-			setInspecting(false);
-			return;
+			const timer = window.setTimeout(() => {
+				setInspect(null);
+				setInspecting(false);
+			}, 0);
+			return () => window.clearTimeout(timer);
 		}
 		let cancelled = false;
-		setInspecting(true);
-		setError(null);
 		const timer = window.setTimeout(() => {
+			setInspecting(true);
+			setError(null);
 			inspectKnowledgeBasePath(path)
 				.then((result) => {
 					if (!cancelled) setInspect(result);
@@ -196,7 +198,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogContent className="w-[calc(100vw-2rem)] overflow-hidden sm:max-w-lg">
+			<DialogContent className="dialog-surface w-[calc(100vw-2rem)] overflow-hidden sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle>添加现有知识库</DialogTitle>
 					<DialogDescription>
@@ -208,7 +210,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 					<div
 						onDragOver={(event) => event.preventDefault()}
 						onDrop={handleDrop}
-						className="min-w-0 rounded-md border border-dashed border-input bg-muted/40 px-3 py-5 text-center text-xs text-muted-foreground"
+						className="min-w-0 rounded-md border border-dashed border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-5 text-center text-xs text-[var(--app-muted)]"
 					>
 						<div>把文件夹拖到这里，或直接选择文件夹</div>
 						<Button
@@ -226,7 +228,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 						value={path}
 						onChange={(e) => setPath(e.target.value)}
 						placeholder="/Users/yourname/Documents/我的知识库"
-						className="min-w-0 font-mono text-xs"
+						className="form-field min-w-0 font-mono text-xs"
 						onKeyDown={(e) => {
 							if (e.key === "Enter" && !submitting) {
 								e.preventDefault();
@@ -238,7 +240,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 					{dragHint && <div className="text-xs text-muted-foreground">{dragHint}</div>}
 					{inspecting && <div className="text-xs text-muted-foreground">检查中…</div>}
 					{inspect && (
-						<div className="min-w-0 overflow-hidden rounded-md border border-input bg-muted px-2 py-1.5 text-xs text-muted-foreground">
+						<div className="min-w-0 overflow-hidden rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-1.5 text-xs text-[var(--app-muted)]">
 							<div>
 								{!inspect.exists
 									? "路径不存在"
@@ -260,12 +262,12 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 						</div>
 					)}
 					{inspect?.exists && inspect.isDirectory && !inspect.hasWikiSchema && (
-						<div className="min-w-0 space-y-2 rounded-md border border-input p-2">
+						<div className="min-w-0 space-y-2 rounded-md border border-[var(--app-border)] p-2">
 							<Input
 								value={purpose}
 								onChange={(e) => setPurpose(e.target.value)}
 								placeholder="这个知识库研究什么？"
-								className="min-w-0"
+								className="form-field min-w-0"
 							/>
 							<label className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
 								<span>初始化后立即批量消化</span>
@@ -273,7 +275,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 									type="checkbox"
 									checked={digestAfterInit}
 									onChange={(e) => setDigestAfterInit(e.target.checked)}
-									className="size-4 accent-primary"
+									className="size-4 accent-[var(--app-accent)]"
 								/>
 							</label>
 							{digestAfterInit && (
@@ -281,7 +283,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 									<select
 										value={concurrency}
 										onChange={(e) => setConcurrency(Number(e.target.value) as 1 | 3 | 5)}
-										className="h-8 min-w-0 rounded-md border border-input bg-background px-2 text-xs"
+										className="form-field h-8 min-w-0 text-xs"
 									>
 										<option value={1}>并发 1</option>
 										<option value={3}>并发 3</option>
@@ -290,7 +292,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 									<select
 										value={digestModel}
 										onChange={(e) => setDigestModel(e.target.value)}
-										className="h-8 min-w-0 rounded-md border border-input bg-background px-2 text-xs"
+										className="form-field h-8 min-w-0 text-xs"
 									>
 										<option value="">沿用全局消化模型</option>
 										{models.map((model) => (

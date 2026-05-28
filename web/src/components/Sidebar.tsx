@@ -1,8 +1,8 @@
 import { useState } from "react";
+import { ChevronRight, Download, Plus, RefreshCw, Settings } from "lucide-react";
 
 import { AddExternalDialog } from "@/components/AddExternalDialog";
 import { NewWikiDialog } from "@/components/NewWikiDialog";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ConversationInfo, KnowledgeBaseInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ interface Props {
 	onSelectConversation: (item: ConversationInfo) => void;
 	onNewConversation: () => void;
 	onRefresh: () => void;
+	onOpenSettings?: () => void;
 	onAddExternal: (path: string) => Promise<void>;
 	onCreateWiki: (name: string, purpose: string) => Promise<void>;
 	onStartBatchDigest?: (input: {
@@ -40,6 +41,7 @@ export function Sidebar({
 	onSelectConversation,
 	onNewConversation,
 	onRefresh,
+	onOpenSettings,
 	onAddExternal,
 	onCreateWiki,
 	onStartBatchDigest,
@@ -59,22 +61,30 @@ export function Sidebar({
 	};
 
 	return (
-		<aside className="flex h-full w-60 flex-col border-r border-input bg-muted/30">
-			<div className="flex items-center justify-between border-b border-input px-4 py-3">
-				<h2 className="text-sm font-semibold">llm-wiki-agent</h2>
-				<Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading} title="刷新">
-					{loading ? "…" : "↻"}
-				</Button>
+		<aside className="shell-sidebar">
+			<div className="sidebar-header">
+				<div className="sidebar-brand">
+					<span className="sidebar-brand-dot" />
+					<span>llm-wiki-agent</span>
+				</div>
+				<div className="flex items-center gap-0.5">
+					<button className="icon-btn" type="button" onClick={onRefresh} disabled={loading} title="刷新">
+						<RefreshCw className={cn(loading && "animate-spin")} />
+					</button>
+					<button className="icon-btn" type="button" onClick={onOpenSettings} title="设置" aria-label="设置">
+						<Settings />
+					</button>
+				</div>
 			</div>
 
-			<div className="flex-1 space-y-4 overflow-y-auto px-2 py-3 text-sm">
+			<div className="sidebar-body">
 				{error && (
 					<div className="rounded-md border border-destructive bg-destructive/10 p-2 text-xs text-destructive">
 						{error}
 					</div>
 				)}
 
-				<Section title="知识库" hint="~/llm-wiki/ + 外部">
+				<Section title="知识库">
 					{knowledgeBases.length === 0 ? (
 						<EmptyHint text="还没有知识库" />
 					) : (
@@ -99,13 +109,10 @@ export function Sidebar({
 										onToggle={() => toggleExpanded(item.path)}
 									/>
 									{opened && (
-										<div className="ml-5 mt-1 space-y-1 border-l border-input/60 pl-2">
-											<button
-												type="button"
-												onClick={onNewConversation}
-												className="w-full rounded-md px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-											>
-												+ 新对话
+										<div className="kb-children">
+											<button type="button" onClick={onNewConversation} className="conv-new-btn">
+												<Plus className="size-3" />
+												<span>新对话</span>
 											</button>
 											{conversations.length === 0 ? (
 												<EmptyHint text="暂无对话" />
@@ -128,23 +135,23 @@ export function Sidebar({
 				</Section>
 			</div>
 
-			<div className="space-y-2 border-t border-input p-2">
-				<Button
-					variant="default"
-					size="sm"
-					className="w-full"
+			<div className="sidebar-footer">
+				<button
+					type="button"
+					className="sidebar-footer-btn sidebar-footer-btn-primary"
 					onClick={() => setNewWikiOpen(true)}
 				>
-					+ 新建知识库
-				</Button>
-				<Button
-					variant="outline"
-					size="sm"
-					className="w-full"
+					<Plus className="size-4" />
+					<span>新建知识库</span>
+				</button>
+				<button
+					type="button"
+					className="sidebar-footer-btn"
 					onClick={() => setDialogOpen(true)}
 				>
-					+ 添加现有库
-				</Button>
+					<Download className="size-4" />
+					<span>添加现有库</span>
+				</button>
 			</div>
 
 			<NewWikiDialog
@@ -162,33 +169,17 @@ export function Sidebar({
 	);
 }
 
-function Section({
-	title,
-	hint,
-	action,
-	children,
-}: {
-	title: string;
-	hint?: string;
-	action?: React.ReactNode;
-	children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
 	return (
 		<div>
-			<div className="mb-1 flex items-baseline justify-between px-2">
-				<span className="text-xs font-medium text-muted-foreground">
-					{title}
-					{hint && <span className="ml-1 text-[10px] opacity-60">{hint}</span>}
-				</span>
-				{action}
-			</div>
-			<div className="space-y-0.5">{children}</div>
+			<div className="sidebar-section-label">{title}</div>
+			<div>{children}</div>
 		</div>
 	);
 }
 
 function EmptyHint({ text }: { text: string }) {
-	return <div className="px-2 py-1 text-xs italic text-muted-foreground">{text}</div>;
+	return <div className="px-2 py-1 text-xs italic text-[var(--app-muted)]">{text}</div>;
 }
 
 function KbItem({
@@ -207,34 +198,35 @@ function KbItem({
 	const isDisabled = !item.valid;
 
 	const inner = (
-		<div className="flex items-center gap-1">
+		<div className={cn("kb-row", active && "kb-row-active", isDisabled && "kb-row-disabled")}>
 			<button
 				type="button"
-				onClick={onToggle}
+				onClick={(event) => {
+					event.stopPropagation();
+					onToggle();
+				}}
 				disabled={isDisabled || !active}
-				className="h-7 w-6 rounded-md text-xs text-muted-foreground hover:bg-accent disabled:opacity-40"
+				className={cn("kb-chevron", expanded && "kb-chevron-open")}
 				aria-label="展开对话"
 			>
-				{expanded ? "▾" : "▸"}
+				<ChevronRight className="size-3" />
 			</button>
 			<button
 				type="button"
 				onClick={onClick}
 				disabled={isDisabled}
-				className={cn(
-					"min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-					"hover:bg-accent hover:text-accent-foreground",
-					"disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
-					active && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
-				)}
+				className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-not-allowed"
 				title={item.path}
 			>
-				<span className="mr-1.5">{active ? "●" : "○"}</span>
-				<span className="truncate">{item.name}</span>
-				{item.origin === "external" && (
-					<span className="ml-1 text-[10px] opacity-70">外部</span>
-				)}
+				<span className="kb-name">{item.name}</span>
 			</button>
+			{!item.valid ? (
+				<span className="kb-badge kb-badge-invalid">不可用</span>
+			) : item.origin === "external" ? (
+				<span className="kb-badge kb-badge-external">外部</span>
+			) : (
+				<span className="kb-badge">默认</span>
+			)}
 		</div>
 	);
 
@@ -270,15 +262,11 @@ function ConversationItem({
 		<button
 			type="button"
 			onClick={onClick}
-			className={cn(
-				"w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors",
-				"hover:bg-accent hover:text-accent-foreground",
-				active && "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground",
-			)}
+			className={cn("conv-row", active && "conv-row-active")}
 			title={item.firstMessage}
 		>
-			<div className="truncate">{item.firstMessage || "（无消息）"}</div>
-			{timeLabel && <div className="text-[10px] opacity-60">{timeLabel}</div>}
+			<div className="conv-title">{item.firstMessage || "（无消息）"}</div>
+			{timeLabel && <div className="conv-time">{timeLabel}</div>}
 		</button>
 	);
 }

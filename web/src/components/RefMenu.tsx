@@ -1,12 +1,5 @@
-import {
-	Command,
-	CommandEmpty,
-	CommandGroup,
-	CommandInput,
-	CommandItem,
-	CommandList,
-} from "@/components/ui/command";
 import type { PageRef } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface Props {
 	open: boolean;
@@ -19,30 +12,29 @@ interface Props {
 export function RefMenu({ open, query, items, selectedIndex, onSelect }: Props) {
 	if (!open) return null;
 	return (
-		<div className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-xl rounded-md border border-input bg-popover shadow-lg">
-			<Command shouldFilter={false}>
-				<CommandInput value={query} readOnly placeholder="筛选页面" />
-				<CommandList>
-					<CommandEmpty>没有匹配页面</CommandEmpty>
-					<CommandGroup heading="@ 引用">
-						{items.map((item, index) => (
-							<CommandItem
-								key={item.path}
-								value={item.path}
-								onMouseDown={(e) => e.preventDefault()}
-								onSelect={() => onSelect(item)}
-								className={index === selectedIndex ? "bg-accent text-accent-foreground" : undefined}
-							>
-								<div className="min-w-24 text-xs text-muted-foreground">{item.category}</div>
-								<div className="min-w-0 flex-1">
-									<div className="truncate text-sm">{item.title}</div>
-									<div className="truncate font-mono text-xs text-muted-foreground">{item.path}</div>
-								</div>
-							</CommandItem>
-						))}
-					</CommandGroup>
-				</CommandList>
-			</Command>
+		<div className="popup-menu">
+			<div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-muted)]">
+				@ 引用 {query && <span className="normal-case opacity-70">/ {query}</span>}
+			</div>
+			{items.length === 0 ? (
+				<div className="popup-item text-[var(--app-muted)]">没有匹配页面</div>
+			) : (
+				items.map((item, index) => (
+					<button
+						key={item.path}
+						type="button"
+						onMouseDown={(e) => e.preventDefault()}
+						onClick={() => onSelect(item)}
+						className={cn("popup-item w-full text-left", index === selectedIndex && "popup-item-selected")}
+					>
+						<span className="min-w-20 text-xs text-[var(--app-muted)]">{item.category}</span>
+						<span className="min-w-0 flex-1">
+							<span className="block truncate">{item.title}</span>
+							<span className="popup-item-desc block truncate font-mono">{item.path}</span>
+						</span>
+					</button>
+				))
+			)}
 		</div>
 	);
 }

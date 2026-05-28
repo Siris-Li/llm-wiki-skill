@@ -1,12 +1,5 @@
-import {
-	Command,
-	CommandEmpty,
-	CommandGroup,
-	CommandInput,
-	CommandItem,
-	CommandList,
-} from "@/components/ui/command";
 import type { CommandItem as CommandItemType } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface Props {
 	open: boolean;
@@ -34,37 +27,39 @@ export function CommandMenu({ open, query, items, selectedIndex, onSelect }: Pro
 	let index = -1;
 
 	return (
-		<div className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-xl rounded-md border border-input bg-popover shadow-lg">
-			<Command shouldFilter={false}>
-				<CommandInput value={query} readOnly placeholder="筛选命令" />
-				<CommandList>
-					<CommandEmpty>没有匹配命令</CommandEmpty>
-					{groups.map((group) => (
-						<CommandGroup key={group.label} heading={group.label}>
-							{group.items.map((item) => {
-								index += 1;
-								const selected = index === selectedIndex;
-								return (
-									<CommandItem
-										key={`${item.source}:${item.slug}`}
-										value={item.slug}
-										onMouseDown={(e) => e.preventDefault()}
-										onSelect={() => onSelect(item)}
-										className={selected ? "bg-accent text-accent-foreground" : undefined}
-									>
-										<div className="min-w-20 font-mono text-xs text-primary">{item.slug}</div>
-										<div className="min-w-0 flex-1">
-											<div className="truncate text-sm">{item.name}</div>
-											<div className="text-xs text-muted-foreground">{item.description}</div>
-										</div>
-										<div className="shrink-0 text-[10px] text-muted-foreground">{sourceLabel(item)}</div>
-									</CommandItem>
-								);
-							})}
-						</CommandGroup>
-					))}
-				</CommandList>
-			</Command>
+		<div className="popup-menu">
+			{groups.length === 0 ? (
+				<div className="popup-item text-[var(--app-muted)]">没有匹配命令</div>
+			) : (
+				groups.map((group) => (
+					<div key={group.label}>
+						<div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-muted)]">
+							{group.label}
+							{query && <span className="normal-case opacity-70"> / {query}</span>}
+						</div>
+						{group.items.map((item) => {
+							index += 1;
+							const selected = index === selectedIndex;
+							return (
+								<button
+									key={`${item.source}:${item.slug}`}
+									type="button"
+									onMouseDown={(e) => e.preventDefault()}
+									onClick={() => onSelect(item)}
+									className={cn("popup-item w-full text-left", selected && "popup-item-selected")}
+								>
+									<span className="min-w-20 font-mono text-xs text-[var(--app-accent)]">{item.slug}</span>
+									<span className="min-w-0 flex-1">
+										<span className="block truncate">{item.name}</span>
+										<span className="popup-item-desc block truncate">{item.description}</span>
+									</span>
+									<span className="shrink-0 text-[10px] text-[var(--app-muted)]">{sourceLabel(item)}</span>
+								</button>
+							);
+						})}
+					</div>
+				))
+			)}
 		</div>
 	);
 }
