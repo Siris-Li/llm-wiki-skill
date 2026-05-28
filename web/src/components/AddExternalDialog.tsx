@@ -196,7 +196,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="w-[calc(100vw-2rem)] overflow-hidden sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle>添加现有知识库</DialogTitle>
 					<DialogDescription>
@@ -204,11 +204,11 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 					</DialogDescription>
 				</DialogHeader>
 
-				<div className="space-y-3 py-2">
+				<div className="min-w-0 space-y-3 py-2">
 					<div
 						onDragOver={(event) => event.preventDefault()}
 						onDrop={handleDrop}
-						className="rounded-md border border-dashed border-input bg-muted/40 px-3 py-5 text-center text-xs text-muted-foreground"
+						className="min-w-0 rounded-md border border-dashed border-input bg-muted/40 px-3 py-5 text-center text-xs text-muted-foreground"
 					>
 						<div>把文件夹拖到这里，或直接选择文件夹</div>
 						<Button
@@ -226,6 +226,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 						value={path}
 						onChange={(e) => setPath(e.target.value)}
 						placeholder="/Users/yourname/Documents/我的知识库"
+						className="min-w-0 font-mono text-xs"
 						onKeyDown={(e) => {
 							if (e.key === "Enter" && !submitting) {
 								e.preventDefault();
@@ -237,27 +238,34 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 					{dragHint && <div className="text-xs text-muted-foreground">{dragHint}</div>}
 					{inspecting && <div className="text-xs text-muted-foreground">检查中…</div>}
 					{inspect && (
-						<div className="rounded-md border border-input bg-muted px-2 py-1.5 text-xs text-muted-foreground">
-							{!inspect.exists
-								? "路径不存在"
-								: !inspect.isDirectory
-									? "这不是目录"
-									: inspect.hasWikiSchema
-										? "这是可添加的知识库"
-										: `不是知识库，可初始化；发现 ${inspect.ingestibleFiles?.count ?? 0} 个可消化文件`}
+						<div className="min-w-0 overflow-hidden rounded-md border border-input bg-muted px-2 py-1.5 text-xs text-muted-foreground">
+							<div>
+								{!inspect.exists
+									? "路径不存在"
+									: !inspect.isDirectory
+										? "这不是目录"
+										: inspect.hasWikiSchema
+											? "这是可添加的知识库"
+											: `不是知识库，可初始化；发现 ${inspect.ingestibleFiles?.count ?? 0} 个可消化文件`}
+							</div>
 							{inspect.ingestibleFiles?.samples.length ? (
-								<div className="mt-1 truncate opacity-70">
-									{inspect.ingestibleFiles.samples.join(" / ")}
-								</div>
+								<ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto opacity-70">
+									{inspect.ingestibleFiles.samples.slice(0, 5).map((sample) => (
+										<li key={sample} className="truncate">
+											{sample}
+										</li>
+									))}
+								</ul>
 							) : null}
 						</div>
 					)}
 					{inspect?.exists && inspect.isDirectory && !inspect.hasWikiSchema && (
-						<div className="space-y-2 rounded-md border border-input p-2">
+						<div className="min-w-0 space-y-2 rounded-md border border-input p-2">
 							<Input
 								value={purpose}
 								onChange={(e) => setPurpose(e.target.value)}
 								placeholder="这个知识库研究什么？"
+								className="min-w-0"
 							/>
 							<label className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
 								<span>初始化后立即批量消化</span>
@@ -269,11 +277,11 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 								/>
 							</label>
 							{digestAfterInit && (
-								<div className="grid gap-2 sm:grid-cols-2">
+								<div className="grid min-w-0 gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
 									<select
 										value={concurrency}
 										onChange={(e) => setConcurrency(Number(e.target.value) as 1 | 3 | 5)}
-										className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+										className="h-8 min-w-0 rounded-md border border-input bg-background px-2 text-xs"
 									>
 										<option value={1}>并发 1</option>
 										<option value={3}>并发 3</option>
@@ -282,7 +290,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 									<select
 										value={digestModel}
 										onChange={(e) => setDigestModel(e.target.value)}
-										className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+										className="h-8 min-w-0 rounded-md border border-input bg-background px-2 text-xs"
 									>
 										<option value="">沿用全局消化模型</option>
 										{models.map((model) => (
