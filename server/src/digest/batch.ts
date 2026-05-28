@@ -1,13 +1,18 @@
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { inspectKnowledgeBasePath } from "../knowledge-bases.js";
+import type { ModelRef } from "../config.js";
+import {
+	inspectKnowledgeBasePath,
+	validateInspectedSourceFiles,
+} from "../knowledge-bases.js";
 import { mapWithConcurrencyLimit } from "./concurrency.js";
 import { digestFileWithSubagent } from "./subagent.js";
 
 export type BatchDigestEvent =
 	| { type: "start"; total: number; concurrency: number; outputDir: string }
 	| { type: "file_start"; index: number; filePath: string }
+	| { type: "file_progress"; index: number; filePath: string; chars: number }
 	| { type: "file_complete"; index: number; filePath: string; outputPath: string }
 	| { type: "file_error"; index: number; filePath: string; error: string }
 	| { type: "done"; total: number; completed: number; failed: number; outputDir: string };
@@ -16,7 +21,8 @@ export interface BatchDigestInput {
 	kbPath: string;
 	filePaths: string[];
 	concurrency?: number;
-	sourceRoot?: string;
+	sourceScanId?: string;
+	digestModel?: ModelRef | null;
 }
 
 const ALLOWED_EXTS = new Set([".md", ".txt", ".pdf"]);
@@ -43,12 +49,23 @@ export async function runBatchDigest(
 		async (filePath, index) => {
 			await emit({ type: "file_start", index, filePath });
 			try {
-				const content = await digestFileWithSubagent({
-					kbPath: validated.kbPath,
+				const resolvedFilePath = await resolveDigestFile(
 					filePath,
-					purpose,
-				});
-				const outputPath = await writeDigestOutput(outputDir, filePath, index, content);
+					validated.kbPath,
+					validated.sourceScanId,
+				);
+				const content = await digestFileWithSubagent(
+					{
+						kbPath: validated.kbPath,
+						filePath: resolvedFilePath,
+						purpose,
+						model: input.digestModel ?? null,
+					},
+					async (chars) => {
+						await emit({ type: "file_progress", index, filePath, chars });
+					},
+				);
+				const outputPath = await writeDigestOutput(outputDir, resolvedFilePath, index, content);
 				await emit({ type: "file_complete", index, filePath, outputPath });
 				return outputPath;
 			} catch (err) {
@@ -73,7 +90,7 @@ async function validateBatchDigestInput(input: BatchDigestInput): Promise<{
 	kbPath: string;
 	filePaths: string[];
 	concurrency: 1 | 3 | 5;
-	sourceRoot?: string;
+	sourceScanId?: string;
 }> {
 	const kbPath = await realpath(path.resolve(input.kbPath));
 	const kbCheck = await inspectKnowledgeBasePath(kbPath);
@@ -87,30 +104,35 @@ async function validateBatchDigestInput(input: BatchDigestInput): Promise<{
 		throw new Error("filePaths 不能为空");
 	}
 
-	const sourceRoot = input.sourceRoot
-		? await realpath(path.resolve(input.sourceRoot))
-		: undefined;
 	const filePaths: string[] = [];
 	for (const filePath of input.filePaths) {
 		if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {
 			throw new Error("filePaths 必须是绝对路径");
 		}
-		const resolved = await realpath(filePath);
-		assertReadableDigestFile(resolved);
-		if (!isInside(resolved, kbPath) && !(sourceRoot && isInside(resolved, sourceRoot))) {
-			throw new Error(`文件不在知识库或已确认目录下：${resolved}`);
-		}
-		const info = await stat(resolved);
-		if (!info.isFile()) throw new Error(`不是文件：${resolved}`);
-		filePaths.push(resolved);
+		filePaths.push(path.resolve(filePath));
 	}
 
 	return {
 		kbPath,
 		filePaths: Array.from(new Set(filePaths)),
 		concurrency: concurrency as 1 | 3 | 5,
-		...(sourceRoot ? { sourceRoot } : {}),
+		...(input.sourceScanId ? { sourceScanId: input.sourceScanId } : {}),
 	};
+}
+
+async function resolveDigestFile(
+	filePath: string,
+	kbPath: string,
+	sourceScanId?: string,
+): Promise<string> {
+	const resolved = await realpath(filePath);
+	assertReadableDigestFile(resolved);
+	const info = await stat(resolved);
+	if (!info.isFile()) throw new Error(`不是文件：${resolved}`);
+	if (isInside(resolved, kbPath)) return resolved;
+	const sourceCheck = validateInspectedSourceFiles(sourceScanId, [filePath]);
+	if (sourceCheck.ok) return resolved;
+	throw new Error(sourceCheck.error);
 }
 
 function assertReadableDigestFile(filePath: string): void {

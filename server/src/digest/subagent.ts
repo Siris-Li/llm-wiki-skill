@@ -2,20 +2,28 @@ import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-ag
 
 import {
 	authStorage,
+	getConfiguredModel,
 	getResourceLoader,
 	getRoleModel,
 	modelRegistry,
 } from "../agent.js";
+import type { ModelRef } from "../config.js";
 
 export interface DigestFileInput {
 	kbPath: string;
 	filePath: string;
 	purpose: string;
+	model?: ModelRef | null;
 }
 
-export async function digestFileWithSubagent(input: DigestFileInput): Promise<string> {
+export async function digestFileWithSubagent(
+	input: DigestFileInput,
+	onProgress?: (chars: number) => void | Promise<void>,
+): Promise<string> {
 	const loader = await getResourceLoader();
-	const model = await getRoleModel("digest");
+	const model = input.model
+		? getConfiguredModel(input.model) ?? (await getRoleModel("digest"))
+		: await getRoleModel("digest");
 	const { session, modelFallbackMessage } = await createAgentSession({
 		cwd: input.kbPath,
 		resourceLoader: loader,
@@ -29,9 +37,17 @@ export async function digestFileWithSubagent(input: DigestFileInput): Promise<st
 	if (modelFallbackMessage) console.log(`[digest] ${modelFallbackMessage}`);
 
 	let output = "";
+	let lastEmittedChars = 0;
+	let lastEmittedAt = 0;
 	const unsubscribe = session.subscribe((event) => {
 		if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
 			output += event.assistantMessageEvent.delta;
+			const now = Date.now();
+			if (onProgress && (output.length - lastEmittedChars >= 500 || now - lastEmittedAt >= 300)) {
+				lastEmittedChars = output.length;
+				lastEmittedAt = now;
+				void onProgress(output.length);
+			}
 		}
 	});
 
@@ -39,6 +55,7 @@ export async function digestFileWithSubagent(input: DigestFileInput): Promise<st
 		await session.prompt(buildDigestPrompt(input));
 		const trimmed = output.trim();
 		if (!trimmed) throw new Error("子代理没有返回内容");
+		await onProgress?.(trimmed.length);
 		return trimmed;
 	} finally {
 		unsubscribe();

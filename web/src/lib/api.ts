@@ -128,6 +128,7 @@ export interface InspectPathResult {
 	hasWikiSchema: boolean;
 	resolvedPath?: string;
 	ingestibleFiles?: {
+		scanId: string;
 		count: number;
 		samples: string[];
 		paths: string[];
@@ -138,6 +139,7 @@ export interface InspectPathResult {
 export type BatchDigestEvent =
 	| { type: "start"; total: number; concurrency: number; outputDir: string }
 	| { type: "file_start"; index: number; filePath: string }
+	| { type: "file_progress"; index: number; filePath: string; chars: number }
 	| { type: "file_complete"; index: number; filePath: string; outputPath: string }
 	| { type: "file_error"; index: number; filePath: string; error: string }
 	| { type: "done"; total: number; completed: number; failed: number; outputDir: string };
@@ -381,7 +383,8 @@ export async function streamBatchDigest(
 		kbPath: string;
 		filePaths: string[];
 		concurrency?: 1 | 3 | 5;
-		sourceRoot?: string;
+		sourceScanId?: string;
+		digestModel?: ModelRef | null;
 	},
 	signal?: AbortSignal,
 ): Promise<AsyncGenerator<SSEMessage, void, undefined>> {

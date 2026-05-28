@@ -32,6 +32,7 @@ import {
 import type { Model } from "@earendil-works/pi-ai";
 
 import { loadConfig, saveConfig } from "./config.js";
+import type { ModelRef } from "./config.js";
 import { ensureKbSessionDir, listConversations } from "./conversations.js";
 import { scanAndRebuildArtifactIndex } from "./artifacts.js";
 import { createArtifactsExtension } from "./extensions/artifacts.js";
@@ -312,14 +313,20 @@ export async function getRoleModel(role: "main" | "digest"): Promise<Model<any> 
 	const config = await loadConfig();
 	const ref = config.modelRoles?.[role];
 	if (ref) {
-		modelRegistry.refresh();
-		const model = modelRegistry.find(ref.provider, ref.modelId);
-		if (model && modelRegistry.hasConfiguredAuth(model)) {
+		const model = getConfiguredModel(ref);
+		if (model) {
 			console.log(`[agent] role=${role} model=${model.provider}/${model.id}`);
 			return model;
 		}
 		console.warn(`[agent] role=${role} model ${ref.provider}/${ref.modelId} 不可用，回退 pi 默认`);
 	}
+	return undefined;
+}
+
+export function getConfiguredModel(ref: ModelRef): Model<any> | undefined {
+	modelRegistry.refresh();
+	const model = modelRegistry.find(ref.provider, ref.modelId);
+	if (model && modelRegistry.hasConfiguredAuth(model)) return model;
 	return undefined;
 }
 

@@ -478,7 +478,8 @@ app.post("/api/knowledge-bases/batch-digest", async (c) => {
 		kbPath?: unknown;
 		filePaths?: unknown;
 		concurrency?: unknown;
-		sourceRoot?: unknown;
+		sourceScanId?: unknown;
+		digestModel?: unknown;
 	};
 	try {
 		body = await c.req.json();
@@ -495,7 +496,17 @@ app.post("/api/knowledge-bases/batch-digest", async (c) => {
 	if (![1, 3, 5].includes(concurrency)) {
 		return c.json({ ok: false, error: "concurrency 只能是 1、3 或 5" }, 400);
 	}
-	const sourceRoot = typeof body.sourceRoot === "string" ? body.sourceRoot : undefined;
+	const sourceScanId = typeof body.sourceScanId === "string" ? body.sourceScanId : undefined;
+	const digestModel =
+		typeof body.digestModel === "object" &&
+		body.digestModel !== null &&
+		typeof (body.digestModel as { provider?: unknown }).provider === "string" &&
+		typeof (body.digestModel as { modelId?: unknown }).modelId === "string"
+			? {
+					provider: (body.digestModel as { provider: string }).provider,
+					modelId: (body.digestModel as { modelId: string }).modelId,
+				}
+			: null;
 
 	return streamSSE(c, async (stream) => {
 		try {
@@ -504,7 +515,8 @@ app.post("/api/knowledge-bases/batch-digest", async (c) => {
 					kbPath: body.kbPath as string,
 					filePaths: body.filePaths as string[],
 					concurrency,
-					...(sourceRoot ? { sourceRoot } : {}),
+					...(sourceScanId ? { sourceScanId } : {}),
+					...(digestModel ? { digestModel } : {}),
 				},
 				async (event) => {
 					await stream.writeSSE({

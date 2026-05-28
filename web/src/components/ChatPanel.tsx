@@ -70,7 +70,7 @@ interface Props {
 	onStartBatchDigest?: (input: {
 		kbPath: string;
 		filePaths: string[];
-		sourceRoot?: string;
+		sourceScanId?: string;
 		concurrency: 1 | 3 | 5;
 	}) => void;
 }
@@ -345,7 +345,7 @@ export function ChatPanel({
 		onStartBatchDigest?.({
 			kbPath: currentKnowledgeBasePath,
 			filePaths: detectedBatch.inspect.ingestibleFiles.paths,
-			sourceRoot: detectedBatch.inspect.resolvedPath ?? detectedBatch.path,
+			sourceScanId: detectedBatch.inspect.ingestibleFiles.scanId,
 			concurrency: 3,
 		});
 		setDetectedBatch(null);

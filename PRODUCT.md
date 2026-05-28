@@ -903,6 +903,7 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
 - `node --import tsx --test server/src/digest/concurrency.test.ts` 通过
 - 本地接口实测通过：目录 inspect、初始化冲突 409、就地初始化成功、模型列表、模型角色保存、批量消化参数校验
 - 单文件批量消化真实跑通，SSE 返回 start / file_start / file_complete / done，并写入 `wiki/synthesis/sessions/`
+- 验收后补强：批量消化改为逐文件失败隔离，进度面板显示每个文件状态、生成字数和结果入口；外部目录批量消化改用 inspect 扫描凭据，不再信任前端传任意 sourceRoot；初始化后批量消化可临时选择 digest 模型
 
 ### 阶段四 / 五：未开始（详见 §4）
 

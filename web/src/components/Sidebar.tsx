@@ -23,7 +23,8 @@ interface Props {
 	onStartBatchDigest?: (input: {
 		kbPath: string;
 		filePaths: string[];
-		sourceRoot?: string;
+		sourceScanId?: string;
+		digestModel?: { provider: string; modelId: string } | null;
 		concurrency: 1 | 3 | 5;
 	}) => void;
 }

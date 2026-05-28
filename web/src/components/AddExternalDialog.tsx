@@ -11,9 +11,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
+	type AvailableModelInfo,
+	fetchAvailableModels,
+	getConfig,
 	initExistingKnowledgeBase,
 	inspectKnowledgeBasePath,
 	type InspectPathResult,
+	type ModelRef,
 } from "@/lib/api";
 
 interface Props {
@@ -23,7 +27,8 @@ interface Props {
 	onStartBatchDigest?: (input: {
 		kbPath: string;
 		filePaths: string[];
-		sourceRoot?: string;
+		sourceScanId?: string;
+		digestModel?: ModelRef | null;
 		concurrency: 1 | 3 | 5;
 	}) => void;
 }
@@ -37,6 +42,8 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 	const [purpose, setPurpose] = useState("");
 	const [digestAfterInit, setDigestAfterInit] = useState(true);
 	const [concurrency, setConcurrency] = useState<1 | 3 | 5>(3);
+	const [models, setModels] = useState<AvailableModelInfo[]>([]);
+	const [digestModel, setDigestModel] = useState("");
 	const [inspect, setInspect] = useState<InspectPathResult | null>(null);
 	const [inspecting, setInspecting] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
@@ -49,6 +56,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 		setPurpose("");
 		setDigestAfterInit(true);
 		setConcurrency(3);
+		setDigestModel("");
 		setInspect(null);
 		setError(null);
 		setConflicts([]);
@@ -86,6 +94,23 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 		};
 	}, [open, path]);
 
+	useEffect(() => {
+		if (!open) return;
+		let cancelled = false;
+		Promise.all([fetchAvailableModels(), getConfig()])
+			.then(([availableModels, config]) => {
+				if (cancelled) return;
+				setModels(availableModels);
+				setDigestModel(modelRefToValue(config.modelRoles?.digest));
+			})
+			.catch(() => {
+				if (!cancelled) setModels([]);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [open]);
+
 	const handleSubmit = async (overwrite = false) => {
 		const trimmed = path.trim();
 		if (!trimmed) {
@@ -111,7 +136,8 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 					onStartBatchDigest({
 						kbPath: result.info.path,
 						filePaths: inspect.ingestibleFiles.paths,
-						sourceRoot: inspect.resolvedPath ?? result.info.path,
+						sourceScanId: inspect.ingestibleFiles.scanId,
+						digestModel: valueToModelRef(digestModel),
 						concurrency,
 					});
 				}
@@ -216,15 +242,34 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 								/>
 							</label>
 							{digestAfterInit && (
-								<select
-									value={concurrency}
-									onChange={(e) => setConcurrency(Number(e.target.value) as 1 | 3 | 5)}
-									className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-								>
-									<option value={1}>并发 1</option>
-									<option value={3}>并发 3</option>
-									<option value={5}>并发 5</option>
-								</select>
+								<div className="grid gap-2 sm:grid-cols-2">
+									<select
+										value={concurrency}
+										onChange={(e) => setConcurrency(Number(e.target.value) as 1 | 3 | 5)}
+										className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+									>
+										<option value={1}>并发 1</option>
+										<option value={3}>并发 3</option>
+										<option value={5}>并发 5</option>
+									</select>
+									<select
+										value={digestModel}
+										onChange={(e) => setDigestModel(e.target.value)}
+										className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+									>
+										<option value="">沿用全局消化模型</option>
+										{models.map((model) => (
+											<option
+												key={`${model.provider}/${model.modelId}`}
+												value={`${model.provider}/${model.modelId}`}
+												disabled={!model.hasAuth}
+											>
+												{model.provider}/{model.modelId}
+												{model.hasAuth ? "" : "（未配置）"}
+											</option>
+										))}
+									</select>
+								</div>
 							)}
 						</div>
 					)}
@@ -262,6 +307,17 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function modelRefToValue(ref?: ModelRef | null): string {
+	return ref ? `${ref.provider}/${ref.modelId}` : "";
+}
+
+function valueToModelRef(value: string): ModelRef | null {
+	const [provider, ...rest] = value.split("/");
+	const modelId = rest.join("/");
+	if (!provider || !modelId) return null;
+	return { provider, modelId };
 }
 
 function parseDroppedPath(dataTransfer: DataTransfer): string | null {

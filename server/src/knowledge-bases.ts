@@ -11,6 +11,7 @@
 
 import type { Dirent } from "node:fs";
 import { mkdir, readdir, realpath, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { basename, extname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 
@@ -35,6 +36,7 @@ export interface InspectPathResult {
 	hasWikiSchema: boolean;
 	resolvedPath?: string;
 	ingestibleFiles?: {
+		scanId: string;
 		count: number;
 		samples: string[];
 		paths: string[];
@@ -55,6 +57,12 @@ const SKIP_DIRS = new Set([
 const INGEST_EXTS = new Set([".md", ".txt", ".pdf"]);
 const MAX_SCAN_DEPTH = 5;
 const MAX_INGESTIBLE_FILES = 500;
+const INSPECT_SCAN_TTL_MS = 30 * 60 * 1000;
+
+const inspectScans = new Map<
+	string,
+	{ root: string; paths: Set<string>; expiresAt: number }
+>();
 
 export function expandUserPath(rawPath: string): string {
 	const trimmed = rawPath.trim();
@@ -132,12 +140,38 @@ async function scanIngestibleFiles(root: string): Promise<NonNullable<InspectPat
 	}
 
 	await walk(root, 0);
+	const scanId = randomUUID();
+	inspectScans.set(scanId, {
+		root,
+		paths: new Set(paths),
+		expiresAt: Date.now() + INSPECT_SCAN_TTL_MS,
+	});
 	return {
+		scanId,
 		count: paths.length,
 		samples: paths.slice(0, 5).map((file) => file.slice(root.length + 1)),
 		paths,
 		truncated,
 	};
+}
+
+export function validateInspectedSourceFiles(
+	scanId: string | undefined,
+	filePaths: string[],
+): { ok: true; root: string; paths: Set<string> } | { ok: false; error: string } {
+	if (!scanId) return { ok: false, error: "缺少来源扫描凭据，请重新选择目录" };
+	const scan = inspectScans.get(scanId);
+	if (!scan) return { ok: false, error: "来源扫描已过期，请重新选择目录" };
+	if (scan.expiresAt < Date.now()) {
+		inspectScans.delete(scanId);
+		return { ok: false, error: "来源扫描已过期，请重新选择目录" };
+	}
+	for (const filePath of filePaths) {
+		if (!scan.paths.has(filePath)) {
+			return { ok: false, error: `文件不在刚才扫描确认的目录内：${filePath}` };
+		}
+	}
+	return { ok: true, root: scan.root, paths: scan.paths };
 }
 
 /**

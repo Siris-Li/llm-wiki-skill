@@ -17,6 +17,7 @@ import {
 	listArtifacts,
 	listConversations,
 	listKnowledgeBases,
+	type ModelRef,
 	registerExternalKnowledgeBase,
 	readPage,
 	selectConversation,
@@ -234,16 +235,23 @@ function App() {
 	const handleStartBatchDigest = (input: {
 		kbPath: string;
 		filePaths: string[];
-		sourceRoot?: string;
+		sourceScanId?: string;
+		digestModel?: ModelRef | null;
 		concurrency: 1 | 3 | 5;
 	}) => {
 		const jobId = Math.random().toString(36).slice(2, 10);
 		setBatchJob({
 			id: jobId,
+			kbPath: input.kbPath,
 			status: "running",
 			total: input.filePaths.length,
 			completed: 0,
 			failed: 0,
+			files: input.filePaths.map((filePath, index) => ({
+				index,
+				filePath,
+				status: "queued",
+			})),
 			events: [],
 		});
 		void (async () => {
@@ -269,6 +277,19 @@ function App() {
 							return {
 								...current,
 								current: event.filePath,
+								files: updateBatchFile(current.files, event.index, {
+									status: "running",
+								}),
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "file_progress") {
+							return {
+								...current,
+								files: updateBatchFile(current.files, event.index, {
+									status: "running",
+									chars: event.chars,
+								}),
 								events: [...current.events, event],
 							};
 						}
@@ -277,6 +298,10 @@ function App() {
 								...current,
 								completed: current.completed + 1,
 								current: event.filePath,
+								files: updateBatchFile(current.files, event.index, {
+									status: "done",
+									outputPath: event.outputPath,
+								}),
 								events: [...current.events, event],
 							};
 						}
@@ -285,6 +310,10 @@ function App() {
 								...current,
 								failed: current.failed + 1,
 								current: event.filePath,
+								files: updateBatchFile(current.files, event.index, {
+									status: "error",
+									error: event.error,
+								}),
 								events: [...current.events, event],
 							};
 						}
@@ -313,6 +342,24 @@ function App() {
 				);
 			}
 		})();
+	};
+
+	const handleOpenBatchOutput = async (outputPath: string) => {
+		if (!batchJob) return;
+		const rel = toRelativePagePath(outputPath, batchJob.kbPath);
+		if (!rel) return;
+		setDrawerMode("wiki");
+		setDrawerPage(rel);
+		setDrawerLoading(true);
+		setDrawerError(null);
+		try {
+			setDrawerContent(await readPage(batchJob.kbPath, rel));
+		} catch (err) {
+			setDrawerContent("");
+			setDrawerError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setDrawerLoading(false);
+		}
 	};
 
 	const handleConfigChanged = async () => {
@@ -381,10 +428,28 @@ function App() {
 					onOpenChange={setSettingsOpen}
 					onConfigChanged={handleConfigChanged}
 				/>
-				<BatchDigestPanel job={batchJob} onClose={() => setBatchJob(null)} />
+				<BatchDigestPanel
+					job={batchJob}
+					onClose={() => setBatchJob(null)}
+					onOpenOutput={handleOpenBatchOutput}
+				/>
 			</div>
 		</TooltipProvider>
 	);
+}
+
+function updateBatchFile<T extends { index: number }>(
+	files: T[],
+	index: number,
+	patch: Partial<T>,
+): T[] {
+	return files.map((file) => (file.index === index ? { ...file, ...patch } : file));
+}
+
+function toRelativePagePath(outputPath: string, kbPath: string): string | null {
+	const normalizedKb = kbPath.endsWith("/") ? kbPath : `${kbPath}/`;
+	if (!outputPath.startsWith(normalizedKb)) return null;
+	return outputPath.slice(normalizedKb.length);
 }
 
 export default App;
