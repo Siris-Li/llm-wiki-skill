@@ -224,6 +224,19 @@ export async function inspectKnowledgeBasePath(path: string): Promise<InspectPat
 	return json.result;
 }
 
+export async function chooseDirectory(): Promise<string | null> {
+	const res = await fetch("/api/system/choose-directory", { method: "POST" });
+	const json = (await res.json()) as {
+		ok: boolean;
+		path?: string;
+		canceled?: boolean;
+		error?: string;
+	};
+	if (json.canceled) return null;
+	if (!res.ok || !json.ok || !json.path) throw new Error(json.error ?? `HTTP ${res.status}`);
+	return json.path;
+}
+
 export async function initExistingKnowledgeBase(
 	path: string,
 	purpose: string,

@@ -22,7 +22,9 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { promisify } from "node:util";
 
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
@@ -58,6 +60,8 @@ import {
 } from "./knowledge-bases.js";
 import { listPageRefs, readWikiPage } from "./pages.js";
 import { createWiki, InitConflictError, initExistingWiki } from "./wiki-init.js";
+
+const execFileAsync = promisify(execFile);
 
 /** 从 session 安全取出模型 provider+id（pi 类型未导出 Model，用结构化访问） */
 function extractModelInfo(session: AgentSession): { provider: string; id: string } | null {
@@ -470,6 +474,27 @@ app.get("/api/models", async (c) => {
 			{ ok: false, error: err instanceof Error ? err.message : String(err) },
 			500,
 		);
+	}
+});
+
+app.post("/api/system/choose-directory", async (c) => {
+	if (process.platform !== "darwin") {
+		return c.json({ ok: false, error: "当前系统暂不支持文件夹选择器" }, 501);
+	}
+	try {
+		const { stdout } = await execFileAsync("osascript", [
+			"-e",
+			'POSIX path of (choose folder with prompt "选择知识库文件夹")',
+		]);
+		const selectedPath = stdout.trim();
+		if (!selectedPath) return c.json({ ok: false, error: "没有选择文件夹" }, 400);
+		return c.json({ ok: true, path: selectedPath });
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		if (message.includes("-128") || message.toLowerCase().includes("user canceled")) {
+			return c.json({ ok: false, canceled: true });
+		}
+		return c.json({ ok: false, error: message }, 500);
 	}
 });
 

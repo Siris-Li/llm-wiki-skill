@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
 	type AvailableModelInfo,
+	chooseDirectory,
 	fetchAvailableModels,
 	getConfig,
 	initExistingKnowledgeBase,
@@ -46,6 +47,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 	const [digestModel, setDigestModel] = useState("");
 	const [inspect, setInspect] = useState<InspectPathResult | null>(null);
 	const [inspecting, setInspecting] = useState(false);
+	const [choosing, setChoosing] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [conflicts, setConflicts] = useState<string[]>([]);
@@ -61,6 +63,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 		setError(null);
 		setConflicts([]);
 		setDragHint(null);
+		setChoosing(false);
 		setSubmitting(false);
 	};
 
@@ -173,7 +176,21 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 			setPath(parsed);
 			setDragHint(null);
 		} else {
-			setDragHint("这次拖拽没有暴露真实路径，请直接粘贴路径");
+			setDragHint("Chrome 没给出真实路径，请点“选择文件夹”或粘贴路径");
+		}
+	};
+
+	const handleChooseDirectory = async () => {
+		setChoosing(true);
+		setError(null);
+		setDragHint(null);
+		try {
+			const selectedPath = await chooseDirectory();
+			if (selectedPath) setPath(selectedPath);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setChoosing(false);
 		}
 	};
 
@@ -193,7 +210,17 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 						onDrop={handleDrop}
 						className="rounded-md border border-dashed border-input bg-muted/40 px-3 py-5 text-center text-xs text-muted-foreground"
 					>
-						把文件夹拖到这里，或在下面粘贴路径
+						<div>把文件夹拖到这里，或直接选择文件夹</div>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="mt-3"
+							onClick={handleChooseDirectory}
+							disabled={choosing}
+						>
+							{choosing ? "选择中…" : "选择文件夹"}
+						</Button>
 					</div>
 					<Input
 						value={path}
