@@ -141,7 +141,19 @@ export function buildKnowledgeContextPrompt(input: {
 	kb: { name: string; path: string };
 	search: SearchKnowledgeBaseOutput;
 }): string {
-	const { originalMessage, kb, search } = input;
+	return [
+		input.originalMessage,
+		"",
+		"---",
+		buildKnowledgeContextMessage({ kb: input.kb, search: input.search }),
+	].join("\n");
+}
+
+export function buildKnowledgeContextMessage(input: {
+	kb: { name: string; path: string };
+	search: SearchKnowledgeBaseOutput;
+}): string {
+	const { kb, search } = input;
 	const missing =
 		search.missingExplicitRefs.length > 0
 			? [
@@ -152,9 +164,6 @@ export function buildKnowledgeContextPrompt(input: {
 			: "";
 	if (search.results.length === 0) {
 		return [
-			originalMessage,
-			"",
-			"---",
 			"[系统检索上下文 / 用户不可见]",
 			"",
 			`当前知识库：${kb.name}`,
@@ -176,9 +185,6 @@ export function buildKnowledgeContextPrompt(input: {
 		"",
 	]);
 	return [
-		originalMessage,
-		"",
-		"---",
 		"[系统检索上下文 / 用户不可见]",
 		"",
 		"当前知识库：",
@@ -198,6 +204,20 @@ export function buildKnowledgeContextPrompt(input: {
 		"- 参考页面只能从上述检索结果中选取，禁止编造路径。",
 		"- 如未基于以上页面回答而再次反问用户提供文章，视为错误。",
 	].join("\n");
+}
+
+export function stripKnowledgeContextForDisplay(text: string): string {
+	const marker = "[系统检索上下文";
+	const markerIndex = text.indexOf(marker);
+	if (markerIndex === -1) return text;
+
+	const beforeMarker = text.slice(0, markerIndex);
+	const separatorIndex = beforeMarker.lastIndexOf("\n---");
+	if (separatorIndex !== -1 && beforeMarker.slice(separatorIndex).trim() === "---") {
+		return beforeMarker.slice(0, separatorIndex).trimEnd();
+	}
+
+	return beforeMarker.trimEnd();
 }
 
 export function formatSearchResultsForTool(search: SearchKnowledgeBaseOutput): string {

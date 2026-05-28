@@ -34,6 +34,7 @@ interface KnowledgeBaseState {
 }
 
 let current: KnowledgeBaseState | null = null;
+let pendingKnowledgeContext: string | null = null;
 
 export function getCurrentKnowledgeBase(): KnowledgeBaseState | null {
 	return current;
@@ -53,6 +54,14 @@ export async function setCurrentKnowledgeBase(absolutePath: string): Promise<Kno
 
 export function clearCurrentKnowledgeBase(): void {
 	current = null;
+}
+
+export function setPendingKnowledgeContext(context: string): void {
+	pendingKnowledgeContext = context;
+}
+
+export function clearPendingKnowledgeContext(): void {
+	pendingKnowledgeContext = null;
 }
 
 // ============= Extension =============
@@ -105,6 +114,15 @@ async function listMarkdownFiles(rootDir: string, base: string): Promise<string[
 }
 
 export default function knowledgeBaseExtension(pi: ExtensionAPI) {
+	pi.on("before_agent_start", async (event) => {
+		const context = pendingKnowledgeContext;
+		if (!context) return undefined;
+		pendingKnowledgeContext = null;
+		return {
+			systemPrompt: `${event.systemPrompt}\n\n${context}`,
+		};
+	});
+
 	pi.registerTool({
 		name: "current_knowledge_base",
 		label: "当前知识库",

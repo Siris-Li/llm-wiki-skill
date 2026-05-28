@@ -86,8 +86,10 @@ function App() {
 			setKbs(items);
 			setActive(currentActive);
 			if (currentActive) {
+				setInitialMessages(currentActive.conversation.messages);
 				await refreshConversations(currentActive.kb.path);
 			} else {
+				setInitialMessages([]);
 				setConversations([]);
 				setArtifacts([]);
 				setActiveArtifactId(null);

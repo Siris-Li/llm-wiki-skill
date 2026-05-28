@@ -10,6 +10,7 @@ import {
 	parseExplicitPageRefs,
 	searchKnowledgeBase,
 	shouldUseKnowledgeBase,
+	stripKnowledgeContextForDisplay,
 } from "./retrieval.js";
 
 test("parseExplicitPageRefs extracts wiki markdown links in order", () => {
@@ -114,6 +115,19 @@ test("buildKnowledgeContextPrompt wraps empty results explicitly", () => {
 	});
 	assert.match(wrapped, /未在当前知识库找到/);
 	assert.match(wrapped, /禁止反问用户提供文章/);
+});
+
+test("stripKnowledgeContextForDisplay hides wrapped retrieval context", () => {
+	const wrapped = buildKnowledgeContextPrompt({
+		originalMessage: "这是我的知识库，总结下",
+		kb: { name: "测试库", path: "/tmp/test-kb" },
+		search: { results: [], missingExplicitRefs: [], totalSnippetChars: 0 },
+	});
+	assert.equal(stripKnowledgeContextForDisplay(wrapped), "这是我的知识库，总结下");
+	assert.equal(
+		stripKnowledgeContextForDisplay("问题\n---\n[系统检索上下文 / 用户不可见]\n隐藏内容"),
+		"问题",
+	);
 });
 
 async function createTestKb(): Promise<string> {

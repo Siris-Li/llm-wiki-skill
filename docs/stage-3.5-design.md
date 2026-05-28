@@ -62,7 +62,7 @@
 
 **总验收 5 条**（作者拍板）：
 
-1. **侧栏统一**：KB 列表"一栏到底"无 default/external 分隔；点 KB 展开对话子树；外部 KB 用文字 badge 而非分区
+1. **侧栏统一**：KB 列表"一栏到底"无 default/external 分隔；点当前 KB 名可展开/收起对话子树，点未选中 KB 会切换并展开；外部 KB 用文字 badge 而非分区
 2. **拖拽添加**：从 Finder 拖一个文件夹到 "+ 添加现有库" dialog 的拖拽区；若浏览器暴露真实 `file://`，路径自动填入输入框；若不暴露，UI 明确提示用户粘贴路径（不立即提交，给用户最后修改机会）
 3. **非 wiki 兜底**：拖入一个没有 `.wiki-schema.md` 的目录，弹"该目录看起来不是 wiki，是否初始化并批量消化里面的文档"对话框；选"是"→ 后台跑 init-wiki.sh + 子代理并行消化
 4. **多模型双角色**：设置面板新增"模型分配"区，可选 main / digest 两个角色各自的 provider+model；digest 写入 `config.json` 后对新批量消化立即生效（不需要重启），main 本阶段只保存与展示，不接管主对话
@@ -138,16 +138,16 @@
 
 **交互规则**：
 
-- 点 KB 名 = 选中并切换为 active（如果还没展开则同时展开）
+- 点当前 KB 名 = 展开/收起该 KB 的对话子树；点未选中 KB 名 = 选中并切换为 active，同时展开该 KB 的对话子树
 - 点 chevron (`▸` / `▾`) = 仅展开/折叠（不切换 active）
-- active KB 自动展开；切换 active 时旧 active 自动折叠
+- 当前 KB 允许收起但保持选中高亮；切换 active 时旧 active 自动折叠，新 active 自动展开
 - 外部 KB 右侧加灰色 `(外部)` 文字（不再分独立 section）
 - 失效 KB 用现有的 disabled + tooltip 模式
 - "+ 新对话" 按钮挪到对话子树末尾（删除原来的 Section title 右侧"+ 新对话"）
 
 **实现要点**：
 
-- 用 `useState<Set<string>>` 维护展开的 KB path 集合，active KB 强制加入
+- 用 `useState<Set<string>>` 维护展开的 KB path 集合，当前 KB 可从集合中移除以收起对话子树
 - `KbItem` 拆成 `KbRow`（KB 名 + chevron + badge）+ `ConversationSubtree`（仅当展开时渲染对话列表 + 新对话按钮）
 - 保留现有的 `Tooltip`（外部库的完整路径 / 失效原因都用 tooltip 展示，避免侧栏拥挤）
 
@@ -159,7 +159,7 @@ npm run dev
 
 # 2. 打开 http://localhost:5180
 #    - 侧栏看不到"默认"/"外部"两个 section
-#    - 当前选中库自动展开对话子树
+#    - 当前选中库点 KB 名可展开 / 收起对话子树
 #    - 点未选中库 → 切换 active + 展开子树 + 旧 active 折叠
 #    - 外部库右侧有 (外部) 灰字
 ```
@@ -1022,7 +1022,7 @@ npm run dev
 
 - [ ] 侧栏看不到 "默认" / "外部" 两个 section
 - [ ] 外部库右侧有 `(外部)` 灰字
-- [ ] 当前选中库自动展开对话子树
+- [ ] 当前选中库点 KB 名可展开 / 收起对话子树
 - [ ] 点未选中库 → 切换 active + 展开子树 + 旧 active 折叠
 - [ ] 点 chevron 仅折叠不切换 active
 

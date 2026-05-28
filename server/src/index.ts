@@ -53,6 +53,10 @@ import { type AppConfig, loadConfig, saveConfig } from "./config.js";
 import { listConversations, piMessagesToUIMessages } from "./conversations.js";
 import { runBatchDigest } from "./digest/batch.js";
 import {
+	clearPendingKnowledgeContext,
+	setPendingKnowledgeContext,
+} from "./extensions/knowledge-base.js";
+import {
 	inspectPath,
 	listKnowledgeBases,
 	registerExternalKnowledgeBase,
@@ -60,7 +64,7 @@ import {
 } from "./knowledge-bases.js";
 import { listPageRefs, readWikiPage } from "./pages.js";
 import {
-	buildKnowledgeContextPrompt,
+	buildKnowledgeContextMessage,
 	contextBudgetFromWindow,
 	parseExplicitPageRefs,
 	searchKnowledgeBase,
@@ -772,6 +776,7 @@ app.post("/api/prompt", async (c) => {
 		try {
 			session = await getActiveSession();
 		} catch (err) {
+			clearPendingKnowledgeContext();
 			await stream.writeSSE({
 				event: "error",
 				data: JSON.stringify({
@@ -831,7 +836,6 @@ app.post("/api/prompt", async (c) => {
 			const active = getActive();
 			const explicitRefs = parseExplicitPageRefs(message);
 			const shouldSearch = shouldUseKnowledgeBase(message, Boolean(active));
-			let promptMessage = message;
 			if (active) {
 				const baseLog = {
 					ts: Date.now(),
@@ -850,11 +854,11 @@ app.post("/api/prompt", async (c) => {
 							explicitRefs,
 							totalBudgetChars: contextBudgetFromWindow(extractContextWindow(session)),
 						});
-						promptMessage = buildKnowledgeContextPrompt({
-							originalMessage: message,
+						const knowledgeContext = buildKnowledgeContextMessage({
 							kb: active.kb,
 							search,
 						});
+						setPendingKnowledgeContext(knowledgeContext);
 						const payload = {
 							count: search.results.length,
 							paths: search.results.map((result) => result.path),
@@ -871,7 +875,7 @@ app.post("/api/prompt", async (c) => {
 								hitReason: result.hitReason,
 								score: result.score,
 							})),
-							wrappedCharCount: promptMessage.length,
+							wrappedCharCount: message.length + knowledgeContext.length,
 							error: null,
 						}).catch(() => {});
 					} catch (err) {
@@ -900,7 +904,7 @@ app.post("/api/prompt", async (c) => {
 					}).catch(() => {});
 				}
 			}
-			await session.prompt(promptMessage);
+			await session.prompt(message);
 			await stream.writeSSE({ event: "done", data: "" });
 		} catch (err) {
 			await stream.writeSSE({
@@ -910,6 +914,7 @@ app.post("/api/prompt", async (c) => {
 				}),
 			});
 		} finally {
+			clearPendingKnowledgeContext();
 			unsubscribe();
 			artifactEvents.off("artifact_created", onArtifactCreated);
 		}

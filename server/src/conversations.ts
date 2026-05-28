@@ -20,6 +20,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
 
 import { APP_DIR } from "./config.js";
+import { stripKnowledgeContextForDisplay } from "./retrieval.js";
 
 export const SESSIONS_ROOT = join(APP_DIR, "sessions");
 
@@ -70,7 +71,7 @@ export async function listConversations(kbAbsolutePath: string): Promise<Convers
 		.map((info) => ({
 			id: info.id,
 			path: info.path,
-			firstMessage: info.firstMessage ?? "",
+			firstMessage: stripKnowledgeContextForDisplay(info.firstMessage ?? ""),
 			modifiedAt: info.modified instanceof Date ? info.modified.getTime() : 0,
 		}))
 		.sort((a, b) => b.modifiedAt - a.modifiedAt);
@@ -90,7 +91,7 @@ export function piMessagesToUIMessages(messages: AgentMessage[]): UIMessage[] {
 
 	for (const msg of messages) {
 		if (msg.role === "user") {
-			const text = extractText(msg);
+			const text = stripKnowledgeContextForDisplay(extractText(msg));
 			if (text.trim()) {
 				result.push({
 					id: `u-${result.length}`,

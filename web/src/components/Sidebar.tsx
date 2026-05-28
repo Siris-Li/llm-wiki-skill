@@ -88,9 +88,12 @@ export function Sidebar({
 										active={active}
 										expanded={opened}
 										onClick={() => {
-											onSelectKb(item);
-											if (item.valid && !expanded.has(item.path)) {
-												setExpanded((prev) => new Set(prev).add(item.path));
+											if (!item.valid) return;
+											if (active) {
+												toggleExpanded(item.path);
+											} else {
+												onSelectKb(item);
+												setExpanded(new Set([item.path]));
 											}
 										}}
 										onToggle={() => toggleExpanded(item.path)}
