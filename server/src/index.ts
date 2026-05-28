@@ -59,6 +59,14 @@ import {
 	unregisterExternalKnowledgeBase,
 } from "./knowledge-bases.js";
 import { listPageRefs, readWikiPage } from "./pages.js";
+import {
+	buildKnowledgeContextPrompt,
+	contextBudgetFromWindow,
+	parseExplicitPageRefs,
+	searchKnowledgeBase,
+	shouldUseKnowledgeBase,
+	writeRetrievalLog,
+} from "./retrieval.js";
 import { createWiki, InitConflictError, initExistingWiki } from "./wiki-init.js";
 
 const execFileAsync = promisify(execFile);
@@ -74,6 +82,11 @@ function extractModelInfo(session: AgentSession): { provider: string; id: string
 		return { provider: model.provider, id: model.id };
 	}
 	return null;
+}
+
+function extractContextWindow(session: AgentSession): number | undefined {
+	const model = (session.state as { model?: { contextWindow?: unknown } }).model;
+	return typeof model?.contextWindow === "number" ? model.contextWindow : undefined;
 }
 
 function normalizeRoleModelRef(raw: unknown): AppConfig["modelRoles"] extends infer Roles
@@ -815,7 +828,79 @@ app.post("/api/prompt", async (c) => {
 		artifactEvents.on("artifact_created", onArtifactCreated);
 
 		try {
-			await session.prompt(message);
+			const active = getActive();
+			const explicitRefs = parseExplicitPageRefs(message);
+			const shouldSearch = shouldUseKnowledgeBase(message, Boolean(active));
+			let promptMessage = message;
+			if (active) {
+				const baseLog = {
+					ts: Date.now(),
+					sessionId: active.conversationId,
+					kbPath: active.kb.path,
+					messagePreview: message.slice(0, 120),
+					explicitRefs,
+				};
+				if (shouldSearch) {
+					await stream.writeSSE({
+						event: "knowledge_search_start",
+						data: JSON.stringify({ message: "正在检索当前知识库" }),
+					});
+					try {
+						const search = await searchKnowledgeBase(active.kb.path, message, {
+							explicitRefs,
+							totalBudgetChars: contextBudgetFromWindow(extractContextWindow(session)),
+						});
+						promptMessage = buildKnowledgeContextPrompt({
+							originalMessage: message,
+							kb: active.kb,
+							search,
+						});
+						const payload = {
+							count: search.results.length,
+							paths: search.results.map((result) => result.path),
+						};
+						await stream.writeSSE({
+							event: search.results.length > 0 ? "knowledge_search_done" : "knowledge_search_empty",
+							data: JSON.stringify(payload),
+						});
+						await writeRetrievalLog({
+							...baseLog,
+							triggered: true,
+							results: search.results.map((result) => ({
+								path: result.path,
+								hitReason: result.hitReason,
+								score: result.score,
+							})),
+							wrappedCharCount: promptMessage.length,
+							error: null,
+						}).catch(() => {});
+					} catch (err) {
+						const error = err instanceof Error ? err.stack ?? err.message : String(err);
+						await stream.writeSSE({
+							event: "knowledge_search_error",
+							data: JSON.stringify({
+								message: err instanceof Error ? err.message : String(err),
+							}),
+						});
+						await writeRetrievalLog({
+							...baseLog,
+							triggered: true,
+							results: [],
+							wrappedCharCount: 0,
+							error,
+						}).catch(() => {});
+					}
+				} else {
+					await writeRetrievalLog({
+						...baseLog,
+						triggered: false,
+						results: [],
+						wrappedCharCount: 0,
+						error: null,
+					}).catch(() => {});
+				}
+			}
+			await session.prompt(promptMessage);
 			await stream.writeSSE({ event: "done", data: "" });
 		} catch (err) {
 			await stream.writeSSE({

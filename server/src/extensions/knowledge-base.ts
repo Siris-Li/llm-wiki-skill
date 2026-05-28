@@ -21,6 +21,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { inspectKnowledgeBasePath } from "../knowledge-bases.js";
+import {
+	formatSearchResultsForTool,
+	searchKnowledgeBase,
+} from "../retrieval.js";
 
 // ============= 状态 =============
 
@@ -194,6 +198,48 @@ export default function knowledgeBaseExtension(pi: ExtensionAPI) {
 					details: { selected: true, error: msg },
 				};
 			}
+		},
+	});
+
+	pi.registerTool({
+		name: "query_knowledge_base",
+		label: "检索知识库",
+		description:
+			"Search the user's current knowledge base for pages relevant to a query. Use this when the user asks a follow-up question that may require pulling additional context from the knowledge base beyond what's already in the conversation.",
+		parameters: Type.Object({
+			query: Type.String(),
+		}),
+		async execute(
+			_toolCallId: string,
+			params: { query?: string },
+		): Promise<{
+			content: { type: "text"; text: string }[];
+			details: Record<string, unknown>;
+		}> {
+			if (!current) {
+				return {
+					content: [{ type: "text", text: "No knowledge base is currently selected." }],
+					details: { selected: false },
+				};
+			}
+			const query = params.query?.trim() ?? "";
+			if (!query) {
+				return {
+					content: [{ type: "text", text: "query 不能为空。" }],
+					details: { selected: true, count: 0, files: [] },
+				};
+			}
+			const search = await searchKnowledgeBase(current.path, query, {
+				totalBudgetChars: 4000,
+			});
+			return {
+				content: [{ type: "text", text: formatSearchResultsForTool(search) }],
+				details: {
+					selected: true,
+					count: search.results.length,
+					files: search.results.map((result) => result.path),
+				},
+			};
 		},
 	});
 }

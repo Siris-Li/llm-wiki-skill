@@ -292,6 +292,38 @@ export function ChatPanel({
 					setMessages((prev) =>
 						prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + data } : m)),
 					);
+				} else if (event === "knowledge_search_start") {
+					setMessages((prev) =>
+						prev.map((m) =>
+							m.id === assistantId
+								? { ...m, tools: [...m.tools, { name: "检索当前知识库", status: "running" }] }
+								: m,
+						),
+					);
+				} else if (event === "knowledge_search_done" || event === "knowledge_search_empty") {
+					const payload = JSON.parse(data) as { count: number };
+					const label =
+						event === "knowledge_search_empty"
+							? "当前知识库未找到相关页面"
+							: `已检索到 ${payload.count} 个相关页面`;
+					setMessages((prev) =>
+						prev.map((m) => {
+							if (m.id !== assistantId) return m;
+							const tools = m.tools.filter((tool) => tool.name !== "检索当前知识库");
+							return { ...m, tools: [...tools, { name: label, status: "done" }] };
+						}),
+					);
+				} else if (event === "knowledge_search_error") {
+					setMessages((prev) =>
+						prev.map((m) => {
+							if (m.id !== assistantId) return m;
+							const tools = m.tools.filter((tool) => tool.name !== "检索当前知识库");
+							return {
+								...m,
+								tools: [...tools, { name: "知识库检索失败，已按普通对话处理", status: "done" }],
+							};
+						}),
+					);
 				} else if (event === "tool_start") {
 					const payload = JSON.parse(data) as { toolName: string };
 					setMessages((prev) =>

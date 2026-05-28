@@ -102,8 +102,11 @@ async function directoryFingerprint(root: string): Promise<string> {
 	return parts.sort().join("|");
 }
 
-async function getCachedPages(kbPath: string): Promise<PageRef[]> {
-	await assertRegisteredKb(kbPath);
+export async function getCachedPages(
+	kbPath: string,
+	options: { assertRegistered?: boolean } = {},
+): Promise<PageRef[]> {
+	if (options.assertRegistered !== false) await assertRegisteredKb(kbPath);
 	const wikiDir = path.join(kbPath, "wiki");
 	const fingerprint = await directoryFingerprint(wikiDir);
 	const cached = cache.get(kbPath);
