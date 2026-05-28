@@ -55,7 +55,8 @@ const META_FILES = ["purpose.md", "index.md", "wiki/overview.md"];
 const GENERIC_QUERY_RE =
 	/(总结|概括|归纳|这些文章|这批文章|自媒体|共同主题|这个库|当前库|刚刚消化|刚消化|文章讲|内容讲|分析一下)/i;
 const GREETING_SET = new Set(["你好", "hi", "hello", "在吗", "谢谢", "thanks", "thx", "ok", "好的"]);
-const META_QUESTION_RE = /(当前模型|模型是什么|怎么设置|怎么用|界面|快捷键|登录|api\s*key|API\s*key)/i;
+const META_QUESTION_RE =
+	/(当前模型|模型是什么|怎么设置|怎么用|界面|快捷键|登录|api\s*key|API\s*key|整理产出为|prepare_artifact|finalize_artifact|artifact id|生成主文件)/i;
 
 export function parseExplicitPageRefs(message: string): string[] {
 	const seen = new Set<string>();
@@ -145,7 +146,7 @@ export function buildKnowledgeContextPrompt(input: {
 		search.missingExplicitRefs.length > 0
 			? [
 					"",
-					"用户显式引用了以下页面，但当前知识库中没有找到：",
+					"用户显式引用了以下页面，但该页面不存在：",
 					...search.missingExplicitRefs.map((ref) => `- ${ref}`),
 				].join("\n")
 			: "";
@@ -218,7 +219,7 @@ export function contextBudgetFromWindow(contextWindow: unknown): number {
 	if (typeof contextWindow !== "number" || !Number.isFinite(contextWindow) || contextWindow <= 0) {
 		return DEFAULT_TOTAL_BUDGET_CHARS;
 	}
-	return Math.max(1000, Math.floor(contextWindow * 0.2 * 2));
+	return Math.max(1000, Math.floor(contextWindow * 0.2));
 }
 
 export async function writeRetrievalLog(entry: RetrievalLogEntry): Promise<void> {
