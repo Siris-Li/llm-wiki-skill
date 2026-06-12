@@ -262,7 +262,7 @@ export interface GraphEngineOptions {
 export interface GraphEngine {
   applyDiff(diff: GraphDiff): Promise<void>;
   focusNode(path: WikiPath): void;
-  select(selector: SelectionInput): void;
+  select(selector: SelectionInput): Selection;
   setTheme(theme: ThemeId): void;
   resetLayout(): void;
   destroy(): void;

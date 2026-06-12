@@ -1,4 +1,4 @@
-import type { GraphData, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
+import type { CommunityId, GraphData, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
 import { createLiveGraphSimulation, PinState, pinsToPositions, type LiveGraphSimulation } from "../sim";
 import { getCommunityColor, getThemeTokens, themeTokensToCssVars } from "../themes";
 import {
@@ -15,6 +15,7 @@ interface StaticRendererOptions {
   pins?: PinMap;
   theme: ThemeId;
   onOpenPage?: (path: WikiPath) => void;
+  onSelect?: (selection: SelectionInput) => void;
   persistPins?: (pins: PinMap) => Promise<void>;
   live?: boolean;
 }
@@ -48,6 +49,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let theme = options.theme;
   let selectedNodeId: string | null = null;
   let selection: SelectionInput | null = null;
+  let manualNodeIds: NodeId[] = [];
   let destroyed = false;
   let simulation: LiveGraphSimulation | null = null;
   let dom: PaintedGraphDom = emptyPaintedDom();
@@ -72,6 +74,22 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     pinState = new PinState(graph, pins);
     applyTheme(root, theme);
     dom = paint(root, graph, theme, options.onOpenPage, {
+      onCommunitySelect: (id) => {
+        manualNodeIds = [];
+        const nextSelection: SelectionInput = { kind: "community", id };
+        selection = nextSelection;
+        options.onSelect?.(nextSelection);
+        render({ selection: nextSelection });
+      },
+      onNodeSelect: (id, additive) => {
+        const nextSelection = additive
+          ? shiftSelection(id, manualNodeIds.length ? manualNodeIds : selectedNodeIds(selection))
+          : { kind: "node" as const, id };
+        manualNodeIds = nextSelection.kind === "nodes" ? nextSelection.ids : nextSelection.kind === "node" ? [nextSelection.id] : [];
+        selection = nextSelection;
+        options.onSelect?.(nextSelection);
+        render({ selection: nextSelection });
+      },
       onDragStart: (id, event) => {
         if (!simulation) return;
         simulation.beginDrag(id);
@@ -125,6 +143,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       root.dataset.focus = pathOrId;
     },
     select(nextSelection: SelectionInput): void {
+      manualNodeIds = nextSelection.kind === "nodes" ? nextSelection.ids : [];
       render({ selection: nextSelection });
     },
     resetLayout(): void {
@@ -210,6 +229,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 }
 
 interface DragHandlers {
+  onCommunitySelect: (id: CommunityId) => void;
+  onNodeSelect: (id: NodeId, additive: boolean) => void;
   onDragStart: (id: string, event: PointerEvent) => void;
   onDragMove: (id: string, event: PointerEvent) => void;
   onDragEnd: (id: string, event: PointerEvent) => void;
@@ -247,6 +268,11 @@ function paint(
     ellipse.setAttribute("fill", community.color);
     ellipse.setAttribute("opacity", String(community.wash.opacity));
     ellipse.dataset.communityId = community.id;
+    ellipse.style.cursor = "pointer";
+    ellipse.addEventListener("click", (event) => {
+      event.stopPropagation();
+      dragHandlers.onCommunitySelect(community.id);
+    });
     washLayer.appendChild(ellipse);
     painted.communityWashElements.set(community.id, ellipse);
   }
@@ -355,15 +381,18 @@ function createNodeButton(node: RenderableNode, onOpenPage: ((path: WikiPath) =>
 
 function bindDragHandlers(button: HTMLButtonElement, nodeId: string, handlers: DragHandlers): void {
   let dragging = false;
+  let moved = false;
   button.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     dragging = true;
+    moved = false;
     button.classList.add("is-dragging");
     button.setPointerCapture(event.pointerId);
     handlers.onDragStart(nodeId, event);
   });
   button.addEventListener("pointermove", (event) => {
     if (!dragging) return;
+    moved = true;
     handlers.onDragMove(nodeId, event);
   });
   const end = (event: PointerEvent) => {
@@ -375,6 +404,30 @@ function bindDragHandlers(button: HTMLButtonElement, nodeId: string, handlers: D
   };
   button.addEventListener("pointerup", end);
   button.addEventListener("pointercancel", end);
+  button.addEventListener("click", (event) => {
+    if (moved) {
+      moved = false;
+      return;
+    }
+    event.stopPropagation();
+    handlers.onNodeSelect(nodeId, event.shiftKey);
+  });
+}
+
+function selectedNodeIds(selection: SelectionInput | null): NodeId[] {
+  if (!selection) return [];
+  if (selection.kind === "node" || selection.kind === "neighbors") return [selection.id];
+  if (selection.kind === "nodes") return selection.ids;
+  return [];
+}
+
+function shiftSelection(id: NodeId, current: NodeId[]): SelectionInput {
+  const selected = new Set(current);
+  if (selected.has(id)) selected.delete(id);
+  else selected.add(id);
+  const ids = Array.from(selected);
+  if (ids.length === 1) return { kind: "node", id: ids[0] };
+  return { kind: "nodes", ids };
 }
 
 function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number; y: number } {

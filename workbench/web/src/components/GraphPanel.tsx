@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Moon, RefreshCw, RotateCcw, Sun } from "lucide-react";
+import { MessageSquarePlus, Moon, Plus, RefreshCw, RotateCcw, Send, Sun, X } from "lucide-react";
 import {
 	createGraphEngine,
 	type GraphData,
 	type GraphEngine,
 	type PinMap,
+	type Selection,
+	type SelectionAction,
 	type ThemeId,
 } from "@llm-wiki/graph-engine";
 
@@ -15,6 +17,7 @@ import {
 	rebuildGraph,
 	type GraphEvent,
 } from "@/lib/api";
+import { buildSelectionPromptPayload, selectionTitle } from "@/lib/graph-selection";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -23,6 +26,7 @@ interface Props {
 	theme: "dark" | "light";
 	onToggleTheme?: () => void;
 	onOpenPage?: (path: string) => void;
+	onAskSelection?: (input: { message: string; displayText: string; newConversation: boolean }) => void;
 }
 
 type GraphStatus = "idle" | "loading" | "building" | "ready" | "error";
@@ -38,6 +42,7 @@ export function GraphPanel({
 	theme,
 	onToggleTheme,
 	onOpenPage,
+	onAskSelection,
 }: Props) {
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const engineRef = useRef<GraphEngine | null>(null);
@@ -49,6 +54,8 @@ export function GraphPanel({
 	const [status, setStatus] = useState<GraphStatus>("idle");
 	const [error, setError] = useState<string | null>(null);
 	const [buildState, setBuildState] = useState<"none" | "started" | "queued">("none");
+	const [selection, setSelection] = useState<Selection | null>(null);
+	const [selectionText, setSelectionText] = useState("");
 
 	const graphTheme: ThemeId = theme === "dark" ? "mo-ye" : "shan-shui";
 
@@ -56,6 +63,7 @@ export function GraphPanel({
 		if (!currentKnowledgeBasePath) {
 			setData(null);
 			setLayoutPins({});
+			setSelection(null);
 			setStatus("idle");
 			setError(null);
 			return;
@@ -67,17 +75,20 @@ export function GraphPanel({
 			setLayoutPins(layout.layout.pins);
 			if (result.needsBuild) {
 				setData(null);
+				setSelection(null);
 				setStatus("building");
 				const nextBuildState = await rebuildGraph();
 				setBuildState(nextBuildState);
 				return;
 			}
 			setData(result.data);
+			setSelection(null);
 			setStatus("ready");
 			setBuildState("none");
 		} catch (err) {
 			setData(null);
 			setLayoutPins({});
+			setSelection(null);
 			setStatus("error");
 			setError(err instanceof Error ? err.message : String(err));
 		}
@@ -176,6 +187,7 @@ export function GraphPanel({
 			theme: graphTheme,
 			capabilities: {
 				onOpenPage,
+				onAsk: setSelection,
 				persistPins,
 			},
 		});
@@ -184,6 +196,23 @@ export function GraphPanel({
 			engineRef.current = null;
 		};
 	}, [data, graphTheme, layoutPins, onOpenPage, persistPins]);
+
+	const selectNeighbors = useCallback(() => {
+		if (!selection || selection.nodeIds.length !== 1) return;
+		const next = engineRef.current?.select({ kind: "neighbors", id: selection.nodeIds[0] });
+		if (next) setSelection(next);
+	}, [selection]);
+
+	const askSelection = useCallback((action: SelectionAction | null, newConversation: boolean) => {
+		if (!data || !selection || !onAskSelection) return;
+		const payload = buildSelectionPromptPayload(data, selection, action, selectionText);
+		onAskSelection({
+			message: payload.expandedText,
+			displayText: payload.displayText,
+			newConversation
+		});
+		setSelectionText("");
+	}, [data, onAskSelection, selection, selectionText]);
 
 	return (
 		<div className="graph-screen" data-graph-status={status} data-graph-theme={graphTheme}>
@@ -260,7 +289,121 @@ export function GraphPanel({
 						</button>
 					</div>
 				)}
+				{status === "ready" && data && selection && (
+					<SelectionPanel
+						title={selectionTitle(data, selection)}
+						selection={selection}
+						freeText={selectionText}
+						onFreeTextChange={setSelectionText}
+						onClose={() => setSelection(null)}
+						onNeighbors={selectNeighbors}
+						onAsk={(action) => askSelection(action, false)}
+						onAskInNewConversation={(action) => askSelection(action, true)}
+					/>
+				)}
 			</div>
+		</div>
+	);
+}
+
+function SelectionPanel({
+	title,
+	selection,
+	freeText,
+	onFreeTextChange,
+	onClose,
+	onNeighbors,
+	onAsk,
+	onAskInNewConversation,
+}: {
+	title: string;
+	selection: Selection;
+	freeText: string;
+	onFreeTextChange: (value: string) => void;
+	onClose: () => void;
+	onNeighbors: () => void;
+	onAsk: (action: SelectionAction | null) => void;
+	onAskInNewConversation: (action: SelectionAction | null) => void;
+}) {
+	const canExpandNeighbors = selection.nodeIds.length === 1;
+	const canSendFreeText = freeText.trim().length > 0;
+	const defaultAction = selection.actions?.[0] ?? null;
+	return (
+		<aside className="graph-selection-panel" data-testid="graph-selection-panel">
+			<div className="graph-selection-head">
+				<div className="min-w-0">
+					<div className="graph-selection-kicker">选区</div>
+					<div className="graph-selection-title" title={title}>{title}</div>
+				</div>
+				<button type="button" className="icon-btn" onClick={onClose} aria-label="关闭选区">
+					<X />
+				</button>
+			</div>
+			<div className="graph-selection-facts">
+				<Fact label="页" value={selection.facts.pageCount} />
+				<Fact label="链接" value={selection.facts.internalLinkCount} />
+				<Fact label="社区" value={selection.facts.communityCount} />
+				<Fact label="孤立" value={selection.facts.isolatedCount} />
+			</div>
+			<div className="graph-selection-actions">
+				<button
+					type="button"
+					className="graph-selection-action graph-selection-action-muted"
+					onClick={onNeighbors}
+					disabled={!canExpandNeighbors}
+				>
+					<Plus />
+					邻居一跳
+				</button>
+				{selection.actions?.map((action) => (
+					<button
+						key={action.id}
+						type="button"
+						className="graph-selection-action"
+						data-action-id={action.id}
+						onClick={() => onAsk(action)}
+					>
+						<Send />
+						{action.label}
+					</button>
+				))}
+			</div>
+			<textarea
+				className="graph-selection-textarea"
+				value={freeText}
+				onChange={(event) => onFreeTextChange(event.target.value)}
+				rows={3}
+				placeholder="自由输入…"
+			/>
+			<div className="graph-selection-footer">
+				<button
+					type="button"
+					className="graph-selection-send"
+					onClick={() => onAsk(null)}
+					disabled={!canSendFreeText}
+				>
+					<Send />
+					发送
+				</button>
+				<button
+					type="button"
+					className="graph-selection-secondary"
+					onClick={() => onAskInNewConversation(canSendFreeText ? null : defaultAction)}
+					disabled={!canSendFreeText && !defaultAction}
+				>
+					<MessageSquarePlus />
+					新对话
+				</button>
+			</div>
+		</aside>
+	);
+}
+
+function Fact({ label, value }: { label: string; value: number }) {
+	return (
+		<div className="graph-selection-fact">
+			<strong>{value}</strong>
+			<span>{label}</span>
 		</div>
 	);
 }

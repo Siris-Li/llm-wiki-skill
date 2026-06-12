@@ -112,6 +112,11 @@ function App() {
 	const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
 	const [drawerFullscreen, setDrawerFullscreen] = useState(false);
 	const [batchJob, setBatchJob] = useState<BatchDigestJob | null>(null);
+	const [pendingGraphPrompt, setPendingGraphPrompt] = useState<{
+		id: string;
+		message: string;
+		displayText: string;
+	} | null>(null);
 	const [mainView, setMainView] = useState<MainView>(() => {
 		if (typeof window === "undefined") return "chat";
 		return window.localStorage.getItem(MAIN_VIEW_STORAGE_KEY) === "graph" ? "graph" : "chat";
@@ -251,6 +256,26 @@ function App() {
 			const ctx = await createNewConversation(active.kb.path);
 			applyActive(ctx);
 			await refreshConversations(active.kb.path);
+		} catch (err) {
+			setSidebarError(err instanceof Error ? err.message : String(err));
+		}
+	};
+
+	const handleAskSelection = async (input: { message: string; displayText: string; newConversation: boolean }) => {
+		if (!active) return;
+		setSidebarError(null);
+		try {
+			if (input.newConversation) {
+				const ctx = await createNewConversation(active.kb.path);
+				applyActive(ctx);
+				await refreshConversations(active.kb.path);
+			}
+			setMainView("chat");
+			setPendingGraphPrompt({
+				id: Math.random().toString(36).slice(2, 10),
+				message: input.message,
+				displayText: input.displayText,
+			});
 		} catch (err) {
 			setSidebarError(err instanceof Error ? err.message : String(err));
 		}
@@ -489,6 +514,7 @@ function App() {
 							theme={theme}
 							onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
 							onOpenPage={handleOpenPage}
+							onAskSelection={handleAskSelection}
 						/>
 					) : (
 						<ChatPanel
@@ -506,6 +532,8 @@ function App() {
 							onStartBatchDigest={handleStartBatchDigest}
 							theme={theme}
 							onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
+							pendingPrompt={pendingGraphPrompt}
+							onPendingPromptConsumed={() => setPendingGraphPrompt(null)}
 						/>
 					)}
 				</main>

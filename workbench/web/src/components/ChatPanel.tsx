@@ -75,6 +75,12 @@ interface Props {
 		sourceScanId?: string;
 		concurrency: 1 | 3 | 5;
 	}) => void;
+	pendingPrompt?: {
+		id: string;
+		message: string;
+		displayText: string;
+	} | null;
+	onPendingPromptConsumed?: () => void;
 }
 
 export function ChatPanel({
@@ -91,6 +97,8 @@ export function ChatPanel({
 	theme = "dark",
 	onToggleTheme,
 	onStartBatchDigest,
+	pendingPrompt,
+	onPendingPromptConsumed,
 }: Props) {
 	const [messages, setMessages] = useState<Message[]>(() => initialMessages.map(fromUIMessage));
 	const [input, setInput] = useState("");
@@ -117,6 +125,7 @@ export function ChatPanel({
 	const [refs, setRefs] = useState<PageRef[]>([]);
 	const abortRef = useRef<AbortController | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const consumedPendingPromptRef = useRef<string | null>(null);
 
 	const detectedMaterial = (() => {
 		const text = input.trim();
@@ -375,6 +384,13 @@ export function ChatPanel({
 			abortRef.current = null;
 		}
 	};
+
+	useEffect(() => {
+		if (!pendingPrompt || consumedPendingPromptRef.current === pendingPrompt.id) return;
+		consumedPendingPromptRef.current = pendingPrompt.id;
+		onPendingPromptConsumed?.();
+		void sendPrompt(pendingPrompt.message, pendingPrompt.displayText);
+	}, [onPendingPromptConsumed, pendingPrompt]);
 
 	const startDetectedBatchDigest = () => {
 		if (!currentKnowledgeBasePath || !detectedBatch?.inspect.ingestibleFiles?.paths.length) return;

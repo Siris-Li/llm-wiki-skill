@@ -688,6 +688,169 @@
     background: var(--app-accent-soft);
   }
 
+  .graph-selection-panel {
+    position: absolute;
+    top: 60px;
+    right: 16px;
+    z-index: 8;
+    width: min(340px, calc(100% - 32px));
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: color-mix(in oklch, var(--app-bg) 94%, transparent);
+    padding: 12px;
+    box-shadow: var(--soft-shadow);
+  }
+
+  .graph-selection-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .graph-selection-kicker {
+    color: var(--app-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+
+  .graph-selection-title {
+    margin-top: 2px;
+    overflow: hidden;
+    color: var(--app-fg);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .graph-selection-facts {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .graph-selection-fact {
+    min-width: 0;
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+    background: var(--app-raised);
+    padding: 7px 6px;
+    text-align: center;
+  }
+
+  .graph-selection-fact strong {
+    display: block;
+    color: var(--app-fg);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.1;
+  }
+
+  .graph-selection-fact span {
+    display: block;
+    margin-top: 3px;
+    color: var(--app-muted);
+    font-size: 10px;
+  }
+
+  .graph-selection-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .graph-selection-action,
+  .graph-selection-send,
+  .graph-selection-secondary {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.2;
+  }
+
+  .graph-selection-action {
+    flex: 1 1 calc(50% - 3px);
+    min-height: 30px;
+    border: 1px solid var(--app-border);
+    background: var(--app-raised);
+    padding: 6px 8px;
+    color: var(--app-fg);
+  }
+
+  .graph-selection-action-muted {
+    color: var(--app-muted);
+  }
+
+  .graph-selection-action:hover:not(:disabled),
+  .graph-selection-secondary:hover:not(:disabled) {
+    border-color: var(--app-muted);
+    background: var(--app-fg-soft);
+  }
+
+  .graph-selection-action:disabled,
+  .graph-selection-send:disabled,
+  .graph-selection-secondary:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+
+  .graph-selection-action svg,
+  .graph-selection-send svg,
+  .graph-selection-secondary svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+  }
+
+  .graph-selection-textarea {
+    width: 100%;
+    min-height: 72px;
+    resize: vertical;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: var(--app-raised);
+    padding: 8px 10px;
+    color: var(--app-fg);
+    font-size: 12px;
+    line-height: 1.5;
+    outline: none;
+  }
+
+  .graph-selection-textarea:focus {
+    border-color: var(--app-accent);
+  }
+
+  .graph-selection-footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .graph-selection-send {
+    min-height: 32px;
+    background: var(--app-accent);
+    padding: 7px 10px;
+    color: white;
+  }
+
+  .graph-selection-secondary {
+    min-height: 32px;
+    border: 1px solid var(--app-border);
+    background: var(--app-raised);
+    padding: 7px 10px;
+    color: var(--app-muted);
+  }
+
   .chat-messages {
     flex: 1;
     overflow-y: auto;

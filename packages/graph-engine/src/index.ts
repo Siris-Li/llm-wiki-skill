@@ -9,10 +9,12 @@ import type {
   GraphDiff,
   GraphEngine,
   GraphEngineOptions,
+  Selection,
   SelectionInput,
   ThemeId
 } from "./types";
 import { createStaticGraphRenderer } from "./render";
+import { resolveSelection } from "./select";
 
 export function createGraphEngine(container: HTMLElement, options: GraphEngineOptions): GraphEngine {
   if (!container) {
@@ -26,6 +28,9 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
     pins: options.pins || {},
     theme: currentTheme,
     onOpenPage: options.capabilities?.onOpenPage,
+    onSelect: (input) => {
+      options.capabilities?.onAsk?.(resolveSelection(options.data, input));
+    },
     persistPins: options.capabilities?.persistPins
   });
 
@@ -43,9 +48,10 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
       renderer.focusNode(path);
     },
 
-    select(selector: SelectionInput): void {
+    select(selector: SelectionInput): Selection {
       assertActive();
       renderer.select(selector);
+      return resolveSelection(options.data, selector);
     },
 
     setTheme(theme: ThemeId): void {
