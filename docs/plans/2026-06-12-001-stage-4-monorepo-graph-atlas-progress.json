@@ -4,8 +4,8 @@
   "branch": "stage-4",
   "status": {
     "phase": "phase-3",
-    "work_unit": "3.1",
-    "next_allowed_action": "Execute WU 3.1: add d3-force low-heat simulation, hybrid cold-start layout, and cached hand-drawn paths; verify with graph-engine simulation state tests."
+    "work_unit": "3.2",
+    "next_allowed_action": "Execute WU 3.2: add node pin/unpin/reset interactions, GET/PUT /api/graph/layout, and KB-local .wiki-graph-layout.json persistence with corruption tolerance."
   },
   "execution_rules": {
     "commit_each_completed_work_unit": true,
@@ -331,7 +331,45 @@
       "name": "活模拟 + 钉扎 + 持久化",
       "status": "pending",
       "work_units": [
-        { "id": "3.1", "name": "d3-force 低温模拟 + 混合布局 + 路径缓存", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        {
+          "id": "3.1",
+          "name": "d3-force 低温模拟 + 混合布局 + 路径缓存",
+          "status": "completed",
+          "commit": "0bdcdec88b1f9a17dc31410ed527424681ce5017",
+          "verification": [
+            {
+              "command": "npm test -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "95 graph-engine tests passed, including new deterministic simulation state tests for cold-start coordinates, alpha zero sleep, low-heat drag neighbor movement, and far-node freezing."
+            },
+            {
+              "command": "npm run build -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "ESM, IIFE, and declaration outputs built successfully with d3-force included."
+            },
+            {
+              "command": "npm run typecheck",
+              "status": "passed",
+              "summary": "server, web, and graph-engine workspace typechecks passed after graph-engine declaration output was regenerated."
+            },
+            {
+              "command": "npm run build -w @llm-wiki-agent/web",
+              "status": "passed",
+              "summary": "Workbench web production build passed; Vite reported only the existing large chunk warning."
+            },
+            {
+              "command": "npx --no-install playwright screenshot waiting for .llm-wiki-graph-engine .node[data-live-x]",
+              "status": "passed",
+              "summary": "Running workbench graph view rendered the demo KB with live simulation coordinates applied to nodes."
+            },
+            {
+              "command": "git diff --cached --check; staged local-path scan; root package type check; scripts/build-graph-data.sh diff check",
+              "status": "passed",
+              "summary": "Staged whitespace check passed, no staged local absolute paths were present, root package.json still has no type field, and scripts/build-graph-data.sh was unchanged."
+            }
+          ],
+          "notes": "Added the whitelisted d3-force runtime dependency plus @types/d3-force for TypeScript, implemented a graph-engine sim module with cold-start low-heat settling and direct-neighbor drag behavior, added render position overrides and stable edge curve caching, and wired the workbench renderer to update existing DOM nodes during live simulation. Initial lowHeatAlphaTarget is 0.15 per plan; drag hand-feel remains a later manual acceptance item."
+        },
         { "id": "3.2", "name": "钉扎交互 + layout API + 文件持久化", "status": "pending", "commit": null, "verification": [], "notes": "" },
         { "id": "3.3", "name": "团块拖动行为 + init gitignore 查证", "status": "pending", "commit": null, "verification": [], "notes": "" }
       ]
@@ -438,6 +476,15 @@
       "verification": "API rebuild script passed with 11 nodes and 24 edges; Playwright confirmed rendered graph and building state; typecheck, web build, graph-engine test/build, original JS tests, and regression all passed; staged privacy and root package type checks passed.",
       "result": "completed",
       "next": "Phase 2 done; WU 3.1 d3-force low-heat simulation, hybrid layout, and path caching."
+    },
+    {
+      "timestamp": "2026-06-12T16:03:50+08:00",
+      "phase": "phase-3",
+      "work_unit": "3.1",
+      "action": "Added d3-force live simulation, low-heat drag behavior, cold-start coordinate handling, render position updates, and stable edge curve caching in graph-engine.",
+      "verification": "graph-engine tests passed with 95 tests; graph-engine build passed; root typecheck passed; workbench web build passed; Playwright smoke confirmed live graph coordinates in the workbench; staged privacy and root package type checks passed.",
+      "result": "completed",
+      "next": "WU 3.2 node pinning, layout API, and KB-local layout persistence."
     }
   ]
 }
