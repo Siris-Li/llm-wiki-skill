@@ -36,6 +36,7 @@ const WORLD_HEIGHT = 680;
 
 interface PaintedGraphDom {
   edgeElements: Map<string, SVGPathElement>;
+  communityWashElements: Map<string, SVGEllipseElement>;
   nodeElements: Map<string, HTMLButtonElement>;
   miniNodeElements: Map<string, SVGCircleElement>;
   basePoints: Map<string, { x: number; y: number }>;
@@ -88,6 +89,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         if (position) {
           const nextState = pinState.pin(id, position);
           pins = nextState.pins;
+          applyMotionFrame(snapshot.positions);
           markPinnedNodes(nextState.pinnedNodeIds);
           void options.persistPins?.(nextState.pins);
         }
@@ -180,6 +182,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       if (!element || !source || !target) continue;
       element.setAttribute("d", makeEdgePathFromPoints(source.point, target.point, edge.curveOffset));
     }
+    for (const community of graph.communities) {
+      const element = dom.communityWashElements.get(community.id);
+      if (!element || !community.wash) continue;
+      element.setAttribute("cx", String(community.wash.cx));
+      element.setAttribute("cy", String(community.wash.cy));
+      element.setAttribute("rx", String(community.wash.rx));
+      element.setAttribute("ry", String(community.wash.ry));
+      element.setAttribute("opacity", String(community.wash.opacity));
+    }
     for (const miniNode of graph.minimap.nodes) {
       const element = dom.miniNodeElements.get(miniNode.id);
       if (!element) continue;
@@ -235,7 +246,9 @@ function paint(
     ellipse.setAttribute("ry", String(community.wash.ry));
     ellipse.setAttribute("fill", community.color);
     ellipse.setAttribute("opacity", String(community.wash.opacity));
+    ellipse.dataset.communityId = community.id;
     washLayer.appendChild(ellipse);
+    painted.communityWashElements.set(community.id, ellipse);
   }
   svg.appendChild(washLayer);
 
@@ -375,6 +388,7 @@ function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number;
 function emptyPaintedDom(): PaintedGraphDom {
   return {
     edgeElements: new Map(),
+    communityWashElements: new Map(),
     nodeElements: new Map(),
     miniNodeElements: new Map(),
     basePoints: new Map()
@@ -436,6 +450,12 @@ const STATIC_RENDERER_CSS = `
 .edge.inferred { stroke: color-mix(in srgb, var(--jade) 62%, transparent); stroke-dasharray: 6 8; }
 .edge.ambiguous { stroke: color-mix(in srgb, var(--amber) 66%, transparent); stroke-dasharray: 2 7; }
 .edge.unverified { stroke: color-mix(in srgb, var(--muted) 45%, transparent); stroke-dasharray: 1 8; }
+.community-wash {
+  transition: opacity .16s ease, cx .24s ease, cy .24s ease, rx .24s ease, ry .24s ease;
+}
+.llm-wiki-graph-engine[data-dragging] .community-wash {
+  opacity: .035;
+}
 .node-layer {
   position: absolute;
   inset: 0;

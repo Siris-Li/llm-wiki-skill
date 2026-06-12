@@ -39,6 +39,38 @@ function sampleGraph(): GraphData {
   };
 }
 
+function outlierCommunityGraph(): GraphData {
+  const nodes = [
+    { id: "core-a", label: "Core A", type: "entity", community: "c1", source_path: "wiki/core-a.md", weight: 70, x: 20, y: 40 },
+    { id: "core-b", label: "Core B", type: "entity", community: "c1", source_path: "wiki/core-b.md", weight: 65, x: 22, y: 42 },
+    { id: "core-c", label: "Core C", type: "topic", community: "c1", source_path: "wiki/core-c.md", weight: 80, x: 24, y: 39 },
+    { id: "core-d", label: "Core D", type: "source", community: "c1", source_path: "wiki/core-d.md", weight: 55, x: 26, y: 41 },
+    { id: "outlier", label: "Outlier", type: "entity", community: "c1", source_path: "wiki/outlier.md", weight: 35, x: 92, y: 78 }
+  ];
+  return {
+    meta: {
+      build_date: "2026-06-12T00:00:00.000Z",
+      wiki_title: "Outlier Fixture",
+      total_nodes: nodes.length,
+      total_edges: 0
+    },
+    nodes,
+    edges: [],
+    learning: {
+      version: 1,
+      entry: { recommended_start_node_id: "core-c", recommended_start_reason: "community_hub", default_mode: "global" },
+      views: {
+        path: { enabled: false, start_node_id: null, node_ids: [], degraded: true },
+        community: { enabled: false, community_id: null, label: null, node_ids: [], is_weak: false, degraded: true },
+        global: { enabled: true, node_ids: nodes.map((node) => node.id), degraded: false }
+      },
+      communities: [
+        { id: "c1", label: "Cluster", node_count: nodes.length, color_index: 0, recommended_start_node_id: "core-c" }
+      ]
+    }
+  };
+}
+
 describe("buildRenderableGraph", () => {
   it("maps graph data to static renderable nodes, edges, communities, and minimap points", () => {
     const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
@@ -97,6 +129,16 @@ describe("buildRenderableGraph", () => {
     assert.equal(selected.selected, true);
     assert.equal(selected.visualRole, "cinnabar-note");
     assert.equal(graph.minimap.nodes.find((node) => node.id === "source")?.selected, true);
+  });
+
+  it("keeps community wash around the member cluster instead of chasing an outlier", () => {
+    const graph = buildRenderableGraph(outlierCommunityGraph(), { theme: "shan-shui" });
+    const community = graph.communities.find((item) => item.id === "c1");
+
+    assert.ok(community?.wash);
+    assert.equal(community.nodeCount, 5);
+    assert.ok(community.wash.cx < 320, `wash center should stay near the clustered members, got ${community.wash.cx}`);
+    assert.ok(community.wash.rx < 140, `wash radius should not stretch to the outlier, got ${community.wash.rx}`);
   });
 });
 

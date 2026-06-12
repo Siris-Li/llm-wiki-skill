@@ -413,7 +413,7 @@ function nodeVisualRole(
 
 function computeCommunityWash(nodes: RenderableNode[]): RenderableCommunity["wash"] {
   if (!nodes.length) return null;
-  const points = nodes.map((node) => node.point);
+  const points = communityWashCorePoints(nodes);
   const minX = Math.min(...points.map((point) => point.x));
   const maxX = Math.max(...points.map((point) => point.x));
   const minY = Math.min(...points.map((point) => point.y));
@@ -427,8 +427,37 @@ function computeCommunityWash(nodes: RenderableNode[]): RenderableCommunity["was
   };
 }
 
-function edgeStrokeWidthRaw(weight: number | undefined): number {
-  return 1.1 + clampWeight(weight) * 1.8;
+function communityWashCorePoints(nodes: RenderableNode[]): RenderPosition[] {
+  const points = nodes.map((node) => node.point);
+  if (points.length <= 3) return points;
+  const scored = points
+    .map((point) => ({
+      point,
+      neighborScore: nearestNeighborScore(point, points)
+    }))
+    .sort((left, right) => left.neighborScore - right.neighborScore);
+  const coreCount = Math.max(2, Math.ceil(points.length * 0.75));
+  const core = scored.slice(0, coreCount);
+  const excluded = scored.slice(coreCount);
+  const coreMax = Math.max(...core.map((item) => item.neighborScore));
+  const excludedMin = Math.min(...excluded.map((item) => item.neighborScore));
+  if (!Number.isFinite(excludedMin) || excludedMin <= Math.max(180, coreMax * 2.5)) {
+    return points;
+  }
+  return core.map((item) => item.point);
+}
+
+function nearestNeighborScore(point: RenderPosition, points: RenderPosition[]): number {
+  const distances = points
+    .filter((candidate) => candidate !== point)
+    .map((candidate) => distance(point, candidate))
+    .sort((left, right) => left - right);
+  const nearest = distances.slice(0, Math.min(2, distances.length));
+  return nearest.reduce((sum, value) => sum + value, 0) / Math.max(1, nearest.length);
+}
+
+function distance(left: RenderPosition, right: RenderPosition): number {
+  return Math.hypot(left.x - right.x, left.y - right.y);
 }
 
 function clampWeight(value: unknown): number {
