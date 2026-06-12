@@ -1,0 +1,110 @@
+{
+  "plan": "docs/plans/2026-06-12-001-stage-4-monorepo-graph-atlas-plan.md",
+  "design": "workbench/docs/stage-4-design.md (before phase-0 completes: ../llm-wiki-agent/docs/stage-4-design.md)",
+  "branch": "stage-4",
+  "status": {
+    "phase": "phase-0",
+    "work_unit": "0.1",
+    "next_allowed_action": "Execute WU 0.1: merge stage-4-design into local main of ../llm-wiki-agent (no push). Then continue per plan section 5."
+  },
+  "execution_rules": {
+    "commit_each_completed_work_unit": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "no_commit_on_failed_verification": true,
+    "no_push_no_pr_no_merge_to_main": true,
+    "root_package_json_must_not_set_type_module": true,
+    "new_dependency_whitelist": ["d3-force", "chokidar (only if fs.watch recursive proven unreliable; record evidence)"],
+    "stop_after_three_failed_verification_attempts": true
+  },
+  "decision_log": [],
+  "final_acceptance": {
+    "1_monorepo_dev_and_skill_tests": null,
+    "2_static_baseline_screenshots": null,
+    "3_pinning_persistence": null,
+    "4_selection_closed_loop": null,
+    "5_growth_and_watcher": null,
+    "6_offline_html": null,
+    "7_theme_follow": null
+  },
+  "manual_acceptance": [],
+  "phases": [
+    {
+      "id": "phase-0",
+      "name": "monorepo 搬家",
+      "status": "pending",
+      "work_units": [
+        { "id": "0.1", "name": "agent 仓库 stage-4-design 合入本地 main（不 push）", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "0.2", "name": "subtree add 进 workbench/ + 隐私清理", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "0.3", "name": "workspace 根 package.json + lockfile 统一 + 配置上移", "status": "pending", "commit": null, "verification": [], "notes": "" }
+      ]
+    },
+    {
+      "id": "phase-1",
+      "name": "引擎包骨架 + helpers TS 化",
+      "status": "pending",
+      "work_units": [
+        { "id": "1.1", "name": "graph-engine 包骨架 + types.ts + 双产物构建", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "1.2", "name": "helpers 1:1 TS 化 + 测试迁移（断言数对比记录）", "status": "pending", "commit": null, "verification": [], "notes": "" }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "工作台图谱视图静态复现",
+      "status": "pending",
+      "work_units": [
+        { "id": "2.1", "name": "静态渲染器 + 主题 token（含 header.html 内联 d3/rough 核查）", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "2.2", "name": "工作台视图壳 + /api/graph + rebuild + 对照截图", "status": "pending", "commit": null, "verification": [], "notes": "" }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "活模拟 + 钉扎 + 持久化",
+      "status": "pending",
+      "work_units": [
+        { "id": "3.1", "name": "d3-force 低温模拟 + 混合布局 + 路径缓存", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "3.2", "name": "钉扎交互 + layout API + 文件持久化", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "3.3", "name": "团块拖动行为 + init gitignore 查证", "status": "pending", "commit": null, "verification": [], "notes": "" }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "选区系统 + 对话联动",
+      "status": "pending",
+      "work_units": [
+        { "id": "4.1", "name": "四式选择 + 结构事实 + 动作映射", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "4.2", "name": "选区面板 + 胶囊 + prompt 通路（TBD-4.2 定稿）", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "4.3", "name": "反向联动 focusNode + capabilities 裁剪验证", "status": "pending", "commit": null, "verification": [], "notes": "" }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "name": "文件监听 + 重算链 + 生长动画",
+      "status": "pending",
+      "work_units": [
+        { "id": "5.1", "name": "fs 监听（实测先行）+ 排除清单 + 重算队列", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "5.2", "name": "diff.ts 社区对齐 + graph_updated 携带 diff", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "5.3", "name": "生长动画 + diff 队列（补播/挂起）", "status": "pending", "commit": null, "verification": [], "notes": "" }
+      ]
+    },
+    {
+      "id": "phase-6",
+      "name": "Skill 离线 HTML 切换引擎产物",
+      "status": "pending",
+      "work_units": [
+        { "id": "6.1", "name": "build-graph-html.sh 改造 + 钉位烤入 + 打包清单", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "6.2", "name": "回归断言修订（语义断言保留）+ 旧模板 deprecated", "status": "pending", "commit": null, "verification": [], "notes": "" }
+      ]
+    },
+    {
+      "id": "phase-7",
+      "name": "总验收 + 墨夜打磨 + 回填",
+      "status": "pending",
+      "work_units": [
+        { "id": "7.1", "name": "墨夜主题精修 + 手感参数定稿", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        { "id": "7.2", "name": "七条总验收取证 + PRODUCT.md/设计文档回填", "status": "pending", "commit": null, "verification": [], "notes": "" }
+      ]
+    }
+  ],
+  "turn_log": []
+}
