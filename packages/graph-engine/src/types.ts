@@ -213,11 +213,31 @@ export interface SelectionFacts {
   isolatedCount: number;
 }
 
+export type SelectionActionId =
+  | "summarize_cluster"
+  | "find_knowledge_gaps"
+  | "create_topic_page"
+  | "why_no_connection"
+  | "find_potential_bridges"
+  | "compare_communities"
+  | "explore_potential_links"
+  | "compare_differences"
+  | "link_island";
+
+export type SelectionActionTone = "digest" | "lint" | "write" | "bridge" | "compare" | "repair";
+
+export interface SelectionAction {
+  id: SelectionActionId;
+  label: string;
+  tone: SelectionActionTone;
+}
+
 export interface Selection {
   id: string;
   nodeIds: NodeId[];
   communityIds: CommunityId[];
   facts: SelectionFacts;
+  actions?: SelectionAction[];
 }
 
 export type SelectionInput =
