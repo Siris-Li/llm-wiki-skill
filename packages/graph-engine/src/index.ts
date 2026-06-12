@@ -1,5 +1,7 @@
 export * from "./types";
 export * from "./model";
+export * from "./render";
+export * from "./themes";
 
 import type {
   GraphDiff,
@@ -8,6 +10,7 @@ import type {
   SelectionInput,
   ThemeId
 } from "./types";
+import { createStaticGraphRenderer } from "./render";
 
 export function createGraphEngine(container: HTMLElement, options: GraphEngineOptions): GraphEngine {
   if (!container) {
@@ -16,6 +19,12 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
 
   let currentTheme: ThemeId = options.theme;
   let destroyed = false;
+  const renderer = createStaticGraphRenderer(container, {
+    data: options.data,
+    pins: options.pins || {},
+    theme: currentTheme,
+    onOpenPage: options.capabilities?.onOpenPage
+  });
 
   container.dataset.llmWikiGraphEngine = "mounted";
   container.dataset.llmWikiGraphTheme = currentTheme;
@@ -28,21 +37,25 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
     focusNode(path: string): void {
       assertActive();
       container.dataset.llmWikiGraphFocus = path;
+      renderer.focusNode(path);
     },
 
-    select(_selector: SelectionInput): void {
+    select(selector: SelectionInput): void {
       assertActive();
+      renderer.select(selector);
     },
 
     setTheme(theme: ThemeId): void {
       assertActive();
       currentTheme = theme;
       container.dataset.llmWikiGraphTheme = currentTheme;
+      renderer.setTheme(theme);
     },
 
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      renderer.destroy();
       delete container.dataset.llmWikiGraphEngine;
       delete container.dataset.llmWikiGraphTheme;
       delete container.dataset.llmWikiGraphFocus;
