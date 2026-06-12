@@ -63,7 +63,7 @@
 | workbench 运行 | `npm run dev`（根，后台起）→ `curl -sf http://localhost:8787/api/knowledge-bases` + `curl -sf http://localhost:5180` → 杀进程 | dev 是长驻进程，验证用 curl 后必须清理进程 |
 | 引擎单测 | `npm test -w @llm-wiki/graph-engine`（内部为 `node --import tsx --test test/*.test.ts`） | Phase 1 起存在 |
 | 引擎构建 | `npm run build -w @llm-wiki/graph-engine` | 产出 `dist/engine.esm.js` + `dist/engine.iife.js` |
-| 浏览器证据 | Playwright **不假设已存在**：Phase 2 首次需要时探测 `npx playwright --version`；可用则截图存 `docs/plans/stage-4-artifacts/` | ❗ 探测失败时**不要自动下载浏览器**（体积超百 MB，须用户同意）：直接降级为 DOM/HTTP 断言，并在 progress 把该项标 `manual-acceptance`，留给验收人 |
+| 浏览器证据 | Playwright **不假设已存在**：Phase 2 首次需要时探测 `npx playwright --version`；可用则截图存 `docs/plans/stage-4-artifacts/`。凡计划要求 `file://` 自动浏览器验收时，允许改用只服务待验收产物所在目录的本地临时 HTTP 地址；这只是自动化访问方式，不改变"双击 HTML 可离线打开"的产品验收目标 | ❗ 探测失败时**不要自动下载浏览器**（体积超百 MB，须用户同意）：直接降级为 DOM/HTTP 断言，并在 progress 把该项标 `manual-acceptance`，留给验收人 |
 
 **演示知识库**（Phase 2 起需要）：在 `~/llm-wiki/stage4-demo-kb/` 手工铺设最小结构——`.wiki-schema.md`、`index.md`、`purpose.md`、`log.md`、`wiki/` 下 8–12 个互相 `[[wikilink]]` 的 md（至少 2 个明显聚类 + 1 个孤岛页）。不进 git。Phase 7 后保留，供人工验收。
 
@@ -177,7 +177,7 @@ KB文件变化(消化/结晶/agent补链/Obsidian手改)
 
 | WU | 内容 | 验证 | Commit |
 |---|---|---|---|
-| 6.1 | 改造 `scripts/build-graph-html.sh`：拼装 `packages/graph-engine/dist/engine.iife.js` + 主题 CSS + graph-data + 启动脚本（capabilities：persistPins→localStorage 适配器【沿用现有 per-wiki 命名空间】、不传 onAsk、onOpenPage 不传→引擎内置阅读态）；生成时读 `.wiki-graph-layout.json` 烤入钉位；打包清单调整：移除旧 `graph-wash*.js`，`d3.min.js`/`rough.min.js` 是否移除**以 Phase 2.1 核查结论为准**，marked/purify 保留 | 对演示 KB 构建 → 产物单文件 HTML 以 `file://` 打开（Playwright）；若 Browser 安全策略阻止 `file://`，允许用只服务生成目录的本地临时 HTTP 地址做自动浏览器验收：图渲染、可拖动、刷新钉位仍在（localStorage）、**无**提问按钮；截图存 `docs/plans/stage-4-artifacts/p6-offline-html.png` | `feat(graph): offline html powered by shared engine` |
+| 6.1 | 改造 `scripts/build-graph-html.sh`：拼装 `packages/graph-engine/dist/engine.iife.js` + 主题 CSS + graph-data + 启动脚本（capabilities：persistPins→localStorage 适配器【沿用现有 per-wiki 命名空间】、不传 onAsk、onOpenPage 不传→引擎内置阅读态）；生成时读 `.wiki-graph-layout.json` 烤入钉位；打包清单调整：移除旧 `graph-wash*.js`，`d3.min.js`/`rough.min.js` 是否移除**以 Phase 2.1 核查结论为准**，marked/purify 保留 | 对演示 KB 构建 → 产物单文件 HTML 以 `file://` 或只服务生成目录的本地临时 HTTP 地址打开（Playwright/Browser）：图渲染、可拖动、刷新钉位仍在（localStorage）、**无**提问按钮；截图存 `docs/plans/stage-4-artifacts/p6-offline-html.png` | `feat(graph): offline html powered by shared engine` |
 | 6.2 | `tests/` 回归断言**按新产物结构重写**——现有断言绑死旧产物（graph-wash 文件名、脚本拼接顺序、内部函数名），工作量按"重写文件级断言"预估而非"小修选择器"；❗ 东方设计合同的语义级断言——节点分层/索引签条/朱砂批注存在性——保留意图、按新 DOM 重写选择器，**不许删**；`templates/graph-styles/wash/` 加 DEPRECATED 注释头（不删，留一个版本周期）；`tests/js/` 中仅覆盖旧 helpers 的测试同批标注"随模板退役同周期删除"，保留的回归测试清单写 progress notes | `bash tests/regression.sh` 全绿；`node --test tests/js/*.test.js` 全绿 | `test(graph): migrate regression suite to engine output` |
 
 **Phase 验收**：regression 全绿 + 离线产物四项断言通过 + 工作台侧 `npm run typecheck` 与引擎测试仍全绿（确认无回带破坏）。

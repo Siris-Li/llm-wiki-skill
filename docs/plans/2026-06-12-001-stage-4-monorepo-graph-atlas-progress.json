@@ -20,6 +20,7 @@
     ],
     "toolchain_devdeps_allowed": "typescript/vite/tsx/concurrently and @types/* reusing workbench-pinned versions do NOT count as new dependencies",
     "privacy_check_every_commit": "git diff --cached must not contain /Users/ paths; never commit demo-KB generated graph-data/offline HTML",
+    "browser_file_url_acceptance_can_use_local_temp_http": "When a plan step asks for file:// automated browser acceptance, a local temporary HTTP address serving only the artifact directory is allowed as the automation transport; this does not change the offline double-click product acceptance target.",
     "stop_after_three_failed_verification_attempts": true
   },
   "decision_log": [
@@ -46,6 +47,14 @@
       "decision": "Native Node fs.watch recursive was kept; chokidar was not introduced.",
       "evidence": "Two temporary-directory probes on darwin received recursive events for nested directory creation and nested markdown file create/modify/delete. The second probe showed nested file modifications may arrive as rename events rather than change, so the implementation treats any non-excluded event as a rebuild signal and does not depend on event type.",
       "consequence": "WU 5.1 uses Node native fs.watch recursive with debounce and explicit path exclusions; no new dependency was added."
+    },
+    {
+      "timestamp": "2026-06-12T21:06:05+08:00",
+      "phase": "phase-7",
+      "work_unit": "plan-amendment",
+      "decision": "Automated browser acceptance may use a local temporary HTTP address in place of file://.",
+      "evidence": "User explicitly amended the plan to allow local temporary HTTP addresses as a substitute for file:// automated browser acceptance.",
+      "consequence": "Future browser automation can serve only the artifact directory over a temporary localhost URL; offline double-click HTML remains a product acceptance target."
     }
   ],
   "final_acceptance": {
@@ -1145,6 +1154,19 @@
         "npm run typecheck passed",
         "npm test -w @llm-wiki/graph-engine passed with 116 tests",
         "pre-commit hard checks passed"
+      ],
+      "next": "phase-7 work_unit 7.1"
+    },
+    {
+      "timestamp": "2026-06-12T21:06:05+08:00",
+      "phase": "phase-7",
+      "work_unit": "plan-amendment",
+      "action": "plan amended",
+      "summary": "Updated the global browser-evidence rule so file:// automated browser acceptance may be replaced by a local temporary HTTP address serving only the artifact directory.",
+      "verification": [
+        "progress JSON parsed successfully",
+        "plan grep confirmed the local temporary HTTP rule is present",
+        "staged privacy scan passed"
       ],
       "next": "phase-7 work_unit 7.1"
     }
