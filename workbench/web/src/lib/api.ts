@@ -5,6 +5,7 @@
  */
 
 import { parseSSE, type SSEMessage } from "./sse";
+import type { GraphData } from "@llm-wiki/graph-engine";
 
 // ============= 类型 =============
 
@@ -143,6 +144,25 @@ export type BatchDigestEvent =
 	| { type: "file_complete"; index: number; filePath: string; outputPath: string }
 	| { type: "file_error"; index: number; filePath: string; error: string }
 	| { type: "done"; total: number; completed: number; failed: number; outputDir: string };
+
+export type GraphApiResult =
+	| { ok: true; needsBuild: true; graphPath: string }
+	| { ok: true; needsBuild: false; graphPath: string; data: GraphData };
+
+export type GraphEvent =
+	| {
+			type: "graph_updated";
+			kbPath: string;
+			diff: null;
+			rebuiltAt: string;
+			stats: { nodeCount: number; edgeCount: number };
+	  }
+	| {
+			type: "graph_error";
+			kbPath: string;
+			message: string;
+			rebuiltAt: string;
+	  };
 
 // ============= API =============
 
@@ -434,6 +454,20 @@ export async function readPage(kbPath: string, relPath: string): Promise<string>
 	const json = (await res.json()) as { ok: boolean; content?: string; error?: string };
 	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
 	return json.content ?? "";
+}
+
+export async function getGraphData(): Promise<GraphApiResult> {
+	const res = await fetch("/api/graph");
+	const json = (await res.json()) as GraphApiResult | { ok: false; error?: string };
+	if (!res.ok || !json.ok) throw new Error(("error" in json && json.error) || `HTTP ${res.status}`);
+	return json;
+}
+
+export async function rebuildGraph(): Promise<"started" | "queued"> {
+	const res = await fetch("/api/graph/rebuild", { method: "POST" });
+	const json = (await res.json()) as { ok: true; status: "started" | "queued" } | { ok: false; error?: string };
+	if (!res.ok || !json.ok) throw new Error(("error" in json && json.error) || `HTTP ${res.status}`);
+	return json.status;
 }
 
 export async function listArtifacts(conversationId?: string): Promise<ArtifactManifest[]> {

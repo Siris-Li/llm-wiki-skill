@@ -3,6 +3,8 @@ import {
 	BookOpen,
 	ChevronRight,
 	Download,
+	MessagesSquare,
+	Network,
 	PanelLeftClose,
 	PanelLeftOpen,
 	Plus,
@@ -16,6 +18,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { ConversationInfo, KnowledgeBaseInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+export type MainView = "chat" | "graph";
+
 interface Props {
 	knowledgeBases: KnowledgeBaseInfo[];
 	currentKbPath: string | null;
@@ -24,8 +28,10 @@ interface Props {
 	loading: boolean;
 	error: string | null;
 	collapsed: boolean;
+	activeView: MainView;
 	onSelectKb: (item: KnowledgeBaseInfo) => void;
 	onSelectConversation: (item: ConversationInfo) => void;
+	onSelectView: (view: MainView) => void;
 	onNewConversation: () => void;
 	onRefresh: () => void;
 	onOpenSettings?: () => void;
@@ -49,8 +55,10 @@ export function Sidebar({
 	loading,
 	error,
 	collapsed,
+	activeView,
 	onSelectKb,
 	onSelectConversation,
+	onSelectView,
 	onNewConversation,
 	onRefresh,
 	onOpenSettings,
@@ -95,6 +103,22 @@ export function Sidebar({
 						active={Boolean(currentKb)}
 					>
 						<BookOpen />
+					</RailButton>
+					<RailButton
+						label="对话"
+						onClick={() => onSelectView("chat")}
+						active={activeView === "chat"}
+						disabled={!currentKb?.valid}
+					>
+						<MessagesSquare />
+					</RailButton>
+					<RailButton
+						label="图谱"
+						onClick={() => onSelectView("graph")}
+						active={activeView === "graph"}
+						disabled={!currentKb?.valid}
+					>
+						<Network />
 					</RailButton>
 					<RailButton label="刷新" onClick={onRefresh} disabled={loading}>
 						<RefreshCw className={cn(loading && "animate-spin")} />
@@ -157,6 +181,27 @@ export function Sidebar({
 						{error}
 					</div>
 				)}
+
+				<div className="main-view-switch" aria-label="主视图切换">
+					<button
+						type="button"
+						className={cn("main-view-btn", activeView === "chat" && "main-view-btn-active")}
+						onClick={() => onSelectView("chat")}
+						disabled={!currentKb?.valid}
+					>
+						<MessagesSquare className="size-3.5" />
+						<span>对话</span>
+					</button>
+					<button
+						type="button"
+						className={cn("main-view-btn", activeView === "graph" && "main-view-btn-active")}
+						onClick={() => onSelectView("graph")}
+						disabled={!currentKb?.valid}
+					>
+						<Network className="size-3.5" />
+						<span>图谱</span>
+					</button>
+				</div>
 
 				<Section title="知识库">
 					{knowledgeBases.length === 0 ? (

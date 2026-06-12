@@ -494,6 +494,14 @@
     background: var(--app-success);
   }
 
+  .status-dot-warn {
+    background: var(--app-warn);
+  }
+
+  .status-dot-error {
+    background: var(--app-danger);
+  }
+
   .status-kb {
     max-width: 220px;
     overflow: hidden;
@@ -532,6 +540,115 @@
     flex-direction: column;
     height: 100%;
     background: var(--app-bg);
+  }
+
+  .main-view-switch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: var(--app-bg);
+  }
+
+  .main-view-btn {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    color: var(--app-muted);
+    font-size: 12px;
+    font-weight: 600;
+    transition: color 0.12s, background 0.12s;
+  }
+
+  .main-view-btn:hover:not(:disabled) {
+    color: var(--app-fg);
+    background: var(--app-raised);
+  }
+
+  .main-view-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  .main-view-btn-active {
+    color: var(--app-accent);
+    background: var(--app-accent-soft);
+  }
+
+  .graph-screen {
+    display: flex;
+    height: 100%;
+    min-width: 0;
+    flex-direction: column;
+    background: var(--app-bg);
+  }
+
+  .graph-stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--app-bg);
+  }
+
+  .graph-host {
+    position: absolute;
+    inset: 0;
+  }
+
+  .graph-host-empty {
+    opacity: 0.42;
+  }
+
+  .graph-state {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 6;
+    width: min(360px, calc(100% - 48px));
+    transform: translate(-50%, -50%);
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: color-mix(in oklch, var(--app-raised) 92%, transparent);
+    padding: 18px;
+    text-align: center;
+    box-shadow: 0 18px 44px rgb(0 0 0 / 28%);
+  }
+
+  .graph-state-title {
+    color: var(--app-fg);
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .graph-state-copy {
+    margin-top: 7px;
+    color: var(--app-muted);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .graph-metrics {
+    position: absolute;
+    left: 16px;
+    bottom: 16px;
+    z-index: 5;
+    display: inline-flex;
+    gap: 6px;
+    padding: 6px 9px;
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--app-raised) 78%, transparent);
+    color: var(--app-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    box-shadow: var(--soft-shadow);
   }
 
   .chat-messages {

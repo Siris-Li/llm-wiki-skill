@@ -57,6 +57,11 @@ import {
 	setPendingKnowledgeContext,
 } from "./extensions/knowledge-base.js";
 import {
+	readGraphData,
+	subscribeGraphEvents,
+	triggerGraphRebuild,
+} from "./graph.js";
+import {
 	inspectPath,
 	listKnowledgeBases,
 	registerExternalKnowledgeBase,
@@ -122,6 +127,28 @@ app.get("/api/health", (c) => {
 		status: "ok",
 		timestamp: Date.now(),
 		service: "llm-wiki-agent/server",
+	});
+});
+
+app.get("/api/events", (c) => {
+	return streamSSE(c, async (stream) => {
+		const unsubscribe = subscribeGraphEvents((event) => {
+			void stream.writeSSE({
+				event: event.type,
+				data: JSON.stringify(event),
+			}).catch(() => {
+				stream.abort();
+			});
+		});
+		stream.onAbort(unsubscribe);
+		await stream.writeSSE({
+			event: "ready",
+			data: JSON.stringify({ ok: true, timestamp: Date.now() }),
+		});
+		await new Promise<void>((resolve) => {
+			stream.onAbort(() => resolve());
+		});
+		unsubscribe();
 	});
 });
 
@@ -324,6 +351,27 @@ app.post("/api/knowledge-base", async (c) => {
 app.delete("/api/knowledge-base", async (c) => {
 	await clearActive();
 	return c.json({ ok: true });
+});
+
+// ============= 图谱（当前知识库） =============
+
+app.get("/api/graph", async (c) => {
+	const ctx = getActive();
+	if (!ctx) return c.json({ ok: false, error: "请先选择一个知识库" }, 400);
+	try {
+		return c.json(await readGraphData(ctx.kb.path));
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			500,
+		);
+	}
+});
+
+app.post("/api/graph/rebuild", async (c) => {
+	const ctx = getActive();
+	if (!ctx) return c.json({ ok: false, error: "请先选择一个知识库" }, 400);
+	return c.json(triggerGraphRebuild(ctx.kb.path));
 });
 
 // ============= Wiki 页面引用候选 =============

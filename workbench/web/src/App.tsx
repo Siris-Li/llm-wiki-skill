@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import { BatchDigestPanel, type BatchDigestJob } from "@/components/BatchDigestPanel";
 import { ChatPanel } from "@/components/ChatPanel";
+import { GraphPanel } from "@/components/GraphPanel";
 import { RightDrawer } from "@/components/RightDrawer";
 import { SettingsPanel } from "@/components/SettingsPanel";
-import { Sidebar } from "@/components/Sidebar";
+import { Sidebar, type MainView } from "@/components/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
 	type ActiveContext,
@@ -30,6 +31,7 @@ type ThemeMode = "dark" | "light";
 const THEME_STORAGE_KEY = "llm-wiki-agent-theme";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "llm-wiki-agent-sidebar-collapsed";
 const DRAWER_WIDTH_STORAGE_KEY = "llm-wiki-agent-drawer-width";
+const MAIN_VIEW_STORAGE_KEY = "llm-wiki-agent-main-view";
 const DEFAULT_DRAWER_WIDTH = 420;
 const MIN_DRAWER_WIDTH = 360;
 const MIN_CHAT_WIDTH = 420;
@@ -110,6 +112,10 @@ function App() {
 	const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
 	const [drawerFullscreen, setDrawerFullscreen] = useState(false);
 	const [batchJob, setBatchJob] = useState<BatchDigestJob | null>(null);
+	const [mainView, setMainView] = useState<MainView>(() => {
+		if (typeof window === "undefined") return "chat";
+		return window.localStorage.getItem(MAIN_VIEW_STORAGE_KEY) === "graph" ? "graph" : "chat";
+	});
 	const activeConversationId = active?.conversation.id ?? null;
 
 	useEffect(() => {
@@ -122,6 +128,10 @@ function App() {
 	useEffect(() => {
 		window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(sidebarCollapsed));
 	}, [sidebarCollapsed]);
+
+	useEffect(() => {
+		window.localStorage.setItem(MAIN_VIEW_STORAGE_KEY, mainView);
+	}, [mainView]);
 
 	useEffect(() => {
 		const handleResize = () => setDrawerWidthState((width) => clampDrawerWidth(width, sidebarCollapsed));
@@ -265,12 +275,13 @@ function App() {
 
 	const handleOpenPage = async (pagePath: string) => {
 		if (!active) return;
+		const normalizedPagePath = toRelativePagePath(pagePath, active.kb.path) ?? pagePath;
 		setDrawerMode("wiki");
-		setDrawerPage(pagePath);
+		setDrawerPage(normalizedPagePath);
 		setDrawerLoading(true);
 		setDrawerError(null);
 		try {
-			setDrawerContent(await readPage(active.kb.path, pagePath));
+			setDrawerContent(await readPage(active.kb.path, normalizedPagePath));
 		} catch (err) {
 			setDrawerContent("");
 			setDrawerError(err instanceof Error ? err.message : String(err));
@@ -458,8 +469,10 @@ function App() {
 					loading={loading}
 					error={sidebarError}
 					collapsed={sidebarCollapsed}
+					activeView={mainView}
 					onSelectKb={handleSelectKb}
 					onSelectConversation={handleSelectConversation}
+					onSelectView={setMainView}
 					onNewConversation={handleNewConversation}
 					onRefresh={refreshAll}
 					onOpenSettings={() => setSettingsOpen(true)}
@@ -469,22 +482,32 @@ function App() {
 					onStartBatchDigest={handleStartBatchDigest}
 				/>
 				<main className="shell-main">
-					<ChatPanel
-						key={chatKey}
-						currentKnowledgeBaseName={active?.kb.name ?? null}
-						model={active?.model ?? null}
-						initialMessages={initialMessages}
-						onMessageSent={handleMessageSent}
-						onOpenSettings={() => setSettingsOpen(true)}
-						currentKnowledgeBasePath={active?.kb.path ?? null}
-						onOpenPage={handleOpenPage}
-						onArtifactCreated={handleArtifactCreated}
-						artifactCount={artifacts.length}
-						onOpenArtifacts={handleOpenArtifacts}
-						onStartBatchDigest={handleStartBatchDigest}
-						theme={theme}
-						onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
-					/>
+					{mainView === "graph" ? (
+						<GraphPanel
+							currentKnowledgeBaseName={active?.kb.name ?? null}
+							currentKnowledgeBasePath={active?.kb.path ?? null}
+							theme={theme}
+							onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
+							onOpenPage={handleOpenPage}
+						/>
+					) : (
+						<ChatPanel
+							key={chatKey}
+							currentKnowledgeBaseName={active?.kb.name ?? null}
+							model={active?.model ?? null}
+							initialMessages={initialMessages}
+							onMessageSent={handleMessageSent}
+							onOpenSettings={() => setSettingsOpen(true)}
+							currentKnowledgeBasePath={active?.kb.path ?? null}
+							onOpenPage={handleOpenPage}
+							onArtifactCreated={handleArtifactCreated}
+							artifactCount={artifacts.length}
+							onOpenArtifacts={handleOpenArtifacts}
+							onStartBatchDigest={handleStartBatchDigest}
+							theme={theme}
+							onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
+						/>
+					)}
 				</main>
 				<RightDrawer
 					mode={drawerMode}
@@ -529,8 +552,9 @@ function updateBatchFile<T extends { index: number }>(
 
 function toRelativePagePath(outputPath: string, kbPath: string): string | null {
 	const normalizedKb = kbPath.endsWith("/") ? kbPath : `${kbPath}/`;
-	if (!outputPath.startsWith(normalizedKb)) return null;
-	return outputPath.slice(normalizedKb.length);
+	if (outputPath.startsWith(normalizedKb)) return outputPath.slice(normalizedKb.length);
+	if (outputPath.startsWith("wiki/")) return outputPath;
+	return null;
 }
 
 export default App;

@@ -7,12 +7,14 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm run build -w @llm-wiki/graph-engine",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
+    "@llm-wiki/graph-engine": "0.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
