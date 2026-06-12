@@ -154,36 +154,39 @@
       "phase": "phase-2",
       "work_unit": "2.2",
       "item": "Static graph visual consistency against legacy offline HTML.",
-      "status": "pending_reviewer",
+      "status": "approved_by_reviewer",
       "evidence": [
         "docs/plans/stage-4-artifacts/p2-workbench-graph.png",
         "docs/plans/stage-4-artifacts/p2-workbench-graph-light.png",
         "docs/plans/stage-4-artifacts/p2-legacy-html.png"
       ],
-      "reason": "Visual consistency is subjective per plan; screenshots are provided for the reviewer instead of Codex self-approval."
+      "reason": "Visual consistency is subjective per plan; screenshots are provided for the reviewer instead of Codex self-approval.",
+      "reviewer_note": "Canvas-layer visual grammar consistent across workbench light/dark and new offline HTML, layout co-derived with legacy. NOTE: offline shell feature scope reduced vs legacy (search box, community/focus list, learning queue UI removed; logic ported to engine model with green tests but no UI). Raised separately as a product decision, not a visual-consistency failure."
     },
     {
       "phase": "phase-3",
       "work_unit": "3.3",
       "item": "Drag hand-feel and visual smoothness during low-heat node drag.",
-      "status": "pending_reviewer",
+      "status": "pending_user_hands_on",
       "evidence": [
         "docs/plans/stage-4-artifacts/p3-community-drag.png",
         "docs/plans/stage-4-artifacts/p3-community-drag.json"
       ],
-      "reason": "Drag smoothness is subjective per the plan; Codex records evidence and does not self-certify the hand-feel."
+      "reason": "Drag smoothness is subjective per the plan; Codex records evidence and does not self-certify the hand-feel.",
+      "reviewer_note": "Parameters and behavior tests sound (alphaTarget 0.15, neighbor-follow, far-freeze, sleep on release). Hand-feel requires the owner to drag for one minute; checklist provided in acceptance report."
     },
     {
       "phase": "phase-7",
       "work_unit": "7.1",
       "item": "Mo-ye dark theme visual harmony and finalized drag hand-feel.",
-      "status": "pending_reviewer",
+      "status": "theme_approved_handfeel_pending_user",
       "evidence": [
         "docs/plans/stage-4-artifacts/p7-moye-theme.png",
         "commit 4b66ed496ef0a39e85f68038c572757c69d31026",
         "decision_log: Drag feel parameters finalized for Stage 4."
       ],
-      "reason": "Visual consistency and drag hand-feel are subjective per the plan; Codex records evidence and does not self-certify acceptance."
+      "reason": "Visual consistency and drag hand-feel are subjective per the plan; Codex records evidence and does not self-certify acceptance.",
+      "reviewer_note": "Mo-ye approved: black ground, dark-ochre wash, cinnabar accents, harmonious with dark workbench (p7 screenshot + token assertions). Hand-feel merged into the pending hands-on item."
     }
   ],
   "phases": [
@@ -1311,6 +1314,15 @@
         "docs grep self-check passed; TBD-4.1/TBD-4.2 are finalized, not hanging"
       ],
       "next": "Stage 4 complete; no remaining work units."
+    },
+    {
+      "timestamp": "2026-06-12T23:30:00+08:00",
+      "phase": "post-completion",
+      "work_unit": "reviewer-acceptance",
+      "action": "Reviewer (Claude) verified out-of-ledger commit d5a83f8 'bind atlas state to knowledge base': fixes a real cross-KB race (layout could be written to the wrong KB when switching), ships 61 lines of API tests plus regression additions; full automated suite re-run green including this commit. Ledger discipline note: the commit was made after stage-4 completion without a ledger entry; recorded here retroactively.",
+      "verification": "Reviewer re-ran node --test tests/js (116 pass), tests/regression.sh (all pass), npm run typecheck, graph-engine tests (116 pass), graph-engine build (esm+iife).",
+      "result": "accepted",
+      "next": "Reviewer manual-acceptance judgments recorded in manual_acceptance."
     }
   ]
 }
