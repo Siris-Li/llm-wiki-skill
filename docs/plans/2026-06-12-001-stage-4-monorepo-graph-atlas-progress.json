@@ -3,9 +3,9 @@
   "design": "workbench/docs/stage-4-design.md (before phase-0 completes: ../llm-wiki-agent/docs/stage-4-design.md)",
   "branch": "stage-4",
   "status": {
-    "phase": "phase-1",
-    "work_unit": "1.2",
-    "next_allowed_action": "Execute WU 1.2: port graph-wash helpers to TypeScript model modules 1:1, migrate matching helper tests, compare test case counts, then verify per plan section 5."
+    "phase": "phase-2",
+    "work_unit": "2.1",
+    "next_allowed_action": "Execute WU 2.1: implement graph-engine static renderer and theme tokens, verify logic tests/typecheck, and record header.html inline d3/rough audit in decision_log."
   },
   "execution_rules": {
     "commit_each_completed_work_unit": true,
@@ -128,7 +128,7 @@
     {
       "id": "phase-1",
       "name": "引擎包骨架 + helpers TS 化",
-      "status": "pending",
+      "status": "done",
       "work_units": [
         {
           "id": "1.1",
@@ -154,7 +154,40 @@
           ],
           "notes": "Added packages/graph-engine with package.json, tsconfig, Vite lib config, typed createGraphEngine placeholder, graph-data/pin/diff/selection contracts, and the planned source directory layout. Build artifacts were generated for verification and remain ignored."
         },
-        { "id": "1.2", "name": "helpers 1:1 TS 化 + 测试迁移（test case 数对比记录）", "status": "pending", "commit": null, "verification": [], "notes": "" }
+        {
+          "id": "1.2",
+          "name": "helpers 1:1 TS 化 + 测试迁移（test case 数对比记录）",
+          "status": "completed",
+          "commit": "c6b65cc940851c023be22acb580002e27b39cf77",
+          "verification": [
+            {
+              "command": "npm test -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "82 graph-engine helper tests passed."
+            },
+            {
+              "command": "Compare old helpers test case counts with migrated graph-engine tests",
+              "status": "passed",
+              "summary": "graph-wash-helpers 33->33, graph-wash-learning 28->28, graph-wash-queue 7->7, graph-wash-runtime-state 14->14; total 82->82."
+            },
+            {
+              "command": "npm run build -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "ESM and IIFE graph-engine build outputs exist after the helpers port."
+            },
+            {
+              "command": "node --test tests/js/*.test.js",
+              "status": "passed",
+              "summary": "Original repository JS tests still passed with 116 tests."
+            },
+            {
+              "command": "npm run typecheck",
+              "status": "passed",
+              "summary": "server, web, and graph-engine workspace typechecks passed."
+            }
+          ],
+          "notes": "Ported graph-wash-helpers into graph-engine model modules with grouped exports: labels, storage, queue, learning, visibility, and atlas. Old template helper files were left untouched. Migrated helper-related tests from tests/js into packages/graph-engine/test with the same test case counts."
+        }
       ]
     },
     {
@@ -251,6 +284,15 @@
       "verification": "graph-engine build produced ESM and IIFE outputs; root typecheck passed across server, web, and graph-engine.",
       "result": "completed",
       "next": "WU 1.2 helpers TypeScript port and test migration."
+    },
+    {
+      "timestamp": "2026-06-12T15:11:19+08:00",
+      "phase": "phase-1",
+      "work_unit": "1.2",
+      "action": "Ported graph-wash helpers into graph-engine TS model modules and migrated matching helper tests.",
+      "verification": "graph-engine tests passed with 82 migrated helper tests; old-to-new test case count stayed 82 to 82; graph-engine build, root typecheck, and original JS tests passed.",
+      "result": "completed",
+      "next": "Phase 1 done; WU 2.1 static renderer and theme tokens."
     }
   ]
 }
