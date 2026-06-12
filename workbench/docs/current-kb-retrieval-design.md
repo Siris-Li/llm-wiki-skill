@@ -261,7 +261,7 @@ session.prompt(message)
 {
   "ts": 1735000000000,
   "sessionId": "abc12345",
-  "kbPath": "/Users/.../my-kb",
+  "kbPath": "~/my-kb",
   "messagePreview": "这是我自媒体创作的文章...",
   "triggered": true,
   "explicitRefs": [],

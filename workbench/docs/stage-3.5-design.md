@@ -189,7 +189,7 @@ npm run dev
 │  │   或在下方输入框粘贴路径          │   │
 │  └──────────────────────────────────┘   │
 │                                          │
-│  /Users/.../AI学习                       │ ← Input，被拖拽自动填、也可手编辑
+│  ~/AI学习                                │ ← Input，被拖拽自动填、也可手编辑
 │                                          │
 │  ⚠ 路径不存在 / 该目录不是 wiki ...      │ ← 实时 inspect 反馈
 │                                          │
@@ -200,9 +200,9 @@ npm run dev
 **实现要点**：
 
 - dropzone 用 `<div onDragOver onDrop>`；`e.preventDefault()` 阻止浏览器默认行为
-- 浏览器标准的 `File` / `FileSystemEntry` **不保证**提供本机绝对路径；`webkitGetAsEntry().fullPath` 是拖拽数据虚拟根路径，不能当 `/Users/...`
+- 浏览器标准的 `File` / `FileSystemEntry` **不保证**提供本机绝对路径；`webkitGetAsEntry().fullPath` 是拖拽数据虚拟根路径，不能当真实用户主目录路径
 - Step 2 起手先加一个 dev-only 诊断输出：drop 时 `console.info` 打印 `types`、`getData("text/uri-list")`、`getData("text/plain")`、`files[].name/type/size`、`items[].kind/type`，并用一次 macOS Finder 实测结果决定是否启用自动填路径
-- 若实测 `text/uri-list` 或 `text/plain` 含 `file:///Users/...`：`text/uri-list` 优先，回退 `text/plain`，正则提取 `file://` 前缀后 decodeURIComponent → 填入输入框
+- 若实测 `text/uri-list` 或 `text/plain` 含 `file://<user-home>/...`：`text/uri-list` 优先，回退 `text/plain`，正则提取 `file://` 前缀后 decodeURIComponent → 填入输入框
 - 若实测拿不到 `file://`：dropzone 显示"浏览器没有暴露完整路径，请在下方粘贴路径"，并把检测到的文件夹名作为辅助提示；**不得**伪造绝对路径或把虚拟 `fullPath` 发给后端
 - 输入框 onChange 后 debounce 300ms 调 `POST /api/knowledge-bases/inspect`，根据返回值决定后续：
   - 路径不存在 → 报错
@@ -247,7 +247,7 @@ npm run dev
 
 # 2. 点"+ 添加现有库"
 # 3. 从 Finder 拖一个已有 wiki 库到 dropzone
-#    → 若本机浏览器暴露 file://，输入框自动填 /Users/.../xxx
+#    → 若本机浏览器暴露 file://，输入框自动填 ~/xxx 或真实绝对路径
 #    → 若没有暴露 file://，UI 明确提示需要手动粘贴路径，手动粘贴后继续验收
 #    → "添加"按钮可用
 #    → 添加成功，侧栏出现新库
@@ -287,7 +287,7 @@ npm run dev
 
 ```
 ┌─ Dialog: 初始化为 wiki ──────────────────┐
-│  目录：/Users/.../AI学习                 │
+│  目录：~/AI学习                          │
 │  扫到 N 个可消化文件（.md / .txt / .pdf）│
 │                                          │
 │  研究方向（必填，将写入 .wiki-schema.md）│
@@ -402,7 +402,7 @@ ls /tmp/test-not-wiki/index.md          # 存在
 
 ```json
 {
-  "lastUsedKbPath": "/Users/.../stage2-research",
+  "lastUsedKbPath": "~/stage2-research",
   "externalKnowledgeBases": [...],
   "modelRoles": {
     "main": { "provider": "zai", "modelId": "glm-5.1" },
@@ -1006,7 +1006,7 @@ interface AppConfig {
 ### 10.1 前置确认
 
 ```bash
-cd /Users/kangjiaqi/Desktop/project/llm-wiki-agent
+cd ../llm-wiki-agent
 git status                # 干净
 git log --oneline -8      # 看到 7 个 stage-3.5-step-* commit
 ```

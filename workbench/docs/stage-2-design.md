@@ -734,7 +734,7 @@ ls ~/.pi/agent/auth.json.bak.*  # 应有备份
 - ❌ 重构阶段一已有代码（除非本文档明确写要改）
 - ❌ 顺手"改善"旁边的代码 / 注释 / 格式
 - ❌ commit message 或代码里出现 "康佳琦"，统一用 `Kiro`
-- ❌ `server/src/` 或 `web/src/` 出现本机绝对路径形如 `/Users/<author>/...`（用相对路径或 `homedir()`；docs/ 内允许此类示例文本）
+- ❌ `server/src/` 或 `web/src/` 出现本机用户主目录绝对路径（用相对路径或 `homedir()`；docs/ 内允许此类示例文本）
 - ❌ `--no-verify` 跳 hook、`--amend` 改前一个 commit、`-f` push
 - ❌ push 到 main、合并到 main
 - ❌ 修改 PRODUCT.md（除非本文档明确要求）
@@ -1026,7 +1026,7 @@ curl http://localhost:8787/api/health  # 200 OK
 - [ ] 试 `curl 'http://localhost:8787/api/page?kb=<valid>&path=../../../../etc/passwd'` → 应 400
 - [ ] 试 `curl 'http://localhost:8787/api/refs?kb=/etc'` → 应 400（未注册的 kb）
 - [ ] React DevTools 看 SettingsPanel：保存后任何 state 都不含 key 明文
-- [ ] commit log + `server/src/` + `web/src/` 不含本机绝对路径形如 `/Users/<author>/...`（请用相对路径或 `homedir()`；不在 `docs/` 范围内扫，文档可以用 `/Users/<author>/...` 占位）
+- [ ] commit log + `server/src/` + `web/src/` 不含本机用户主目录绝对路径（请用相对路径或 `homedir()`；不在 `docs/` 范围内扫，文档可以使用抽象占位）
 - [ ] commit log 不含真实姓名（应统一 `Kiro`）
 
 ### 10.6 体感测试

@@ -227,7 +227,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 					<Input
 						value={path}
 						onChange={(e) => setPath(e.target.value)}
-						placeholder="/Users/yourname/Documents/我的知识库"
+						placeholder="~/Documents/我的知识库"
 						className="form-field min-w-0 font-mono text-xs"
 						onKeyDown={(e) => {
 							if (e.key === "Enter" && !submitting) {

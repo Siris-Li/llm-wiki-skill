@@ -763,7 +763,7 @@ data: {"id":"<uuid>","kind":"pdf","title":"..."}
 - [ ] artifact id 必须是 uuid v4 格式（正则校验）
 - [ ] `/api/artifacts/:id/files/:filename` 拒绝 `..` / 绝对路径 / 不在 manifest.files 里的文件名
 - [ ] `~/.llm-wiki-agent/artifacts/<id>/` 路径解析后必须在 `~/.llm-wiki-agent/artifacts/` 内
-- [ ] grep 全工程无 key / 真名 / `/Users/<author>/` 绝对路径（沿用阶段二）
+- [ ] grep 全工程无 key / 真名 / 用户主目录绝对路径（沿用阶段二）
 - [ ] vendor 进项目的 `.claude/skills/*/SKILL.md` 不含 anthropic 仓库的私有 commit hash / 内部 URL
 
 ### 6.5 阶段二回归
@@ -805,7 +805,7 @@ data: {"id":"<uuid>","kind":"pdf","title":"..."}
 - ❌ 重构阶段二已有代码（除非本文档明确写要改，如 `/api/commands` 的扩展）
 - ❌ 顺手"改善"旁边的代码 / 注释 / 格式
 - ❌ commit message 或代码里出现 "康佳琦"，统一用 `Kiro`
-- ❌ `server/src/` 或 `web/src/` 出现本机绝对路径 `/Users/<author>/...`（用相对路径或 `homedir()`；docs/ 内允许示例）
+- ❌ `server/src/` 或 `web/src/` 出现本机用户主目录绝对路径（用相对路径或 `homedir()`；docs/ 内允许示例）
 - ❌ `--no-verify` 跳 hook、`--amend` 改前一个 commit、`-f` push
 - ❌ push 到 main、合并到 main
 - ❌ 修改 PRODUCT.md / CLAUDE.md（如发现这些文档有问题，在 PR body 的"本文档需要修订"清单列出）
@@ -1164,7 +1164,7 @@ cat ~/.pi/agent/auth.json | jq 'keys'  # 应含已配 provider
 - [ ] `curl 'http://localhost:8787/api/artifacts/<valid-uuid>/files/../../../etc/passwd'` → 400
 - [ ] `curl 'http://localhost:8787/api/artifacts/<valid-uuid>/files/not-in-manifest.txt'` → 404 或 400
 - [ ] React DevTools 看 SettingsPanel：保存后 state 不含 key 明文（沿用阶段二）
-- [ ] commit log + `server/src/` + `web/src/` 不含 `/Users/<author>/` 绝对路径
+- [ ] commit log + `server/src/` + `web/src/` 不含本机用户主目录绝对路径
 - [ ] commit log 不含真实姓名（应统一 `Kiro`）
 - [ ] `.claude/skills/` 下 4 个 vendor Skill 不含可执行 binary（如果含，README 必须明示）
 

@@ -324,7 +324,7 @@ packages/graph-engine/
 3. ❗ **检查子包 module 类型**（原 agent 根 package.json 声明了 `"type": "module"`，删除它之前必须确认）：workbench/server、workbench/web 各自 package.json 是否自带 `"type": "module"`，**缺则补在子包内**（不上提到根）；以 `npm run dev` + `typecheck` 实跑为准
 4. `workbench/package.json` 删除（其内容已上移）；`.mise.toml` / `.nvmrc` 上移到根
 5. 检查 `.gitignore` 合并（根新增 node_modules 等通用项；workbench 原有忽略项保留）
-6. ❗ 隐私检查：subtree 进来的内容 grep 本地绝对路径（`/Users/`），有则清理后再 commit
+6. ❗ 隐私检查：subtree 进来的内容 grep 本地用户目录绝对路径，有则清理后再 commit
 
 **验收**：
 1. 主仓库根 `npm install && npm run dev` 一行拉起工作台前后端，浏览器 5180 正常对话
@@ -443,7 +443,7 @@ packages/graph-engine/
 | R1 | 根 package.json 的 module 类型破坏主仓库 CommonJS 测试 | 已写死：根不设 type，ESM 声明留在子包（Step 0 ❗） |
 | R2 | 手绘路径每帧重算导致"沸腾"+性能塌方 | 已写死：路径一次生成缓存，帧只改 transform（Step 3 ❗） |
 | R3 | `fs.watch` recursive 在 macOS 的可靠性 | Step 5 起手先写 20 行脚本实测（嵌套目录创建/修改/删除均收到事件）；不可靠 → 引入 chokidar 并补记 §3 |
-| R4 | subtree 合并带入本地绝对路径 / 隐私内容 | Step 0 commit 前 grep `/Users/` 强制检查 |
+| R4 | subtree 合并带入本地绝对路径 / 隐私内容 | Step 0 commit 前强制检查本地用户目录路径 |
 | R5 | 选区注入大社区（如 30 页）时上下文过大 | 首版只注入清单+结构（正文 agent 按需 read）；实测 token 仍超 → 注入端做清单截断 + 提示 agent 分批读 |
 | R6 | 力模拟在 500+ 节点的帧率 | 首版接受（个人库几百页内）；实测掉帧 → 布局计算挪 Web Worker；canvas 后端为更远期备选 |
 | R7 | 旧测试断言绑死旧 DOM 结构，Step 6 迁移成本 | 允许按新 DOM 最小修订断言，但"东方设计合同"语义级断言（分层/签条/批注存在性）必须保留 |
