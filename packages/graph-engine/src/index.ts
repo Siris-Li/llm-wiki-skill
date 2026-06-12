@@ -1,4 +1,5 @@
 export * from "./types";
+export * from "./model";
 
 import type {
   GraphDiff,
