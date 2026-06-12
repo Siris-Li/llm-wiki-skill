@@ -147,14 +147,18 @@ llm-wiki-skill 仓库（未来品牌阶段改名 llm-wiki）
 - 想真正改变社区归属 = 改知识：通过选区提问让 agent 建立真实链接写回 wiki，下次重算颜色才变。**想改图的样子，动手拖；想改知识的结构，开口问。**
 - 水墨团块按"成员聚集主体"晕染，**不追离群钉点**（否则团块拉成变形虫）；拖动中团块淡化，松手定格后再重新晕染。
 
-### D11 混合布局：预计算起点 + 低温入睡
+### D11 混合布局：预计算起点 + 低温入睡 + 活会话坐标策略
 
-打开图谱时初始位置 = 构建期预计算坐标（build-graph-data 现有能力）+ 钉扎文件钉位；活模拟在此起点低温微调数秒后入睡。保证：每次打开长相稳定、与离线 HTML 初始视图一致、肌肉记忆不失效。
+- **冷启动**：打开图谱时初始位置 = 构建期预计算坐标（build-graph-data 现有能力）+ 钉扎文件钉位；活模拟在此起点低温微调数秒后入睡。保证：每次打开长相稳定、与离线 HTML 初始视图一致、肌肉记忆不失效。
+- **活会话**（❗ 防"布局漂移"）：图谱开着时收到重算结果，**既有未钉节点保持当前画面位置不动**（不采用新一轮预计算坐标），新增节点由活模拟在现有布局的缝隙中安置。预计算坐标**只用于冷启动**——否则每次重算老节点集体跳位，画面失控。
+- 推论：跨会话重新打开时布局可能与上次会话末态不同（新一轮预计算）——这是力导向图常态（Obsidian 同），钉扎就是给用户的稳定工具。
 
 ### D12 重算链：监听文件系统，不监听"消化"
 
 - 变化源至少五个：批量/单篇消化、结晶、agent 补链（选区提问闭环的终点）、lint 修复、Obsidian 手改。只盯"消化"会让地图说谎。
 - 底座：后端监听当前知识库目录（`.md` 与 `.wiki-schema.md`），**防抖 ~5s** 合并零星变化；**自家批量流程（批量消化）开始时挂起监听、done 后立即触发一次**。
+- ❗ **监听排除清单**：`.wiki-tmp/`（Skill 运行时临时目录，消化过程狂写，不排除会被自家流程刷爆）、`.git/`、`.obsidian/`、`node_modules/`、`.DS_Store`。与 PRODUCT.md §6.4 忽略清单对齐。
+- 监听器生命周期跟随当前 KB：切库时停掉旧库监听、启动目标库监听（与会话切换同一时机）。
 - 重算 = 子进程跑现有 `build-graph-data.sh` 全量管线（❗ 不重写、不做增量图计算）。重算期间旧图谱照常显示与交互；新数据就绪才换场，绝不白屏。
 - 重算进行中又有新触发：排队合并（单飞行任务 + 最多一个 pending，跑完再跑一次）。
 - 重算完成后与旧版数据对比产出**差异清单（diff）**——diff 即动画剧本。
@@ -165,13 +169,13 @@ llm-wiki-skill 仓库（未来品牌阶段改名 llm-wiki）
   - 图谱视图可见 → 播放生长动画
   - 图谱不可见 → 侧栏图谱入口亮安静徽标；diff 入挂起队列，**打开图谱时从旧布局开场补播**（最高价值一幕：批量消化完才打开图谱看成果）
   - 用户正在拖节点 → 挂起，松手后播
-- 动画剧本（按 diff 四类）：新节点从**语义锚点**（其邻居位置）发芽，孤岛从空白处淡入；新边墨线描画；换社区节点颜色渐变；删除节点淡出。
+- 动画剧本（按 diff 四类）：新节点从**语义锚点**（其邻居位置）发芽、由活模拟安置（呼应 D11：既有未钉节点不动），孤岛从空白处淡入；新边墨线描画；换社区节点颜色渐变（以 §4.3 社区对齐后的真实变化为准）；删除节点淡出；全新社区诞生 → 团块晕染浮现。
 - 节奏：错峰发芽（间隔几十 ms），总时长**压在 2–3 秒内**；点击画布立即定格；尊重系统 `prefers-reduced-motion`（开了直接定格，零配置）。
 - 工作台重启后不补播（动画是体验不是持久化资产），直接显示最新状态。
 
 ### D14 引擎抽取：新骨架、旧器官
 
-现有 graph-wash 代码（运行时 **0 处使用 d3 / rough**，是纯手写几何引擎）按四级资产处理：
+现有 graph-wash 代码按四级资产处理。事实依据：已验证 `graph-wash.js` / `graph-wash-helpers.js` 两个运行时文件 **0 处使用 d3 / rough**（纯手写几何引擎）；❗ `header.html`（~2001 行）的内联脚本**尚未核查**，Step 2 抽样式时核实——它是否使用 rough 画装饰，决定 Step 6 能否移除打包清单里的 d3.min.js / rough.min.js：
 
 | 级 | 内容 | 处理 |
 |---|---|---|
@@ -182,7 +186,7 @@ llm-wiki-skill 仓库（未来品牌阶段改名 llm-wiki）
 
 - ❗ A 级 TS 化纪律：先 1:1 翻译保测试绿，禁止"顺手优化"逻辑。
 - ❗ 手绘感"沸腾效应"：图形路径生成一次即缓存，动画帧只改 transform，**绝不每帧重算路径**。
-- 力模拟依赖 `d3-force` 单模块（几 KB），不引入完整 d3；离线 HTML 打包清单里从未被运行时使用的完整版 `d3.min.js` 在 Step 6 移除（marked / purify 保留，阅读态在用）。
+- 力模拟依赖 `d3-force` 单模块（几 KB），不引入完整 d3；离线 HTML 打包清单里的完整版 `d3.min.js` 在 Step 6 移除——**以 Step 2 对 header.html 内联脚本的核实结果为前提**（marked / purify 保留，阅读态在用）。
 - 不做 SVG/Canvas 双渲染后端（几百节点 SVG 足够；canvas 是将来性能实测不足时的事）。
 - 不把引擎做成对外发布的通用图谱库。
 
@@ -234,27 +238,34 @@ interface GraphDiff {
   recoloredNodes: Array<{ id: NodeId; from: CommunityId; to: CommunityId }>;
   addedEdges: EdgeId[];          // 新边（墨线描画）
   removedEdges: EdgeId[];
+  newCommunities: CommunityId[]; // 对齐后仍无法匹配的全新社区（团块浮现动画）
   stats: { nodeCount: number; edgeCount: number; communityCount: number };
 }
 ```
 
 diff 计算工具放引擎包（跟着数据类型走），后端调用。
 
+❗ **diff 必须先做社区对齐再判变色**：Louvain 重跑后社区编号可能整体洗牌（"3 号社区"变"1 号"），直接比对编号会满屏误报变色。算法：新旧社区按**成员重叠率**（Jaccard）贪心配对，配对成功的沿用旧编号语义，配对后成员真正换了归属的才进 `recoloredNodes`；无法配对的新社区进 `newCommunities`。
+
 ### 4.4 后端 API（workbench/server 新增）
 
 | 方法 | 路径 | 行为 |
 |---|---|---|
-| GET | `/api/graph` | 返回当前 KB 的 graph-data；无数据时返回 `{ needsBuild: true }` |
-| POST | `/api/graph/rebuild` | 手动触发重算（与监听触发走同一单飞行队列） |
+| GET | `/api/graph` | **只读**：返回当前 KB 的 graph-data；无数据时返回 `{ needsBuild: true }`，**不**在 GET 里触发构建 |
+| POST | `/api/graph/rebuild` | 异步触发重算（与监听触发走同一单飞行队列），立即返回；完成经 SSE `graph_updated` 通知 |
 | GET | `/api/graph/layout` | 返回钉扎文件内容（无文件返回空 pins） |
 | PUT | `/api/graph/layout` | 整文件覆写钉扎 |
+
+前端首开流程：GET 得 `needsBuild` → 显示"构建中" → 自动 POST rebuild → 收到 `graph_updated` 后 GET 取数渲染。构建可能秒级到几十秒（大库），全程不阻塞请求。
 
 SSE 新事件（沿用现有 `/api/events` 通道）：
 
 ```
 event: graph_updated
-data: { "diff": GraphDiff, "rebuiltAt": "..." }
+data: { "diff": GraphDiff | null, "rebuiltAt": "..." }
 ```
+
+引入节奏：Step 2 先上**最简版**（`diff: null`，仅作"构建完成"通知）；Step 5 扩展携带真实 diff。
 
 ### 4.5 引擎 API（`@llm-wiki/graph-engine` 门面）
 
@@ -301,16 +312,19 @@ packages/graph-engine/
 
 ### Step 0：monorepo 搬家
 
+**前置**（❗ 流程顺序）：先把 agent 仓库的 `stage-4-design` 分支合入其 `main`（设计文档必须随 subtree 进主仓库，否则搬过去的是没有阶段四设计的旧 main）。
+
 **范围**：
 1. 主仓库新建分支 `stage-4`，执行 `git subtree add --prefix=workbench <agent 仓库 GitHub URL> main`（保留全历史）
 2. 主仓库根新建 `package.json`：
    - workspaces: `["workbench/server", "workbench/web", "packages/*"]`
    - scripts：`dev` / `dev:server` / `dev:web` / `typecheck`（从原 agent 根 package.json 上移，workspace 路径改写）
    - devDependencies：`concurrently`
-   - ❗ **不设 `"type": "module"`**——主仓库 `tests/js/*.test.js` 是 CommonJS（`require` + 双出口），根上声明 ESM 会让它们全炸。workbench/server、workbench/web 各自 package.json 内自带 `"type": "module"`（缺则补在子包内，不上提）
-3. `workbench/package.json` 删除（其内容已上移）；`.mise.toml` / `.nvmrc` 上移到根
-4. 检查 `.gitignore` 合并（根新增 node_modules 等通用项；workbench 原有忽略项保留）
-5. ❗ 隐私检查：subtree 进来的内容 grep 本地绝对路径（`/Users/`），有则清理后再 commit
+   - ❗ **不设 `"type": "module"`**——主仓库 `tests/js/*.test.js` 是 CommonJS（`require` + 双出口），根上声明 ESM 会让它们全炸
+3. ❗ **检查子包 module 类型**（原 agent 根 package.json 声明了 `"type": "module"`，删除它之前必须确认）：workbench/server、workbench/web 各自 package.json 是否自带 `"type": "module"`，**缺则补在子包内**（不上提到根）；以 `npm run dev` + `typecheck` 实跑为准
+4. `workbench/package.json` 删除（其内容已上移）；`.mise.toml` / `.nvmrc` 上移到根
+5. 检查 `.gitignore` 合并（根新增 node_modules 等通用项；workbench 原有忽略项保留）
+6. ❗ 隐私检查：subtree 进来的内容 grep 本地绝对路径（`/Users/`），有则清理后再 commit
 
 **验收**：
 1. 主仓库根 `npm install && npm run dev` 一行拉起工作台前后端，浏览器 5180 正常对话
@@ -333,9 +347,9 @@ packages/graph-engine/
 
 **范围**：
 1. `src/render/`：从 graph-wash.js 搬运绘制逻辑，重组为可实例化结构（构造时挂容器、destroy 可清理）；先实现**静态渲染**（预计算布局，无模拟）
-2. `themes/`：从 header.html 抽视觉 token，山水主题完整、墨夜主题第一版（先保证深色工作台下不突兀，精修在 Step 7）
+2. `themes/`：从 header.html 抽视觉 token，山水主题完整、墨夜主题第一版（先保证深色工作台下不突兀，精修在 Step 7）；❗ 顺手核查 header.html 内联脚本是否使用 d3 / rough（结论记入本文档 D14，决定 Step 6 打包清单）
 3. workbench/web：侧栏"图谱"入口 + 主区域"对话 ⇄ 图谱"视图切换 + React 薄壳组件
-4. workbench/server：`GET /api/graph`（无数据时跑一次 build-graph-data.sh）
+4. workbench/server：`GET /api/graph`（只读）+ `POST /api/graph/rebuild`（异步构建 + SSE 通知，行为见 §4.4 首开流程）
 5. 阅读态：图谱内点节点 → 通过 `onOpenPage` 调工作台右抽屉（不用引擎内置阅读态）
 
 **验收**：
@@ -350,6 +364,7 @@ packages/graph-engine/
 2. 钉扎：松手即钉 + 朱砂图钉角标 + 双击解钉 + 重置布局（toast 撤销）
 3. 持久化：`GET/PUT /api/graph/layout`；前端松手防抖写入；§4.1 文件格式
 4. 团块行为：拖动中淡化、定格后重晕染、不追离群点（D10）
+5. 顺手查证：`init-wiki.sh` 生成的知识库 `.gitignore` 对 `.wiki-cache.json` 的处理方式，`.wiki-graph-layout.json` 与之对齐（倾向**不排除**——钉扎是用户资产，应可随知识库进版本管理；查证结果回填本条）
 
 **验收**：
 1. 拖节点：邻居让位流畅、远处不动、松手 1–2s 后全图静止（不蠕动）
@@ -364,7 +379,7 @@ packages/graph-engine/
 1. `select/`：四式选择（D5）+ 选区结构事实计算（页数/内部链接数/社区数/孤立数）
 2. 选区面板：结构事实 + 按性质生成的动作按钮（D6 映射表）+ 自由输入 + "发送/新对话中打开"
 3. 工作台联动：`onAsk` → 切到对话视图，输入框出现选区胶囊；发送时胶囊展开为结构化文本（页面清单 + 链接关系 + 社区归属）走现有 `/api/prompt`
-4. 反向联动：对话中 agent 引用 wiki 页面 → 若图谱视图打开，`focusNode` 高亮
+4. 反向联动：对话中 agent 引用 wiki 页面 → 若图谱视图打开，`focusNode` 高亮（"引用"的判定**复用阶段二既有的 wiki 链接识别**，不另发明检测逻辑）
 5. 离线 HTML 不传 `onAsk` → 引擎自动隐藏提问动作（capabilities 验证点）
 
 **验收**：
@@ -378,7 +393,7 @@ packages/graph-engine/
 **范围**：
 1. workbench/server：当前 KB 目录监听（Node 原生 `fs.watch` recursive，封装一层适配器；❗ 实测不可靠再换 chokidar，见 §7）；防抖 ~5s；批量消化 start 挂起 / done 立即触发
 2. 重算任务：单飞行 + 排队合并；子进程跑 `build-graph-data.sh`；完成后 diff（引擎包 `diff.ts`）
-3. SSE `graph_updated`；前端 diff 队列（可见消费 / 不可见徽标 + 补播 / 拖动中挂起）
+3. `graph_updated` 扩展携带真实 diff（Step 2 的最简版升级）；前端 diff 队列（可见消费 / 不可见徽标 + 补播 / 拖动中挂起）
 4. `anim/`：生长动画（语义锚点发芽、错峰、墨线描边、变色渐变、淡出；≤3s；点击定格；`prefers-reduced-motion`）
 
 **验收**：
@@ -432,8 +447,9 @@ packages/graph-engine/
 | R5 | 选区注入大社区（如 30 页）时上下文过大 | 首版只注入清单+结构（正文 agent 按需 read）；实测 token 仍超 → 注入端做清单截断 + 提示 agent 分批读 |
 | R6 | 力模拟在 500+ 节点的帧率 | 首版接受（个人库几百页内）；实测掉帧 → 布局计算挪 Web Worker；canvas 后端为更远期备选 |
 | R7 | 旧测试断言绑死旧 DOM 结构，Step 6 迁移成本 | 允许按新 DOM 最小修订断言，但"东方设计合同"语义级断言（分层/签条/批注存在性）必须保留 |
+| R8 | Louvain 重跑社区编号洗牌 → recolored 满屏误报 | 已写死：diff 先按成员重叠率（Jaccard）做新旧社区贪心配对，再判真实变色；无法配对的进 `newCommunities`（§4.3 ❗） |
 | TBD-4.1 | 拖动手感参数（alphaTarget / 衰减时长 / 让位半径） | Step 3 实机调，定稿回填本文档 |
-| TBD-4.2 | 选区胶囊展开文本的具体模板 | Step 4 实施时定稿（含页面清单格式与链接关系表述） |
+| TBD-4.2 | 选区胶囊展开文本的具体模板 + 对话历史显示策略 | Step 4 实施时定稿。含：页面清单格式与链接关系表述；发送后**对话历史里显示胶囊还是展开全文**（倾向历史里保留胶囊态、悬停/点击查看展开内容，避免几十行结构化文本刷屏） |
 
 ---
 
@@ -464,4 +480,12 @@ packages/graph-engine/
 
 ## Changelog
 
+- 2026-06-12 v2（自审修订）：修复 5 个实质缺口 + 收紧 2 处事实表述
+  - D11 补活会话坐标策略：既有未钉节点不随重算跳位，新节点活模拟安置，预计算坐标仅用于冷启动（防布局漂移）
+  - §4.3 补 diff 社区对齐（Jaccard 配对，防 Louvain 编号洗牌导致满屏误报变色）+ `newCommunities` 字段；新增 R8
+  - §4.4 统一 GET 只读 / POST 异步构建；`graph_updated` 分两步引入（Step 2 最简版、Step 5 带 diff）
+  - D12 补监听排除清单（`.wiki-tmp/` 等，防 Skill 消化刷爆监听）+ 切库监听生命周期
+  - Step 0 补前置（stage-4-design 先合入 agent main，否则设计文档不随 subtree 进主仓库）+ 子包 module 类型检查列为明确动作
+  - D14 / Step 2 / Step 6 收紧"0 处 d3/rough"表述：已验证两个运行时 JS；header.html 内联待 Step 2 核实，d3.min.js 移除以核实为前提
+  - Step 3 补 init `.gitignore` 对 layout 文件的对齐查证；Step 4 注明引用识别复用阶段二既有逻辑；TBD-4.2 扩展对话历史胶囊显示策略
 - 2026-06-12 v1：首版。由四轮设计对话（战略 / 选区 / 钉扎 / 生长 / 引擎抽取）沉淀，含 D1–D14 决策、8 Step、API 契约、验收剧本、风险清单。

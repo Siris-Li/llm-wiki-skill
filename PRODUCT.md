@@ -525,6 +525,7 @@ llm-wiki-agent/                       ← 你的仓库
 - ✅ `wiki/` 下任意 `.md` 文件
 - ✅ `purpose.md` / `index.md` / `log.md`
 - ✅ `.wiki-schema.md` / `.wiki-cache.json`
+- ✅ `.wiki-graph-layout.json`（阶段四起：图谱钉扎布局，工作台后端写、Skill 侧只读，见 ADR-21）
 
 **agent 完全忽略的文件 / 目录**：
 - ❌ `.obsidian/`（Obsidian 元数据）
