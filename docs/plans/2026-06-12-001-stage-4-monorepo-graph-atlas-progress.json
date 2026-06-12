@@ -4,8 +4,8 @@
   "branch": "stage-4",
   "status": {
     "phase": "phase-4",
-    "work_unit": "4.1",
-    "next_allowed_action": "Execute WU 4.1: implement four selection modes, structural facts, and action mapping in graph-engine."
+    "work_unit": "4.2",
+    "next_allowed_action": "Execute WU 4.2: implement the workbench selection panel, capsule prompt flow, and new-conversation path."
   },
   "execution_rules": {
     "commit_each_completed_work_unit": true,
@@ -500,10 +500,31 @@
         {
           "id": "4.1",
           "name": "四式选择 + 结构事实 + 动作映射",
-          "status": "pending",
-          "commit": null,
-          "verification": [],
-          "notes": ""
+          "status": "completed",
+          "commit": "00889d39c0998c3d24c118a9d8af610e0384b3a9",
+          "verification": [
+            {
+              "command": "npm test -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "104 graph-engine tests passed, including multicomm selection coverage for node, community, one-hop neighbors, shift-style multi-select, structural facts, and action sets."
+            },
+            {
+              "command": "npm run typecheck",
+              "status": "passed",
+              "summary": "server, web, and graph-engine workspace typechecks passed."
+            },
+            {
+              "command": "npm run build -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "ESM, IIFE, and declaration outputs built successfully."
+            },
+            {
+              "command": "git diff --cached --check; staged local-path scan; root package type check; scripts/build-graph-data.sh diff check",
+              "status": "passed",
+              "summary": "Staged whitespace check passed, no staged local absolute paths were present, root package.json still has no type: module, and scripts/build-graph-data.sh was unchanged."
+            }
+          ],
+          "notes": "Added graph-engine structured selection resolution and fact-aware action mapping. Four supported inputs are node, community, one-hop neighbors, and explicit node lists for shift-style multi-select. Unlinked multi-select coverage confirms summarize_cluster is not offered."
         },
         {
           "id": "4.2",
@@ -704,6 +725,15 @@
         "pre-commit scans passed"
       ],
       "next": "WU 4.1 selection modes, structural facts, and action mapping."
+    },
+    {
+      "timestamp": "2026-06-12T18:30:00+08:00",
+      "phase": "phase-4",
+      "work_unit": "4.1",
+      "action": "completed",
+      "summary": "Implemented graph-engine structured selection with structural facts and action mapping, verified with graph-engine tests, workspace typecheck, graph-engine build, and staged safety scans.",
+      "commit": "00889d39c0998c3d24c118a9d8af610e0384b3a9",
+      "next": "phase-4 work_unit 4.2"
     }
   ]
 }
