@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./model";
 export * from "./render";
+export * from "./sim";
 export * from "./themes";
 
 import type {

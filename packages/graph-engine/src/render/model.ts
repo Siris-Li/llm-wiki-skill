@@ -1,4 +1,4 @@
-import type { GraphData, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
+import type { GraphData, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
 import {
   atlasNodePoint,
   atlasPointToMinimap,
@@ -57,6 +57,7 @@ export interface RenderableEdge {
   target: string;
   type: string;
   path: string;
+  curveOffset: number;
   strokeWidth: number;
   opacity: number;
 }
@@ -85,6 +86,8 @@ interface BuildRenderableGraphOptions {
   theme?: ThemeId;
   selectedNodeId?: string | null;
   selection?: SelectionInput | null;
+  positions?: RenderPositionMap;
+  pathCache?: RenderPathCache;
 }
 
 type AtlasNode = {
@@ -116,9 +119,38 @@ type AtlasCommunity = {
   color_index?: number;
 };
 
+export interface RenderPosition {
+  x: number;
+  y: number;
+}
+
+export type RenderPositionMap = Record<NodeId, RenderPosition>;
+
+export interface RenderPathCache {
+  getEdgeCurve(edge: { id: string; source: string; target: string; weight?: number }, source: RenderPosition, target: RenderPosition): number;
+  clear(): void;
+}
+
 const WORLD_WIDTH = 1000;
 const WORLD_HEIGHT = 680;
 const MINIMAP_PATH = "M8 40 C34 20 54 36 76 22 C98 8 118 24 150 12";
+
+export function createRenderPathCache(): RenderPathCache {
+  const edgeCurves = new Map<string, number>();
+  return {
+    getEdgeCurve(edge, source, target): number {
+      const key = edge.id || `${edge.source}->${edge.target}`;
+      const existing = edgeCurves.get(key);
+      if (existing != null) return existing;
+      const curve = edgeCurveOffset(source, target, edge);
+      edgeCurves.set(key, curve);
+      return curve;
+    },
+    clear(): void {
+      edgeCurves.clear();
+    }
+  };
+}
 
 export function buildRenderableGraph(data: GraphData, options: BuildRenderableGraphOptions = {}): RenderableGraph {
   const theme = options.theme || "shan-shui";
@@ -155,6 +187,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
 
   const nodes = visible.nodes.map((node) => {
     const displayMode = nodeDisplayMode(node, visible.densityMode, selectedNodeId, previewNodeId, labelIds, importantIds);
+    const point = renderPointForNode(node, options.positions);
     return {
       id: node.id,
       label: node.label,
@@ -162,9 +195,9 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       kind: node.kind,
       community: node.community,
       sourcePath: node.source_path || "",
-      x: node.x,
-      y: node.y,
-      point: atlasNodePoint(node) as { x: number; y: number },
+      x: pointToPercentX(point.x),
+      y: pointToPercentY(point.y),
+      point,
       displayMode,
       visualRole: nodeVisualRole(node, displayMode, selectedNodeId, previewNodeId, importantIds),
       priority: Number(node.priority || 0),
@@ -179,15 +212,17 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const edges = visible.edges.flatMap((edge) => {
-    const source = model.byId[edge.source];
-    const target = model.byId[edge.target];
+    const source = nodeById.get(edge.source);
+    const target = nodeById.get(edge.target);
     if (!source || !target) return [];
+    const curveOffset = options.pathCache?.getEdgeCurve(edge, source.point, target.point) ?? edgeCurveOffset(source.point, target.point, edge);
     return [{
       id: edge.id,
       source: edge.source,
       target: edge.target,
       type: String(edge.type || "EXTRACTED").toLowerCase(),
-      path: makeEdgePath(source, target, edge),
+      path: makeEdgePathFromPoints(source.point, target.point, curveOffset),
+      curveOffset,
       strokeWidth: edgeStrokeWidth(edge),
       opacity: edgeOpacity(edge)
     }];
@@ -240,14 +275,17 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
 export function makeEdgePath(source: AtlasNode, target: AtlasNode, edge: { weight?: number }): string {
   const sourcePoint = atlasNodePoint(source) as { x: number; y: number };
   const targetPoint = atlasNodePoint(target) as { x: number; y: number };
+  return makeEdgePathFromPoints(sourcePoint, targetPoint, edgeCurveOffset(sourcePoint, targetPoint, edge));
+}
+
+export function makeEdgePathFromPoints(sourcePoint: RenderPosition, targetPoint: RenderPosition, curveOffset: number): string {
   const x1 = sourcePoint.x;
   const y1 = sourcePoint.y;
   const x2 = targetPoint.x;
   const y2 = targetPoint.y;
   const mx = (x1 + x2) / 2;
   const my = (y1 + y2) / 2;
-  const curve = Math.max(-76, Math.min(76, (source.y - target.y) * 1.8 + (clampWeight(edge.weight) - 0.5) * 24));
-  return `M ${round(x1)} ${round(y1)} Q ${round(mx + curve)} ${round(my - 22)} ${round(x2)} ${round(y2)}`;
+  return `M ${round(x1)} ${round(y1)} Q ${round(mx + curveOffset)} ${round(my - 22)} ${round(x2)} ${round(y2)}`;
 }
 
 export function edgeStrokeWidth(edge: { weight?: number }): number {
@@ -276,6 +314,31 @@ function applyPinsToGraphData(data: GraphData, pins: PinMap): GraphData {
 
 function pinKeyForNode(node: { source_path?: unknown; path?: unknown; source?: unknown; id: string }): WikiPath {
   return String(node.source_path || node.path || node.source || node.id);
+}
+
+function renderPointForNode(node: AtlasNode, positions?: RenderPositionMap): RenderPosition {
+  const position = positions?.[node.id];
+  if (position) {
+    return {
+      x: clamp(position.x, 0, WORLD_WIDTH),
+      y: clamp(position.y, 0, WORLD_HEIGHT)
+    };
+  }
+  return atlasNodePoint(node) as RenderPosition;
+}
+
+function pointToPercentX(value: number): number {
+  return round(clamp(value, 0, WORLD_WIDTH) / WORLD_WIDTH * 100);
+}
+
+function pointToPercentY(value: number): number {
+  return round(clamp(value, 0, WORLD_HEIGHT) / WORLD_HEIGHT * 100);
+}
+
+function edgeCurveOffset(sourcePoint: RenderPosition, targetPoint: RenderPosition, edge: { weight?: number }): number {
+  const sourceYPercent = sourcePoint.y / WORLD_HEIGHT * 100;
+  const targetYPercent = targetPoint.y / WORLD_HEIGHT * 100;
+  return Math.max(-76, Math.min(76, (sourceYPercent - targetYPercent) * 1.8 + (clampWeight(edge.weight) - 0.5) * 24));
 }
 
 function normalizePinnedX(value: number): number {

@@ -22,8 +22,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@types/d3-force": "^3.0.10",
     "tsx": "^4.19.0",
     "typescript": "~6.0.2",
     "vite": "^8.0.12"
+  },
+  "dependencies": {
+    "d3-force": "^3.0.0"
   }
 }

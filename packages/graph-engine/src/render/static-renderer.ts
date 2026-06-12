@@ -1,12 +1,21 @@
 import type { GraphData, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
+import { createLiveGraphSimulation, type LiveGraphSimulation } from "../sim";
 import { getCommunityColor, getThemeTokens, themeTokensToCssVars } from "../themes";
-import { buildRenderableGraph, type RenderableGraph, type RenderableNode } from "./model";
+import {
+  buildRenderableGraph,
+  createRenderPathCache,
+  makeEdgePathFromPoints,
+  type RenderableGraph,
+  type RenderableNode,
+  type RenderPositionMap
+} from "./model";
 
 interface StaticRendererOptions {
   data: GraphData;
   pins?: PinMap;
   theme: ThemeId;
   onOpenPage?: (path: WikiPath) => void;
+  live?: boolean;
 }
 
 export interface StaticGraphRenderer {
@@ -20,6 +29,15 @@ export interface StaticGraphRenderer {
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+const WORLD_WIDTH = 1000;
+const WORLD_HEIGHT = 680;
+
+interface PaintedGraphDom {
+  edgeElements: Map<string, SVGPathElement>;
+  nodeElements: Map<string, HTMLButtonElement>;
+  miniNodeElements: Map<string, SVGCircleElement>;
+  basePoints: Map<string, { x: number; y: number }>;
+}
 
 export function createStaticGraphRenderer(container: HTMLElement, options: StaticRendererOptions): StaticGraphRenderer {
   let data = options.data;
@@ -28,13 +46,16 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let selectedNodeId: string | null = null;
   let selection: SelectionInput | null = null;
   let destroyed = false;
+  let simulation: LiveGraphSimulation | null = null;
+  let dom: PaintedGraphDom = emptyPaintedDom();
+  const pathCache = createRenderPathCache();
   const root = document.createElement("div");
   root.className = "llm-wiki-graph-engine";
   root.dataset.llmWikiGraphRoot = "true";
   container.replaceChildren(root);
   ensureStaticRendererStyles(container.ownerDocument || document);
 
-  let graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection });
+  let graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, pathCache });
 
   function render(next: Partial<StaticRendererOptions> & { selectedNodeId?: string | null; selection?: SelectionInput | null } = {}): void {
     assertActive();
@@ -43,9 +64,26 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     theme = next.theme || theme;
     if (Object.hasOwn(next, "selectedNodeId")) selectedNodeId = next.selectedNodeId || null;
     if (Object.hasOwn(next, "selection")) selection = next.selection || null;
-    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection });
+    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, pathCache });
     applyTheme(root, theme);
-    paint(root, graph, theme, options.onOpenPage);
+    dom = paint(root, graph, theme, options.onOpenPage, {
+      onDragStart: (id, event) => {
+        if (!simulation) return;
+        simulation.beginDrag(id);
+        simulation.dragTo(id, eventToGraphPoint(root, event));
+        root.dataset.dragging = id;
+      },
+      onDragMove: (id, event) => {
+        if (!simulation || root.dataset.dragging !== id) return;
+        simulation.dragTo(id, eventToGraphPoint(root, event));
+      },
+      onDragEnd: (id) => {
+        if (!simulation || root.dataset.dragging !== id) return;
+        simulation.endDrag();
+        delete root.dataset.dragging;
+      }
+    });
+    restartSimulation();
   }
 
   render();
@@ -70,6 +108,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      simulation?.destroy();
+      simulation = null;
+      pathCache.clear();
       root.remove();
     }
   };
@@ -77,12 +118,64 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function assertActive(): void {
     if (destroyed) throw new Error("Graph renderer has been destroyed");
   }
+
+  function restartSimulation(): void {
+    simulation?.destroy();
+    simulation = null;
+    if (options.live === false || !graph.nodes.length) return;
+    simulation = createLiveGraphSimulation(graph, {
+      onTick: (snapshot) => applyMotionFrame(snapshot.positions)
+    });
+    simulation.startCold();
+  }
+
+  function applyMotionFrame(positions: RenderPositionMap): void {
+    if (destroyed) return;
+    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, positions, pathCache });
+    const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+    for (const node of graph.nodes) {
+      const element = dom.nodeElements.get(node.id);
+      const base = dom.basePoints.get(node.id);
+      if (!element || !base) continue;
+      const dx = node.point.x - base.x;
+      const dy = node.point.y - base.y;
+      element.style.translate = `calc(-50% + ${round(dx)}px) calc(-50% + ${round(dy)}px)`;
+      element.dataset.liveX = String(round(node.point.x));
+      element.dataset.liveY = String(round(node.point.y));
+    }
+    for (const edge of graph.edges) {
+      const element = dom.edgeElements.get(edge.id);
+      const source = nodeById.get(edge.source);
+      const target = nodeById.get(edge.target);
+      if (!element || !source || !target) continue;
+      element.setAttribute("d", makeEdgePathFromPoints(source.point, target.point, edge.curveOffset));
+    }
+    for (const miniNode of graph.minimap.nodes) {
+      const element = dom.miniNodeElements.get(miniNode.id);
+      if (!element) continue;
+      element.setAttribute("cx", String(miniNode.x));
+      element.setAttribute("cy", String(miniNode.y));
+    }
+  }
 }
 
-function paint(root: HTMLElement, graph: RenderableGraph, theme: ThemeId, onOpenPage?: (path: WikiPath) => void): void {
+interface DragHandlers {
+  onDragStart: (id: string, event: PointerEvent) => void;
+  onDragMove: (id: string, event: PointerEvent) => void;
+  onDragEnd: (id: string, event: PointerEvent) => void;
+}
+
+function paint(
+  root: HTMLElement,
+  graph: RenderableGraph,
+  theme: ThemeId,
+  onOpenPage: ((path: WikiPath) => void) | undefined,
+  dragHandlers: DragHandlers
+): PaintedGraphDom {
   root.replaceChildren();
   root.dataset.theme = theme;
   root.dataset.density = graph.densityMode;
+  const painted = emptyPaintedDom();
 
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("class", "llm-wiki-graph-svg");
@@ -118,6 +211,7 @@ function paint(root: HTMLElement, graph: RenderableGraph, theme: ThemeId, onOpen
     path.style.strokeWidth = String(edge.strokeWidth);
     path.style.opacity = String(edge.opacity);
     edgeLayer.appendChild(path);
+    painted.edgeElements.set(edge.id, path);
   }
   svg.appendChild(edgeLayer);
   root.appendChild(svg);
@@ -125,7 +219,10 @@ function paint(root: HTMLElement, graph: RenderableGraph, theme: ThemeId, onOpen
   const nodeLayer = document.createElement("div");
   nodeLayer.className = "node-layer";
   for (const node of graph.nodes) {
-    nodeLayer.appendChild(createNodeButton(node, onOpenPage));
+    const button = createNodeButton(node, onOpenPage, dragHandlers);
+    painted.nodeElements.set(node.id, button);
+    painted.basePoints.set(node.id, node.point);
+    nodeLayer.appendChild(button);
   }
   root.appendChild(nodeLayer);
 
@@ -148,12 +245,14 @@ function paint(root: HTMLElement, graph: RenderableGraph, theme: ThemeId, onOpen
     circle.setAttribute("fill", miniNode.fill);
     if (miniNode.selected) circle.classList.add("is-selected");
     miniSvg.appendChild(circle);
+    painted.miniNodeElements.set(miniNode.id, circle);
   }
   minimap.appendChild(miniSvg);
   root.appendChild(minimap);
+  return painted;
 }
 
-function createNodeButton(node: RenderableNode, onOpenPage?: (path: WikiPath) => void): HTMLButtonElement {
+function createNodeButton(node: RenderableNode, onOpenPage: ((path: WikiPath) => void) | undefined, dragHandlers: DragHandlers): HTMLButtonElement {
   const button = document.createElement("button");
   button.className = "node";
   if (node.unavailable) button.classList.add("is-disabled");
@@ -177,6 +276,7 @@ function createNodeButton(node: RenderableNode, onOpenPage?: (path: WikiPath) =>
   if (node.sourcePath && onOpenPage) {
     button.addEventListener("dblclick", () => onOpenPage(node.sourcePath));
   }
+  bindDragHandlers(button, node.id, dragHandlers);
 
   const kind = document.createElement("span");
   kind.className = "node-kind";
@@ -197,6 +297,55 @@ function createNodeButton(node: RenderableNode, onOpenPage?: (path: WikiPath) =>
   button.appendChild(meta);
 
   return button;
+}
+
+function bindDragHandlers(button: HTMLButtonElement, nodeId: string, handlers: DragHandlers): void {
+  let dragging = false;
+  button.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    dragging = true;
+    button.classList.add("is-dragging");
+    button.setPointerCapture(event.pointerId);
+    handlers.onDragStart(nodeId, event);
+  });
+  button.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    handlers.onDragMove(nodeId, event);
+  });
+  const end = (event: PointerEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    button.classList.remove("is-dragging");
+    if (button.hasPointerCapture(event.pointerId)) button.releasePointerCapture(event.pointerId);
+    handlers.onDragEnd(nodeId, event);
+  };
+  button.addEventListener("pointerup", end);
+  button.addEventListener("pointercancel", end);
+}
+
+function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number; y: number } {
+  const rect = root.getBoundingClientRect();
+  return {
+    x: clamp((event.clientX - rect.left) / Math.max(1, rect.width) * WORLD_WIDTH, 0, WORLD_WIDTH),
+    y: clamp((event.clientY - rect.top) / Math.max(1, rect.height) * WORLD_HEIGHT, 0, WORLD_HEIGHT)
+  };
+}
+
+function emptyPaintedDom(): PaintedGraphDom {
+  return {
+    edgeElements: new Map(),
+    nodeElements: new Map(),
+    miniNodeElements: new Map(),
+    basePoints: new Map()
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function round(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 function applyTheme(root: HTMLElement, theme: ThemeId): void {
@@ -281,6 +430,11 @@ const STATIC_RENDERER_CSS = `
   border-color: color-mix(in srgb, var(--cinnabar) 74%, transparent);
   box-shadow: 0 16px 28px color-mix(in srgb, var(--cinnabar) 16%, transparent), 0 0 0 4px color-mix(in srgb, var(--cinnabar) 10%, transparent);
   transform: translateY(-2px);
+}
+.node.is-dragging {
+  cursor: grabbing;
+  z-index: 8;
+  box-shadow: 0 18px 34px color-mix(in srgb, var(--cinnabar) 18%, transparent), 0 0 0 4px color-mix(in srgb, var(--cinnabar) 10%, transparent);
 }
 .node-kind {
   display: block;
