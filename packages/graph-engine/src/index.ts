@@ -14,7 +14,7 @@ import type {
   ThemeId
 } from "./types";
 import { createStaticGraphRenderer } from "./render";
-import { resolveSelection } from "./select";
+import { resolveSelectionForCapabilities } from "./select";
 
 export function createGraphEngine(container: HTMLElement, options: GraphEngineOptions): GraphEngine {
   if (!container) {
@@ -23,14 +23,15 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
 
   let currentTheme: ThemeId = options.theme;
   let destroyed = false;
+  const canAsk = Boolean(options.capabilities?.onAsk);
+  const resolveForHostCapabilities = (input: SelectionInput): Selection =>
+    resolveSelectionForCapabilities(options.data, input, { canAsk });
   const renderer = createStaticGraphRenderer(container, {
     data: options.data,
     pins: options.pins || {},
     theme: currentTheme,
     onOpenPage: options.capabilities?.onOpenPage,
-    onSelect: (input) => {
-      options.capabilities?.onAsk?.(resolveSelection(options.data, input));
-    },
+    onSelect: canAsk ? (input) => options.capabilities?.onAsk?.(resolveForHostCapabilities(input)) : undefined,
     persistPins: options.capabilities?.persistPins
   });
 
@@ -51,7 +52,7 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
     select(selector: SelectionInput): Selection {
       assertActive();
       renderer.select(selector);
-      return resolveSelection(options.data, selector);
+      return resolveForHostCapabilities(selector);
     },
 
     setTheme(theme: ThemeId): void {

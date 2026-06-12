@@ -27,6 +27,7 @@ interface Props {
 	onToggleTheme?: () => void;
 	onOpenPage?: (path: string) => void;
 	onAskSelection?: (input: { message: string; displayText: string; newConversation: boolean }) => void;
+	focusPath?: string | null;
 }
 
 type GraphStatus = "idle" | "loading" | "building" | "ready" | "error";
@@ -43,6 +44,7 @@ export function GraphPanel({
 	onToggleTheme,
 	onOpenPage,
 	onAskSelection,
+	focusPath,
 }: Props) {
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const engineRef = useRef<GraphEngine | null>(null);
@@ -191,11 +193,17 @@ export function GraphPanel({
 				persistPins,
 			},
 		});
+		if (focusPath) engineRef.current.focusNode(focusPath);
 		return () => {
 			engineRef.current?.destroy();
 			engineRef.current = null;
 		};
-	}, [data, graphTheme, layoutPins, onOpenPage, persistPins]);
+	}, [data, focusPath, graphTheme, layoutPins, onOpenPage, persistPins]);
+
+	useEffect(() => {
+		if (!focusPath || !engineRef.current || status !== "ready") return;
+		engineRef.current.focusNode(focusPath);
+	}, [data, focusPath, status]);
 
 	const selectNeighbors = useCallback(() => {
 		if (!selection || selection.nodeIds.length !== 1) return;

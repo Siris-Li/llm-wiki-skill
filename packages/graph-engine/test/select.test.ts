@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveSelection } from "../src/select";
+import { resolveSelection, resolveSelectionForCapabilities } from "../src/select";
 import type { GraphData, SelectionActionId } from "../src/types";
 
 describe("structured graph selection", () => {
@@ -74,6 +74,18 @@ describe("structured graph selection", () => {
     });
     assert.deepEqual(actionIds(selection), ["explore_potential_links", "compare_differences"]);
     assert.equal(actionIds(selection).includes("summarize_cluster"), false);
+  });
+
+  it("omits ask actions when onAsk capability is absent", () => {
+    const selection = resolveSelectionForCapabilities(multicommGraph(), { kind: "community", id: "alpha" }, { canAsk: false });
+
+    assert.deepEqual(selection.facts, {
+      pageCount: 3,
+      internalLinkCount: 2,
+      communityCount: 1,
+      isolatedCount: 0
+    });
+    assert.deepEqual(actionIds(selection), []);
   });
 });
 

@@ -44,6 +44,14 @@ const ACTIONS = {
 } satisfies Record<string, SelectionAction>;
 
 export function resolveSelection(data: GraphData, input: SelectionInput): Selection {
+  return resolveSelectionForCapabilities(data, input, { canAsk: true });
+}
+
+export function resolveSelectionForCapabilities(
+  data: GraphData,
+  input: SelectionInput,
+  capabilities: { canAsk?: boolean }
+): Selection {
   const index = buildSelectionGraphIndex(data);
   const nodeIds = selectionNodeIds(index, input);
   const facts = selectionFacts(index, nodeIds);
@@ -53,7 +61,7 @@ export function resolveSelection(data: GraphData, input: SelectionInput): Select
     nodeIds,
     communityIds,
     facts,
-    actions: selectionActions(facts)
+    actions: capabilities.canAsk === false ? [] : selectionActions(facts)
   };
 }
 

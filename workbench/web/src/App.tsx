@@ -26,6 +26,7 @@ import {
 	streamBatchDigest,
 	type UIMessage,
 } from "@/lib/api";
+import { WIKI_LINK_SEEN_EVENT } from "@/lib/wiki-links";
 
 type ThemeMode = "dark" | "light";
 const THEME_STORAGE_KEY = "llm-wiki-agent-theme";
@@ -117,6 +118,7 @@ function App() {
 		message: string;
 		displayText: string;
 	} | null>(null);
+	const [graphFocusPath, setGraphFocusPath] = useState<string | null>(null);
 	const [mainView, setMainView] = useState<MainView>(() => {
 		if (typeof window === "undefined") return "chat";
 		return window.localStorage.getItem(MAIN_VIEW_STORAGE_KEY) === "graph" ? "graph" : "chat";
@@ -137,6 +139,15 @@ function App() {
 	useEffect(() => {
 		window.localStorage.setItem(MAIN_VIEW_STORAGE_KEY, mainView);
 	}, [mainView]);
+
+	useEffect(() => {
+		const handleWikiLinkSeenEvent = (event: Event) => {
+			const path = (event as CustomEvent<string>).detail;
+			if (typeof path === "string" && path.startsWith("wiki/")) setGraphFocusPath(path);
+		};
+		window.addEventListener(WIKI_LINK_SEEN_EVENT, handleWikiLinkSeenEvent);
+		return () => window.removeEventListener(WIKI_LINK_SEEN_EVENT, handleWikiLinkSeenEvent);
+	}, []);
 
 	useEffect(() => {
 		const handleResize = () => setDrawerWidthState((width) => clampDrawerWidth(width, sidebarCollapsed));
@@ -301,6 +312,7 @@ function App() {
 	const handleOpenPage = async (pagePath: string) => {
 		if (!active) return;
 		const normalizedPagePath = toRelativePagePath(pagePath, active.kb.path) ?? pagePath;
+		if (normalizedPagePath.startsWith("wiki/")) setGraphFocusPath(normalizedPagePath);
 		setDrawerMode("wiki");
 		setDrawerPage(normalizedPagePath);
 		setDrawerLoading(true);
@@ -314,6 +326,10 @@ function App() {
 			setDrawerLoading(false);
 		}
 	};
+
+	const handleWikiLinkSeen = useCallback((pagePath: string) => {
+		setGraphFocusPath(pagePath);
+	}, []);
 
 	const refreshArtifacts = async (conversationId: string, focusId?: string) => {
 		const items = await listArtifacts(conversationId);
@@ -515,6 +531,7 @@ function App() {
 							onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
 							onOpenPage={handleOpenPage}
 							onAskSelection={handleAskSelection}
+							focusPath={graphFocusPath}
 						/>
 					) : (
 						<ChatPanel
@@ -526,6 +543,7 @@ function App() {
 							onOpenSettings={() => setSettingsOpen(true)}
 							currentKnowledgeBasePath={active?.kb.path ?? null}
 							onOpenPage={handleOpenPage}
+							onWikiLinkSeen={handleWikiLinkSeen}
 							onArtifactCreated={handleArtifactCreated}
 							artifactCount={artifacts.length}
 							onOpenArtifacts={handleOpenArtifacts}

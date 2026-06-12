@@ -1,16 +1,24 @@
+import { useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+import { emitWikiLinkSeen, extractWikiPageRefs, normalizeWikiLinks } from "@/lib/wiki-links";
 
 interface Props {
 	content: string;
 	onOpenPage?: (path: string) => void;
+	onWikiLinkSeen?: (path: string) => void;
 }
 
-function normalizeWikiLinks(content: string): string {
-	return content.replace(/\[\[(wiki\/[^\]\n]+)\]\]/g, (_match, target: string) => `[${target}](${target})`);
-}
+export function MarkdownView({ content, onOpenPage, onWikiLinkSeen }: Props) {
+	useEffect(() => {
+		if (!onWikiLinkSeen) return;
+		for (const path of extractWikiPageRefs(content)) {
+			onWikiLinkSeen(path);
+			emitWikiLinkSeen(path);
+		}
+	}, [content, onWikiLinkSeen]);
 
-export function MarkdownView({ content, onOpenPage }: Props) {
 	return (
 		<div className="prose prose-invert max-w-none prose-pre:bg-background prose-pre:text-foreground prose-code:text-foreground">
 			<ReactMarkdown
@@ -23,6 +31,8 @@ export function MarkdownView({ content, onOpenPage }: Props) {
 									href={href}
 									onClick={(e) => {
 										e.preventDefault();
+										onWikiLinkSeen?.(href);
+										emitWikiLinkSeen(href);
 										onOpenPage?.(href);
 									}}
 									className="cursor-pointer underline decoration-primary underline-offset-4"

@@ -20,6 +20,7 @@ import {
 	type UIMessage,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { extractWikiPageRefs } from "@/lib/wiki-links";
 
 type ToolMark = { name: string; status: "running" | "done" };
 
@@ -64,6 +65,7 @@ interface Props {
 	onMessageSent?: () => void;
 	onOpenSettings?: () => void;
 	onOpenPage?: (path: string) => void;
+	onWikiLinkSeen?: (path: string) => void;
 	onArtifactCreated?: (id: string) => void;
 	artifactCount?: number;
 	onOpenArtifacts?: () => void;
@@ -91,6 +93,7 @@ export function ChatPanel({
 	onMessageSent,
 	onOpenSettings,
 	onOpenPage,
+	onWikiLinkSeen,
 	onArtifactCreated,
 	artifactCount = 0,
 	onOpenArtifacts,
@@ -392,6 +395,14 @@ export function ChatPanel({
 		void sendPrompt(pendingPrompt.message, pendingPrompt.displayText);
 	}, [onPendingPromptConsumed, pendingPrompt]);
 
+	useEffect(() => {
+		if (!onWikiLinkSeen) return;
+		for (const message of messages) {
+			if (message.role !== "assistant") continue;
+			for (const path of extractWikiPageRefs(message.content)) onWikiLinkSeen(path);
+		}
+	}, [messages, onWikiLinkSeen]);
+
 	const startDetectedBatchDigest = () => {
 		if (!currentKnowledgeBasePath || !detectedBatch?.inspect.ingestibleFiles?.paths.length) return;
 		onStartBatchDigest?.({
@@ -556,6 +567,7 @@ export function ChatPanel({
 						message={m}
 						showCursor={m.id === showCursorOn}
 						onOpenPage={onOpenPage}
+						onWikiLinkSeen={onWikiLinkSeen}
 					/>
 				))}
 			</div>
@@ -682,10 +694,12 @@ function MessageBubble({
 	message,
 	showCursor,
 	onOpenPage,
+	onWikiLinkSeen,
 }: {
 	message: Message;
 	showCursor: boolean;
 	onOpenPage?: (path: string) => void;
+	onWikiLinkSeen?: (path: string) => void;
 }) {
 	const isUser = message.role === "user";
 	return (
@@ -709,7 +723,7 @@ function MessageBubble({
 					{isUser ? (
 						<span className="whitespace-pre-wrap">{message.content}</span>
 					) : (
-						<MarkdownView content={message.content} onOpenPage={onOpenPage} />
+						<MarkdownView content={message.content} onOpenPage={onOpenPage} onWikiLinkSeen={onWikiLinkSeen} />
 					)}
 					{showCursor && <span className="animate-cursor-blink ml-0.5">▍</span>}
 				</div>
