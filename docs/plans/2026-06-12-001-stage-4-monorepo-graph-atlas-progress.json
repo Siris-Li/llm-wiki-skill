@@ -3,9 +3,9 @@
   "design": "workbench/docs/stage-4-design.md (before phase-0 completes: ../llm-wiki-agent/docs/stage-4-design.md)",
   "branch": "stage-4",
   "status": {
-    "phase": "phase-5",
-    "work_unit": "5.3",
-    "next_allowed_action": "Execute WU 5.3: implement living atlas growth animation and diff queue."
+    "phase": "phase-6",
+    "work_unit": "6.1",
+    "next_allowed_action": "Execute WU 6.1: convert offline HTML build to graph-engine output with baked pins and packing list."
   },
   "execution_rules": {
     "commit_each_completed_work_unit": true,
@@ -80,7 +80,19 @@
       ],
       "summary": "Structured selection tests, selection panel/capsule prompt flow, new-conversation handoff, capabilities pruning without onAsk, and Browser DOM assertion for chat-to-graph focus all passed."
     },
-    "5_growth_and_watcher": null,
+    "5_growth_and_watcher": {
+      "status": "passed",
+      "evidence": [
+        "commit f884210e8bcb6fc5bc8b6e9e21f9e8c5596b2dff",
+        "npm test -w @llm-wiki/graph-engine: 116 tests passed, including GraphDiffQueue visible/hidden/dragging/folding scenarios",
+        "node --import tsx --test workbench/server/src/*.test.ts workbench/server/src/digest/*.test.ts: 19 tests passed, including batch suspend/resume and rebuild queue coverage",
+        "Browser reduced-motion check: data-diff-state settled, data-diff-reduced-motion true, diff classes cleared",
+        "Browser motion check: data-diff-state playing with diff classes, then settled with classes cleared",
+        "Browser hidden-graph scenario: graph closed, adding two wiki pages updated graph-data after 7s, sidebar badge lit, opening graph replayed two added-node animations, badge cleared, and state settled within 3s",
+        "Demo KB cleanup: temporary WU 5.3 pages removed and graph-data rebuilt clean"
+      ],
+      "summary": "Phase 5 watcher, diff, queue, and growth-animation path passed automated tests and Browser DOM verification. Batch rebuild suspension is covered by server tests; no chokidar was added."
+    },
     "6_offline_html": null,
     "7_theme_follow": null
   },
@@ -630,7 +642,7 @@
     {
       "id": "phase-5",
       "name": "文件监听 + 重算链 + 生长动画",
-      "status": "pending",
+      "status": "done",
       "work_units": [
         {
           "id": "5.1",
@@ -698,10 +710,46 @@
         {
           "id": "5.3",
           "name": "生长动画 + diff 队列（补播/挂起）",
-          "status": "pending",
-          "commit": null,
-          "verification": [],
-          "notes": ""
+          "status": "completed",
+          "commit": "f884210e8bcb6fc5bc8b6e9e21f9e8c5596b2dff",
+          "verification": [
+            {
+              "command": "npm test -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "116 graph-engine tests passed, including the required GraphDiffQueue visible consumption, hidden queue, drag queue, and multi-diff folding scenarios."
+            },
+            {
+              "command": "node --import tsx --test workbench/server/src/*.test.ts workbench/server/src/digest/*.test.ts",
+              "status": "passed",
+              "summary": "19 server/digest tests passed, including graph watcher debounce, generated-artifact exclusion, batch suspend/resume, and single-flight pending merge coverage."
+            },
+            {
+              "command": "npm run typecheck",
+              "status": "passed",
+              "summary": "server, web, and graph-engine workspace typechecks passed."
+            },
+            {
+              "command": "npm run build -w @llm-wiki/graph-engine; npm run build -w @llm-wiki-agent/web",
+              "status": "passed",
+              "summary": "Graph-engine ESM/IIFE/declaration build passed; web production build passed when run serially. A parallel build attempt failed transiently because concurrent declaration rebuilds hid the workspace package types, then the serial rerun passed."
+            },
+            {
+              "command": "Browser plugin dev checks for ?graphTest=reduced and ?graphTest=motion",
+              "status": "passed",
+              "summary": "Reduced-motion settled immediately with no animation classes; motion mode entered data-diff-state=playing with diff classes and then settled with classes cleared."
+            },
+            {
+              "command": "Browser plugin hidden-graph growth scenario on stage4 demo KB",
+              "status": "passed",
+              "summary": "With graph hidden, adding two linked wiki pages rebuilt graph-data after 7s, lit the graph sidebar badge, replayed two added-node animations when the graph opened, cleared the badge, and settled within 3s."
+            },
+            {
+              "command": "git diff --cached --check; staged local-path scan; root package type check; scripts/build-graph-data.sh diff check",
+              "status": "passed",
+              "summary": "Staged whitespace check passed, no staged local absolute paths were present, root package.json still has no type: module, and scripts/build-graph-data.sh was unchanged."
+            }
+          ],
+          "notes": "Added graph-engine GraphDiffQueue and net diff folding, renderer applyDiff growth markers for added/removed/recolored/new-community changes, reduced-motion settling, drag-aware queue flushing, and workbench hidden-view badge/replay wiring. Browser verification used the in-app Browser plugin; temporary demo KB pages were removed and graph-data was rebuilt clean before committing."
         }
       ]
     },
@@ -925,6 +973,26 @@
         "pre-commit scans passed"
       ],
       "next": "phase-5 work_unit 5.3"
+    },
+    {
+      "timestamp": "2026-06-12T19:59:24+08:00",
+      "phase": "phase-5",
+      "work_unit": "5.3",
+      "action": "completed WU 5.3, marked Phase 5 done, and advanced to Phase 6 WU 6.1",
+      "summary": "Implemented living atlas growth animation, testable diff queue state machine, hidden graph badge/replay flow, drag-aware queuing, and reduced-motion direct settling.",
+      "commit": "f884210e8bcb6fc5bc8b6e9e21f9e8c5596b2dff",
+      "verification": [
+        "graph-engine tests passed with 116 tests",
+        "server/digest tests passed with 19 tests",
+        "typecheck passed",
+        "graph-engine build passed",
+        "web build passed on serial rerun after a transient parallel declaration-build race",
+        "Browser reduced-motion and motion checks passed",
+        "Browser hidden-graph growth replay scenario passed with two animated added nodes and 3s settle",
+        "temporary demo KB files removed and graph-data rebuilt clean",
+        "pre-commit scans passed"
+      ],
+      "next": "phase-6 work_unit 6.1"
     }
   ]
 }
