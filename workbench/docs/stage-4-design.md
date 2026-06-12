@@ -1,6 +1,6 @@
 # 阶段四设计文档：monorepo 合并 + 图谱活地图
 
-> 状态：**设计完成，待作者审定后实施**
+> 状态：**已实施完成，主观验收项待验收人判断**
 > 日期：2026-06-12
 > 前置讨论：本文档由 2026-06-12 的四轮设计对话沉淀而成（战略定位 → 选区设计 → 钉扎持久化 → 生长事件链 → 引擎抽取）。
 
@@ -157,7 +157,7 @@ llm-wiki-skill 仓库（未来品牌阶段改名 llm-wiki）
 
 - 变化源至少五个：批量/单篇消化、结晶、agent 补链（选区提问闭环的终点）、lint 修复、Obsidian 手改。只盯"消化"会让地图说谎。
 - 底座：后端监听当前知识库目录（`.md` 与 `.wiki-schema.md`），**防抖 ~5s** 合并零星变化；**自家批量流程（批量消化）开始时挂起监听、done 后立即触发一次**。
-- ❗ **监听排除清单**：`.wiki-tmp/`（Skill 运行时临时目录，消化过程狂写，不排除会被自家流程刷爆）、`.git/`、`.obsidian/`、`node_modules/`、`.DS_Store`。与 PRODUCT.md §6.4 忽略清单对齐。
+- ❗ **监听排除清单**：`.wiki-tmp/`（Skill 运行时临时目录，消化过程狂写，不排除会被自家流程刷爆）、`.git/`、`.obsidian/`、`node_modules/`、`.DS_Store`，以及自家生成物 `.wiki-graph-layout.json`、`wiki/graph-data.json`、`wiki/knowledge-graph.html`。与 PRODUCT.md §6.4 忽略清单对齐。
 - 监听器生命周期跟随当前 KB：切库时停掉旧库监听、启动目标库监听（与会话切换同一时机）。
 - 重算 = 子进程跑现有 `build-graph-data.sh` 全量管线（❗ 不重写、不做增量图计算）。重算期间旧图谱照常显示与交互；新数据就绪才换场，绝不白屏。
 - 重算进行中又有新触发：排队合并（单飞行任务 + 最多一个 pending，跑完再跑一次）。
@@ -175,7 +175,7 @@ llm-wiki-skill 仓库（未来品牌阶段改名 llm-wiki）
 
 ### D14 引擎抽取：新骨架、旧器官
 
-现有 graph-wash 代码按四级资产处理。事实依据：已验证 `graph-wash.js` / `graph-wash-helpers.js` 两个运行时文件 **0 处使用 d3 / rough**（纯手写几何引擎）；❗ `header.html`（~2001 行）的内联脚本**尚未核查**，Step 2 抽样式时核实——它是否使用 rough 画装饰，决定 Step 6 能否移除打包清单里的 d3.min.js / rough.min.js：
+现有 graph-wash 代码按四级资产处理。事实依据：已验证 `graph-wash.js` / `graph-wash-helpers.js` 两个运行时文件 **0 处使用 d3 / rough**（纯手写几何引擎）；Step 2 已核查 `header.html` 内联脚本，同样 **0 处使用 d3 / rough**，仅命中 `graph-data` JSON script。Step 6 因此移除 `d3.min.js` / `rough.min.js` 与旧 `graph-wash*.js`，marked / purify 保留：
 
 | 级 | 内容 | 处理 |
 |---|---|---|
@@ -186,7 +186,7 @@ llm-wiki-skill 仓库（未来品牌阶段改名 llm-wiki）
 
 - ❗ A 级 TS 化纪律：先 1:1 翻译保测试绿，禁止"顺手优化"逻辑。
 - ❗ 手绘感"沸腾效应"：图形路径生成一次即缓存，动画帧只改 transform，**绝不每帧重算路径**。
-- 力模拟依赖 `d3-force` 单模块（几 KB），不引入完整 d3；离线 HTML 打包清单里的完整版 `d3.min.js` 在 Step 6 移除——**以 Step 2 对 header.html 内联脚本的核实结果为前提**（marked / purify 保留，阅读态在用）。
+- 力模拟依赖 `d3-force` 单模块（几 KB），不引入完整 d3；离线 HTML 打包清单里的完整版 `d3.min.js` 与 `rough.min.js` 已在 Step 6 移除（marked / purify 保留，阅读态在用）。
 - 不做 SVG/Canvas 双渲染后端（几百节点 SVG 足够；canvas 是将来性能实测不足时的事）。
 - 不把引擎做成对外发布的通用图谱库。
 
@@ -366,6 +366,10 @@ packages/graph-engine/
 4. 团块行为：拖动中淡化、定格后重晕染、不追离群点（D10）
 5. 顺手查证：`init-wiki.sh` 生成的知识库 `.gitignore` 对 `.wiki-cache.json` 的处理方式，`.wiki-graph-layout.json` 与之对齐（倾向**不排除**——钉扎是用户资产，应可随知识库进版本管理；查证结果回填本条）
 
+**实施定稿**：
+- 拖动手感参数：`coldStartAlpha=0.08`、`lowHeatAlphaTarget=0.15`、`alphaMin=0.003`、`alphaDecay=0.14`、`velocityDecay=0.58`；斥力 `strength=-34` / `distanceMax=220`；X/Y 回中强度 `0.052`；碰撞 `strength=0.64` / `iterations=2`。拖动时直接邻居参与让位，远处节点冻结，松手后 `alphaTarget=0`。
+- `.wiki-graph-layout.json` 与 `.wiki-cache.json` 对齐为知识库资产：`init-wiki.sh` 生成的知识库 `.gitignore` 仅忽略 `.wiki-tmp/`，不忽略 layout 文件。
+
 **验收**：
 1. 拖节点：邻居让位流畅、远处不动、松手 1–2s 后全图静止（不蠕动）
 2. 钉住节点 → 刷新页面 / 重启工作台 → 钉位还原；双击解钉 → 文件中该条删除
@@ -381,6 +385,8 @@ packages/graph-engine/
 3. 工作台联动：`onAsk` → 切到对话视图，输入框出现选区胶囊；发送时胶囊展开为结构化文本（页面清单 + 链接关系 + 社区归属）走现有 `/api/prompt`
 4. 反向联动：对话中 agent 引用 wiki 页面 → 若图谱视图打开，`focusNode` 高亮（"引用"的判定**复用阶段二既有的 wiki 链接识别**，不另发明检测逻辑）
 5. 离线 HTML 不传 `onAsk` → 引擎自动隐藏提问动作（capabilities 验证点）
+
+**实施定稿**：选区在输入区显示胶囊 `@[选区:<标题> · <页数>页]`；发送时展开为结构化文本，包含选区摘要（页数、内部链接数、社区数、孤立数）、页面清单（类型 / 社区 / 路径）、内部链接列表、动作与自由输入。对话历史保留胶囊态，展开内容作为发送 payload，不把几十行结构化文本直接刷屏。
 
 **验收**：
 1. 点社区 → 面板显示"N 页 · M 条内部链接" → 点"总结这一簇" → 对话收到选区上下文，agent 输出的总结明确引用选区内页面
@@ -402,6 +408,8 @@ packages/graph-engine/
 3. 批量消化进行中不触发逐篇重算（日志确认挂起）；done 后恰好一次重算
 4. 动画播放中点击画布 → 立即定格；系统开启"减少动态效果"→ 直接定格
 5. 正在拖动节点时收到 `graph_updated` → 松手后才播
+
+**实施定稿**：macOS + Node 22 下原生 `fs.watch` recursive 两轮实测可收到嵌套目录创建、嵌套 Markdown 创建 / 修改 / 删除事件；部分修改可能以 `rename` 形式到达，因此实现不依赖事件类型，只要命中非排除路径就触发防抖重算。未引入 chokidar。
 
 ### Step 6：Skill 离线 HTML 切换引擎产物（M5）
 
@@ -442,14 +450,14 @@ packages/graph-engine/
 |---|---|---|
 | R1 | 根 package.json 的 module 类型破坏主仓库 CommonJS 测试 | 已写死：根不设 type，ESM 声明留在子包（Step 0 ❗） |
 | R2 | 手绘路径每帧重算导致"沸腾"+性能塌方 | 已写死：路径一次生成缓存，帧只改 transform（Step 3 ❗） |
-| R3 | `fs.watch` recursive 在 macOS 的可靠性 | Step 5 起手先写 20 行脚本实测（嵌套目录创建/修改/删除均收到事件）；不可靠 → 引入 chokidar 并补记 §3 |
-| R4 | subtree 合并带入本地绝对路径 / 隐私内容 | Step 0 commit 前强制检查本地用户目录路径 |
+| R3 | `fs.watch` recursive 在 macOS 的可靠性 | 已定稿：Node 22 原生 recursive 实测可用；事件类型不稳定但事件可达，按非排除路径统一触发重算；未引入 chokidar |
+| R4 | subtree 合并带入本地绝对路径 / 隐私内容 | 已定稿：Step 0 隐私清理通过；后续每 commit 执行 staged 内容本地路径扫描 |
 | R5 | 选区注入大社区（如 30 页）时上下文过大 | 首版只注入清单+结构（正文 agent 按需 read）；实测 token 仍超 → 注入端做清单截断 + 提示 agent 分批读 |
 | R6 | 力模拟在 500+ 节点的帧率 | 首版接受（个人库几百页内）；实测掉帧 → 布局计算挪 Web Worker；canvas 后端为更远期备选 |
 | R7 | 旧测试断言绑死旧 DOM 结构，Step 6 迁移成本 | 允许按新 DOM 最小修订断言，但"东方设计合同"语义级断言（分层/签条/批注存在性）必须保留 |
 | R8 | Louvain 重跑社区编号洗牌 → recolored 满屏误报 | 已写死：diff 先按成员重叠率（Jaccard）做新旧社区贪心配对，再判真实变色；无法配对的进 `newCommunities`（§4.3 ❗） |
-| TBD-4.1 | 拖动手感参数（alphaTarget / 衰减时长 / 让位半径） | Step 3 实机调，定稿回填本文档 |
-| TBD-4.2 | 选区胶囊展开文本的具体模板 + 对话历史显示策略 | Step 4 实施时定稿。含：页面清单格式与链接关系表述；发送后**对话历史里显示胶囊还是展开全文**（倾向历史里保留胶囊态、悬停/点击查看展开内容，避免几十行结构化文本刷屏） |
+| TBD-4.1 | 拖动手感参数（alphaTarget / 衰减时长 / 让位半径） | 已定稿：参数见 Step 3 实施定稿；主观手感交验收人判断 |
+| TBD-4.2 | 选区胶囊展开文本的具体模板 + 对话历史显示策略 | 已定稿：模板见 Step 4 实施定稿；历史保留胶囊态，发送 payload 展开结构化文本 |
 
 ---
 
@@ -480,6 +488,11 @@ packages/graph-engine/
 
 ## Changelog
 
+- 2026-06-12 v3（实施回填）：阶段四落地后补齐定稿事实
+  - D12 监听排除清单补自家生成物三项：`.wiki-graph-layout.json`、`wiki/graph-data.json`、`wiki/knowledge-graph.html`
+  - D14 回填 header.html 内联脚本 d3/rough 审计结论；Step 6 已移除 d3/rough 与旧 graph-wash 打包项
+  - Step 3 回填拖动手感参数与 `.wiki-graph-layout.json` 的 gitignore 对齐结论；Step 4 回填选区胶囊/展开 payload 模板；Step 5 回填 fs.watch 实测结论
+  - §7 将 R3/R4 与 TBD-4.1/TBD-4.2 更新为已定稿状态
 - 2026-06-12 v2（自审修订）：修复 5 个实质缺口 + 收紧 2 处事实表述
   - D11 补活会话坐标策略：既有未钉节点不随重算跳位，新节点活模拟安置，预计算坐标仅用于冷启动（防布局漂移）
   - §4.3 补 diff 社区对齐（Jaccard 配对，防 Louvain 编号洗牌导致满屏误报变色）+ `newCommunities` 字段；新增 R8
