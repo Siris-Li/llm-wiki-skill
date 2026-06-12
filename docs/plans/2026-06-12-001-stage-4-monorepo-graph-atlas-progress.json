@@ -4,8 +4,8 @@
   "branch": "stage-4",
   "status": {
     "phase": "phase-7",
-    "work_unit": "7.1",
-    "next_allowed_action": "Execute WU 7.1: polish the mo-ye theme and finalize interaction feel parameters."
+    "work_unit": "7.2",
+    "next_allowed_action": "Execute WU 7.2: collect the seven final acceptance evidence items and backfill PRODUCT.md/design docs."
   },
   "execution_rules": {
     "commit_each_completed_work_unit": true,
@@ -55,6 +55,14 @@
       "decision": "Automated browser acceptance may use a local temporary HTTP address in place of file://.",
       "evidence": "User explicitly amended the plan to allow local temporary HTTP addresses as a substitute for file:// automated browser acceptance.",
       "consequence": "Future browser automation can serve only the artifact directory over a temporary localhost URL; offline double-click HTML remains a product acceptance target."
+    },
+    {
+      "timestamp": "2026-06-12T21:19:04+08:00",
+      "phase": "phase-7",
+      "work_unit": "7.1",
+      "decision": "Drag feel parameters finalized for Stage 4.",
+      "evidence": "packages/graph-engine/src/sim/index.ts defaults: coldStartAlpha 0.08, lowHeatAlphaTarget 0.15, alphaMin 0.003, alphaDecay 0.14, velocityDecay 0.58; forceManyBody strength -34 distanceMax 220; forceX/Y strength 0.052; forceCollide strength 0.64 iterations 2. Drag behavior keeps direct neighbors live, freezes far nodes during drag, and sets alphaTarget to 0 on release.",
+      "consequence": "These values are the WU 7.1 finalized interaction defaults. Subjective hand-feel remains pending reviewer judgment per manual acceptance rules."
     }
   ],
   "final_acceptance": {
@@ -116,7 +124,17 @@
       ],
       "summary": "Offline HTML now uses the shared graph engine single-file output; automated render, pinning, localStorage persistence, no-ask capability, migrated regression suite, typecheck, and graph-engine tests all passed."
     },
-    "7_theme_follow": null
+    "7_theme_follow": {
+      "status": "evidence_recorded_manual_judgment_pending",
+      "evidence": [
+        "commit 4b66ed496ef0a39e85f68038c572757c69d31026",
+        "docs/plans/stage-4-artifacts/p7-moye-theme.png",
+        "In-app Browser DOM assertion: dark workbench rendered graphStatus ready, graphTheme mo-ye, engineTheme mo-ye, 11 nodes, 24 edges, --bg #0d0f0e, --ink #f5f0e6, --cinnabar #e45d4a",
+        "npm run typecheck: passed",
+        "npm test -w @llm-wiki/graph-engine: 116 tests passed"
+      ],
+      "summary": "Mo-ye dark theme token follow and rendered graph state have automated evidence plus a committed screenshot. Visual harmony remains pending reviewer judgment."
+    }
   },
   "manual_acceptance": [
     {
@@ -141,6 +159,18 @@
         "docs/plans/stage-4-artifacts/p3-community-drag.json"
       ],
       "reason": "Drag smoothness is subjective per the plan; Codex records evidence and does not self-certify the hand-feel."
+    },
+    {
+      "phase": "phase-7",
+      "work_unit": "7.1",
+      "item": "Mo-ye dark theme visual harmony and finalized drag hand-feel.",
+      "status": "pending_reviewer",
+      "evidence": [
+        "docs/plans/stage-4-artifacts/p7-moye-theme.png",
+        "commit 4b66ed496ef0a39e85f68038c572757c69d31026",
+        "decision_log: Drag feel parameters finalized for Stage 4."
+      ],
+      "reason": "Visual consistency and drag hand-feel are subjective per the plan; Codex records evidence and does not self-certify acceptance."
     }
   ],
   "phases": [
@@ -883,10 +913,36 @@
         {
           "id": "7.1",
           "name": "墨夜主题精修 + 手感参数定稿",
-          "status": "pending",
-          "commit": null,
-          "verification": [],
-          "notes": ""
+          "status": "completed",
+          "commit": "4b66ed496ef0a39e85f68038c572757c69d31026",
+          "verification": [
+            {
+              "command": "In-app Browser DOM assertion and screenshot",
+              "status": "passed_with_manual_acceptance_pending",
+              "summary": "Workbench graph rendered in dark mode with graphTheme/engineTheme mo-ye, 11 nodes, 24 edges, and expected mo-ye tokens --bg #0d0f0e, --ink #f5f0e6, --cinnabar #e45d4a; screenshot saved to docs/plans/stage-4-artifacts/p7-moye-theme.png for reviewer judgment."
+            },
+            {
+              "command": "npm run build -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "Rebuilt ESM/IIFE outputs so Browser verification used the updated mo-ye tokens."
+            },
+            {
+              "command": "npm run typecheck",
+              "status": "passed",
+              "summary": "server, web, and graph-engine workspace typechecks passed; web pretypecheck rebuilt graph-engine outputs."
+            },
+            {
+              "command": "npm test -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "116 graph-engine tests passed, including updated mo-ye token assertions and live simulation drag behavior tests."
+            },
+            {
+              "command": "git diff --cached --check; staged added-line privacy scan; root package type check; scripts/build-graph-data.sh diff check; staged artifact path check",
+              "status": "passed",
+              "summary": "Whitespace check passed; staged added lines contained no local absolute paths; root package.json still has no type field; scripts/build-graph-data.sh was unchanged; no graph-data/offline HTML generated artifacts were staged."
+            }
+          ],
+          "notes": "Polished mo-ye toward black background, white ink, and cinnabar accent; added dark-specific renderer styling for background, edges, community wash, nodes, minimap, and reader surfaces. Drag feel defaults are recorded in decision_log. Screenshot evidence is committed; visual harmony and hand-feel remain pending reviewer judgment."
         },
         {
           "id": "7.2",
@@ -1169,6 +1225,25 @@
         "staged privacy scan passed"
       ],
       "next": "phase-7 work_unit 7.1"
+    },
+    {
+      "timestamp": "2026-06-12T21:19:04+08:00",
+      "phase": "phase-7",
+      "work_unit": "7.1",
+      "action": "completed WU 7.1 and advanced to WU 7.2",
+      "summary": "Polished the mo-ye dark theme, saved dark-mode graph evidence, finalized drag feel parameters in decision_log, and kept subjective visual/hand-feel acceptance pending reviewer judgment.",
+      "commit": "4b66ed496ef0a39e85f68038c572757c69d31026",
+      "evidence": [
+        "docs/plans/stage-4-artifacts/p7-moye-theme.png"
+      ],
+      "verification": [
+        "In-app Browser DOM assertion passed for dark mo-ye graph with 11 nodes and 24 edges and updated theme tokens",
+        "npm run build -w @llm-wiki/graph-engine passed",
+        "npm run typecheck passed",
+        "npm test -w @llm-wiki/graph-engine passed with 116 tests",
+        "pre-commit hard checks passed"
+      ],
+      "next": "phase-7 work_unit 7.2"
     }
   ]
 }
