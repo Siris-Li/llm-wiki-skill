@@ -4,8 +4,8 @@
   "branch": "stage-4",
   "status": {
     "phase": "phase-1",
-    "work_unit": "1.1",
-    "next_allowed_action": "Execute WU 1.1: scaffold packages/graph-engine with types.ts and dual ESM/IIFE build output, then verify per plan section 5."
+    "work_unit": "1.2",
+    "next_allowed_action": "Execute WU 1.2: port graph-wash helpers to TypeScript model modules 1:1, migrate matching helper tests, compare test case counts, then verify per plan section 5."
   },
   "execution_rules": {
     "commit_each_completed_work_unit": true,
@@ -130,7 +130,30 @@
       "name": "引擎包骨架 + helpers TS 化",
       "status": "pending",
       "work_units": [
-        { "id": "1.1", "name": "graph-engine 包骨架 + types.ts + 双产物构建", "status": "pending", "commit": null, "verification": [], "notes": "" },
+        {
+          "id": "1.1",
+          "name": "graph-engine 包骨架 + types.ts + 双产物构建",
+          "status": "completed",
+          "commit": "5f7f8c6a442b6d24c6ee0223ccd8ac993401f4aa",
+          "verification": [
+            {
+              "command": "npm run build -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "Vite produced dist/engine.esm.js and dist/engine.iife.js; TypeScript emitted declarations."
+            },
+            {
+              "command": "test -f packages/graph-engine/dist/engine.esm.js && test -f packages/graph-engine/dist/engine.iife.js",
+              "status": "passed",
+              "summary": "Both required JavaScript build artifacts exist."
+            },
+            {
+              "command": "npm run typecheck",
+              "status": "passed",
+              "summary": "server, web, and graph-engine workspace typechecks passed."
+            }
+          ],
+          "notes": "Added packages/graph-engine with package.json, tsconfig, Vite lib config, typed createGraphEngine placeholder, graph-data/pin/diff/selection contracts, and the planned source directory layout. Build artifacts were generated for verification and remain ignored."
+        },
         { "id": "1.2", "name": "helpers 1:1 TS 化 + 测试迁移（test case 数对比记录）", "status": "pending", "commit": null, "verification": [], "notes": "" }
       ]
     },
@@ -219,6 +242,15 @@
       "verification": "npm install, dev smoke curl checks, JS tests, Codex install dry-run, typecheck, environment check, and regression all passed.",
       "result": "completed",
       "next": "Phase 0 done; WU 1.1 graph-engine scaffold."
+    },
+    {
+      "timestamp": "2026-06-12T15:06:07+08:00",
+      "phase": "phase-1",
+      "work_unit": "1.1",
+      "action": "Scaffolded the shared graph-engine package with types, package scripts, Vite dual-format build config, and placeholder engine lifecycle API.",
+      "verification": "graph-engine build produced ESM and IIFE outputs; root typecheck passed across server, web, and graph-engine.",
+      "result": "completed",
+      "next": "WU 1.2 helpers TypeScript port and test migration."
     }
   ]
 }
