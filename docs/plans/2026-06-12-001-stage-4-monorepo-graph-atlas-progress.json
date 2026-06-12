@@ -3,9 +3,9 @@
   "design": "workbench/docs/stage-4-design.md (before phase-0 completes: ../llm-wiki-agent/docs/stage-4-design.md)",
   "branch": "stage-4",
   "status": {
-    "phase": "phase-4",
-    "work_unit": "4.3",
-    "next_allowed_action": "Execute WU 4.3: implement chat-to-graph focus highlighting and capabilities pruning validation."
+    "phase": "phase-5",
+    "work_unit": "5.1",
+    "next_allowed_action": "Execute WU 5.1: implement fs watcher evidence, exclusions, and rebuild queue."
   },
   "execution_rules": {
     "commit_each_completed_work_unit": true,
@@ -63,7 +63,15 @@
       ],
       "summary": "Node pinning, layout persistence, corrupted layout tolerance, refresh restoration, and community-stable drag behavior have evidence. Drag hand-feel remains pending reviewer judgment per manual acceptance rules."
     },
-    "4_selection_closed_loop": null,
+    "4_selection_closed_loop": {
+      "status": "passed",
+      "evidence": [
+        "commit 00889d39c0998c3d24c118a9d8af610e0384b3a9",
+        "commit 66e80973bead633290376f827b35632948d5ac28",
+        "commit 03575ea49880171e91103c5ffabe91a9c3af23d1"
+      ],
+      "summary": "Structured selection tests, selection panel/capsule prompt flow, new-conversation handoff, capabilities pruning without onAsk, and Browser DOM assertion for chat-to-graph focus all passed."
+    },
     "5_growth_and_watcher": null,
     "6_offline_html": null,
     "7_theme_follow": null
@@ -495,7 +503,7 @@
     {
       "id": "phase-4",
       "name": "选区系统 + 对话联动",
-      "status": "pending",
+      "status": "done",
       "work_units": [
         {
           "id": "4.1",
@@ -573,10 +581,41 @@
         {
           "id": "4.3",
           "name": "反向联动 focusNode + capabilities 裁剪验证",
-          "status": "pending",
-          "commit": null,
-          "verification": [],
-          "notes": ""
+          "status": "completed",
+          "commit": "03575ea49880171e91103c5ffabe91a9c3af23d1",
+          "verification": [
+            {
+              "command": "npm test -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "105 graph-engine tests passed, including coverage that selections resolved without onAsk contain no ask actions."
+            },
+            {
+              "command": "node --import tsx --test workbench/web/test/*.test.ts",
+              "status": "passed",
+              "summary": "Workbench web tests passed for selection prompt payload and wiki link extraction/normalization."
+            },
+            {
+              "command": "npm run typecheck",
+              "status": "passed",
+              "summary": "server, web, and graph-engine workspace typechecks passed."
+            },
+            {
+              "command": "npm run build -w @llm-wiki-agent/web",
+              "status": "passed",
+              "summary": "Workbench web production build passed; Vite reported only the existing large chunk warning."
+            },
+            {
+              "command": "Browser: open http://localhost:5180, render a real assistant wiki link, switch to graph, assert DOM focus",
+              "status": "passed",
+              "summary": "The chat message rendered wiki/entities/wikilink.md; after switching to graph, the graph host recorded that focus path and node wikilink had aria-pressed=true."
+            },
+            {
+              "command": "git diff --cached --check; staged local-path scan; root package type check; scripts/build-graph-data.sh diff check",
+              "status": "passed",
+              "summary": "Staged whitespace check passed, no staged local absolute paths were present, root package.json still has no type: module, and scripts/build-graph-data.sh was unchanged."
+            }
+          ],
+          "notes": "Added shared workbench wiki-link helpers, wired assistant wiki links into graph focus handoff, and made GraphPanel consume pending focus paths when the graph view mounts. The engine now resolves selections against host capabilities so offline-style hosts without onAsk receive no ask actions."
         }
       ]
     },
@@ -783,6 +822,23 @@
         "docs/plans/stage-4-artifacts/p4-selection-chat-capsule.png"
       ],
       "next": "phase-4 work_unit 4.3"
+    },
+    {
+      "timestamp": "2026-06-12T17:45:02+08:00",
+      "phase": "phase-4",
+      "work_unit": "4.3",
+      "action": "completed",
+      "summary": "Implemented chat-to-graph focus highlighting and capabilities pruning validation; Browser DOM assertion confirmed a wiki link in chat focused the matching graph node.",
+      "commit": "03575ea49880171e91103c5ffabe91a9c3af23d1",
+      "verification": [
+        "graph-engine tests passed with 105 tests",
+        "workbench web tests passed",
+        "typecheck passed",
+        "workbench web build passed",
+        "Browser DOM focus assertion passed",
+        "pre-commit scans passed"
+      ],
+      "next": "Phase 4 done; phase-5 work_unit 5.1"
     }
   ]
 }
