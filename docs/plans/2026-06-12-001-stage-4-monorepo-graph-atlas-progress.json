@@ -4,8 +4,8 @@
   "branch": "stage-4",
   "status": {
     "phase": "phase-6",
-    "work_unit": "6.1",
-    "next_allowed_action": "Execute WU 6.1: convert offline HTML build to graph-engine output with baked pins and packing list."
+    "work_unit": "6.2",
+    "next_allowed_action": "Execute WU 6.2: migrate regression assertions to the new engine output and mark deprecated legacy template/helper tests."
   },
   "execution_rules": {
     "commit_each_completed_work_unit": true,
@@ -761,10 +761,51 @@
         {
           "id": "6.1",
           "name": "build-graph-html.sh 改造 + 钉位烤入 + 打包清单",
-          "status": "pending",
-          "commit": null,
-          "verification": [],
-          "notes": ""
+          "status": "completed",
+          "commit": "1ee4dc1448e7e3ccf1bcd9da2eeb3b3911890a14",
+          "verification": [
+            {
+              "command": "bash -n scripts/build-graph-html.sh",
+              "status": "passed",
+              "summary": "Offline HTML build script syntax passed."
+            },
+            {
+              "command": "npm run build -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "Graph-engine ESM/IIFE/declaration build passed."
+            },
+            {
+              "command": "npm run typecheck",
+              "status": "passed",
+              "summary": "Workspace typecheck passed across server, web, and graph-engine."
+            },
+            {
+              "command": "bash scripts/build-graph-data.sh ~/llm-wiki/stage4-demo-kb && bash scripts/build-graph-html.sh ~/llm-wiki/stage4-demo-kb",
+              "status": "passed",
+              "summary": "Demo KB generated graph-data and single-file offline HTML with shared engine, embedded graph-layout, no sourceMappingURL tail comments, and no old graph-wash/d3/rough/marked/purify external assets."
+            },
+            {
+              "command": "Browser plugin local HTTP probe",
+              "status": "passed_with_limitation",
+              "summary": "In-app Browser rendered the local HTTP page but its sandbox exposed no localStorage/sessionStorage/indexedDB, so storage persistence was verified with real Chromium Playwright below."
+            },
+            {
+              "command": "Real Chromium Playwright against local temporary HTTP",
+              "status": "passed",
+              "summary": "Rendered 11 nodes and 24 edges, confirmed baked layout pin, opened built-in reader, dragged an unpinned node, wrote localStorage pins, preserved the pin after reload, found zero ask buttons, and saved docs/plans/stage-4-artifacts/p6-offline-html.png."
+            },
+            {
+              "command": "npm test -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "116 graph-engine tests passed."
+            },
+            {
+              "command": "file docs/plans/stage-4-artifacts/p6-offline-html.png; git diff --check; root package type check; scripts/build-graph-data.sh diff check; staged local-path scan",
+              "status": "passed",
+              "summary": "Screenshot exists as 1280x720 PNG; whitespace check passed; root package.json still has no type: module; scripts/build-graph-data.sh is unchanged; staged diff contained no local absolute paths."
+            }
+          ],
+          "notes": "Converted offline HTML generation to a shared graph-engine single-file output with embedded marked, DOMPurify, graph data, layout pins, and startup script. Offline host passes persistPins only, with no onAsk and no onOpenPage, so the built-in reader is used and ask actions are absent. The 6.1 plan was amended by the user to allow local temporary HTTP automated verification when Browser blocks file://; the product target remains double-clickable offline HTML."
         },
         {
           "id": "6.2",
@@ -993,6 +1034,52 @@
         "pre-commit scans passed"
       ],
       "next": "phase-6 work_unit 6.1"
+    },
+    {
+      "timestamp": "2026-06-12T20:16:52+08:00",
+      "phase": "phase-6",
+      "work_unit": "6.1",
+      "action": "blocked",
+      "summary": "Implemented the offline HTML conversion toward shared graph-engine output and passed script/build/typecheck/demo-generation checks, but stopped before commit because the required Browser file:// verification was blocked by Browser Use URL policy.",
+      "verification": [
+        "bash -n scripts/build-graph-html.sh passed",
+        "npm run build -w @llm-wiki/graph-engine passed",
+        "npm run typecheck passed",
+        "demo KB graph-data and offline HTML generation passed",
+        "generated HTML uses shared engine, embeds graph-layout, has no sourceMappingURL tail comments, and removed old external graph-wash/d3/rough/marked/purify assets",
+        "Browser plugin file:// verification blocked by Browser Use URL policy"
+      ],
+      "next": "User amended the plan to allow local temporary HTTP automated Browser verification when file:// is blocked."
+    },
+    {
+      "timestamp": "2026-06-12T20:19:13+08:00",
+      "phase": "phase-6",
+      "work_unit": "6.1",
+      "action": "plan amended",
+      "summary": "Updated the Phase 6.1 plan and progress ledger so automated Browser verification may use a local temporary HTTP address serving only the generated output directory when file:// is blocked.",
+      "next": "Run WU 6.1 verification through the local temporary HTTP fallback, then commit only if all checks pass."
+    },
+    {
+      "timestamp": "2026-06-12T20:31:00+08:00",
+      "phase": "phase-6",
+      "work_unit": "6.1",
+      "action": "completed",
+      "summary": "Converted the Skill offline HTML builder to emit a shared graph-engine single-file page with baked layout pins, localStorage pin persistence, built-in reader mode, and no ask action. The plan was amended to permit local temporary HTTP Browser automation when file:// is blocked.",
+      "commit": "1ee4dc1448e7e3ccf1bcd9da2eeb3b3911890a14",
+      "evidence": [
+        "docs/plans/stage-4-artifacts/p6-offline-html.png"
+      ],
+      "verification": [
+        "script syntax passed",
+        "graph-engine build passed",
+        "workspace typecheck passed",
+        "demo KB graph-data and offline HTML generation passed",
+        "Browser local HTTP render check passed with storage API limitation recorded",
+        "real Chromium Playwright local HTTP check passed for render, baked pin, reader, drag, localStorage persistence after reload, and zero ask buttons",
+        "graph-engine tests passed with 116 tests",
+        "pre-commit hard checks passed"
+      ],
+      "next": "phase-6 work_unit 6.2"
     }
   ]
 }
