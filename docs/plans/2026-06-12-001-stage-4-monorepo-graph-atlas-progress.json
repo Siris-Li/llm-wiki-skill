@@ -4,8 +4,8 @@
   "branch": "stage-4",
   "status": {
     "phase": "phase-3",
-    "work_unit": "3.2",
-    "next_allowed_action": "Execute WU 3.2: add node pin/unpin/reset interactions, GET/PUT /api/graph/layout, and KB-local .wiki-graph-layout.json persistence with corruption tolerance."
+    "work_unit": "3.3",
+    "next_allowed_action": "Execute WU 3.3: implement community wash behavior during drag and record init-wiki .gitignore alignment for .wiki-graph-layout.json."
   },
   "execution_rules": {
     "commit_each_completed_work_unit": true,
@@ -14,7 +14,10 @@
     "no_commit_on_failed_verification": true,
     "no_push_no_pr_no_merge_to_main": true,
     "root_package_json_must_not_set_type_module": true,
-    "new_dependency_whitelist_runtime": ["d3-force", "chokidar (only if fs.watch recursive proven unreliable; record evidence)"],
+    "new_dependency_whitelist_runtime": [
+      "d3-force",
+      "chokidar (only if fs.watch recursive proven unreliable; record evidence)"
+    ],
     "toolchain_devdeps_allowed": "typescript/vite/tsx/concurrently and @types/* reusing workbench-pinned versions do NOT count as new dependencies",
     "privacy_check_every_commit": "git diff --cached must not contain /Users/ paths; never commit demo-KB generated graph-data/offline HTML",
     "stop_after_three_failed_verification_attempts": true
@@ -41,7 +44,14 @@
       ],
       "summary": "Workbench graph screenshots and legacy offline HTML baseline screenshot are committed for reviewer comparison. Codex does not self-certify final visual equivalence."
     },
-    "3_pinning_persistence": null,
+    "3_pinning_persistence": {
+      "status": "evidence_recorded",
+      "evidence": [
+        "commit 5c28a30a3d18edb8ea532483886a8f44e5012fe2",
+        "docs/plans/stage-4-artifacts/p3-pinning-refresh.png"
+      ],
+      "summary": "Node pinning, reset/undo, layout GET/PUT persistence, corrupted layout tolerance, and refresh restoration were implemented and verified against the demo KB."
+    },
     "4_selection_closed_loop": null,
     "5_growth_and_watcher": null,
     "6_offline_html": null,
@@ -370,8 +380,63 @@
           ],
           "notes": "Added the whitelisted d3-force runtime dependency plus @types/d3-force for TypeScript, implemented a graph-engine sim module with cold-start low-heat settling and direct-neighbor drag behavior, added render position overrides and stable edge curve caching, and wired the workbench renderer to update existing DOM nodes during live simulation. Initial lowHeatAlphaTarget is 0.15 per plan; drag hand-feel remains a later manual acceptance item."
         },
-        { "id": "3.2", "name": "钉扎交互 + layout API + 文件持久化", "status": "pending", "commit": null, "verification": [], "notes": "" },
-        { "id": "3.3", "name": "团块拖动行为 + init gitignore 查证", "status": "pending", "commit": null, "verification": [], "notes": "" }
+        {
+          "id": "3.2",
+          "name": "钉扎交互 + layout API + 文件持久化",
+          "status": "completed",
+          "commit": "5c28a30a3d18edb8ea532483886a8f44e5012fe2",
+          "verification": [
+            {
+              "command": "npm test -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "98 graph-engine tests passed, including PinState pin/unpin/reset coverage and pin matching for graph data without source_path."
+            },
+            {
+              "command": "node --import tsx --test workbench/server/src/graph.test.ts",
+              "status": "passed",
+              "summary": "3 layout API storage tests passed: read/write roundtrip, missing/damaged file as empty, and unsafe key/invalid coordinate filtering."
+            },
+            {
+              "command": "curl-equivalent Node fetch script: PUT /api/graph/layout -> GET /api/graph/layout -> corrupt file GET",
+              "status": "passed",
+              "summary": "Demo KB layout roundtrip preserved the test pin and a damaged .wiki-graph-layout.json read back as empty pins; the demo KB layout file was restored afterward."
+            },
+            {
+              "command": "Browser plugin dev check on http://localhost:5180 graph view",
+              "status": "passed",
+              "summary": "Opened the workbench graph view, confirmed a pinned Agent Runtime node after loading, clicked reset layout, observed persisted empty pins, clicked undo, observed the pin restored, then reloaded and confirmed the pinned node remained visible."
+            },
+            {
+              "command": "npm run typecheck",
+              "status": "passed",
+              "summary": "server, web, and graph-engine workspace typechecks passed; web pretypecheck rebuilt graph-engine declarations first."
+            },
+            {
+              "command": "npm run build -w @llm-wiki/graph-engine",
+              "status": "passed",
+              "summary": "ESM, IIFE, and declaration outputs built successfully."
+            },
+            {
+              "command": "npm run build -w @llm-wiki-agent/web",
+              "status": "passed",
+              "summary": "Workbench web production build passed; Vite reported only the existing large chunk warning."
+            },
+            {
+              "command": "git diff --cached --check; staged local-path scan; binary screenshot strings scan; root package type check; scripts/build-graph-data.sh diff check",
+              "status": "passed",
+              "summary": "Staged whitespace check passed, no staged /Users paths were found, the evidence screenshot contained no /Users string, root package.json still has no type field, and scripts/build-graph-data.sh was unchanged."
+            }
+          ],
+          "notes": "Implemented model-coordinate pin persistence keyed by wiki-relative paths, including inferred wiki paths for graph data without source_path; drag end pins nodes, double-click unpins pinned nodes, reset layout clears pins, and the workbench reset notice can undo and restore the previous pins. Added GET/PUT /api/graph/layout backed by KB-local .wiki-graph-layout.json with damaged-file tolerance and safe key filtering. Browser evidence for refresh restoration is stored at docs/plans/stage-4-artifacts/p3-pinning-refresh.png. No new dependency was added in this work unit."
+        },
+        {
+          "id": "3.3",
+          "name": "团块拖动行为 + init gitignore 查证",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        }
       ]
     },
     {
@@ -379,9 +444,30 @@
       "name": "选区系统 + 对话联动",
       "status": "pending",
       "work_units": [
-        { "id": "4.1", "name": "四式选择 + 结构事实 + 动作映射", "status": "pending", "commit": null, "verification": [], "notes": "" },
-        { "id": "4.2", "name": "选区面板 + 胶囊 + prompt 通路（TBD-4.2 定稿）", "status": "pending", "commit": null, "verification": [], "notes": "" },
-        { "id": "4.3", "name": "反向联动 focusNode + capabilities 裁剪验证", "status": "pending", "commit": null, "verification": [], "notes": "" }
+        {
+          "id": "4.1",
+          "name": "四式选择 + 结构事实 + 动作映射",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        },
+        {
+          "id": "4.2",
+          "name": "选区面板 + 胶囊 + prompt 通路（TBD-4.2 定稿）",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        },
+        {
+          "id": "4.3",
+          "name": "反向联动 focusNode + capabilities 裁剪验证",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        }
       ]
     },
     {
@@ -389,9 +475,30 @@
       "name": "文件监听 + 重算链 + 生长动画",
       "status": "pending",
       "work_units": [
-        { "id": "5.1", "name": "fs 监听（实测先行）+ 排除清单 + 重算队列", "status": "pending", "commit": null, "verification": [], "notes": "" },
-        { "id": "5.2", "name": "diff.ts 社区对齐 + graph_updated 携带 diff", "status": "pending", "commit": null, "verification": [], "notes": "" },
-        { "id": "5.3", "name": "生长动画 + diff 队列（补播/挂起）", "status": "pending", "commit": null, "verification": [], "notes": "" }
+        {
+          "id": "5.1",
+          "name": "fs 监听（实测先行）+ 排除清单 + 重算队列",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        },
+        {
+          "id": "5.2",
+          "name": "diff.ts 社区对齐 + graph_updated 携带 diff",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        },
+        {
+          "id": "5.3",
+          "name": "生长动画 + diff 队列（补播/挂起）",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        }
       ]
     },
     {
@@ -399,8 +506,22 @@
       "name": "Skill 离线 HTML 切换引擎产物",
       "status": "pending",
       "work_units": [
-        { "id": "6.1", "name": "build-graph-html.sh 改造 + 钉位烤入 + 打包清单", "status": "pending", "commit": null, "verification": [], "notes": "" },
-        { "id": "6.2", "name": "回归断言重写（语义断言保留）+ 旧模板与旧 helpers 测试 deprecated", "status": "pending", "commit": null, "verification": [], "notes": "" }
+        {
+          "id": "6.1",
+          "name": "build-graph-html.sh 改造 + 钉位烤入 + 打包清单",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        },
+        {
+          "id": "6.2",
+          "name": "回归断言重写（语义断言保留）+ 旧模板与旧 helpers 测试 deprecated",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        }
       ]
     },
     {
@@ -408,8 +529,22 @@
       "name": "总验收 + 墨夜打磨 + 回填",
       "status": "pending",
       "work_units": [
-        { "id": "7.1", "name": "墨夜主题精修 + 手感参数定稿", "status": "pending", "commit": null, "verification": [], "notes": "" },
-        { "id": "7.2", "name": "七条总验收取证 + PRODUCT.md/设计文档回填", "status": "pending", "commit": null, "verification": [], "notes": "" }
+        {
+          "id": "7.1",
+          "name": "墨夜主题精修 + 手感参数定稿",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        },
+        {
+          "id": "7.2",
+          "name": "七条总验收取证 + PRODUCT.md/设计文档回填",
+          "status": "pending",
+          "commit": null,
+          "verification": [],
+          "notes": ""
+        }
       ]
     }
   ],
@@ -485,6 +620,21 @@
       "verification": "graph-engine tests passed with 95 tests; graph-engine build passed; root typecheck passed; workbench web build passed; Playwright smoke confirmed live graph coordinates in the workbench; staged privacy and root package type checks passed.",
       "result": "completed",
       "next": "WU 3.2 node pinning, layout API, and KB-local layout persistence."
+    },
+    {
+      "timestamp": "2026-06-12T17:08:00+08:00",
+      "phase": "phase-3",
+      "work_unit": "3.2",
+      "action": "completed WU 3.2 and advanced to WU 3.3",
+      "commit": "5c28a30a3d18edb8ea532483886a8f44e5012fe2",
+      "verification": [
+        "graph-engine tests passed",
+        "server layout tests passed",
+        "layout API roundtrip and damaged-file tolerance passed",
+        "Browser plugin refresh/reset/undo check passed",
+        "typecheck and builds passed",
+        "pre-commit scans passed"
+      ]
     }
   ]
 }
