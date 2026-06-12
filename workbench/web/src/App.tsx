@@ -1,0 +1,536 @@
+import { useCallback, useEffect, useState } from "react";
+
+import { BatchDigestPanel, type BatchDigestJob } from "@/components/BatchDigestPanel";
+import { ChatPanel } from "@/components/ChatPanel";
+import { RightDrawer } from "@/components/RightDrawer";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { Sidebar } from "@/components/Sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+	type ActiveContext,
+	type ConversationInfo,
+	createNewConversation,
+	createKnowledgeBase,
+	type ArtifactManifest,
+	getActiveContext,
+	type KnowledgeBaseInfo,
+	listArtifacts,
+	listConversations,
+	listKnowledgeBases,
+	type ModelRef,
+	registerExternalKnowledgeBase,
+	readPage,
+	selectConversation,
+	selectKnowledgeBase,
+	streamBatchDigest,
+	type UIMessage,
+} from "@/lib/api";
+
+type ThemeMode = "dark" | "light";
+const THEME_STORAGE_KEY = "llm-wiki-agent-theme";
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "llm-wiki-agent-sidebar-collapsed";
+const DRAWER_WIDTH_STORAGE_KEY = "llm-wiki-agent-drawer-width";
+const DEFAULT_DRAWER_WIDTH = 420;
+const MIN_DRAWER_WIDTH = 360;
+const MIN_CHAT_WIDTH = 420;
+const MAX_DRAWER_RATIO = 0.7;
+const FULL_SIDEBAR_WIDTH = 270;
+const COMPACT_SIDEBAR_WIDTH = 230;
+const COLLAPSED_SIDEBAR_WIDTH = 52;
+const MOBILE_BREAKPOINT = 768;
+const COMPACT_BREAKPOINT = 1024;
+
+function getSidebarLayoutWidth(collapsed: boolean): number {
+	if (typeof window === "undefined") return 0;
+	if (window.innerWidth <= MOBILE_BREAKPOINT) return 0;
+	if (collapsed) return COLLAPSED_SIDEBAR_WIDTH;
+	return window.innerWidth <= COMPACT_BREAKPOINT ? COMPACT_SIDEBAR_WIDTH : FULL_SIDEBAR_WIDTH;
+}
+
+function clampDrawerWidth(width: number, sidebarCollapsed: boolean): number {
+	if (typeof window === "undefined") return DEFAULT_DRAWER_WIDTH;
+	const sidebarWidth = getSidebarLayoutWidth(sidebarCollapsed);
+	const maxByRatio = Math.floor(window.innerWidth * MAX_DRAWER_RATIO);
+	const maxByChat = Math.max(0, window.innerWidth - sidebarWidth - MIN_CHAT_WIDTH);
+	const maxWidth = Math.max(0, Math.min(maxByRatio, maxByChat));
+	const minWidth = Math.min(MIN_DRAWER_WIDTH, maxWidth);
+	return Math.min(Math.max(width, minWidth), maxWidth);
+}
+
+/**
+ * 阶段一 step 8 - 阶段一完结
+ *
+ * Layout:
+ *   [Sidebar 知识库 + 对话列表] [ChatPanel 对话主区]
+ *
+ * 切库联动：
+ *   1. POST /api/knowledge-base → 后端自动选/新建该库最近对话
+ *   2. 拿到 active 后刷新 conversations 列表
+ *   3. chatKey++ 让 ChatPanel 重挂载（载入历史消息）
+ *
+ * 切对话联动：
+ *   1. POST /api/conversations { kbPath, conversationId }
+ *   2. ChatPanel 重挂载
+ *
+ * 新建对话：
+ *   1. POST /api/conversations/new
+ *   2. 刷新 conversations 列表（含合成 stub）
+ *   3. ChatPanel 重挂载
+ */
+function App() {
+	const [theme, setTheme] = useState<ThemeMode>(() => {
+		if (typeof window === "undefined") return "dark";
+		return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+	});
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+		if (typeof window === "undefined") return false;
+		return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+	});
+	const [drawerWidth, setDrawerWidthState] = useState(() => {
+		if (typeof window === "undefined") return DEFAULT_DRAWER_WIDTH;
+		const stored = window.localStorage.getItem(DRAWER_WIDTH_STORAGE_KEY);
+		if (!stored) return DEFAULT_DRAWER_WIDTH;
+		const raw = Number(stored);
+		return Number.isFinite(raw) ? clampDrawerWidth(raw, sidebarCollapsed) : DEFAULT_DRAWER_WIDTH;
+	});
+	const [kbs, setKbs] = useState<KnowledgeBaseInfo[]>([]);
+	const [active, setActive] = useState<ActiveContext | null>(null);
+	const [conversations, setConversations] = useState<ConversationInfo[]>([]);
+	const [sidebarError, setSidebarError] = useState<string | null>(null);
+	const [loading, setLoading] = useState(false);
+	const [chatKey, setChatKey] = useState(0);
+	const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
+	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [drawerMode, setDrawerMode] = useState<"closed" | "wiki" | "artifacts">("closed");
+	const [drawerPage, setDrawerPage] = useState<string | null>(null);
+	const [drawerContent, setDrawerContent] = useState("");
+	const [drawerLoading, setDrawerLoading] = useState(false);
+	const [drawerError, setDrawerError] = useState<string | null>(null);
+	const [artifacts, setArtifacts] = useState<ArtifactManifest[]>([]);
+	const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
+	const [drawerFullscreen, setDrawerFullscreen] = useState(false);
+	const [batchJob, setBatchJob] = useState<BatchDigestJob | null>(null);
+	const activeConversationId = active?.conversation.id ?? null;
+
+	useEffect(() => {
+		const root = document.documentElement;
+		root.dataset.theme = theme;
+		root.classList.toggle("dark", theme === "dark");
+		window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+	}, [theme]);
+
+	useEffect(() => {
+		window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(sidebarCollapsed));
+	}, [sidebarCollapsed]);
+
+	useEffect(() => {
+		const handleResize = () => setDrawerWidthState((width) => clampDrawerWidth(width, sidebarCollapsed));
+		window.addEventListener("resize", handleResize);
+		return () => window.removeEventListener("resize", handleResize);
+	}, [sidebarCollapsed]);
+
+	const setDrawerWidth = useCallback((width: number) => {
+		setDrawerWidthState(() => {
+			const next = clampDrawerWidth(width, sidebarCollapsed);
+			window.localStorage.setItem(DRAWER_WIDTH_STORAGE_KEY, String(next));
+			return next;
+		});
+	}, [sidebarCollapsed]);
+
+	const refreshConversations = useCallback(async (kbPath: string) => {
+		try {
+			const items = await listConversations(kbPath);
+			setConversations(items);
+		} catch (err) {
+			setSidebarError(err instanceof Error ? err.message : String(err));
+		}
+	}, []);
+
+	const refreshAll = useCallback(async () => {
+		setLoading(true);
+		setSidebarError(null);
+		try {
+			const [items, currentActive] = await Promise.all([
+				listKnowledgeBases(),
+				getActiveContext(),
+			]);
+			setKbs(items);
+			setActive(currentActive);
+			if (currentActive) {
+				setInitialMessages(currentActive.conversation.messages);
+				await refreshConversations(currentActive.kb.path);
+			} else {
+				setInitialMessages([]);
+				setConversations([]);
+				setArtifacts([]);
+				setActiveArtifactId(null);
+			}
+		} catch (err) {
+			setSidebarError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setLoading(false);
+		}
+	}, [refreshConversations]);
+
+	useEffect(() => {
+		refreshAll();
+	}, [refreshAll]);
+
+	useEffect(() => {
+		if (!activeConversationId) return;
+		let cancelled = false;
+		listArtifacts(activeConversationId)
+			.then((items) => {
+				if (cancelled) return;
+				setArtifacts(items);
+				setActiveArtifactId((current) =>
+					current && items.some((item) => item.id === current)
+						? current
+						: items.at(-1)?.id ?? null,
+				);
+			})
+			.catch((err) => {
+				if (!cancelled) setSidebarError(err instanceof Error ? err.message : String(err));
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [activeConversationId]);
+
+	const applyActive = (ctx: ActiveContext) => {
+		setActive(ctx);
+		setInitialMessages(ctx.conversation.messages);
+		setChatKey((k) => k + 1);
+		setDrawerMode("closed");
+		setActiveArtifactId(null);
+		setArtifacts([]);
+	};
+
+	const handleSelectKb = async (item: KnowledgeBaseInfo) => {
+		if (!item.valid) return;
+		if (item.path === active?.kb.path) return;
+
+		setSidebarError(null);
+		try {
+			const ctx = await selectKnowledgeBase(item.path);
+			applyActive(ctx);
+			await refreshConversations(item.path);
+		} catch (err) {
+			setSidebarError(err instanceof Error ? err.message : String(err));
+		}
+	};
+
+	const handleSelectConversation = async (item: ConversationInfo) => {
+		if (!active) return;
+		if (item.id === active.conversation.id) return;
+
+		setSidebarError(null);
+		try {
+			const ctx = await selectConversation(active.kb.path, item.id);
+			applyActive(ctx);
+			await refreshConversations(active.kb.path);
+		} catch (err) {
+			setSidebarError(err instanceof Error ? err.message : String(err));
+		}
+	};
+
+	const handleNewConversation = async () => {
+		if (!active) return;
+		setSidebarError(null);
+		try {
+			const ctx = await createNewConversation(active.kb.path);
+			applyActive(ctx);
+			await refreshConversations(active.kb.path);
+		} catch (err) {
+			setSidebarError(err instanceof Error ? err.message : String(err));
+		}
+	};
+
+	const handleAddExternal = async (path: string) => {
+		const { info } = await registerExternalKnowledgeBase(path);
+		await refreshAll();
+		if (info.valid) await handleSelectKb(info);
+	};
+
+	const handleCreateWiki = async (name: string, purpose: string) => {
+		const info = await createKnowledgeBase(name, purpose);
+		await refreshAll();
+		await handleSelectKb(info);
+	};
+
+	const handleMessageSent = async () => {
+		// 用户发了一次消息后，刷新对话列表，把 "(新对话)" stub 替换为带 firstMessage 的真实条目
+		if (active) await refreshConversations(active.kb.path);
+	};
+
+	const handleOpenPage = async (pagePath: string) => {
+		if (!active) return;
+		setDrawerMode("wiki");
+		setDrawerPage(pagePath);
+		setDrawerLoading(true);
+		setDrawerError(null);
+		try {
+			setDrawerContent(await readPage(active.kb.path, pagePath));
+		} catch (err) {
+			setDrawerContent("");
+			setDrawerError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setDrawerLoading(false);
+		}
+	};
+
+	const refreshArtifacts = async (conversationId: string, focusId?: string) => {
+		const items = await listArtifacts(conversationId);
+		setArtifacts(items);
+		setActiveArtifactId(focusId ?? items.at(-1)?.id ?? null);
+		setDrawerMode("artifacts");
+	};
+
+	const handleOpenArtifacts = () => {
+		if (artifacts.length === 0) return;
+		setActiveArtifactId((current) =>
+			current && artifacts.some((item) => item.id === current)
+				? current
+				: artifacts.at(-1)?.id ?? null,
+		);
+		setDrawerMode("artifacts");
+	};
+
+	const handleArtifactCreated = async (id: string) => {
+		if (!active) return;
+		try {
+			await refreshArtifacts(active.conversation.id, id);
+		} catch (err) {
+			setSidebarError(err instanceof Error ? err.message : String(err));
+		}
+	};
+
+	const handleStartBatchDigest = (input: {
+		kbPath: string;
+		filePaths: string[];
+		sourceScanId?: string;
+		digestModel?: ModelRef | null;
+		concurrency: 1 | 3 | 5;
+	}) => {
+		const jobId = Math.random().toString(36).slice(2, 10);
+		setBatchJob({
+			id: jobId,
+			kbPath: input.kbPath,
+			status: "running",
+			total: input.filePaths.length,
+			completed: 0,
+			failed: 0,
+			files: input.filePaths.map((filePath, index) => ({
+				index,
+				filePath,
+				status: "queued",
+			})),
+			events: [],
+		});
+		void (async () => {
+			try {
+				const stream = await streamBatchDigest(input);
+				for await (const message of stream) {
+					if (message.event === "error") {
+						const payload = JSON.parse(message.data) as { message: string };
+						throw new Error(payload.message);
+					}
+					const event = JSON.parse(message.data);
+					setBatchJob((current) => {
+						if (!current || current.id !== jobId) return current;
+						if (event.type === "start") {
+							return {
+								...current,
+								total: event.total,
+								outputDir: event.outputDir,
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "file_start") {
+							return {
+								...current,
+								current: event.filePath,
+								files: updateBatchFile(current.files, event.index, {
+									status: "running",
+								}),
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "file_progress") {
+							return {
+								...current,
+								files: updateBatchFile(current.files, event.index, {
+									status: "running",
+									chars: event.chars,
+								}),
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "file_complete") {
+							return {
+								...current,
+								completed: current.completed + 1,
+								current: event.filePath,
+								files: updateBatchFile(current.files, event.index, {
+									status: "done",
+									outputPath: event.outputPath,
+								}),
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "file_error") {
+							return {
+								...current,
+								failed: current.failed + 1,
+								current: event.filePath,
+								files: updateBatchFile(current.files, event.index, {
+									status: "error",
+									error: event.error,
+								}),
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "done") {
+							return {
+								...current,
+								status: "done",
+								completed: event.completed,
+								failed: event.failed,
+								outputDir: event.outputDir,
+								events: [...current.events, event],
+							};
+						}
+						return current;
+					});
+				}
+			} catch (err) {
+				setBatchJob((current) =>
+					current && current.id === jobId
+						? {
+								...current,
+								status: "error",
+								error: err instanceof Error ? err.message : String(err),
+							}
+						: current,
+				);
+			}
+		})();
+	};
+
+	const handleOpenBatchOutput = async (outputPath: string) => {
+		if (!batchJob) return;
+		const rel = toRelativePagePath(outputPath, batchJob.kbPath);
+		if (!rel) return;
+		setDrawerMode("wiki");
+		setDrawerPage(rel);
+		setDrawerLoading(true);
+		setDrawerError(null);
+		try {
+			setDrawerContent(await readPage(batchJob.kbPath, rel));
+		} catch (err) {
+			setDrawerContent("");
+			setDrawerError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setDrawerLoading(false);
+		}
+	};
+
+	const handleConfigChanged = async () => {
+		try {
+			const currentActive = await getActiveContext();
+			setActive(currentActive);
+			if (currentActive) {
+				setInitialMessages(currentActive.conversation.messages);
+			}
+		} catch (err) {
+			setSidebarError(err instanceof Error ? err.message : String(err));
+		}
+	};
+
+	return (
+		<TooltipProvider delayDuration={200}>
+			<div className="app-shell">
+				<Sidebar
+					knowledgeBases={kbs}
+					currentKbPath={active?.kb.path ?? null}
+					conversations={conversations}
+					currentConversationId={active?.conversation.id ?? null}
+					loading={loading}
+					error={sidebarError}
+					collapsed={sidebarCollapsed}
+					onSelectKb={handleSelectKb}
+					onSelectConversation={handleSelectConversation}
+					onNewConversation={handleNewConversation}
+					onRefresh={refreshAll}
+					onOpenSettings={() => setSettingsOpen(true)}
+					onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+					onAddExternal={handleAddExternal}
+					onCreateWiki={handleCreateWiki}
+					onStartBatchDigest={handleStartBatchDigest}
+				/>
+				<main className="shell-main">
+					<ChatPanel
+						key={chatKey}
+						currentKnowledgeBaseName={active?.kb.name ?? null}
+						model={active?.model ?? null}
+						initialMessages={initialMessages}
+						onMessageSent={handleMessageSent}
+						onOpenSettings={() => setSettingsOpen(true)}
+						currentKnowledgeBasePath={active?.kb.path ?? null}
+						onOpenPage={handleOpenPage}
+						onArtifactCreated={handleArtifactCreated}
+						artifactCount={artifacts.length}
+						onOpenArtifacts={handleOpenArtifacts}
+						onStartBatchDigest={handleStartBatchDigest}
+						theme={theme}
+						onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
+					/>
+				</main>
+				<RightDrawer
+					mode={drawerMode}
+					wiki={{
+						path: drawerPage,
+						content: drawerContent,
+						loading: drawerLoading,
+						error: drawerError,
+					}}
+					artifacts={artifacts}
+					activeArtifactId={activeArtifactId}
+					fullscreen={drawerFullscreen}
+					width={drawerWidth}
+					defaultWidth={DEFAULT_DRAWER_WIDTH}
+					onSelectArtifact={setActiveArtifactId}
+					onResize={setDrawerWidth}
+					onToggleFullscreen={() => setDrawerFullscreen((value) => !value)}
+					onClose={() => setDrawerMode("closed")}
+				/>
+				<SettingsPanel
+					open={settingsOpen}
+					onOpenChange={setSettingsOpen}
+					onConfigChanged={handleConfigChanged}
+				/>
+				<BatchDigestPanel
+					job={batchJob}
+					onClose={() => setBatchJob(null)}
+					onOpenOutput={handleOpenBatchOutput}
+				/>
+			</div>
+		</TooltipProvider>
+	);
+}
+
+function updateBatchFile<T extends { index: number }>(
+	files: T[],
+	index: number,
+	patch: Partial<T>,
+): T[] {
+	return files.map((file) => (file.index === index ? { ...file, ...patch } : file));
+}
+
+function toRelativePagePath(outputPath: string, kbPath: string): string | null {
+	const normalizedKb = kbPath.endsWith("/") ? kbPath : `${kbPath}/`;
+	if (!outputPath.startsWith(normalizedKb)) return null;
+	return outputPath.slice(normalizedKb.length);
+}
+
+export default App;
