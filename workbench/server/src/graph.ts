@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { watch } from "node:fs";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,13 +47,33 @@ export type GraphEvent =
 			rebuiltAt: string;
 	  };
 
-type RebuildState = {
-	running: boolean;
-	pending: boolean;
+type RebuildQueueOptions = {
+	rebuild: () => Promise<void>;
+	afterRebuild: () => Promise<void>;
+	onError: (err: unknown) => void;
+	onIdle?: () => void;
+};
+
+type WatchEvent = {
+	eventType: string;
+	filename: string | null;
+};
+
+type WatchHandle = {
+	close: () => void;
+};
+
+type WatchFactory = (kbPath: string, onEvent: (event: WatchEvent) => void) => WatchHandle;
+
+type WatcherOptions = {
+	createWatcher: WatchFactory;
+	triggerRebuild: (kbPath: string) => { ok: true; status: GraphBuildStatus };
+	debounceMs?: number;
 };
 
 const eventBus = new EventEmitter();
-const rebuilds = new Map<string, RebuildState>();
+const rebuilds = new Map<string, GraphRebuildQueue>();
+let graphWatchController: KnowledgeBaseGraphWatcher | null = null;
 
 export function graphDataPath(kbPath: string): string {
 	return path.join(kbPath, "wiki", "graph-data.json");
@@ -77,17 +98,12 @@ export async function readGraphData(kbPath: string): Promise<GraphReadResult> {
 }
 
 export function triggerGraphRebuild(kbPath: string): { ok: true; status: GraphBuildStatus } {
-	const state = rebuilds.get(kbPath) ?? { running: false, pending: false };
-	rebuilds.set(kbPath, state);
-
-	if (state.running) {
-		state.pending = true;
-		return { ok: true, status: "queued" };
+	let queue = rebuilds.get(kbPath);
+	if (!queue) {
+		queue = createDefaultRebuildQueue(kbPath);
+		rebuilds.set(kbPath, queue);
 	}
-
-	state.running = true;
-	void runRebuildLoop(kbPath, state);
-	return { ok: true, status: "started" };
+	return queue.trigger();
 }
 
 export async function readGraphLayout(kbPath: string): Promise<{ ok: true; layoutPath: string; layout: GraphLayoutFile }> {
@@ -118,40 +134,141 @@ export function subscribeGraphEvents(listener: (event: GraphEvent) => void): () 
 	return () => eventBus.off("graph", listener);
 }
 
-async function runRebuildLoop(kbPath: string, state: RebuildState): Promise<void> {
-	try {
-		do {
-			state.pending = false;
-			await rebuildGraph(kbPath);
-			const graph = await readGraphData(kbPath);
-			if (!graph.needsBuild) {
-				emitGraphEvent({
-					type: "graph_updated",
-					kbPath,
-					diff: null,
-					rebuiltAt: new Date().toISOString(),
-					stats: {
-						nodeCount: Number(graph.data.meta?.total_nodes ?? graph.data.nodes?.length ?? 0),
-						edgeCount: Number(graph.data.meta?.total_edges ?? graph.data.edges?.length ?? 0),
-					},
-				});
-			}
-		} while (state.pending);
-	} catch (err) {
-		emitGraphEvent({
-			type: "graph_error",
-			kbPath,
-			message: err instanceof Error ? err.message : String(err),
-			rebuiltAt: new Date().toISOString(),
-		});
-	} finally {
-		state.running = false;
-		if (state.pending) {
-			state.running = true;
-			void runRebuildLoop(kbPath, state);
+export function watchKnowledgeBaseGraph(kbPath: string): void {
+	defaultGraphWatchController().start(kbPath);
+}
+
+export function stopKnowledgeBaseGraphWatcher(): void {
+	graphWatchController?.stop();
+}
+
+export function suspendGraphWatcher(kbPath: string): void {
+	graphWatchController?.suspend(kbPath);
+}
+
+export function resumeGraphWatcher(kbPath: string, options: { trigger?: boolean } = {}): void {
+	graphWatchController?.resume(kbPath, options);
+}
+
+export function shouldIgnoreGraphWatchPath(filename: string | null): boolean {
+	if (!filename) return false;
+	const normalized = filename.replaceAll("\\", "/").replace(/^\/+/, "");
+	const segments = normalized.split("/").filter(Boolean);
+	if (segments.some((segment) => [".wiki-tmp", ".git", ".obsidian", "node_modules", ".DS_Store"].includes(segment))) {
+		return true;
+	}
+	if (normalized === ".wiki-graph-layout.json") return true;
+	if (normalized === "wiki/graph-data.json") return true;
+	if (/^wiki\/knowledge-graph.*\.html$/.test(normalized)) return true;
+	return false;
+}
+
+export class GraphRebuildQueue {
+	private running = false;
+	private pending = false;
+	private idleResolvers: Array<() => void> = [];
+
+	constructor(private readonly options: RebuildQueueOptions) {}
+
+	trigger(): { ok: true; status: GraphBuildStatus } {
+		if (this.running) {
+			this.pending = true;
+			return { ok: true, status: "queued" };
+		}
+		this.running = true;
+		void this.runLoop();
+		return { ok: true, status: "started" };
+	}
+
+	waitForIdle(): Promise<void> {
+		if (!this.running) return Promise.resolve();
+		return new Promise((resolve) => this.idleResolvers.push(resolve));
+	}
+
+	private async runLoop(): Promise<void> {
+		try {
+			do {
+				this.pending = false;
+				try {
+					await this.options.rebuild();
+					await this.options.afterRebuild();
+				} catch (err) {
+					this.options.onError(err);
+				}
+			} while (this.pending);
+		} finally {
+			this.running = false;
+			this.options.onIdle?.();
+			const resolvers = this.idleResolvers.splice(0);
+			for (const resolve of resolvers) resolve();
+		}
+	}
+}
+
+export class KnowledgeBaseGraphWatcher {
+	private kbPath: string | null = null;
+	private handle: WatchHandle | null = null;
+	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private suspendDepth = 0;
+	private pendingWhileSuspended = false;
+	private readonly debounceMs: number;
+
+	constructor(private readonly options: WatcherOptions) {
+		this.debounceMs = options.debounceMs ?? 5000;
+	}
+
+	start(kbPath: string): void {
+		if (this.kbPath === kbPath && this.handle) return;
+		this.stop();
+		this.kbPath = kbPath;
+		this.handle = this.options.createWatcher(kbPath, (event) => this.handleEvent(event));
+	}
+
+	stop(): void {
+		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+		this.debounceTimer = null;
+		this.pendingWhileSuspended = false;
+		this.suspendDepth = 0;
+		this.kbPath = null;
+		this.handle?.close();
+		this.handle = null;
+	}
+
+	suspend(kbPath: string): void {
+		if (this.kbPath !== kbPath) return;
+		this.suspendDepth++;
+		if (this.debounceTimer) {
+			clearTimeout(this.debounceTimer);
+			this.debounceTimer = null;
+			this.pendingWhileSuspended = true;
+		}
+	}
+
+	resume(kbPath: string, options: { trigger?: boolean } = {}): void {
+		if (this.kbPath !== kbPath) return;
+		this.suspendDepth = Math.max(0, this.suspendDepth - 1);
+		if (this.suspendDepth > 0) return;
+		const shouldTrigger = options.trigger === true || this.pendingWhileSuspended;
+		this.pendingWhileSuspended = false;
+		if (shouldTrigger) this.triggerNow();
+	}
+
+	private handleEvent(event: WatchEvent): void {
+		if (shouldIgnoreGraphWatchPath(event.filename)) return;
+		if (this.suspendDepth > 0) {
+			this.pendingWhileSuspended = true;
 			return;
 		}
-		rebuilds.delete(kbPath);
+		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+		this.debounceTimer = setTimeout(() => {
+			this.debounceTimer = null;
+			this.triggerNow();
+		}, this.debounceMs);
+	}
+
+	private triggerNow(): void {
+		if (!this.kbPath) return;
+		this.options.triggerRebuild(this.kbPath);
 	}
 }
 
@@ -181,6 +298,55 @@ async function findRepoRoot(): Promise<string> {
 
 function emitGraphEvent(event: GraphEvent): void {
 	eventBus.emit("graph", event);
+}
+
+function createDefaultRebuildQueue(kbPath: string): GraphRebuildQueue {
+	return new GraphRebuildQueue({
+		rebuild: () => rebuildGraph(kbPath),
+		afterRebuild: async () => {
+			const graph = await readGraphData(kbPath);
+			if (graph.needsBuild) return;
+			emitGraphEvent({
+				type: "graph_updated",
+				kbPath,
+				diff: null,
+				rebuiltAt: new Date().toISOString(),
+				stats: {
+					nodeCount: Number(graph.data.meta?.total_nodes ?? graph.data.nodes?.length ?? 0),
+					edgeCount: Number(graph.data.meta?.total_edges ?? graph.data.edges?.length ?? 0),
+				},
+			});
+		},
+		onError: (err) => {
+			emitGraphEvent({
+				type: "graph_error",
+				kbPath,
+				message: err instanceof Error ? err.message : String(err),
+				rebuiltAt: new Date().toISOString(),
+			});
+		},
+		onIdle: () => {
+			rebuilds.delete(kbPath);
+		},
+	});
+}
+
+function createFsWatchAdapter(kbPath: string, onEvent: (event: WatchEvent) => void): WatchHandle {
+	const watcher = watch(kbPath, { recursive: true }, (eventType, filename) => {
+		onEvent({ eventType, filename: filename ? String(filename) : null });
+	});
+	console.log(`[graph] watching knowledge base for graph rebuilds: ${kbPath}`);
+	return { close: () => watcher.close() };
+}
+
+function defaultGraphWatchController(): KnowledgeBaseGraphWatcher {
+	if (!graphWatchController) {
+		graphWatchController = new KnowledgeBaseGraphWatcher({
+			createWatcher: createFsWatchAdapter,
+			triggerRebuild: triggerGraphRebuild,
+		});
+	}
+	return graphWatchController;
 }
 
 function emptyGraphLayout(): GraphLayoutFile {

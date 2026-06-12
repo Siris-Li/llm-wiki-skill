@@ -59,8 +59,12 @@ import {
 import {
 	readGraphData,
 	readGraphLayout,
+	resumeGraphWatcher,
 	subscribeGraphEvents,
+	stopKnowledgeBaseGraphWatcher,
+	suspendGraphWatcher,
 	triggerGraphRebuild,
+	watchKnowledgeBaseGraph,
 	writeGraphLayout,
 } from "./graph.js";
 import {
@@ -330,6 +334,7 @@ app.post("/api/knowledge-base", async (c) => {
 	}
 	try {
 		const ctx = await selectKb(body.path);
+		watchKnowledgeBaseGraph(ctx.kb.path);
 		return c.json({
 			ok: true,
 			active: {
@@ -352,6 +357,7 @@ app.post("/api/knowledge-base", async (c) => {
 
 app.delete("/api/knowledge-base", async (c) => {
 	await clearActive();
+	stopKnowledgeBaseGraphWatcher();
 	return c.json({ ok: true });
 });
 
@@ -633,6 +639,8 @@ app.post("/api/knowledge-bases/batch-digest", async (c) => {
 			: null;
 
 	return streamSSE(c, async (stream) => {
+		suspendGraphWatcher(body.kbPath as string);
+		let completed = false;
 		try {
 			await runBatchDigest(
 				{
@@ -649,11 +657,14 @@ app.post("/api/knowledge-bases/batch-digest", async (c) => {
 					});
 				},
 			);
+			completed = true;
 		} catch (err) {
 			await stream.writeSSE({
 				event: "error",
 				data: JSON.stringify({ message: err instanceof Error ? err.message : String(err) }),
 			});
+		} finally {
+			resumeGraphWatcher(body.kbPath as string, { trigger: completed });
 		}
 	});
 });
@@ -791,6 +802,7 @@ app.post("/api/conversations", async (c) => {
 	}
 	try {
 		const ctx = await selectConversation(body.kbPath, body.conversationId);
+		watchKnowledgeBaseGraph(ctx.kb.path);
 		return c.json({
 			ok: true,
 			active: {
@@ -823,6 +835,7 @@ app.post("/api/conversations/new", async (c) => {
 	}
 	try {
 		const ctx = await createNewConversation(body.kbPath);
+		watchKnowledgeBaseGraph(ctx.kb.path);
 		return c.json({
 			ok: true,
 			active: {
@@ -1008,6 +1021,8 @@ const PORT = Number(process.env.PORT ?? 8787);
 // 阻塞启动直到 bootstrap 完成。首次启动约 1-2s（pi ResourceLoader + 恢复 session），
 // 换来前端首次 fetch 一致性。dev 模式 tsx watch 重启也会经历此延迟，可接受。
 await bootstrapFromConfig();
+const bootstrappedActive = getActive();
+if (bootstrappedActive) watchKnowledgeBaseGraph(bootstrappedActive.kb.path);
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
 	console.log(`[llm-wiki-agent/server] listening on http://localhost:${info.port}`);
