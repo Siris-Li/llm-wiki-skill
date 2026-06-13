@@ -32,7 +32,12 @@ interface SelectionGraphIndex {
 }
 
 const ACTIONS = {
+  summarizePage: { id: "summarize_page", label: "总结这一页", tone: "digest" },
+  findRelatedPages: { id: "find_related_pages", label: "它和谁有关", tone: "bridge" },
+  quotePage: { id: "quote_page", label: "在对话中引用", tone: "write" },
   summarizeCluster: { id: "summarize_cluster", label: "总结这一簇", tone: "digest" },
+  summarizeGroup: { id: "summarize_group", label: "总结这一组", tone: "digest" },
+  exploreGroupRelationships: { id: "explore_group_relationships", label: "探索它们的关系", tone: "bridge" },
   findKnowledgeGaps: { id: "find_knowledge_gaps", label: "找知识缺口", tone: "lint" },
   createTopicPage: { id: "create_topic_page", label: "生成主题页", tone: "write" },
   whyNoConnection: { id: "why_no_connection", label: "为什么没联系", tone: "bridge" },
@@ -61,13 +66,19 @@ export function resolveSelectionForCapabilities(
     nodeIds,
     communityIds,
     facts,
-    actions: capabilities.canAsk === false ? [] : selectionActions(facts)
+    actions: capabilities.canAsk === false ? [] : selectionActions(facts, input)
   };
 }
 
-export function selectionActions(facts: SelectionFacts): SelectionAction[] {
+export function selectionActions(facts: SelectionFacts, input?: SelectionInput): SelectionAction[] {
   if (facts.pageCount === 0) return [];
-  if (facts.pageCount === 1 && facts.isolatedCount === 1) return [ACTIONS.linkIsland];
+  if (facts.pageCount === 1) {
+    const pageActions = [ACTIONS.summarizePage, ACTIONS.findRelatedPages, ACTIONS.quotePage];
+    return facts.isolatedCount === 1 ? [...pageActions, ACTIONS.linkIsland] : pageActions;
+  }
+  if (facts.pageCount > 1 && facts.internalLinkCount > 0 && input?.kind !== "community" && input?.kind !== "neighbors") {
+    return [ACTIONS.summarizeGroup, ACTIONS.exploreGroupRelationships];
+  }
   if (facts.communityCount === 1 && facts.internalLinkCount > 0) {
     return [ACTIONS.summarizeCluster, ACTIONS.findKnowledgeGaps, ACTIONS.createTopicPage];
   }

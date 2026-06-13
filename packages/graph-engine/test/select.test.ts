@@ -5,7 +5,22 @@ import { resolveSelection, resolveSelectionForCapabilities } from "../src/select
 import type { GraphData, SelectionActionId } from "../src/types";
 
 describe("structured graph selection", () => {
-  it("selects a single node and maps an isolated page to the link action", () => {
+  it("maps a linked single page to page actions", () => {
+    const selection = resolveSelection(multicommGraph(), { kind: "node", id: "a1" });
+
+    assert.deepEqual(selection.nodeIds, ["a1"]);
+    assert.deepEqual(selection.communityIds, ["alpha"]);
+    assert.deepEqual(selection.facts, {
+      pageCount: 1,
+      internalLinkCount: 0,
+      communityCount: 1,
+      isolatedCount: 0
+    });
+    assert.deepEqual(actionIds(selection), ["summarize_page", "find_related_pages", "quote_page"]);
+    assert.equal(actionIds(selection).includes("explore_potential_links"), false);
+  });
+
+  it("maps an isolated single page to page actions plus the link action", () => {
     const selection = resolveSelection(multicommGraph(), { kind: "node", id: "island" });
 
     assert.deepEqual(selection.nodeIds, ["island"]);
@@ -16,7 +31,8 @@ describe("structured graph selection", () => {
       communityCount: 1,
       isolatedCount: 1
     });
-    assert.deepEqual(actionIds(selection), ["link_island"]);
+    assert.deepEqual(actionIds(selection), ["summarize_page", "find_related_pages", "quote_page", "link_island"]);
+    assert.equal(actionIds(selection).includes("explore_potential_links"), false);
   });
 
   it("selects a community and offers single-community actions", () => {
@@ -59,6 +75,20 @@ describe("structured graph selection", () => {
       isolatedCount: 0
     });
     assert.deepEqual(actionIds(selection), ["why_no_connection", "find_potential_bridges", "compare_communities"]);
+    assert.equal(actionIds(selection).includes("summarize_cluster"), false);
+  });
+
+  it("maps linked manual multi-select to group actions", () => {
+    const selection = resolveSelection(multicommGraph(), { kind: "nodes", ids: ["a1", "a2"] });
+
+    assert.deepEqual(selection.nodeIds, ["a1", "a2"]);
+    assert.deepEqual(selection.facts, {
+      pageCount: 2,
+      internalLinkCount: 1,
+      communityCount: 1,
+      isolatedCount: 0
+    });
+    assert.deepEqual(actionIds(selection), ["summarize_group", "explore_group_relationships"]);
     assert.equal(actionIds(selection).includes("summarize_cluster"), false);
   });
 

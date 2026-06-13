@@ -214,7 +214,12 @@ export interface SelectionFacts {
 }
 
 export type SelectionActionId =
+  | "summarize_page"
+  | "find_related_pages"
+  | "quote_page"
   | "summarize_cluster"
+  | "summarize_group"
+  | "explore_group_relationships"
   | "find_knowledge_gaps"
   | "create_topic_page"
   | "why_no_connection"
