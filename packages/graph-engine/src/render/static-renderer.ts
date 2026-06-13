@@ -11,6 +11,7 @@ import type {
   WikiPath
 } from "../types";
 import { createLiveGraphSimulation, PinState, pinsToPositions, type LiveGraphSimulation } from "../sim";
+import { resolveSelectionForCapabilities } from "../select";
 import { getCommunityColor, getThemeTokens, themeTokensToCssVars } from "../themes";
 import {
   buildRenderableGraph,
@@ -76,6 +77,7 @@ interface PaintedGraphDom {
   miniViewportElement: SVGRectElement | null;
   basePoints: Map<string, { x: number; y: number }>;
   readerElement: HTMLElement | null;
+  selectionElement: HTMLElement | null;
   searchElement: HTMLElement | null;
   searchInput: HTMLInputElement | null;
   searchStatusElement: HTMLElement | null;
@@ -208,6 +210,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     commitViewport(viewport);
     if (activeDiff && root.dataset.diffState === "playing") markDiffElements(activeDiff);
     renderReader();
+    renderSelectionPanel();
     restartSimulation();
   }
 
@@ -475,6 +478,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       element.setAttribute("cy", String(miniNode.y));
     }
     renderReader();
+    renderSelectionPanel();
   }
 
   function markPinnedNodes(pinnedNodeIds: string[]): void {
@@ -724,6 +728,68 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     }
     reader.append(header, body);
   }
+
+  function renderSelectionPanel(): void {
+    const panel = dom.selectionElement;
+    if (!panel) return;
+    panel.replaceChildren();
+    panel.dataset.state = selection ? "open" : "closed";
+    if (!selection) {
+      const empty = document.createElement("p");
+      empty.className = "graph-selection-empty";
+      empty.textContent = "Shift+点击 可选择多个节点";
+      panel.appendChild(empty);
+      return;
+    }
+
+    const resolved = resolveSelectionForCapabilities(data, selection, { canAsk: false });
+    const selectedNodes = resolved.nodeIds
+      .map((id) => data.nodes.find((node) => node.id === id))
+      .filter((node): node is GraphNode => Boolean(node));
+
+    const header = document.createElement("div");
+    header.className = "graph-selection-header";
+    const title = document.createElement("div");
+    title.className = "graph-selection-title";
+    title.textContent = offlineSelectionTitle(selection, selectedNodes.length);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "graph-selection-close";
+    close.setAttribute("aria-label", "关闭选区面板");
+    close.textContent = "×";
+    close.addEventListener("click", () => clearInteractionState());
+    header.append(title, close);
+
+    const hint = document.createElement("div");
+    hint.className = "graph-selection-hint";
+    hint.textContent = "Shift+点击 增删节点";
+
+    const facts = document.createElement("div");
+    facts.className = "graph-selection-facts";
+    facts.append(
+      createSelectionFact("页面", resolved.facts.pageCount),
+      createSelectionFact("内部关联", resolved.facts.internalLinkCount),
+      createSelectionFact("社区", resolved.facts.communityCount),
+      createSelectionFact("孤立页", resolved.facts.isolatedCount)
+    );
+
+    const list = document.createElement("ol");
+    list.className = "graph-selection-pages";
+    for (const node of selectedNodes) {
+      const item = document.createElement("li");
+      item.className = "graph-selection-page";
+      const name = document.createElement("span");
+      name.className = "graph-selection-page-title";
+      name.textContent = node.label || node.id;
+      const path = document.createElement("span");
+      path.className = "graph-selection-page-path";
+      path.textContent = wikiPathForRawNode(node);
+      item.append(name, path);
+      list.appendChild(item);
+    }
+
+    panel.append(header, hint, facts, list);
+  }
 }
 
 interface DragHandlers {
@@ -846,8 +912,32 @@ function paint(
     reader.dataset.state = graph.selectedNodeId ? "open" : "closed";
     root.appendChild(reader);
     painted.readerElement = reader;
+
+    const selectionPanel = document.createElement("aside");
+    selectionPanel.className = "graph-selection-panel";
+    selectionPanel.dataset.state = "closed";
+    root.appendChild(selectionPanel);
+    painted.selectionElement = selectionPanel;
   }
   return painted;
+}
+
+function createSelectionFact(label: string, value: number): HTMLElement {
+  const item = document.createElement("div");
+  item.className = "graph-selection-fact";
+  const number = document.createElement("strong");
+  number.textContent = String(value);
+  const text = document.createElement("span");
+  text.textContent = label;
+  item.append(number, text);
+  return item;
+}
+
+function offlineSelectionTitle(selection: SelectionInput, count: number): string {
+  if (selection.kind === "community") return `社区选区 · ${count} 页`;
+  if (selection.kind === "neighbors") return `相邻节点 · ${count} 页`;
+  if (selection.kind === "node") return "选中页面";
+  return `手动选区 · ${count} 页`;
 }
 
 function createNodeButton(node: RenderableNode, dragHandlers: DragHandlers): HTMLButtonElement {
@@ -1145,6 +1235,7 @@ function emptyPaintedDom(): PaintedGraphDom {
     miniViewportElement: null,
     basePoints: new Map(),
     readerElement: null,
+    selectionElement: null,
     searchElement: null,
     searchInput: null,
     searchStatusElement: null,
@@ -1344,6 +1435,126 @@ const STATIC_RENDERER_CSS = `
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
+}
+.graph-selection-panel {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 7;
+  display: grid;
+  gap: 12px;
+  width: min(360px, calc(100% - 32px));
+  max-height: min(520px, calc(100% - 32px));
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--rule) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 18px 36px rgba(36, 24, 12, .14);
+  padding: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity .16s ease, transform .16s ease;
+}
+.graph-selection-panel[data-state="open"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-selection-panel {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+.graph-selection-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 8px;
+}
+.graph-selection-title {
+  overflow: hidden;
+  color: var(--ink);
+  font: 600 14px/1.35 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-selection-close {
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--rule) 72%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+.graph-selection-hint,
+.graph-selection-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.graph-selection-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.graph-selection-fact {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--rule) 58%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mist) 52%, transparent);
+  padding: 8px 6px;
+}
+.graph-selection-fact strong,
+.graph-selection-fact span {
+  display: block;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-selection-fact strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+.graph-selection-fact span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.graph-selection-pages {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.graph-selection-page {
+  min-width: 0;
+  border-top: 1px solid color-mix(in srgb, var(--rule) 46%, transparent);
+  padding-top: 7px;
+}
+.graph-selection-page:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.graph-selection-page-title,
+.graph-selection-page-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-selection-page-title {
+  color: var(--ink);
+  font-size: 13px;
+}
+.graph-selection-page-path {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
 }
 .graph-content-layer.is-viewport-animating {
   transition: transform .2s ease-out;

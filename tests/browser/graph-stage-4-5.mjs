@@ -61,8 +61,10 @@ async function runOfflineChecks(browser) {
   await page.keyboard.up("Shift");
   const selectedAfterShiftClick = await page.locator(".node[aria-pressed='true']").count();
   assert.equal(selectedAfterShiftClick, 2, "Shift-clicking two nodes should keep both nodes selected in the graph");
+  await assertOfflineSelectionPanel(page, "manual");
 
   await page.keyboard.press("Escape");
+  await page.waitForSelector(".graph-selection-panel[data-state='closed']");
   await expectNoPressedNodes(page, "Escape should clear Shift-click selections");
 
   const transformBeforeReader = await layerTransform(page);
@@ -258,6 +260,22 @@ async function runLegendChecks(page, options) {
     await page.locator(".drawer-panel-open .drawer-title", { hasText: "选区" }).waitFor();
     await page.keyboard.press("Escape");
     await page.waitForSelector(".drawer-panel-open", { state: "detached" });
+  } else {
+    await assertOfflineSelectionPanel(page, "community");
+  }
+}
+
+async function assertOfflineSelectionPanel(page, expectedMode) {
+  await page.waitForSelector(".graph-selection-panel[data-state='open']");
+  const panel = page.locator(".graph-selection-panel");
+  await panel.getByText("Shift+点击 增删节点").waitFor();
+  await panel.getByText("内部关联").waitFor();
+  assert.ok(await panel.locator(".graph-selection-fact").count() >= 4, "offline selection panel should show structural facts");
+  assert.equal(await panel.getByText("提问选区").count(), 0, "offline selection panel should not show ask actions");
+  if (expectedMode === "community") {
+    await panel.getByText(/社区选区/).waitFor();
+  } else {
+    await panel.getByText(/手动选区|选中页面/).waitFor();
   }
 }
 
