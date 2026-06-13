@@ -34,11 +34,18 @@ npm run build -w @llm-wiki/graph-engine > /dev/null 2>&1 \
   || fail "graph-engine build should succeed before stage 4.5 browser regression"
 build_graph_html_fixture "$tmp_dir"
 
+dense_dir="$tmp_dir/dense/wiki"
+mkdir -p "$dense_dir"
+cp "$REPO_ROOT/tests/fixtures/graph-interactive-dense/wiki/graph-data.json" "$dense_dir/graph-data.json"
+bash "$REPO_ROOT/scripts/build-graph-html.sh" "$tmp_dir/dense" > /dev/null 2>&1 \
+  || fail "build-graph-html.sh should succeed on dense stage 4.5 browser fixture"
+
 artifact_dir="$REPO_ROOT/workbench/docs/stage-4.5-artifacts"
 mkdir -p "$artifact_dir"
 
 export GRAPH_STAGE_4_5_TARGET="$target"
 export GRAPH_STAGE_4_5_OFFLINE_HTML="$tmp_dir/wiki/knowledge-graph.html"
+export GRAPH_STAGE_4_5_DENSE_HTML="$dense_dir/knowledge-graph.html"
 export GRAPH_STAGE_4_5_ARTIFACT_DIR="$artifact_dir"
 
 cd "$REPO_ROOT"
