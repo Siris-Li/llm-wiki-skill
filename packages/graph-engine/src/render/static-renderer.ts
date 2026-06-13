@@ -23,6 +23,7 @@ import {
   type RenderableNode,
   type RenderPositionMap
 } from "./model";
+import { buildCommunityLegend, type CommunityLegendRow } from "./legend";
 import {
   DEFAULT_RENDERER_VIEWPORT,
   applyRendererViewportTransform,
@@ -78,6 +79,8 @@ interface PaintedGraphDom {
   searchElement: HTMLElement | null;
   searchInput: HTMLInputElement | null;
   searchStatusElement: HTMLElement | null;
+  legendElement: HTMLElement | null;
+  legendRows: Map<string, HTMLButtonElement>;
 }
 
 export function createStaticGraphRenderer(container: HTMLElement, options: StaticRendererOptions): StaticGraphRenderer {
@@ -96,6 +99,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let searchQuery = "";
   let searchFocusedNodeId: NodeId | null = null;
   let searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
+  let hoveredCommunityId: string | null = null;
   const pathCache = createRenderPathCache();
   const root = document.createElement("div");
   root.className = "llm-wiki-graph-engine";
@@ -104,6 +108,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   container.replaceChildren(root);
   ensureStaticRendererStyles(container.ownerDocument || document);
   const ownerDocument = container.ownerDocument || document;
+  let legendCollapsed = readLegendCollapsed(ownerDocument);
   const handleDocumentKeydown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
     if ((event.metaKey || event.ctrlKey) && key === "f" && isGraphFocusActive()) {
@@ -143,12 +148,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     applyTheme(root, theme);
     dom = paint(root, graph, theme, Boolean(options.onOpenPage), {
       onCommunitySelect: (id) => {
-        manualNodeIds = [];
-        const nextSelection: SelectionInput = { kind: "community", id };
-        selection = nextSelection;
-        selectedNodeId = null;
-        options.onSelectionChange?.(nextSelection);
-        render({ selection: nextSelection });
+        selectCommunity(id);
       },
       onNodeClick: (id, additive) => {
         if (!additive) {
@@ -202,7 +202,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       }
     });
     mountSearchControl();
+    mountCommunityLegend();
     applySearchQuery(searchQuery);
+    applyCommunityHover();
     commitViewport(viewport);
     if (activeDiff && root.dataset.diffState === "playing") markDiffElements(activeDiff);
     renderReader();
@@ -269,6 +271,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     selection = null;
     selectedNodeId = null;
     searchFocusedNodeId = null;
+    hoveredCommunityId = null;
     delete root.dataset.focus;
     render({ selectedNodeId: null, selection: null });
   }
@@ -357,6 +360,68 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     root.dataset.searchOpen = "false";
     applySearchQuery("");
     root.focus({ preventScroll: true });
+  }
+
+  function mountCommunityLegend(): void {
+    const rows = buildCommunityLegend(graph.communities, graph.nodes);
+    const legend = createCommunityLegend(ownerDocument, {
+      rows,
+      collapsed: legendCollapsed,
+      onToggle: () => {
+        legendCollapsed = !legendCollapsed;
+        writeLegendCollapsed(ownerDocument, legendCollapsed);
+        mountCommunityLegend();
+      },
+      onHover: (id) => {
+        hoveredCommunityId = id;
+        applyCommunityHover();
+      },
+      onSelect: (id) => selectCommunity(id)
+    });
+    dom.legendElement = legend.element;
+    dom.legendRows = legend.rows;
+    root.prepend(legend.element);
+    root.dataset.legendCollapsed = legendCollapsed ? "true" : "false";
+  }
+
+  function selectCommunity(id: string): void {
+    manualNodeIds = [];
+    const nextSelection: SelectionInput = { kind: "community", id };
+    selection = nextSelection;
+    selectedNodeId = null;
+    options.onSelectionChange?.(nextSelection);
+    render({ selection: nextSelection });
+    focusCommunity(id);
+  }
+
+  function focusCommunity(id: string): void {
+    const points = graph.nodes.filter((node) => node.community === id).map((node) => node.point);
+    if (!points.length) return;
+    setViewportAnimating(true);
+    viewportCommitter.schedule(fitRendererViewportToPoints(points, viewportSize()));
+  }
+
+  function applyCommunityHover(): void {
+    const active = hoveredCommunityId;
+    root.dataset.legendHover = active || "";
+    for (const [id, row] of dom.legendRows) {
+      row.dataset.communityState = active ? (id === active ? "active" : "faded") : "none";
+    }
+    const nodeCommunity = new Map<string, string>();
+    for (const [id, element] of dom.nodeElements) {
+      const community = element.dataset.community || "";
+      nodeCommunity.set(id, community);
+      element.dataset.communityState = active ? (community === active ? "active" : "faded") : "none";
+    }
+    for (const [id, element] of dom.communityWashElements) {
+      element.dataset.communityState = active ? (id === active ? "active" : "faded") : "none";
+    }
+    for (const edge of graph.edges) {
+      const element = dom.edgeElements.get(edge.id);
+      if (!element) continue;
+      const inCommunity = nodeCommunity.get(edge.source) === active && nodeCommunity.get(edge.target) === active;
+      element.dataset.communityState = active ? (inCommunity ? "active" : "faded") : "none";
+    }
   }
 
   function restartSimulation(): void {
@@ -972,7 +1037,62 @@ function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number;
 function isBlankViewportTarget(target: EventTarget | null): boolean {
   const element = target instanceof Element ? target : null;
   if (!element) return false;
-  return !element.closest(".node, .mini-map, .graph-reader, .graph-search, .community-wash");
+  return !element.closest(".node, .mini-map, .graph-reader, .graph-search, .community-legend, .community-wash");
+}
+
+function createCommunityLegend(
+  ownerDocument: Document,
+  options: {
+    rows: CommunityLegendRow[];
+    collapsed: boolean;
+    onToggle: () => void;
+    onHover: (id: string | null) => void;
+    onSelect: (id: string) => void;
+  }
+): { element: HTMLElement; rows: Map<string, HTMLButtonElement> } {
+  const element = ownerDocument.createElement("aside");
+  element.className = "community-legend";
+  element.dataset.state = options.collapsed ? "collapsed" : "open";
+  const header = ownerDocument.createElement("button");
+  header.type = "button";
+  header.className = "community-legend-toggle";
+  header.setAttribute("aria-expanded", options.collapsed ? "false" : "true");
+  header.textContent = options.collapsed ? "社区" : "社区";
+  header.addEventListener("click", (event) => {
+    event.stopPropagation();
+    options.onToggle();
+  });
+  element.appendChild(header);
+
+  const list = ownerDocument.createElement("div");
+  list.className = "community-legend-list";
+  const rowMap = new Map<string, HTMLButtonElement>();
+  for (const row of options.rows) {
+    const button = ownerDocument.createElement("button");
+    button.type = "button";
+    button.className = "community-legend-row";
+    button.dataset.communityId = row.id;
+    button.addEventListener("pointerenter", () => options.onHover(row.id));
+    button.addEventListener("pointerleave", () => options.onHover(null));
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      options.onSelect(row.id);
+    });
+    const swatch = ownerDocument.createElement("span");
+    swatch.className = "community-legend-swatch";
+    swatch.style.background = row.color;
+    const label = ownerDocument.createElement("span");
+    label.className = "community-legend-label";
+    label.textContent = row.label;
+    const count = ownerDocument.createElement("span");
+    count.className = "community-legend-count";
+    count.textContent = `${row.pageCount} 页`;
+    button.append(swatch, label, count);
+    list.appendChild(button);
+    rowMap.set(row.id, button);
+  }
+  element.appendChild(list);
+  return { element, rows: rowMap };
 }
 
 function createSearchControl(
@@ -1027,8 +1147,28 @@ function emptyPaintedDom(): PaintedGraphDom {
     readerElement: null,
     searchElement: null,
     searchInput: null,
-    searchStatusElement: null
+    searchStatusElement: null,
+    legendElement: null,
+    legendRows: new Map()
   };
+}
+
+const COMMUNITY_LEGEND_COLLAPSED_KEY = "llm-wiki:graph:community-legend:collapsed";
+
+function readLegendCollapsed(ownerDocument: Document): boolean {
+  try {
+    return ownerDocument.defaultView?.localStorage?.getItem(COMMUNITY_LEGEND_COLLAPSED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeLegendCollapsed(ownerDocument: Document, collapsed: boolean): void {
+  try {
+    ownerDocument.defaultView?.localStorage?.setItem(COMMUNITY_LEGEND_COLLAPSED_KEY, collapsed ? "true" : "false");
+  } catch {
+    // localStorage can be unavailable in restricted file contexts.
+  }
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -1126,6 +1266,81 @@ const STATIC_RENDERER_CSS = `
   border-radius: 999px;
   background: color-mix(in srgb, var(--surface) 84%, transparent);
   padding: 5px 8px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.community-legend {
+  position: absolute;
+  top: 64px;
+  left: 14px;
+  z-index: 6;
+  width: min(260px, calc(100% - 28px));
+  border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 14px 28px rgba(36, 24, 12, .08);
+  overflow: hidden;
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .community-legend {
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+}
+.community-legend-toggle {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 64%, transparent);
+  background: transparent;
+  padding: 8px 10px;
+  color: var(--ink);
+  font: 12px/1.3 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.community-legend[data-state="collapsed"] .community-legend-toggle {
+  border-bottom: 0;
+}
+.community-legend-list {
+  display: grid;
+}
+.community-legend[data-state="collapsed"] .community-legend-list {
+  display: none;
+}
+.community-legend-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--rule) 48%, transparent);
+  background: transparent;
+  padding: 8px 10px;
+  color: var(--ink);
+  font: 12px/1.3 var(--font-ui);
+  cursor: pointer;
+  text-align: left;
+}
+.community-legend-row:first-child {
+  border-top: 0;
+}
+.community-legend-row:hover,
+.community-legend-row[data-community-state="active"] {
+  background: color-mix(in srgb, var(--cinnabar) 8%, transparent);
+}
+.community-legend-row[data-community-state="faded"] {
+  opacity: .42;
+}
+.community-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12);
+}
+.community-legend-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.community-legend-count {
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
@@ -1244,6 +1459,16 @@ const STATIC_RENDERER_CSS = `
 }
 .node[data-search-state="faded"] {
   opacity: .28;
+}
+.node[data-community-state="faded"] {
+  opacity: .24;
+}
+.edge[data-community-state="faded"],
+.community-wash[data-community-state="faded"] {
+  opacity: .12 !important;
+}
+.community-wash[data-community-state="active"] {
+  opacity: .2;
 }
 .node.is-dragging {
   cursor: grabbing;

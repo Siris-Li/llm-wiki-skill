@@ -85,6 +85,7 @@ async function runOfflineChecks(browser) {
   );
 
   await runSearchKeyboardChecks(page, "offline graph search should support shortcut, cycling, focus, and Escape");
+  await runLegendChecks(page, { persistReload: true, expectWorkbenchDrawer: false });
 
   if (artifactDir) {
     await page.screenshot({ path: path.join(artifactDir, "stage-4.5-offline-navigation.png"), fullPage: true });
@@ -229,6 +230,43 @@ async function waitForSearchState(page, state) {
   }, state);
 }
 
+async function runLegendChecks(page, options) {
+  await page.waitForSelector(".community-legend-row");
+  const row = page.locator(".community-legend-row").first();
+  await row.hover();
+  await page.waitForSelector('.node[data-community-state="faded"]');
+  await page.mouse.move(900, 120);
+
+  if (options.persistReload) {
+    await page.locator(".community-legend-toggle").click();
+    await waitForLegendState(page, "collapsed");
+    await page.reload();
+    await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+    await waitForLegendState(page, "collapsed");
+    await page.locator(".community-legend-toggle").click();
+    await waitForLegendState(page, "open");
+  }
+
+  const beforeClick = await layerTransform(page);
+  await row.click();
+  await waitForLayerTransform(page, beforeClick);
+  const selected = await page.locator(".node[aria-pressed='true']").count();
+  assert.ok(selected >= 1, "legend click should select the community nodes");
+
+  if (options.expectWorkbenchDrawer) {
+    await page.waitForSelector(".drawer-panel-open");
+    await page.locator(".drawer-panel-open .drawer-title", { hasText: "选区" }).waitFor();
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".drawer-panel-open", { state: "detached" });
+  }
+}
+
+async function waitForLegendState(page, state) {
+  await page.waitForFunction((state) => {
+    return document.querySelector(".community-legend")?.dataset.state === state;
+  }, state);
+}
+
 async function runWorkbenchChecks(browser) {
   assert.notEqual(workbenchUrl, "", "GRAPH_STAGE_4_5_WORKBENCH_URL must point at the workbench dev server");
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
@@ -288,6 +326,7 @@ async function runWorkbenchChecks(browser) {
   await page.keyboard.press("Escape");
   await page.waitForSelector(".drawer-panel-open", { state: "detached" });
   await expectNoPressedNodes(page, "Escape should clear the workbench selection drawer and graph highlights");
+  await runLegendChecks(page, { persistReload: false, expectWorkbenchDrawer: true });
   await runWorkbenchMobileChecks(browser);
 }
 

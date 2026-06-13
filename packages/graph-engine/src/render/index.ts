@@ -21,6 +21,8 @@ export type {
   RenderPosition,
   RenderPositionMap
 } from "./model";
+export { buildCommunityLegend } from "./legend";
+export type { CommunityLegendRow } from "./legend";
 export { createStaticGraphRenderer } from "./static-renderer";
 export type { StaticGraphRenderer } from "./static-renderer";
 export { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";

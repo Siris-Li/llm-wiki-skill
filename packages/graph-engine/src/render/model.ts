@@ -394,6 +394,10 @@ function resolveSelectedNodeIds(
   options: BuildRenderableGraphOptions
 ): string[] {
   if (options.selection?.kind === "node" && model.byId[options.selection.id]) return [options.selection.id];
+  if (options.selection?.kind === "community") {
+    const communityId = options.selection.id;
+    return model.nodes.filter((node) => node.community === communityId).map((node) => node.id);
+  }
   if (options.selection?.kind === "nodes") {
     const selected = new Set(options.selection.ids);
     return model.nodes.map((node) => node.id).filter((id) => selected.has(id));
