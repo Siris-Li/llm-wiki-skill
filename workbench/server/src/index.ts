@@ -152,6 +152,13 @@ function errorStatus(err: unknown, fallback: 400 | 500 = 500): 400 | 403 | 500 {
 	return fallback;
 }
 
+function localHostOnly(rawHost: string | undefined): string {
+	const host = rawHost?.trim() || "127.0.0.1";
+	if (host === "127.0.0.1" || host === "localhost" || host === "::1") return host;
+	console.warn(`[llm-wiki-agent/server] ignoring unsafe HOST=${host}; binding to 127.0.0.1`);
+	return "127.0.0.1";
+}
+
 const app = new Hono();
 
 app.get("/api/health", (c) => {
@@ -1050,7 +1057,7 @@ app.post("/api/prompt", async (c) => {
 });
 
 const PORT = Number(process.env.PORT ?? 8787);
-const HOST = process.env.HOST ?? "127.0.0.1";
+const HOST = localHostOnly(process.env.HOST);
 
 // 阻塞启动直到 bootstrap 完成。首次启动约 1-2s（pi ResourceLoader + 恢复 session），
 // 换来前端首次 fetch 一致性。dev 模式 tsx watch 重启也会经历此延迟，可接受。

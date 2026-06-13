@@ -136,16 +136,21 @@ export async function listPageRefs(
 
 export async function readWikiPage(kbPath: string, relPath: string): Promise<string> {
 	await assertRegisteredKb(kbPath);
+	return readFile(resolveWikiPagePath(kbPath, relPath), "utf8");
+}
+
+export function resolveWikiPagePath(kbPath: string, relPath: string): string {
 	if (!relPath || path.isAbsolute(relPath)) throw new Error("path must be relative");
 	if (!relPath.endsWith(".md")) throw new Error("path must be a markdown file");
 	if (!relPath.split(/[\\/]/).includes("wiki")) throw new Error("path must be inside wiki");
 
 	const kbRoot = path.resolve(kbPath);
+	const wikiRoot = path.join(kbRoot, "wiki");
 	const requested = path.resolve(kbRoot, relPath);
-	if (requested !== kbRoot && !requested.startsWith(kbRoot + path.sep)) {
-		throw new Error("path must be inside kb");
+	if (requested !== wikiRoot && !requested.startsWith(wikiRoot + path.sep)) {
+		throw new Error("path must be inside wiki");
 	}
-	return readFile(requested, "utf8");
+	return requested;
 }
 
 async function assertRegisteredKb(kbPath: string): Promise<void> {
