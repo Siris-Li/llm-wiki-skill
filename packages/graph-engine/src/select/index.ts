@@ -10,6 +10,7 @@ import type {
   SelectionFacts,
   SelectionInput
 } from "../types";
+import { wikiPathForGraphNode } from "../graph-node";
 
 interface SelectionNode {
   id: NodeId;
@@ -48,6 +49,24 @@ const ACTIONS = {
   linkIsland: { id: "link_island", label: "把它链入知识库", tone: "repair" }
 } satisfies Record<string, SelectionAction>;
 
+export type PageReaderActionId = "quote_page" | "find_related_pages";
+export interface PageReaderAction {
+  id: PageReaderActionId;
+  label: string;
+}
+
+export function pageSelectionActions(isolated = false): SelectionAction[] {
+  const pageActions = [ACTIONS.summarizePage, ACTIONS.findRelatedPages, ACTIONS.quotePage];
+  return isolated ? [...pageActions, ACTIONS.linkIsland] : pageActions;
+}
+
+export function pageReaderActions(): PageReaderAction[] {
+  return [ACTIONS.quotePage, ACTIONS.findRelatedPages].map((action) => ({
+    id: action.id as PageReaderActionId,
+    label: action.label
+  }));
+}
+
 export function resolveSelection(data: GraphData, input: SelectionInput): Selection {
   return resolveSelectionForCapabilities(data, input, { canAsk: true });
 }
@@ -73,8 +92,7 @@ export function resolveSelectionForCapabilities(
 export function selectionActions(facts: SelectionFacts, input?: SelectionInput): SelectionAction[] {
   if (facts.pageCount === 0) return [];
   if (facts.pageCount === 1) {
-    const pageActions = [ACTIONS.summarizePage, ACTIONS.findRelatedPages, ACTIONS.quotePage];
-    return facts.isolatedCount === 1 ? [...pageActions, ACTIONS.linkIsland] : pageActions;
+    return pageSelectionActions(facts.isolatedCount === 1);
   }
   if (facts.pageCount > 1 && facts.internalLinkCount > 0 && input?.kind !== "community" && input?.kind !== "neighbors") {
     return [ACTIONS.summarizeGroup, ACTIONS.exploreGroupRelationships];
@@ -161,22 +179,11 @@ function toSelectionNode(node: GraphNode): SelectionNode {
     id: node.id,
     label: node.label || node.id,
     community: String(node.community || "_none"),
-    sourcePath: String(node.source_path || node.path || node.source || wikiPathForNode(node))
+    sourcePath: wikiPathForGraphNode(node)
   };
 }
 
 function endpointId(value: unknown): NodeId | null {
   if (value == null || value === "") return null;
   return String(value);
-}
-
-function wikiPathForNode(node: GraphNode): string {
-  const id = node.id.endsWith(".md") ? node.id.slice(0, -3) : node.id;
-  const type = String(node.type || "");
-  if (type === "topic") return `wiki/topics/${id}.md`;
-  if (type === "source") return `wiki/sources/${id}.md`;
-  if (type === "comparison") return `wiki/comparisons/${id}.md`;
-  if (type === "synthesis") return `wiki/synthesis/${id}.md`;
-  if (type === "query") return `wiki/queries/${id}.md`;
-  return `wiki/entities/${id}.md`;
 }

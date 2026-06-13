@@ -7,6 +7,7 @@ import {
   getAtlasDensityMode,
   resolveAtlasVisibleSnapshot
 } from "../model";
+import { wikiPathForGraphNode } from "../graph-node";
 import { getCommunityColor } from "../themes";
 
 export type DensityMode = "card" | "compact-card" | "point-plus-focus" | "overview";
@@ -200,7 +201,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       type: node.type,
       kind: node.kind,
       community: node.community,
-      sourcePath: wikiPathForNode(node),
+      sourcePath: wikiPathForGraphNode(node),
       x: pointToPercentX(point.x),
       y: pointToPercentY(point.y),
       point,
@@ -337,23 +338,7 @@ function applyPinsToGraphData(data: GraphData, pins: PinMap): GraphData {
 }
 
 function pinKeyForNode(node: { source_path?: unknown; path?: unknown; source?: unknown; id: string }): WikiPath {
-  return String(node.source_path || node.path || node.source || wikiPathForNode(node));
-}
-
-function wikiPathForNode(node: { source_path?: unknown; path?: unknown; source?: unknown; type?: unknown; id: string }): WikiPath {
-  const existing = String(node.source_path || node.path || node.source || "");
-  if (existing) return existing;
-  const id = node.id.endsWith(".md") ? node.id.slice(0, -3) : node.id;
-  return `wiki/${wikiDirectoryForType(String(node.type || ""))}/${id}.md`;
-}
-
-function wikiDirectoryForType(type: string): string {
-  if (type === "topic") return "topics";
-  if (type === "source") return "sources";
-  if (type === "comparison") return "comparisons";
-  if (type === "synthesis") return "synthesis";
-  if (type === "query") return "queries";
-  return "entities";
+  return wikiPathForGraphNode(node);
 }
 
 function renderPointForNode(node: AtlasNode, positions?: RenderPositionMap): RenderPosition {

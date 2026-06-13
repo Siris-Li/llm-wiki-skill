@@ -1,4 +1,4 @@
-import type { GraphData, Selection, SelectionAction } from "@llm-wiki/graph-engine";
+import { wikiPathForGraphNode, type GraphData, type Selection, type SelectionAction } from "@llm-wiki/graph-engine";
 
 export interface SelectionPromptPayload {
 	selection: Selection;
@@ -79,7 +79,7 @@ function selectionNodes(data: GraphData, selection: Selection): SelectionNodeInf
 		.map((node) => ({
 			id: node.id,
 			label: node.label || node.id,
-			path: wikiPathForNode(node),
+			path: wikiPathForGraphNode(node),
 			community: String(node.community || "_none")
 		}));
 }
@@ -93,17 +93,4 @@ function selectionEdges(data: GraphData, selection: Selection): SelectionEdgeInf
 			to: edge.to,
 			type: String(edge.type || "EXTRACTED")
 		}));
-}
-
-function wikiPathForNode(node: GraphData["nodes"][number]): string {
-	const existing = String(node.source_path || node.path || node.source || "");
-	if (existing) return existing;
-	const id = node.id.endsWith(".md") ? node.id.slice(0, -3) : node.id;
-	const type = String(node.type || "");
-	if (type === "topic") return `wiki/topics/${id}.md`;
-	if (type === "source") return `wiki/sources/${id}.md`;
-	if (type === "comparison") return `wiki/comparisons/${id}.md`;
-	if (type === "synthesis") return `wiki/synthesis/${id}.md`;
-	if (type === "query") return `wiki/queries/${id}.md`;
-	return `wiki/entities/${id}.md`;
 }

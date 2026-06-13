@@ -1,6 +1,6 @@
-import type { GraphOpenPagePayload } from "@llm-wiki/graph-engine";
+import { pageReaderActions, type GraphOpenPagePayload, type PageReaderActionId } from "@llm-wiki/graph-engine";
 
-export type GraphReaderActionId = "quote_page" | "find_related_pages";
+export type GraphReaderActionId = PageReaderActionId;
 
 export interface GraphReaderAction {
 	id: GraphReaderActionId;
@@ -16,10 +16,7 @@ export function graphReaderMetaItems(payload: GraphOpenPagePayload): string[] {
 }
 
 export function graphReaderActions(): GraphReaderAction[] {
-	return [
-		{ id: "quote_page", label: "在对话中引用" },
-		{ id: "find_related_pages", label: "它和谁有关" },
-	];
+	return pageReaderActions();
 }
 
 export function graphReaderActionLabels(payload: GraphOpenPagePayload): string[] {

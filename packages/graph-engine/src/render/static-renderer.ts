@@ -19,11 +19,13 @@ import {
   makeEdgePathFromPoints,
   nodeDisplayModeForDensity,
   screenEffectiveDensityMode,
+  type DensityMode,
   type NodeDisplayMode,
   type RenderableGraph,
   type RenderableNode,
   type RenderPositionMap
 } from "./model";
+import { graphNodeTypeLabel, wikiPathForGraphNode } from "../graph-node";
 import { buildCommunityLegend, type CommunityLegendRow } from "./legend";
 import {
   DEFAULT_RENDERER_VIEWPORT,
@@ -136,6 +138,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   const viewportCommitter = createViewportFrameCommitter(commitViewport, root.ownerDocument.defaultView || undefined);
   let blankPan: { pointerId: number; lastX: number; lastY: number } | null = null;
   let viewportAnimationTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastEffectiveDensityMode: DensityMode | null = null;
 
   let graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, pathCache });
   let pinState = new PinState(graph, pins);
@@ -213,6 +216,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         clearHoverPreview();
       }
     });
+    lastEffectiveDensityMode = null;
     mountSearchControl();
     mountCommunityLegend();
     applySearchQuery(searchQuery);
@@ -272,6 +276,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       simulation = null;
       ownerDocument.removeEventListener("keydown", handleDocumentKeydown);
       if (previewTimer) clearTimeout(previewTimer);
+      if (viewportAnimationTimer) clearTimeout(viewportAnimationTimer);
       pathCache.clear();
       root.remove();
     }
@@ -494,9 +499,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       element.setAttribute("cx", String(miniNode.x));
       element.setAttribute("cy", String(miniNode.y));
     }
-    renderReader();
-    renderSelectionPanel();
-    renderHoverPreview();
+    renderMotionOverlays();
   }
 
   function markPinnedNodes(pinnedNodeIds: string[]): void {
@@ -567,11 +570,19 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const densityMode = screenEffectiveDensityMode(graph.counts.visibleNodes, viewport.scale);
     root.dataset.density = densityMode;
     root.dataset.effectiveDensity = densityMode;
+    if (densityMode === lastEffectiveDensityMode) return;
+    lastEffectiveDensityMode = densityMode;
     for (const node of graph.nodes) {
       const element = dom.nodeElements.get(node.id);
       if (!element) continue;
       applyNodeDisplayMode(element, nodeDisplayModeForDensity(node, densityMode));
     }
+  }
+
+  function renderMotionOverlays(): void {
+    if (dom.readerElement?.dataset.state === "open") renderReader();
+    if (dom.selectionElement?.dataset.state === "open") renderSelectionPanel();
+    if (previewNodeId || dom.previewElement?.dataset.state === "open") renderHoverPreview();
   }
 
   function updateMinimapViewport(): void {
@@ -808,7 +819,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       name.textContent = node.label || node.id;
       const path = document.createElement("span");
       path.className = "graph-selection-page-path";
-      path.textContent = wikiPathForRawNode(node);
+      path.textContent = wikiPathForGraphNode(node);
       item.append(name, path);
       list.appendChild(item);
     }
@@ -1166,14 +1177,14 @@ function openPagePayloadForNode(data: GraphData, id: NodeId): GraphOpenPagePaylo
       }
     };
   }
-  const sourcePath = wikiPathForRawNode(node);
+  const sourcePath = wikiPathForGraphNode(node);
   return {
     path: sourcePath,
     node: {
       id: node.id,
       title: node.label || node.id,
       type: node.type,
-      typeLabel: typeLabelForNode(node.type),
+      typeLabel: graphNodeTypeLabel(node.type),
       sourcePath,
       community: node.community ?? null,
       date: dateForNode(node),
@@ -1185,30 +1196,6 @@ function openPagePayloadForNode(data: GraphData, id: NodeId): GraphOpenPagePaylo
 
 function isIsolatedNode(data: GraphData, id: NodeId): boolean {
   return !data.edges.some((edge) => edge.from === id || edge.to === id);
-}
-
-function wikiPathForRawNode(node: GraphNode): WikiPath {
-  const existing = String(node.source_path || node.path || node.source || "");
-  if (existing) return existing;
-  const id = node.id.endsWith(".md") ? node.id.slice(0, -3) : node.id;
-  const type = String(node.type || "");
-  if (type === "topic") return `wiki/topics/${id}.md`;
-  if (type === "source") return `wiki/sources/${id}.md`;
-  if (type === "comparison") return `wiki/comparisons/${id}.md`;
-  if (type === "synthesis") return `wiki/synthesis/${id}.md`;
-  if (type === "query") return `wiki/queries/${id}.md`;
-  return `wiki/entities/${id}.md`;
-}
-
-function typeLabelForNode(type: unknown): string {
-  const key = String(type || "");
-  if (key === "topic") return "主题";
-  if (key === "source") return "来源";
-  if (key === "comparison") return "对比";
-  if (key === "synthesis") return "综合";
-  if (key === "query") return "查询";
-  if (key === "entity") return "实体";
-  return key || "实体";
 }
 
 function dateForNode(node: GraphNode): string | null {
