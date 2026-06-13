@@ -88,6 +88,32 @@ export async function inspectKnowledgeBasePath(
 	return { valid: true };
 }
 
+async function comparablePath(rawPath: string): Promise<string> {
+	const absolutePath = resolve(expandUserPath(rawPath));
+	return realpath(absolutePath).catch(() => absolutePath);
+}
+
+export async function findRegisteredKnowledgeBase(
+	rawPath: string,
+	knownBases: KnowledgeBaseInfo[],
+): Promise<KnowledgeBaseInfo | null> {
+	const targetPath = await comparablePath(rawPath);
+	for (const kb of knownBases) {
+		if (!kb.valid) continue;
+		const registeredPath = await comparablePath(kb.path);
+		if (registeredPath === targetPath) return kb;
+	}
+	return null;
+}
+
+export async function assertRegisteredKnowledgeBase(rawPath: string): Promise<string> {
+	const match = await findRegisteredKnowledgeBase(rawPath, await listKnowledgeBases());
+	if (!match) {
+		throw Object.assign(new Error("knowledge base is not registered"), { statusCode: 403 });
+	}
+	return match.path;
+}
+
 export async function inspectPath(rawPath: string): Promise<InspectPathResult> {
 	const expanded = expandUserPath(rawPath);
 	if (!expanded) throw new Error("path 不能为空");

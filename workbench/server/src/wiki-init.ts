@@ -69,12 +69,21 @@ async function fileExists(filePath: string): Promise<boolean> {
 	return Boolean(info?.isFile());
 }
 
-async function findInitScript(): Promise<string | null> {
-	const skillDir = path.join(homedir(), ".claude", "skills", "llm-wiki-skill");
-	const candidates = [
+export function initScriptCandidates(homeDir = homedir()): string[] {
+	const skillDirs = [
+		path.join(homeDir, ".codex", "skills", "llm-wiki"),
+		path.join(homeDir, ".codex", "skills", "llm-wiki-skill"),
+		path.join(homeDir, ".claude", "skills", "llm-wiki-skill"),
+		path.join(homeDir, ".claude", "skills", "llm-wiki"),
+	];
+	return skillDirs.flatMap((skillDir) => [
 		path.join(skillDir, "init-wiki.sh"),
 		path.join(skillDir, "scripts", "init-wiki.sh"),
-	];
+	]);
+}
+
+async function findInitScript(): Promise<string | null> {
+	const candidates = initScriptCandidates();
 	for (const candidate of candidates) {
 		if (await fileExists(candidate)) return candidate;
 	}
@@ -85,7 +94,7 @@ export async function createWiki(nameInput: string, purposeInput: string): Promi
 	const name = validateWikiName(nameInput);
 	const scriptPath = await findInitScript();
 	if (!scriptPath) {
-		throw new Error("llm-wiki-skill 未安装。请先安装到 ~/.claude/skills/llm-wiki-skill/。");
+		throw new Error("llm-wiki 未安装。请先安装到 ~/.codex/skills/llm-wiki/ 或 ~/.claude/skills/llm-wiki-skill/。");
 	}
 
 	const targetPath = path.join(DEFAULT_KNOWLEDGE_BASE_ROOT, name);
@@ -134,7 +143,7 @@ export async function initExistingWiki(
 		conflicts.length > 0 ? await backupConflicts(absolutePath, conflicts) : [];
 	const scriptPath = await findInitScript();
 	if (!scriptPath) {
-		throw new Error("llm-wiki-skill 未安装。请先安装到 ~/.claude/skills/llm-wiki-skill/。");
+		throw new Error("llm-wiki 未安装。请先安装到 ~/.codex/skills/llm-wiki/ 或 ~/.claude/skills/llm-wiki-skill/。");
 	}
 
 	const { stdout, stderr } = await execFileAsync(scriptPath, [absolutePath, purpose, "中文"], {

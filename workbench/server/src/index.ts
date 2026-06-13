@@ -69,6 +69,7 @@ import {
 } from "./graph.js";
 import {
 	inspectPath,
+	assertRegisteredKnowledgeBase,
 	listKnowledgeBases,
 	registerExternalKnowledgeBase,
 	unregisterExternalKnowledgeBase,
@@ -133,6 +134,22 @@ function requestedKnowledgeBasePath(queryValue: string | undefined, body?: unkno
 		if (typeof bodyPath === "string" && bodyPath.trim()) return bodyPath.trim();
 	}
 	return getActive()?.kb.path ?? null;
+}
+
+async function requestedRegisteredKnowledgeBasePath(
+	queryValue: string | undefined,
+	body?: unknown,
+): Promise<string | null> {
+	const requestedPath = requestedKnowledgeBasePath(queryValue, body);
+	if (!requestedPath) return null;
+	return assertRegisteredKnowledgeBase(requestedPath);
+}
+
+function errorStatus(err: unknown, fallback: 400 | 500 = 500): 400 | 403 | 500 {
+	const statusCode = (err as { statusCode?: unknown })?.statusCode;
+	if (statusCode === 403) return 403;
+	if (statusCode === 400) return 400;
+	return fallback;
 }
 
 const app = new Hono();
@@ -373,33 +390,40 @@ app.delete("/api/knowledge-base", async (c) => {
 // ============= 图谱（指定知识库；未传时回退当前知识库） =============
 
 app.get("/api/graph", async (c) => {
-	const kbPath = requestedKnowledgeBasePath(c.req.query("kb"));
-	if (!kbPath) return c.json({ ok: false, error: "请先选择一个知识库" }, 400);
 	try {
+		const kbPath = await requestedRegisteredKnowledgeBasePath(c.req.query("kb"));
+		if (!kbPath) return c.json({ ok: false, error: "请先选择一个知识库" }, 400);
 		return c.json(await readGraphData(kbPath));
 	} catch (err) {
 		return c.json(
 			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			500,
+			errorStatus(err),
 		);
 	}
 });
 
 app.post("/api/graph/rebuild", async (c) => {
-	const kbPath = requestedKnowledgeBasePath(c.req.query("kb"));
-	if (!kbPath) return c.json({ ok: false, error: "请先选择一个知识库" }, 400);
-	return c.json(triggerGraphRebuild(kbPath));
+	try {
+		const kbPath = await requestedRegisteredKnowledgeBasePath(c.req.query("kb"));
+		if (!kbPath) return c.json({ ok: false, error: "请先选择一个知识库" }, 400);
+		return c.json(triggerGraphRebuild(kbPath));
+	} catch (err) {
+		return c.json(
+			{ ok: false, error: err instanceof Error ? err.message : String(err) },
+			errorStatus(err),
+		);
+	}
 });
 
 app.get("/api/graph/layout", async (c) => {
-	const kbPath = requestedKnowledgeBasePath(c.req.query("kb"));
-	if (!kbPath) return c.json({ ok: false, error: "请先选择一个知识库" }, 400);
 	try {
+		const kbPath = await requestedRegisteredKnowledgeBasePath(c.req.query("kb"));
+		if (!kbPath) return c.json({ ok: false, error: "请先选择一个知识库" }, 400);
 		return c.json(await readGraphLayout(kbPath));
 	} catch (err) {
 		return c.json(
 			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			500,
+			errorStatus(err),
 		);
 	}
 });
@@ -411,14 +435,14 @@ app.put("/api/graph/layout", async (c) => {
 	} catch {
 		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
 	}
-	const kbPath = requestedKnowledgeBasePath(c.req.query("kb"), body);
-	if (!kbPath) return c.json({ ok: false, error: "请先选择一个知识库" }, 400);
 	try {
+		const kbPath = await requestedRegisteredKnowledgeBasePath(c.req.query("kb"), body);
+		if (!kbPath) return c.json({ ok: false, error: "请先选择一个知识库" }, 400);
 		return c.json(await writeGraphLayout(kbPath, body));
 	} catch (err) {
 		return c.json(
 			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			500,
+			errorStatus(err),
 		);
 	}
 });
@@ -1026,6 +1050,7 @@ app.post("/api/prompt", async (c) => {
 });
 
 const PORT = Number(process.env.PORT ?? 8787);
+const HOST = process.env.HOST ?? "127.0.0.1";
 
 // 阻塞启动直到 bootstrap 完成。首次启动约 1-2s（pi ResourceLoader + 恢复 session），
 // 换来前端首次 fetch 一致性。dev 模式 tsx watch 重启也会经历此延迟，可接受。
@@ -1033,8 +1058,8 @@ await bootstrapFromConfig();
 const bootstrappedActive = getActive();
 if (bootstrappedActive) watchKnowledgeBaseGraph(bootstrappedActive.kb.path);
 
-serve({ fetch: app.fetch, port: PORT }, (info) => {
-	console.log(`[llm-wiki-agent/server] listening on http://localhost:${info.port}`);
+serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
+	console.log(`[llm-wiki-agent/server] listening on http://${HOST}:${info.port}`);
 	console.log(`  GET    /api/health`);
 	console.log(`  POST   /api/echo`);
 	console.log(`  POST   /api/prompt`);

@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { listKnowledgeBases } from "./knowledge-bases.js";
+import { assertRegisteredKnowledgeBase } from "./knowledge-bases.js";
 
 export interface PageRef {
 	path: string;
@@ -26,13 +26,6 @@ function shouldIgnore(name: string): boolean {
 
 function toPosix(relativePath: string): string {
 	return relativePath.split(path.sep).join("/");
-}
-
-async function assertRegisteredKb(kbPath: string): Promise<void> {
-	const kbs = await listKnowledgeBases();
-	if (!kbs.some((kb) => kb.valid && path.resolve(kb.path) === path.resolve(kbPath))) {
-		throw new Error("knowledge base is not registered");
-	}
 }
 
 async function extractTitle(filePath: string, fallback: string): Promise<string> {
@@ -153,4 +146,8 @@ export async function readWikiPage(kbPath: string, relPath: string): Promise<str
 		throw new Error("path must be inside kb");
 	}
 	return readFile(requested, "utf8");
+}
+
+async function assertRegisteredKb(kbPath: string): Promise<void> {
+	await assertRegisteredKnowledgeBase(kbPath);
 }
