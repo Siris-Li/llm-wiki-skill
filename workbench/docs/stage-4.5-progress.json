@@ -2,9 +2,9 @@
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
     "phase": "phase-4",
-    "task": "4.1",
+    "task": "4.2",
     "overall": "in_progress",
-    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 4.1."
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 4.2."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -447,9 +447,16 @@
         {
           "id": "4.1",
           "title": "Slim default node DOM and CSS.",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "npm run test -w @llm-wiki/graph-engine exited 0 with 134 tests passing before implementation and again after the node-slim change.",
+            "npm run typecheck -w @llm-wiki/graph-engine exited 0.",
+            "npm run build -w @llm-wiki/graph-engine exited 0.",
+            "bash tests/graph-html-long-label.regression-1.sh exited 0 and now runs a Playwright check proving default card nodes hide type and weight details until hover or selection while keeping the title visible.",
+            "bash tests/graph-html-density.regression-1.sh exited 0.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0 after the node-slim change."
+          ],
+          "commit": "357671e"
         },
         {
           "id": "4.2",
@@ -585,6 +592,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Work unit 3.4 added the offline selection panel and host-consistency checks. Offline Shift/community selections now show selected pages, structural facts, and the Shift hint without ask actions; workbench legend selection continues to open the right-drawer selection. Verification passed: graph-engine tests/typecheck/build, graph HTML search/styles/insights regressions, and both offline/workbench stage 4.5 browser regressions. Phase 3 acceptance passed."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Work unit 4.1 slimmed default graph nodes. Default card nodes now show the title line without visible type text or weight number; hover and selected cards still reveal those details. Verification passed: graph-engine tests/typecheck/build, long-label browser regression, density regression, and offline stage 4.5 browser regression."
     }
   ]
 }
