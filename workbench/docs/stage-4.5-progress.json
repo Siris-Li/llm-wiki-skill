@@ -2,9 +2,9 @@
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
     "phase": "phase-5",
-    "task": "5.1",
+    "task": "5.2",
     "overall": "in_progress",
-    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 5.1."
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 5.2."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -522,9 +522,19 @@
         {
           "id": "5.1",
           "title": "Verify offline HTML capabilities and reader meta.",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "npm run test -w @llm-wiki/graph-engine exited 0 with 138 tests passing before implementation verification.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0 and now proves offline reader Chinese type/date/source metadata, source-path link only for source pages, no offline ask actions, search, legend reload persistence, navigation, dense wheel behavior, and localStorage pins after reload.",
+            "bash tests/graph-html-drawer-neighbors.regression-1.sh exited 0.",
+            "bash tests/graph-html-search.regression-1.sh exited 0.",
+            "bash tests/graph-html-insights.regression-1.sh exited 0.",
+            "bash tests/graph-html-toolbar.regression-1.sh exited 0.",
+            "npm run typecheck -w @llm-wiki/graph-engine exited 0.",
+            "npm run build -w @llm-wiki/graph-engine exited 0.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target workbench exited 0 after the shared browser script updates."
+          ],
+          "commit": "ab0cdc1"
         },
         {
           "id": "5.2",
@@ -627,6 +637,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Work unit 4.3 preserved dense-mode behavior for hover previews. Compact and point nodes now have repeatable browser coverage for preview open behavior, while dense fixtures still downgrade most nodes away from full cards. Verification passed: graph-engine tests/typecheck/build, density regression, long-label regression, and both offline/workbench stage 4.5 browser regressions. Phase 4 acceptance passed."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Work unit 5.1 verified and completed offline HTML reader capabilities. Offline reader metadata now matches graph payload type/date/source rules, source-path links appear only for source pages, and browser regression proves no ask buttons, search, legend reload persistence, navigation, hover/dense behavior, and localStorage pins after reload. Verification passed: graph-engine tests/typecheck/build, offline/workbench stage 4.5 browser regressions, and focused graph HTML reader/search/insights/toolbar regressions."
     }
   ]
 }
