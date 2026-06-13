@@ -2,9 +2,9 @@
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
     "phase": "phase-3",
-    "task": "3.2",
+    "task": "3.3",
     "overall": "in_progress",
-    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 3.2."
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 3.3."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -372,9 +372,18 @@
         {
           "id": "3.2",
           "title": "Add result cycling and viewport focus.",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "RED: node --import tsx --test packages/graph-engine/test/search-and-legend.test.ts failed because ../src/render did not export resolveNextGraphSearchFocus.",
+            "GREEN: node --import tsx --test packages/graph-engine/test/search-and-legend.test.ts exited 0 with 3 tests passing, including result cycling and empty-result focus behavior.",
+            "node --import tsx --test packages/graph-engine/test/viewport.test.ts exited 0 with 8 tests passing, including centerRendererViewportOnPoint preserving zoom scale.",
+            "npm run test -w @llm-wiki/graph-engine exited 0 with 132 tests passing.",
+            "npm run typecheck -w @llm-wiki/graph-engine exited 0.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0 and proves graph search opens from focused graph state, query marks matches, Enter cycles focused results and moves the viewport, and Esc closes search/restores node visuals.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target workbench exited 0 with the same graph search keyboard coverage in the workbench host.",
+            "Debug note: the initial browser assertion waited for CSS visibility on the search control and timed out after reader interaction; the root cause was the regression waiting on visual visibility rather than the control state. The script now asserts data-state directly after focusing the graph root."
+          ],
+          "commit": "50e20bc"
         },
         {
           "id": "3.3",
@@ -536,6 +545,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Work unit 3.1 added graph-scoped search UI. Cmd/Ctrl+F opens graph search only while graph focus is active, blank graph pointerdown focuses the graph root, queries reuse the shared search helpers, matching nodes are highlighted, non-matches fade, and empty query restores all node states. Verification passed: graph-engine search test, graph-engine full test suite, graph-engine typecheck, graph-engine build, and graph-html-search regression."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Work unit 3.2 added search result cycling and viewport focus. Enter cycles through matched nodes, marks the focused search result, moves the viewport with the Phase 1 animation path, and Esc closes search while restoring search visual state. Verification passed: graph-engine search and viewport tests, graph-engine full test suite, graph-engine typecheck, and both offline/workbench stage 4.5 browser regressions."
     }
   ]
 }
