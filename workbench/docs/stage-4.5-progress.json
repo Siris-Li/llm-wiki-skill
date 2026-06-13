@@ -1,10 +1,10 @@
 {
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
-    "phase": "phase-3",
-    "task": "3.4",
+    "phase": "phase-4",
+    "task": "4.1",
     "overall": "in_progress",
-    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 3.4."
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 4.1."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -344,7 +344,7 @@
       "id": "phase-3",
       "title": "Search And Community Legend",
       "goal": "Restore graph search and add a community legend shared by workbench and offline HTML.",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
         "`npm run test -w @llm-wiki/graph-engine` exits 0.",
         "`bash tests/graph-html-search.regression-1.sh` exits 0.",
@@ -352,8 +352,16 @@
         "`bash tests/graph-html-insights.regression-1.sh` exits 0.",
         "Browser checks at 1440 x 960 and 768 x 1024 prove search and legend work in workbench and offline HTML."
       ],
-      "evidence": [],
-      "commit": null,
+      "evidence": [
+        "npm run test -w @llm-wiki/graph-engine exited 0 with 134 tests passing.",
+        "bash tests/graph-html-search.regression-1.sh exited 0.",
+        "bash tests/graph-html-styles.regression-1.sh exited 0.",
+        "bash tests/graph-html-insights.regression-1.sh exited 0.",
+        "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0 at 1440 x 960 and records search, legend hover/click/collapse, offline Shift/community selection facts, and no offline ask actions.",
+        "bash tests/graph-browser-stage-4-5.regression-1.sh --target workbench exited 0 and records search, legend click, right-drawer selection, and mobile drawer behavior at 390 x 844.",
+        "Browser artifacts updated under workbench/docs/stage-4.5-artifacts, including offline navigation, dense wheel, and workbench reader screenshots."
+      ],
+      "commit": "6c5b51c",
       "tasks": [
         {
           "id": "3.1",
@@ -406,9 +414,18 @@
         {
           "id": "3.4",
           "title": "Keep host behavior consistent.",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "npm run test -w @llm-wiki/graph-engine exited 0 with 134 tests passing after adding the offline selection panel.",
+            "npm run typecheck -w @llm-wiki/graph-engine exited 0.",
+            "npm run build -w @llm-wiki/graph-engine exited 0.",
+            "bash tests/graph-html-insights.regression-1.sh exited 0 and now rebuilds the engine, asserts offline selection panel markup/facts/Shift hint, and runs a Playwright check for Shift selection plus community selection without ask UI.",
+            "bash tests/graph-html-search.regression-1.sh exited 0.",
+            "bash tests/graph-html-styles.regression-1.sh exited 0.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0 and proves offline Shift/community selections show structural facts with no ask actions.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target workbench exited 0 and proves legend selection flows into the workbench right drawer selection."
+          ],
+          "commit": "6c5b51c"
         }
       ]
     },
@@ -564,6 +581,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Work unit 3.3 added the community legend. Legend rows show color, label, and page count; hover fades other communities; click selects the community, highlights its nodes, opens the workbench selection drawer, and focuses the viewport; collapse state is stored in localStorage. Verification passed: graph-engine tests/typecheck/build, graph HTML styles/search regressions, and both offline/workbench stage 4.5 browser regressions."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Work unit 3.4 added the offline selection panel and host-consistency checks. Offline Shift/community selections now show selected pages, structural facts, and the Shift hint without ask actions; workbench legend selection continues to open the right-drawer selection. Verification passed: graph-engine tests/typecheck/build, graph HTML search/styles/insights regressions, and both offline/workbench stage 4.5 browser regressions. Phase 3 acceptance passed."
     }
   ]
 }
