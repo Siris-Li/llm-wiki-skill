@@ -2,9 +2,9 @@
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
     "phase": "phase-1",
-    "task": "1.1",
-    "overall": "pending",
-    "next_allowed_action": "Create the dedicated branch from reviewed base f3a7ccd, make a clean-start commit if needed, run the smoke check, then implement work unit 1.1"
+    "task": "1.2",
+    "overall": "in_progress",
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 1.2."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -191,8 +191,12 @@
         {
           "id": "1.1",
           "title": "Introduce renderer viewport state and one transform layer.",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "RED: npm run test -w @llm-wiki/graph-engine failed because ../src/render did not export rendererViewportToTransform.",
+            "GREEN: npm run test -w @llm-wiki/graph-engine exited 0 with 118 tests passing, including renderer viewport state tests.",
+            "npm run typecheck -w @llm-wiki/graph-engine exited 0."
+          ],
           "commit": null
         },
         {
@@ -423,6 +427,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Commit policy aligned with spec-to-goal-plan: commit each verified work unit, where each numbered phase task is a work unit unless the plan explicitly says otherwise. /goal starter updated for direct use in a new session."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Work unit 1.1 implemented renderer viewport state and a single graph content transform layer. Verification passed: npm run test -w @llm-wiki/graph-engine and npm run typecheck -w @llm-wiki/graph-engine."
     }
   ]
 }

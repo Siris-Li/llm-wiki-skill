@@ -9,6 +9,11 @@ import {
   type RenderableNode,
   type RenderPositionMap
 } from "./model";
+import {
+  DEFAULT_RENDERER_VIEWPORT,
+  applyRendererViewportTransform,
+  type RendererViewport
+} from "./viewport";
 
 interface StaticRendererOptions {
   data: GraphData;
@@ -40,6 +45,7 @@ const WORLD_WIDTH = 1000;
 const WORLD_HEIGHT = 680;
 
 interface PaintedGraphDom {
+  contentLayer: HTMLElement | null;
   edgeElements: Map<string, SVGPathElement>;
   communityWashElements: Map<string, SVGEllipseElement>;
   nodeElements: Map<string, HTMLButtonElement>;
@@ -58,6 +64,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let destroyed = false;
   let simulation: LiveGraphSimulation | null = null;
   let dom: PaintedGraphDom = emptyPaintedDom();
+  let viewport: RendererViewport = DEFAULT_RENDERER_VIEWPORT;
   let activeDiff: GraphDiff | null = null;
   const pathCache = createRenderPathCache();
   const root = document.createElement("div");
@@ -131,6 +138,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         return true;
       }
     });
+    if (dom.contentLayer) applyRendererViewportTransform(dom.contentLayer, viewport);
     if (activeDiff && root.dataset.diffState === "playing") markDiffElements(activeDiff);
     renderReader();
     restartSimulation();
@@ -409,6 +417,10 @@ function paint(
   root.dataset.theme = theme;
   root.dataset.density = graph.densityMode;
   const painted = emptyPaintedDom();
+  const contentLayer = document.createElement("div");
+  contentLayer.className = "graph-content-layer";
+  contentLayer.dataset.viewportLayer = "true";
+  painted.contentLayer = contentLayer;
 
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("class", "llm-wiki-graph-svg");
@@ -454,7 +466,7 @@ function paint(
     painted.edgeElements.set(edge.id, path);
   }
   svg.appendChild(edgeLayer);
-  root.appendChild(svg);
+  contentLayer.appendChild(svg);
 
   const nodeLayer = document.createElement("div");
   nodeLayer.className = "node-layer";
@@ -464,7 +476,8 @@ function paint(
     painted.basePoints.set(node.id, node.point);
     nodeLayer.appendChild(button);
   }
-  root.appendChild(nodeLayer);
+  contentLayer.appendChild(nodeLayer);
+  root.appendChild(contentLayer);
 
   const minimap = document.createElement("div");
   minimap.className = "mini-map";
@@ -608,6 +621,7 @@ function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number;
 
 function emptyPaintedDom(): PaintedGraphDom {
   return {
+    contentLayer: null,
     edgeElements: new Map(),
     communityWashElements: new Map(),
     nodeElements: new Map(),
@@ -662,6 +676,13 @@ const STATIC_RENDERER_CSS = `
     radial-gradient(ellipse at 28% 56%, color-mix(in srgb, var(--night) 13%, transparent), transparent 58%),
     radial-gradient(ellipse at 76% 38%, color-mix(in srgb, var(--cinnabar) 9%, transparent), transparent 54%),
     var(--bg);
+}
+.graph-content-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 .llm-wiki-graph-svg {
   position: absolute;
