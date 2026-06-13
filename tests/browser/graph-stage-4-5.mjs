@@ -51,6 +51,28 @@ try {
   const selectedAfterShiftClick = await page.locator(".node[aria-pressed='true']").count();
   assert.equal(selectedAfterShiftClick, 2, "Shift-clicking two nodes should keep both nodes selected in the graph");
 
+  await page.keyboard.press("Escape");
+  await expectNoPressedNodes(page, "Escape should clear Shift-click selections");
+
+  const transformBeforeReader = await layerTransform(page);
+  await page.locator(".node").nth(0).click();
+  await page.waitForSelector(".graph-reader[data-state='open']");
+  const pressedAfterPlainClick = await page.locator(".node[aria-pressed='true']").count();
+  assert.equal(pressedAfterPlainClick, 1, "plain node click should highlight one readable node");
+  assert.match(
+    await page.locator(".graph-reader .graph-reader-title").innerText(),
+    /\S/,
+    "plain node click should open the internal reader with a title"
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForSelector(".graph-reader[data-state='closed']");
+  await expectNoPressedNodes(page, "Escape should clear the reader highlight");
+  assert.equal(
+    await layerTransform(page),
+    transformBeforeReader,
+    "clearing graph interaction should not reset the viewport transform"
+  );
+
   if (artifactDir) {
     await page.screenshot({ path: path.join(artifactDir, "stage-4.5-offline-navigation.png"), fullPage: true });
   }
@@ -126,4 +148,9 @@ async function waitForLayerTransform(page, previous) {
     { timeout: 3000 }
   );
   return layerTransform(page);
+}
+
+async function expectNoPressedNodes(page, message) {
+  const pressed = await page.locator(".node[aria-pressed='true']").count();
+  assert.equal(pressed, 0, message);
 }

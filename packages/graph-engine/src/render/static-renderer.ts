@@ -1,4 +1,15 @@
-import type { CommunityId, GraphData, GraphDiff, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
+import type {
+  CommunityId,
+  GraphData,
+  GraphDiff,
+  GraphNode,
+  GraphOpenPagePayload,
+  NodeId,
+  PinMap,
+  SelectionInput,
+  ThemeId,
+  WikiPath
+} from "../types";
 import { createLiveGraphSimulation, PinState, pinsToPositions, type LiveGraphSimulation } from "../sim";
 import { getCommunityColor, getThemeTokens, themeTokensToCssVars } from "../themes";
 import {
@@ -27,8 +38,8 @@ interface StaticRendererOptions {
   data: GraphData;
   pins?: PinMap;
   theme: ThemeId;
-  onOpenPage?: (path: WikiPath) => void;
-  onSelect?: (selection: SelectionInput) => void;
+  onOpenPage?: (payload: GraphOpenPagePayload) => void;
+  onSelectionChange?: (selection: SelectionInput) => void;
   persistPins?: (pins: PinMap) => Promise<void>;
   onDragStateChange?: (dragging: boolean) => void;
   live?: boolean;
@@ -44,6 +55,7 @@ export interface StaticGraphRenderer {
   setPins(pins: PinMap): void;
   focusNode(pathOrId: WikiPath): void;
   select(selection: SelectionInput): void;
+  clearInteraction(): void;
   resetLayout(): void;
   destroy(): void;
 }
@@ -79,8 +91,16 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   const root = document.createElement("div");
   root.className = "llm-wiki-graph-engine";
   root.dataset.llmWikiGraphRoot = "true";
+  root.tabIndex = 0;
   container.replaceChildren(root);
   ensureStaticRendererStyles(container.ownerDocument || document);
+  const ownerDocument = container.ownerDocument || document;
+  const handleDocumentKeydown = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || !hasInteractionState()) return;
+    event.stopPropagation();
+    clearInteractionState();
+  };
+  ownerDocument.addEventListener("keydown", handleDocumentKeydown);
   const viewportCommitter = createViewportFrameCommitter(commitViewport, root.ownerDocument.defaultView || undefined);
   let blankPan: { pointerId: number; lastX: number; lastY: number } | null = null;
   let viewportAnimationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,21 +119,29 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, pathCache });
     pinState = new PinState(graph, pins);
     applyTheme(root, theme);
-    dom = paint(root, graph, theme, options.onOpenPage, {
+    dom = paint(root, graph, theme, Boolean(options.onOpenPage), {
       onCommunitySelect: (id) => {
         manualNodeIds = [];
         const nextSelection: SelectionInput = { kind: "community", id };
         selection = nextSelection;
-        options.onSelect?.(nextSelection);
+        selectedNodeId = null;
+        options.onSelectionChange?.(nextSelection);
         render({ selection: nextSelection });
       },
-      onNodeSelect: (id, additive) => {
-        const nextSelection = additive
-          ? shiftSelection(id, manualNodeIds.length ? manualNodeIds : selectedNodeIds(selection))
-          : { kind: "node" as const, id };
+      onNodeClick: (id, additive) => {
+        if (!additive) {
+          manualNodeIds = [];
+          selection = null;
+          selectedNodeId = id;
+          options.onOpenPage?.(openPagePayloadForNode(data, id));
+          render({ selectedNodeId: id, selection: null });
+          return;
+        }
+        const nextSelection = shiftSelection(id, manualNodeIds.length ? manualNodeIds : selectedNodeIds(selection));
         manualNodeIds = nextSelection.kind === "nodes" ? nextSelection.ids : nextSelection.kind === "node" ? [nextSelection.id] : [];
         selection = nextSelection;
-        options.onSelect?.(nextSelection);
+        selectedNodeId = null;
+        options.onSelectionChange?.(nextSelection);
         render({ selection: nextSelection });
       },
       onDragStart: (id, event) => {
@@ -188,6 +216,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       manualNodeIds = nextSelection.kind === "nodes" ? nextSelection.ids : [];
       render({ selection: nextSelection });
     },
+    clearInteraction(): void {
+      clearInteractionState();
+    },
     resetLayout(): void {
       const nextState = pinState.reset();
       pins = nextState.pins;
@@ -199,6 +230,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       destroyed = true;
       simulation?.destroy();
       simulation = null;
+      ownerDocument.removeEventListener("keydown", handleDocumentKeydown);
       pathCache.clear();
       root.remove();
     }
@@ -206,6 +238,18 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function assertActive(): void {
     if (destroyed) throw new Error("Graph renderer has been destroyed");
+  }
+
+  function clearInteractionState(): void {
+    manualNodeIds = [];
+    selection = null;
+    selectedNodeId = null;
+    delete root.dataset.focus;
+    render({ selectedNodeId: null, selection: null });
+  }
+
+  function hasInteractionState(): boolean {
+    return Boolean(selectedNodeId || selection || root.dataset.focus);
   }
 
   function restartSimulation(): void {
@@ -483,7 +527,12 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     close.className = "graph-reader-close";
     close.setAttribute("aria-label", "关闭阅读面板");
     close.textContent = "×";
-    close.addEventListener("click", () => render({ selectedNodeId: null, selection: null }));
+    close.addEventListener("click", () => {
+      manualNodeIds = [];
+      selection = null;
+      selectedNodeId = null;
+      render({ selectedNodeId: null, selection: null });
+    });
     header.append(title, meta, close);
 
     const body = document.createElement("div");
@@ -506,7 +555,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
 interface DragHandlers {
   onCommunitySelect: (id: CommunityId) => void;
-  onNodeSelect: (id: NodeId, additive: boolean) => void;
+  onNodeClick: (id: NodeId, additive: boolean) => void;
   onDragStart: (id: string, event: PointerEvent) => void;
   onDragMove: (id: string, event: PointerEvent) => void;
   onDragEnd: (id: string, event: PointerEvent) => void;
@@ -517,7 +566,7 @@ function paint(
   root: HTMLElement,
   graph: RenderableGraph,
   theme: ThemeId,
-  onOpenPage: ((path: WikiPath) => void) | undefined,
+  hasHostReader: boolean,
   dragHandlers: DragHandlers
 ): PaintedGraphDom {
   root.replaceChildren();
@@ -578,7 +627,7 @@ function paint(
   const nodeLayer = document.createElement("div");
   nodeLayer.className = "node-layer";
   for (const node of graph.nodes) {
-    const button = createNodeButton(node, onOpenPage, dragHandlers);
+    const button = createNodeButton(node, dragHandlers);
     painted.nodeElements.set(node.id, button);
     painted.basePoints.set(node.id, node.point);
     nodeLayer.appendChild(button);
@@ -618,7 +667,7 @@ function paint(
   }
   minimap.appendChild(miniSvg);
   root.appendChild(minimap);
-  if (!onOpenPage) {
+  if (!hasHostReader) {
     const reader = document.createElement("aside");
     reader.className = "graph-reader";
     reader.dataset.state = graph.selectedNodeId ? "open" : "closed";
@@ -628,7 +677,7 @@ function paint(
   return painted;
 }
 
-function createNodeButton(node: RenderableNode, onOpenPage: ((path: WikiPath) => void) | undefined, dragHandlers: DragHandlers): HTMLButtonElement {
+function createNodeButton(node: RenderableNode, dragHandlers: DragHandlers): HTMLButtonElement {
   const button = document.createElement("button");
   button.className = "node";
   if (node.unavailable) button.classList.add("is-disabled");
@@ -648,8 +697,7 @@ function createNodeButton(node: RenderableNode, onOpenPage: ((path: WikiPath) =>
   button.setAttribute("aria-pressed", node.selected ? "true" : "false");
   button.addEventListener("dblclick", (event) => {
     event.stopPropagation();
-    if (dragHandlers.onNodeDoubleClick(node.id)) return;
-    if (node.sourcePath && onOpenPage) onOpenPage(node.sourcePath);
+    dragHandlers.onNodeDoubleClick(node.id);
   });
   bindDragHandlers(button, node.id, dragHandlers);
 
@@ -712,7 +760,7 @@ function bindDragHandlers(button: HTMLButtonElement, nodeId: string, handlers: D
       return;
     }
     event.stopPropagation();
-    handlers.onNodeSelect(nodeId, event.shiftKey);
+    handlers.onNodeClick(nodeId, event.shiftKey);
   });
 }
 
@@ -730,6 +778,79 @@ function shiftSelection(id: NodeId, current: NodeId[]): SelectionInput {
   const ids = Array.from(selected);
   if (ids.length === 1) return { kind: "node", id: ids[0] };
   return { kind: "nodes", ids };
+}
+
+function openPagePayloadForNode(data: GraphData, id: NodeId): GraphOpenPagePayload {
+  const node = data.nodes.find((item) => item.id === id);
+  if (!node) {
+    return {
+      path: id,
+      node: {
+        id,
+        title: id,
+        type: "entity",
+        typeLabel: "实体",
+        sourcePath: id,
+        community: null,
+        date: null,
+        source: null,
+        isolated: true
+      }
+    };
+  }
+  const sourcePath = wikiPathForRawNode(node);
+  return {
+    path: sourcePath,
+    node: {
+      id: node.id,
+      title: node.label || node.id,
+      type: node.type,
+      typeLabel: typeLabelForNode(node.type),
+      sourcePath,
+      community: node.community ?? null,
+      date: dateForNode(node),
+      source: sourceForNode(node),
+      isolated: isIsolatedNode(data, node.id)
+    }
+  };
+}
+
+function isIsolatedNode(data: GraphData, id: NodeId): boolean {
+  return !data.edges.some((edge) => edge.from === id || edge.to === id);
+}
+
+function wikiPathForRawNode(node: GraphNode): WikiPath {
+  const existing = String(node.source_path || node.path || node.source || "");
+  if (existing) return existing;
+  const id = node.id.endsWith(".md") ? node.id.slice(0, -3) : node.id;
+  const type = String(node.type || "");
+  if (type === "topic") return `wiki/topics/${id}.md`;
+  if (type === "source") return `wiki/sources/${id}.md`;
+  if (type === "comparison") return `wiki/comparisons/${id}.md`;
+  if (type === "synthesis") return `wiki/synthesis/${id}.md`;
+  if (type === "query") return `wiki/queries/${id}.md`;
+  return `wiki/entities/${id}.md`;
+}
+
+function typeLabelForNode(type: unknown): string {
+  const key = String(type || "");
+  if (key === "topic") return "主题";
+  if (key === "source") return "来源";
+  if (key === "comparison") return "对比";
+  if (key === "synthesis") return "综合";
+  if (key === "query") return "查询";
+  if (key === "entity") return "实体";
+  return key || "实体";
+}
+
+function dateForNode(node: GraphNode): string | null {
+  const value = node.date || node.updated_at || node.updatedAt || node.created_at || node.createdAt;
+  return value == null || value === "" ? null : String(value);
+}
+
+function sourceForNode(node: GraphNode): string | null {
+  const value = node.source_title || node.source_url || node.url || node.author || node.source_name;
+  return value == null || value === "" ? null : String(value);
 }
 
 function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number; y: number } {

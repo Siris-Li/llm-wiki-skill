@@ -251,10 +251,28 @@ export type SelectionInput =
   | { kind: "neighbors"; id: NodeId }
   | { kind: "nodes"; ids: NodeId[] };
 
+export interface GraphOpenPageNode {
+  id: NodeId;
+  title: string;
+  type: GraphNodeType;
+  typeLabel: string;
+  sourcePath: WikiPath;
+  community?: CommunityId | null;
+  date?: string | null;
+  source?: string | null;
+  isolated: boolean;
+}
+
+export interface GraphOpenPagePayload {
+  path: WikiPath;
+  node: GraphOpenPageNode;
+}
+
 export interface GraphEngineCapabilities {
   persistPins?: (pins: PinMap) => Promise<void>;
   onAsk?: (selection: Selection) => void;
-  onOpenPage?: (path: WikiPath) => void;
+  onOpenPage?: (payload: GraphOpenPagePayload) => void;
+  onSelectionChange?: (selection: Selection) => void;
   onDragStateChange?: (dragging: boolean) => void;
 }
 
@@ -270,6 +288,7 @@ export interface GraphEngine {
   isDragging(): boolean;
   focusNode(path: WikiPath): void;
   select(selector: SelectionInput): Selection;
+  clearInteraction(): void;
   setTheme(theme: ThemeId): void;
   setPins(pins: PinMap): void;
   resetLayout(): void;

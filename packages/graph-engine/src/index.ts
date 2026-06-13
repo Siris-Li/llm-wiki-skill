@@ -26,6 +26,7 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
   let currentTheme: ThemeId = options.theme;
   let destroyed = false;
   const canAsk = Boolean(options.capabilities?.onAsk);
+  const canSelect = Boolean(options.capabilities?.onSelectionChange || options.capabilities?.onAsk);
   const resolveForHostCapabilities = (input: SelectionInput): Selection =>
     resolveSelectionForCapabilities(options.data, input, { canAsk });
   const renderer = createStaticGraphRenderer(container, {
@@ -33,7 +34,13 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
     pins: options.pins || {},
     theme: currentTheme,
     onOpenPage: options.capabilities?.onOpenPage,
-    onSelect: canAsk ? (input) => options.capabilities?.onAsk?.(resolveForHostCapabilities(input)) : undefined,
+    onSelectionChange: canSelect
+      ? (input) => {
+          const selection = resolveForHostCapabilities(input);
+          options.capabilities?.onSelectionChange?.(selection);
+          if (!options.capabilities?.onSelectionChange) options.capabilities?.onAsk?.(selection);
+        }
+      : undefined,
     persistPins: options.capabilities?.persistPins,
     onDragStateChange: options.capabilities?.onDragStateChange
   });
@@ -62,6 +69,12 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
       assertActive();
       renderer.select(selector);
       return resolveForHostCapabilities(selector);
+    },
+
+    clearInteraction(): void {
+      assertActive();
+      renderer.clearInteraction();
+      delete container.dataset.llmWikiGraphFocus;
     },
 
     setTheme(theme: ThemeId): void {

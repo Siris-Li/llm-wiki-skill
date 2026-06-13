@@ -262,8 +262,8 @@ export function GraphPanel({
 			pins: layoutPinsRef.current,
 			theme: graphThemeRef.current,
 			capabilities: {
-				onOpenPage: (path) => onOpenPageRef.current?.(path),
-				onAsk: setSelection,
+				onOpenPage: (payload) => onOpenPageRef.current?.(payload.path),
+				onSelectionChange: setSelection,
 				persistPins,
 				onDragStateChange: (dragging) => {
 					const decision = diffQueueRef.current.setDragging(dragging);
