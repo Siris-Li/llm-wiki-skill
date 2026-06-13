@@ -727,12 +727,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     close.className = "graph-reader-close";
     close.setAttribute("aria-label", "关闭阅读面板");
     close.textContent = "×";
-    close.addEventListener("click", () => {
-      manualNodeIds = [];
-      selection = null;
-      selectedNodeId = null;
-      render({ selectedNodeId: null, selection: null });
-    });
+    close.addEventListener("click", () => clearInteractionState());
     header.append(title, meta, close);
 
     const body = document.createElement("div");

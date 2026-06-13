@@ -32,7 +32,7 @@ test_graph_html_has_keyboard_safe_reader_close() {
     assert_file_contains "$html" 's.type=`button`'
     assert_file_contains "$html" "graph-reader-close"
     assert_file_contains "$html" "关闭阅读面板"
-    assert_file_contains "$html" "g({selectedNodeId:null,selection:null})"
+    assert_file_contains "$REPO_ROOT/packages/graph-engine/src/render/static-renderer.ts" 'close.addEventListener("click", () => clearInteractionState());'
 
     rm -rf "$tmp_dir"
 }
