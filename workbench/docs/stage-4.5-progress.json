@@ -2,9 +2,9 @@
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
     "phase": "phase-2",
-    "task": "2.3",
+    "task": "2.4",
     "overall": "in_progress",
-    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 2.3."
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 2.4."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -289,9 +289,16 @@
         {
           "id": "2.3",
           "title": "Change graph click routing.",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "GREEN: npm run test -w @llm-wiki/graph-engine exited 0 with 128 tests passing.",
+            "npm run typecheck -w @llm-wiki/graph-engine exited 0.",
+            "node --import tsx --test workbench/web/test/*.test.ts exited 0 with 4 tests passing.",
+            "npm run build -w @llm-wiki-agent/web exited 0.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0 and now proves plain node click opens the internal reader/highlight, Shift-click opens selection highlights, Esc clears selection/reader highlight, and clear interaction keeps the viewport transform.",
+            "Root cause for failed Esc browser check was keyboard focus outside the graph root; Esc handling now listens at the document boundary only while graph interaction state exists."
+          ],
+          "commit": "7df1641"
         },
         {
           "id": "2.4",
@@ -490,6 +497,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Work unit 2.2 fixed graph selection action mapping for all six design scenarios. Verification passed: npm run test -w @llm-wiki/graph-engine and npm run typecheck -w @llm-wiki/graph-engine."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Work unit 2.3 split graph read and selection routing. Plain node click emits open-page metadata and highlights the node; Shift/community selection emits selection-change separately; clearInteraction/Esc clears graph-local interaction without resetting viewport. Verification passed: graph-engine tests/typecheck, workbench web tests, web build, and offline browser regression."
     }
   ]
 }
