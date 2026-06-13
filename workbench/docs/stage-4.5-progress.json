@@ -2,9 +2,9 @@
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
     "phase": "phase-1",
-    "task": "1.4",
+    "task": "phase-1-acceptance",
     "overall": "in_progress",
-    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 1.4."
+    "next_allowed_action": "Run phase-1 acceptance checks before advancing to phase-2."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -226,9 +226,14 @@
         {
           "id": "1.4",
           "title": "Upgrade density to use screen-effective density.",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "RED: npm run test -w @llm-wiki/graph-engine failed because ../src/render did not export nodeDisplayModeForDensity.",
+            "GREEN: npm run test -w @llm-wiki/graph-engine exited 0 with 125 tests passing, including screen-effective density tests.",
+            "npm run typecheck -w @llm-wiki/graph-engine exited 0.",
+            "bash tests/graph-html-density.regression-1.sh exited 0 and proved card, compact, and point transitions are reachable through viewport scale."
+          ],
+          "commit": "16bd2ac"
         }
       ]
     },
@@ -449,6 +454,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Work unit 1.3 added the minimap viewport rectangle and fit-jump animation state. Verification passed: npm run test -w @llm-wiki/graph-engine, npm run typecheck -w @llm-wiki/graph-engine, and bash tests/graph-html-minimap.regression-1.sh."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Work unit 1.4 upgraded density to use viewport-scale-aware effective density without changing graph coordinates. Verification passed: npm run test -w @llm-wiki/graph-engine, npm run typecheck -w @llm-wiki/graph-engine, and bash tests/graph-html-density.regression-1.sh."
     }
   ]
 }
