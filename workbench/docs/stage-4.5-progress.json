@@ -2,9 +2,9 @@
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
     "phase": "phase-3",
-    "task": "3.3",
+    "task": "3.4",
     "overall": "in_progress",
-    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 3.3."
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 3.4."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -388,9 +388,20 @@
         {
           "id": "3.3",
           "title": "Add community legend.",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "RED: node --import tsx --test packages/graph-engine/test/search-and-legend.test.ts failed because ../src/render did not export buildCommunityLegend.",
+            "RED: node --import tsx --test packages/graph-engine/test/search-and-legend.test.ts later failed because community selection did not mark community nodes selected.",
+            "GREEN: node --import tsx --test packages/graph-engine/test/search-and-legend.test.ts exited 0 with 5 tests passing for search, legend rows, and community selection highlighting.",
+            "npm run test -w @llm-wiki/graph-engine exited 0 with 134 tests passing.",
+            "npm run typecheck -w @llm-wiki/graph-engine exited 0.",
+            "npm run build -w @llm-wiki/graph-engine exited 0.",
+            "bash tests/graph-html-styles.regression-1.sh exited 0.",
+            "bash tests/graph-html-search.regression-1.sh exited 0.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0 and proves legend rows render, hover fades other communities, collapse persists through reload, click selects community nodes, and viewport moves.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target workbench exited 0 and proves legend click opens the workbench right-drawer selection."
+          ],
+          "commit": "7281ef0"
         },
         {
           "id": "3.4",
@@ -549,6 +560,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Work unit 3.2 added search result cycling and viewport focus. Enter cycles through matched nodes, marks the focused search result, moves the viewport with the Phase 1 animation path, and Esc closes search while restoring search visual state. Verification passed: graph-engine search and viewport tests, graph-engine full test suite, graph-engine typecheck, and both offline/workbench stage 4.5 browser regressions."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Work unit 3.3 added the community legend. Legend rows show color, label, and page count; hover fades other communities; click selects the community, highlights its nodes, opens the workbench selection drawer, and focuses the viewport; collapse state is stored in localStorage. Verification passed: graph-engine tests/typecheck/build, graph HTML styles/search regressions, and both offline/workbench stage 4.5 browser regressions."
     }
   ]
 }
