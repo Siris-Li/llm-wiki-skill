@@ -2,9 +2,9 @@
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
     "phase": "phase-4",
-    "task": "4.2",
+    "task": "4.3",
     "overall": "in_progress",
-    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 4.2."
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 4.3."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -461,9 +461,16 @@
         {
           "id": "4.2",
           "title": "Add hover preview card.",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "npm run test -w @llm-wiki/graph-engine exited 0 with 134 tests passing before implementation and 138 tests passing after adding preview helper coverage.",
+            "node --import tsx --test packages/graph-engine/test/preview.test.ts exited 0 with 4 tests covering frontmatter, heading removal, wikilinks, empty content, and truncation.",
+            "npm run typecheck -w @llm-wiki/graph-engine exited 0.",
+            "npm run build -w @llm-wiki/graph-engine exited 0.",
+            "bash tests/graph-html-long-label.regression-1.sh exited 0 and now proves hover preview appears after node hover, disappears on leave, shows content summaries, and omits summary text for empty content nodes.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0 after adding hover previews."
+          ],
+          "commit": "fecb41b"
         },
         {
           "id": "4.3",
@@ -596,6 +603,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Work unit 4.1 slimmed default graph nodes. Default card nodes now show the title line without visible type text or weight number; hover and selected cards still reveal those details. Verification passed: graph-engine tests/typecheck/build, long-label browser regression, density regression, and offline stage 4.5 browser regression."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Work unit 4.2 added hover preview cards. Previews use existing markdown cleanup, pick the first useful paragraph after frontmatter and headings, show title/type with two to three lines of summary, and omit summary for empty content. Verification passed: graph-engine tests/typecheck/build, preview unit tests, long-label browser regression, and offline stage 4.5 browser regression."
     }
   ]
 }
