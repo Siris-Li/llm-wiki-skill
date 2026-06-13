@@ -82,12 +82,15 @@ test_graph_engine_exports_density_rules() {
     html="$tmp_dir/wiki/knowledge-graph.html"
 
     assert_file_contains "$html" "e.getAtlasDensityMode="
+    assert_file_contains "$html" "screenEffectiveDensityMode"
+    assert_file_contains "$html" "nodeDisplayModeForDensity"
     assert_file_contains "$html" "e.resolveAtlasVisibleSnapshot="
     assert_file_contains "$html" "e.edgeStrokeWidth="
     assert_file_contains "$html" "e.cardDims="
     assert_file_contains "$html" ".node.is-overview"
     assert_file_contains "$html" ".node[data-visual-role=\"map-pin\"]"
     assert_file_contains "$html" "dataset.densityMode"
+    assert_file_contains "$html" "dataset.effectiveDensity"
 
     rm -rf "$tmp_dir"
 }
@@ -125,7 +128,9 @@ const engine = await import(pathToFileURL(path.join(repoRoot, "packages/graph-en
 const {
   buildAtlasModel,
   deriveAtlasLayout,
-  resolveAtlasVisibleSnapshot
+  resolveAtlasVisibleSnapshot,
+  nodeDisplayModeForDensity,
+  screenEffectiveDensityMode
 } = engine;
 
 function makeGraph(count, edgeCount) {
@@ -177,10 +182,20 @@ assert.ok(Object.keys(overviewSnapshot.labelNodeIds).length <= 41);
 assert.ok(overviewSnapshot.labelNodeIds["node-500"]);
 assert.ok(overviewSnapshot.importantNodeIds["node-0"]);
 assert.ok(overviewSnapshot.edges.length <= 1000);
+
+assert.equal(screenEffectiveDensityMode(120, 1), "compact-card");
+assert.equal(screenEffectiveDensityMode(120, 2), "card");
+assert.equal(screenEffectiveDensityMode(120, 0.5), "point-plus-focus");
+assert.equal(nodeDisplayModeForDensity({ selected: false, labelVisible: false, visualRole: "map-pin" }, "card"), "card");
+assert.equal(nodeDisplayModeForDensity({ selected: false, labelVisible: false, visualRole: "map-pin" }, "compact-card"), "compact-card");
+assert.equal(nodeDisplayModeForDensity({ selected: false, labelVisible: false, visualRole: "map-pin" }, "point-plus-focus"), "point");
+assert.equal(nodeDisplayModeForDensity({ selected: true, labelVisible: false, visualRole: "map-pin" }, "overview"), "card");
 NODE
 }
 
 main() {
+    npm run build -w @llm-wiki/graph-engine > /dev/null 2>&1 \
+        || fail "graph-engine build should succeed before density regression"
     test_graph_engine_exports_density_rules
     test_graph_html_builds_large_density_fixture_as_single_file
     test_graph_density_thresholds_and_budgets

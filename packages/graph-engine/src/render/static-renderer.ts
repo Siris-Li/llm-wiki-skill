@@ -5,6 +5,9 @@ import {
   buildRenderableGraph,
   createRenderPathCache,
   makeEdgePathFromPoints,
+  nodeDisplayModeForDensity,
+  screenEffectiveDensityMode,
+  type NodeDisplayMode,
   type RenderableGraph,
   type RenderableNode,
   type RenderPositionMap
@@ -317,7 +320,19 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     viewport = nextViewport;
     root.dataset.viewportScale = String(round(viewport.scale));
     if (dom.contentLayer) applyRendererViewportTransform(dom.contentLayer, viewport);
+    updateEffectiveDensity();
     updateMinimapViewport();
+  }
+
+  function updateEffectiveDensity(): void {
+    const densityMode = screenEffectiveDensityMode(graph.counts.visibleNodes, viewport.scale);
+    root.dataset.density = densityMode;
+    root.dataset.effectiveDensity = densityMode;
+    for (const node of graph.nodes) {
+      const element = dom.nodeElements.get(node.id);
+      if (!element) continue;
+      applyNodeDisplayMode(element, nodeDisplayModeForDensity(node, densityMode));
+    }
   }
 
   function updateMinimapViewport(): void {
@@ -507,7 +522,7 @@ function paint(
 ): PaintedGraphDom {
   root.replaceChildren();
   root.dataset.theme = theme;
-  root.dataset.density = graph.densityMode;
+  root.dataset.baseDensity = graph.densityMode;
   const painted = emptyPaintedDom();
   const contentLayer = document.createElement("div");
   contentLayer.className = "graph-content-layer";
@@ -617,16 +632,13 @@ function createNodeButton(node: RenderableNode, onOpenPage: ((path: WikiPath) =>
   const button = document.createElement("button");
   button.className = "node";
   if (node.unavailable) button.classList.add("is-disabled");
-  if (node.displayMode === "compact-card") button.classList.add("is-compact");
-  if (node.displayMode === "point") button.classList.add("is-point");
-  if (node.displayMode === "overview") button.classList.add("is-overview");
+  applyNodeDisplayMode(button, node.displayMode);
   if (node.previewStart) button.classList.add("is-preview-start");
   if (!node.labelVisible) button.classList.add("is-label-hidden");
   button.type = "button";
   button.dataset.id = node.id;
   button.dataset.type = node.type;
   button.dataset.community = node.community;
-  button.dataset.densityMode = node.displayMode;
   button.dataset.visualRole = node.visualRole;
   button.dataset.startNode = node.startNode ? "true" : "false";
   button.dataset.previewStart = node.previewStart ? "true" : "false";
@@ -660,6 +672,13 @@ function createNodeButton(node: RenderableNode, onOpenPage: ((path: WikiPath) =>
   button.appendChild(meta);
 
   return button;
+}
+
+function applyNodeDisplayMode(button: HTMLButtonElement, displayMode: NodeDisplayMode): void {
+  button.classList.toggle("is-compact", displayMode === "compact-card");
+  button.classList.toggle("is-point", displayMode === "point");
+  button.classList.toggle("is-overview", displayMode === "overview");
+  button.dataset.densityMode = displayMode;
 }
 
 function bindDragHandlers(button: HTMLButtonElement, nodeId: string, handlers: DragHandlers): void {
@@ -858,6 +877,18 @@ const STATIC_RENDERER_CSS = `
   translate: -50% -50%;
   text-align: left;
   color: var(--ink);
+  transition:
+    opacity .16s ease,
+    width .16s ease,
+    height .16s ease,
+    min-width .16s ease,
+    min-height .16s ease,
+    max-width .16s ease,
+    padding .16s ease,
+    border-radius .16s ease,
+    border-color .16s ease,
+    background-color .16s ease,
+    box-shadow .16s ease;
 }
 .llm-wiki-graph-engine[data-theme="mo-ye"] .node {
   border-color: color-mix(in srgb, var(--rule) 84%, transparent);

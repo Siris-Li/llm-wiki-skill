@@ -4,7 +4,9 @@ export {
   edgeOpacity,
   edgeStrokeWidth,
   makeEdgePath,
-  makeEdgePathFromPoints
+  makeEdgePathFromPoints,
+  nodeDisplayModeForDensity,
+  screenEffectiveDensityMode
 } from "./model";
 export type {
   DensityMode,

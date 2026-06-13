@@ -1,6 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildRenderableGraph, edgeOpacity, edgeStrokeWidth, makeEdgePath } from "../src/render";
+import {
+  buildRenderableGraph,
+  edgeOpacity,
+  edgeStrokeWidth,
+  makeEdgePath,
+  nodeDisplayModeForDensity,
+  screenEffectiveDensityMode
+} from "../src/render";
 import type { GraphData } from "../src/types";
 
 function sampleGraph(): GraphData {
@@ -139,6 +146,39 @@ describe("buildRenderableGraph", () => {
     assert.equal(community.nodeCount, 5);
     assert.ok(community.wash.cx < 320, `wash center should stay near the clustered members, got ${community.wash.cx}`);
     assert.ok(community.wash.rx < 140, `wash radius should not stretch to the outlier, got ${community.wash.rx}`);
+  });
+});
+
+describe("screen-effective density", () => {
+  it("uses viewport scale to choose the effective density mode", () => {
+    assert.equal(screenEffectiveDensityMode(120, 1), "compact-card");
+    assert.equal(screenEffectiveDensityMode(120, 2), "card");
+    assert.equal(screenEffectiveDensityMode(120, 0.5), "point-plus-focus");
+    assert.equal(screenEffectiveDensityMode(30, 0.5), "compact-card");
+  });
+
+  it("maps effective density to node display without changing selected cards", () => {
+    const node = {
+      selected: false,
+      labelVisible: false,
+      visualRole: "map-pin" as const
+    };
+    const labeledNode = {
+      selected: false,
+      labelVisible: true,
+      visualRole: "map-pin" as const
+    };
+    const selectedNode = {
+      selected: true,
+      labelVisible: false,
+      visualRole: "map-pin" as const
+    };
+
+    assert.equal(nodeDisplayModeForDensity(node, "card"), "card");
+    assert.equal(nodeDisplayModeForDensity(node, "compact-card"), "compact-card");
+    assert.equal(nodeDisplayModeForDensity(node, "point-plus-focus"), "point");
+    assert.equal(nodeDisplayModeForDensity(labeledNode, "point-plus-focus"), "compact-card");
+    assert.equal(nodeDisplayModeForDensity(selectedNode, "overview"), "card");
   });
 });
 

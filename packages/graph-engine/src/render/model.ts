@@ -4,6 +4,7 @@ import {
   atlasPointToMinimap,
   buildAtlasModel,
   deriveAtlasLayout,
+  getAtlasDensityMode,
   resolveAtlasVisibleSnapshot
 } from "../model";
 import { getCommunityColor } from "../themes";
@@ -294,6 +295,24 @@ export function edgeStrokeWidth(edge: { weight?: number }): number {
 
 export function edgeOpacity(edge: { weight?: number }): number {
   return round(0.32 + clampWeight(edge.weight) * 0.44);
+}
+
+export function screenEffectiveDensityMode(visibleNodeCount: number, viewportScale: number): DensityMode {
+  const count = Number.isFinite(Number(visibleNodeCount)) ? Math.max(0, Number(visibleNodeCount)) : 0;
+  const scale = Number.isFinite(Number(viewportScale)) ? clamp(Number(viewportScale), 0.25, 4) : 1;
+  return getAtlasDensityMode(Math.ceil(count / (scale * scale))) as DensityMode;
+}
+
+export function nodeDisplayModeForDensity(
+  node: Pick<RenderableNode, "selected" | "labelVisible" | "visualRole">,
+  densityMode: DensityMode
+): NodeDisplayMode {
+  if (node.selected) return "card";
+  if (densityMode === "card") return "card";
+  if (densityMode === "compact-card") return "compact-card";
+  const shouldShowLabel = node.labelVisible || node.visualRole !== "map-pin";
+  if (densityMode === "point-plus-focus") return shouldShowLabel ? "compact-card" : "point";
+  return shouldShowLabel ? "compact-card" : "overview";
 }
 
 function applyPinsToGraphData(data: GraphData, pins: PinMap): GraphData {
