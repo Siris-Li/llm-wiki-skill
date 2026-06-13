@@ -2,9 +2,9 @@
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
     "phase": "phase-2",
-    "task": "2.4",
+    "task": "2.5",
     "overall": "in_progress",
-    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 2.4."
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 2.5."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -303,9 +303,16 @@
         {
           "id": "2.4",
           "title": "Move workbench reading into the right drawer.",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "GREEN: npm run test -w @llm-wiki/graph-engine exited 0 with 128 tests passing before work and again after implementation.",
+            "node --import tsx --test workbench/web/test/*.test.ts exited 0 with 7 tests passing, including drawer-state and graph-reader coverage.",
+            "npm run build -w @llm-wiki-agent/web exited 0.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target workbench exited 0 and captured workbench/docs/stage-4.5-artifacts/stage-4.5-workbench-reader.png, proving node click opens the right-drawer reader, the reader has no learning queue, summary block, or neighbor section, and a drawer wikilink click navigates to wiki/entities/B.md while keeping one graph node highlighted.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0 after preserving existing offline browser checks.",
+            "Root cause for the initial workbench reader regression failure: GraphReader passed onOpenPage as onWikiLinkSeen, so rendering A auto-opened B when the markdown wikilink was discovered; the callbacks are now split so discovery only focuses the graph and clicking opens the linked page."
+          ],
+          "commit": "5ede374"
         },
         {
           "id": "2.5",
