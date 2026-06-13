@@ -1,10 +1,10 @@
 {
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
-    "phase": "phase-1",
-    "task": "phase-1-acceptance",
+    "phase": "phase-2",
+    "task": "2.1",
     "overall": "in_progress",
-    "next_allowed_action": "Run phase-1 acceptance checks before advancing to phase-2."
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 2.1."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -177,7 +177,7 @@
       "id": "phase-1",
       "title": "Smooth Viewport Navigation",
       "goal": "Make zoom, pan, fit, minimap viewport, and zoom-linked density work in both hosts.",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
         "`npm run test -w @llm-wiki/graph-engine` exits 0.",
         "`bash tests/graph-html-minimap.regression-1.sh` exits 0.",
@@ -185,8 +185,14 @@
         "Browser check at 1440 x 960 proves wheel zoom centers on pointer, blank drag pans, and blank double-click fits.",
         "Dense offline HTML check records 3 seconds of continuous wheel interaction without visual freeze; frame-rate evidence is recorded when tooling supports it."
       ],
-      "evidence": [],
-      "commit": null,
+      "evidence": [
+        "npm run test -w @llm-wiki/graph-engine exited 0 with 125 tests passing.",
+        "bash tests/graph-html-minimap.regression-1.sh exited 0.",
+        "bash tests/graph-html-density.regression-1.sh exited 0.",
+        "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0 and captured workbench/docs/stage-4.5-artifacts/stage-4.5-offline-navigation.png for 1440 x 960 wheel zoom, blank drag pan, and blank double-click fit.",
+        "Dense offline HTML check ran 3 seconds of continuous wheel interaction at 1440 x 960, recorded 179 frames over 3009ms (59.5fps), changed the viewport transform, and captured workbench/docs/stage-4.5-artifacts/stage-4.5-offline-dense-wheel.png plus stage-4.5-offline-dense-wheel.json."
+      ],
+      "commit": "2621b45",
       "tasks": [
         {
           "id": "1.1",
@@ -458,6 +464,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Work unit 1.4 upgraded density to use viewport-scale-aware effective density without changing graph coordinates. Verification passed: npm run test -w @llm-wiki/graph-engine, npm run typecheck -w @llm-wiki/graph-engine, and bash tests/graph-html-density.regression-1.sh."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Phase 1 acceptance passed. Verification passed: npm run test -w @llm-wiki/graph-engine, bash tests/graph-html-minimap.regression-1.sh, bash tests/graph-html-density.regression-1.sh, and bash tests/graph-browser-stage-4-5.regression-1.sh --target offline. Dense wheel evidence recorded 179 frames over 3009ms, 59.5fps."
     }
   ]
 }
