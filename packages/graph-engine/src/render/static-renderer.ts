@@ -15,6 +15,7 @@ import {
   createViewportFrameCommitter,
   fitRendererViewportToPoints,
   panRendererViewport,
+  rendererViewportToMinimapRect,
   viewportAfterWheelZoom,
   type RendererViewport
 } from "./viewport";
@@ -54,6 +55,7 @@ interface PaintedGraphDom {
   communityWashElements: Map<string, SVGEllipseElement>;
   nodeElements: Map<string, HTMLButtonElement>;
   miniNodeElements: Map<string, SVGCircleElement>;
+  miniViewportElement: SVGRectElement | null;
   basePoints: Map<string, { x: number; y: number }>;
   readerElement: HTMLElement | null;
 }
@@ -78,6 +80,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   ensureStaticRendererStyles(container.ownerDocument || document);
   const viewportCommitter = createViewportFrameCommitter(commitViewport, root.ownerDocument.defaultView || undefined);
   let blankPan: { pointerId: number; lastX: number; lastY: number } | null = null;
+  let viewportAnimationTimer: ReturnType<typeof setTimeout> | null = null;
 
   let graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, pathCache });
   let pinState = new PinState(graph, pins);
@@ -268,6 +271,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     root.addEventListener("wheel", (event) => {
       if (!isBlankViewportTarget(event.target)) return;
       event.preventDefault();
+      setViewportAnimating(false);
       const rect = root.getBoundingClientRect();
       viewportCommitter.schedule(viewportAfterWheelZoom(
         viewport,
@@ -282,6 +286,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     root.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || !isBlankViewportTarget(event.target)) return;
       blankPan = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY };
+      setViewportAnimating(false);
       root.dataset.viewportDragging = "true";
       root.setPointerCapture(event.pointerId);
     });
@@ -303,6 +308,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     root.addEventListener("dblclick", (event) => {
       if (!isBlankViewportTarget(event.target)) return;
       event.preventDefault();
+      setViewportAnimating(true);
       viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize()));
     });
   }
@@ -311,6 +317,28 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     viewport = nextViewport;
     root.dataset.viewportScale = String(round(viewport.scale));
     if (dom.contentLayer) applyRendererViewportTransform(dom.contentLayer, viewport);
+    updateMinimapViewport();
+  }
+
+  function updateMinimapViewport(): void {
+    if (!dom.miniViewportElement) return;
+    const rect = rendererViewportToMinimapRect(viewport, viewportSize());
+    dom.miniViewportElement.setAttribute("x", String(round(rect.x)));
+    dom.miniViewportElement.setAttribute("y", String(round(rect.y)));
+    dom.miniViewportElement.setAttribute("width", String(round(rect.width)));
+    dom.miniViewportElement.setAttribute("height", String(round(rect.height)));
+  }
+
+  function setViewportAnimating(enabled: boolean): void {
+    if (viewportAnimationTimer) {
+      clearTimeout(viewportAnimationTimer);
+      viewportAnimationTimer = null;
+    }
+    root.dataset.viewportAnimating = enabled ? "true" : "false";
+    dom.contentLayer?.classList.toggle("is-viewport-animating", enabled);
+    if (enabled) {
+      viewportAnimationTimer = setTimeout(() => setViewportAnimating(false), 240);
+    }
   }
 
   function viewportSize(): { width: number; height: number } {
@@ -554,6 +582,15 @@ function paint(
   miniPath.setAttribute("stroke", "var(--line)");
   miniPath.setAttribute("stroke-width", "1.4");
   miniSvg.appendChild(miniPath);
+  const miniViewport = document.createElementNS(SVG_NS, "rect");
+  miniViewport.setAttribute("class", "mini-map-viewport");
+  miniViewport.setAttribute("data-mini-map-viewport", "true");
+  miniViewport.setAttribute("x", "0");
+  miniViewport.setAttribute("y", "0");
+  miniViewport.setAttribute("width", "160");
+  miniViewport.setAttribute("height", "54");
+  miniSvg.appendChild(miniViewport);
+  painted.miniViewportElement = miniViewport;
   for (const miniNode of graph.minimap.nodes) {
     const circle = document.createElementNS(SVG_NS, "circle");
     circle.setAttribute("cx", String(miniNode.x));
@@ -697,6 +734,7 @@ function emptyPaintedDom(): PaintedGraphDom {
     communityWashElements: new Map(),
     nodeElements: new Map(),
     miniNodeElements: new Map(),
+    miniViewportElement: null,
     basePoints: new Map(),
     readerElement: null
   };
@@ -754,6 +792,9 @@ const STATIC_RENDERER_CSS = `
   z-index: 2;
   transform-origin: 0 0;
   will-change: transform;
+}
+.graph-content-layer.is-viewport-animating {
+  transition: transform .2s ease-out;
 }
 .llm-wiki-graph-svg {
   position: absolute;
@@ -1022,6 +1063,13 @@ const STATIC_RENDERER_CSS = `
 .mini-map .is-selected {
   stroke: var(--cinnabar);
   stroke-width: 1.5;
+}
+.mini-map-viewport {
+  fill: color-mix(in srgb, var(--cinnabar) 7%, transparent);
+  stroke: color-mix(in srgb, var(--cinnabar) 78%, transparent);
+  stroke-width: 1.2;
+  rx: 3;
+  pointer-events: none;
 }
 .graph-reader {
   position: absolute;

@@ -6,6 +6,7 @@ import {
   fitRendererViewportToPoints,
   normalizeWheelDelta,
   panRendererViewport,
+  rendererViewportToMinimapRect,
   rendererViewportToTransform,
   viewportAfterWheelZoom
 } from "../src/render";
@@ -86,6 +87,18 @@ describe("renderer viewport state", () => {
     assert.ok(fitted.scale >= 0.5);
     assert.ok(fitted.scale <= 4);
     assert.notDeepEqual(fitted, { x: 0, y: 0, scale: 1 });
+  });
+
+  it("maps the current viewport to a minimap rectangle", () => {
+    const rect = rendererViewportToMinimapRect(
+      { x: -250, y: -170, scale: 2 },
+      { width: 1000, height: 680 }
+    );
+
+    assert.ok(rect.x > 0);
+    assert.ok(rect.y > 0);
+    assert.ok(rect.width > 2);
+    assert.ok(rect.height > 2);
   });
 
   it("coalesces viewport writes to one requestAnimationFrame callback", () => {

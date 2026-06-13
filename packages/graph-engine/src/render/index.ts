@@ -29,6 +29,7 @@ export {
   normalizeRendererViewport,
   normalizeWheelDelta,
   panRendererViewport,
+  rendererViewportToMinimapRect,
   rendererViewportToTransform,
   viewportAfterWheelZoom
 } from "./viewport";
