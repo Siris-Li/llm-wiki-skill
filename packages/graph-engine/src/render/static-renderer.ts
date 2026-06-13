@@ -1699,7 +1699,7 @@ const STATIC_RENDERER_CSS = `
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cinnabar) 13%, transparent);
 }
 .node-kind {
-  display: block;
+  display: none;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 10px;
@@ -1709,7 +1709,7 @@ const STATIC_RENDERER_CSS = `
 .node-name {
   display: block;
   max-width: 146px;
-  margin-top: 3px;
+  margin-top: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1719,12 +1719,24 @@ const STATIC_RENDERER_CSS = `
   line-height: 1.25;
 }
 .node-meta {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 6px;
   margin-top: 6px;
   color: var(--faint);
   font-size: 11px;
+}
+.node:hover .node-kind,
+.node[aria-pressed="true"] .node-kind {
+  display: block;
+}
+.node:hover .node-name,
+.node[aria-pressed="true"] .node-name {
+  margin-top: 3px;
+}
+.node:hover .node-meta,
+.node[aria-pressed="true"] .node-meta {
+  display: flex;
 }
 .spark {
   width: 5px;
