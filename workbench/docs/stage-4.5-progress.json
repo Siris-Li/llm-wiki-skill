@@ -2,9 +2,9 @@
   "plan": "workbench/docs/stage-4.5-plan.md",
   "status": {
     "phase": "phase-5",
-    "task": "5.3",
+    "task": "5.4",
     "overall": "in_progress",
-    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 5.3."
+    "next_allowed_action": "Run git log --oneline -15 and npm run test -w @llm-wiki/graph-engine before implementing work unit 5.4."
   },
   "execution_rules": {
     "branch": "codex/feat-stage-4-5-graph-usability",
@@ -557,9 +557,20 @@
         {
           "id": "5.3",
           "title": "Run full project verification.",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "npm run test -w @llm-wiki/graph-engine exited 0 with 138 tests passing before full verification.",
+            "npm run typecheck exited 0.",
+            "npm run build -w @llm-wiki-agent/web exited 0 with only the existing Vite chunk-size warning.",
+            "node --import tsx --test workbench/web/test/*.test.ts exited 0 with 9 tests passing.",
+            "node --import tsx --test workbench/server/src/*.test.ts workbench/server/src/digest/*.test.ts exited 0 with 19 tests passing.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target workbench exited 0.",
+            "bash tests/graph-browser-stage-4-5.regression-1.sh --target offline exited 0.",
+            "bash tests/regression.sh exited 0 with All regression checks passed after replacing an unstable minified-code a11y assertion with a source-level clearInteractionState check.",
+            "bash install.sh --dry-run --platform codex exited 0.",
+            "Privacy scan command `if grep -r '/Users/kangjiaqi\\|康佳琦' scripts/ templates/ tests/ SKILL.md; then exit 1; else exit 0; fi` exited 0."
+          ],
+          "commit": "a130643"
         },
         {
           "id": "5.4",
@@ -656,6 +667,10 @@
     {
       "timestamp": "2026-06-13",
       "entry": "Work unit 5.2 verified workbench themes and responsive behavior. Browser regression now checks 1440 x 960, 768 x 1024, and 390 x 844 in light/shan-shui and dark/mo-ye themes, covering navigation, reader drawer, selection drawer, search, legend hover, and hover preview. A real mobile hover-preview overflow was fixed by clamping preview placement inside the graph viewport. Verification passed: graph-engine tests/typecheck/build, web build, offline/workbench stage 4.5 browser regressions, long-label regression, and density regression."
+    },
+    {
+      "timestamp": "2026-06-13",
+      "entry": "Work unit 5.3 ran full project verification. Initial full regression failed because graph-html-a11y was asserting a stale minified renderer snippet; reader close now uses the shared clearInteractionState path and the regression checks that stable source contract. Verification passed: graph-engine tests, npm run typecheck, web build, workbench web tests, workbench server tests, offline/workbench browser regressions, full tests/regression.sh, Codex install dry-run, and privacy scan."
     }
   ]
 }
