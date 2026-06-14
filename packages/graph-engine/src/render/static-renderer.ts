@@ -57,6 +57,7 @@ interface StaticRendererOptions {
   theme: ThemeId;
   onOpenPage?: (payload: GraphOpenPagePayload) => void;
   onSelectionChange?: (selection: SelectionInput) => void;
+  onSelectionClear?: () => void;
   persistPins?: (pins: PinMap) => Promise<void>;
   onDragStateChange?: (dragging: boolean) => void;
   toolbarContainer?: HTMLElement | null;
@@ -135,6 +136,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   root.tabIndex = 0;
   container.replaceChildren(root);
   const toolbarContainer = options.toolbarContainer || root;
+  const hasExternalToolbarContainer = toolbarContainer !== root;
   ensureStaticRendererStyles(container.ownerDocument || document);
   const ownerDocument = container.ownerDocument || document;
   let legendCollapsed = readLegendCollapsed(ownerDocument);
@@ -159,7 +161,12 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       return;
     }
     if (event.key !== "Escape" || !hasInteractionState()) return;
+    event.preventDefault();
     event.stopPropagation();
+    if (focus) {
+      resetViewState();
+      return;
+    }
     clearInteractionState();
   };
   ownerDocument.addEventListener("keydown", handleDocumentKeydown);
@@ -318,7 +325,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       if (viewportAnimationTimer) clearTimeout(viewportAnimationTimer);
       pathCache.clear();
       root.remove();
-      if (toolbarContainer !== root && dom.toolbarElement && toolbarContainer.contains(dom.toolbarElement)) {
+      if (hasExternalToolbarContainer && dom.toolbarElement && toolbarContainer.contains(dom.toolbarElement)) {
         toolbarContainer.replaceChildren();
       }
     }
@@ -341,7 +348,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       previewTimer = null;
     }
     delete root.dataset.focus;
-    render({ selectedNodeId: null, selection: null });
+    options.onSelectionClear?.();
+    render({ selectedNodeId: null, selection: null, focus: null });
   }
 
   function hasInteractionState(): boolean {
@@ -350,7 +358,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function isGraphFocusActive(): boolean {
     const active = ownerDocument.activeElement;
-    return active === root || Boolean(active && root.contains(active));
+    if (active === root || Boolean(active && root.contains(active))) return true;
+    return !isTextEditingElement(active);
   }
 
   function openSearch(): void {
@@ -467,7 +476,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (dom.legendElement) toolbar.filtersPanel.appendChild(dom.legendElement);
     dom.toolbarElement = toolbar.element;
     dom.toolbarPanelElement = toolbar.panel;
-    toolbarContainer.replaceChildren(toolbar.element);
+    if (hasExternalToolbarContainer) {
+      toolbarContainer.replaceChildren(toolbar.element);
+    } else {
+      root.prepend(toolbar.element);
+    }
     root.dataset.toolbarPanel = toolbarPanelState;
     root.dataset.toolbarOpen = toolbarPanelState === "closed" ? "false" : "true";
     toolbarContainer.dataset.toolbarPanel = toolbarPanelState;
@@ -511,10 +524,22 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     hoveredCommunityId = null;
     previewNodeId = null;
     delete root.dataset.focus;
-    options.onSelectionChange?.({ kind: "nodes", ids: [] });
+    options.onSelectionClear?.();
     render({ selectedNodeId: null, selection: null, focus: null });
     setViewportAnimating(true);
     viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize()));
+  }
+
+  function retreatFocusedView(): void {
+    manualNodeIds = [];
+    selection = null;
+    selectedNodeId = null;
+    searchFocusedNodeId = null;
+    hoveredCommunityId = null;
+    previewNodeId = null;
+    delete root.dataset.focus;
+    options.onSelectionClear?.();
+    render({ selectedNodeId: null, selection: null, focus });
   }
 
   function applyCommunityHover(): void {
@@ -625,6 +650,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         closeToolbarPanel();
         return;
       }
+      if (focus) {
+        event.preventDefault();
+        retreatFocusedView();
+        return;
+      }
       root.focus({ preventScroll: true });
       blankPan = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY };
       setViewportAnimating(false);
@@ -649,8 +679,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     root.addEventListener("dblclick", (event) => {
       if (!isBlankViewportTarget(event.target)) return;
       event.preventDefault();
-      setViewportAnimating(true);
-      viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize()));
+      resetViewState();
     });
   }
 
@@ -1323,6 +1352,18 @@ function isBlankViewportTarget(target: EventTarget | null): boolean {
   const element = target instanceof Element ? target : null;
   if (!element) return false;
   return !element.closest(".node, .mini-map, .graph-reader, .graph-search, .graph-toolbar, .community-legend, .community-wash");
+}
+
+function isTextEditingElement(element: Element | null): boolean {
+  if (!element) return false;
+  const tagName = element.tagName.toLowerCase();
+  if (tagName === "textarea") return true;
+  if (tagName === "input") {
+    const input = element as HTMLInputElement;
+    const type = input.type.toLowerCase();
+    return !["button", "checkbox", "radio", "range", "submit", "reset"].includes(type);
+  }
+  return element instanceof HTMLElement && element.isContentEditable;
 }
 
 function createGraphToolbar(

@@ -329,14 +329,24 @@ async function assertOfflineSelectionPanel(page, expectedMode) {
 }
 
 async function openToolbarFilters(page) {
-  await page.getByRole("button", { name: "筛选" }).click();
+  const state = await page.locator("[data-llm-wiki-graph-root='true']").evaluate((element) => element.dataset.toolbarPanel || "");
+  if (state !== "filters") {
+    await page.getByRole("button", { name: "筛选" }).click();
+  }
   await waitForToolbarPanel(page, "filters");
   await page.waitForSelector('.graph-toolbar-panel[data-state="filters"] .community-legend-row');
 }
 
 async function closeToolbarWithBlankClick(page) {
   const root = page.locator("[data-llm-wiki-graph-root='true']");
-  await root.click({ position: { x: 24, y: 96 } });
+  await root.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 1,
+    clientX: 32,
+    clientY: 128,
+    bubbles: true,
+    cancelable: true
+  });
 }
 
 async function waitForToolbarPanel(page, state) {

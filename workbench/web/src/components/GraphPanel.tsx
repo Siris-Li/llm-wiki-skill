@@ -279,6 +279,7 @@ export function GraphPanel({
 			capabilities: {
 				onOpenPage: (payload) => onOpenPageRef.current?.(payload),
 				onSelectionChange: (nextSelection) => onSelectionChangeRef.current?.(nextSelection),
+				onSelectionClear: () => onSelectionChangeRef.current?.(null),
 				onAsk: (nextSelection) => onSelectionChangeRef.current?.(nextSelection),
 				persistPins,
 				onDragStateChange: (dragging) => {

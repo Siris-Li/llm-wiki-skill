@@ -46,6 +46,7 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
         }
       : undefined,
     persistPins: options.capabilities?.persistPins,
+    onSelectionClear: options.capabilities?.onSelectionClear,
     onDragStateChange: options.capabilities?.onDragStateChange
   });
 

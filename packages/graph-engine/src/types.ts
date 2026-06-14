@@ -282,6 +282,7 @@ export interface GraphEngineCapabilities {
   onAsk?: (selection: Selection) => void;
   onOpenPage?: (payload: GraphOpenPagePayload) => void;
   onSelectionChange?: (selection: Selection) => void;
+  onSelectionClear?: () => void;
   onDragStateChange?: (dragging: boolean) => void;
 }
 
