@@ -129,6 +129,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
   let hoveredCommunityId: string | null = null;
   let previewNodeId: NodeId | null = null;
+  let previewEdgeId: string | null = null;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
   const pathCache = createRenderPathCache();
   const root = document.createElement("div");
@@ -251,6 +252,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       onNodePreviewEnter: (id) => {
         scheduleHoverPreview(id);
       },
+      onEdgePreviewEnter: (id) => {
+        showEdgeHoverPreview(id);
+      },
       onNodePreviewLeave: () => {
         clearHoverPreview();
       }
@@ -345,6 +349,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     searchFocusedNodeId = null;
     hoveredCommunityId = null;
     previewNodeId = null;
+    previewEdgeId = null;
     if (previewTimer) {
       clearTimeout(previewTimer);
       previewTimer = null;
@@ -529,6 +534,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     searchFocusedNodeId = null;
     hoveredCommunityId = null;
     previewNodeId = null;
+    previewEdgeId = null;
     delete root.dataset.focus;
     options.onSelectionClear?.();
     render({ selectedNodeId: null, selection: null, focus: null });
@@ -543,6 +549,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     searchFocusedNodeId = null;
     hoveredCommunityId = null;
     previewNodeId = null;
+    previewEdgeId = null;
     delete root.dataset.focus;
     options.onSelectionClear?.();
     render({ selectedNodeId: null, selection: null, focus });
@@ -713,7 +720,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function renderMotionOverlays(): void {
     if (dom.readerElement?.dataset.state === "open") renderReader();
     if (dom.selectionElement?.dataset.state === "open") renderSelectionPanel();
-    if (previewNodeId || dom.previewElement?.dataset.state === "open") renderHoverPreview();
+    if (previewNodeId || previewEdgeId || dom.previewElement?.dataset.state === "open") renderHoverPreview();
   }
 
   function updateMinimapViewport(): void {
@@ -963,8 +970,19 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     previewTimer = setTimeout(() => {
       previewTimer = null;
       previewNodeId = id;
+      previewEdgeId = null;
       renderHoverPreview();
     }, 300);
+  }
+
+  function showEdgeHoverPreview(id: string): void {
+    if (previewTimer) {
+      clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    previewNodeId = null;
+    previewEdgeId = id;
+    renderHoverPreview();
   }
 
   function clearHoverPreview(): void {
@@ -972,17 +990,26 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       clearTimeout(previewTimer);
       previewTimer = null;
     }
-    if (!previewNodeId) return;
+    if (!previewNodeId && !previewEdgeId) return;
     previewNodeId = null;
+    previewEdgeId = null;
     renderHoverPreview();
   }
 
   function renderHoverPreview(): void {
     const preview = dom.previewElement;
     if (!preview) return;
+    const edge = previewEdgeId ? graph.edges.find((item) => item.id === previewEdgeId) : null;
     const rawNode = previewNodeId ? data.nodes.find((node) => node.id === previewNodeId) : null;
     const renderedNode = previewNodeId ? graph.nodes.find((node) => node.id === previewNodeId) : null;
     preview.replaceChildren();
+    preview.dataset.kind = edge ? "edge" : "node";
+    if (edge) {
+      preview.dataset.state = "open";
+      preview.append(createEdgeHoverPreviewContent(edge.relationType, edge.confidence));
+      positionEdgeHoverPreview(preview, edge);
+      return;
+    }
     preview.dataset.state = rawNode && renderedNode ? "open" : "closed";
     if (!rawNode || !renderedNode) return;
     const content = buildHoverPreview(rawNode);
@@ -1005,6 +1032,26 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     preview.style.left = `${left}px`;
     preview.style.top = `${top}px`;
   }
+
+  function positionEdgeHoverPreview(preview: HTMLElement, edge: RenderableGraph["edges"][number]): void {
+    const rootRect = root.getBoundingClientRect();
+    const previewRect = preview.getBoundingClientRect();
+    const source = graph.nodes.find((node) => node.id === edge.source);
+    const target = graph.nodes.find((node) => node.id === edge.target);
+    const margin = 12;
+    const sourceX = source ? rootRect.width * source.x / 100 : rootRect.width / 2;
+    const sourceY = source ? rootRect.height * source.y / 100 : rootRect.height / 2;
+    const targetX = target ? rootRect.width * target.x / 100 : rootRect.width / 2;
+    const targetY = target ? rootRect.height * target.y / 100 : rootRect.height / 2;
+    const midX = (sourceX + targetX) / 2;
+    const midY = (sourceY + targetY) / 2;
+    const maxLeft = Math.max(margin, rootRect.width - previewRect.width - margin);
+    const maxTop = Math.max(margin, rootRect.height - previewRect.height - margin);
+    const left = clamp(midX + 16, margin, maxLeft);
+    const top = clamp(midY - previewRect.height - 16, margin, maxTop);
+    preview.style.left = `${left}px`;
+    preview.style.top = `${top}px`;
+  }
 }
 
 interface DragHandlers {
@@ -1015,6 +1062,7 @@ interface DragHandlers {
   onDragEnd: (id: string, event: PointerEvent) => void;
   onNodeDoubleClick: (id: string) => boolean;
   onNodePreviewEnter: (id: NodeId) => void;
+  onEdgePreviewEnter: (id: string) => void;
   onNodePreviewLeave: () => void;
 }
 
@@ -1075,6 +1123,11 @@ function paint(
     path.setAttribute("data-confidence", edge.confidence);
     path.setAttribute("data-relation-type", edge.relationType);
     path.setAttribute("aria-label", `${edge.relationType} · ${edgeConfidenceLabel(edge.confidence)}`);
+    path.setAttribute("tabindex", "0");
+    path.addEventListener("pointerenter", () => dragHandlers.onEdgePreviewEnter(edge.id));
+    path.addEventListener("pointerleave", () => dragHandlers.onNodePreviewLeave());
+    path.addEventListener("focus", () => dragHandlers.onEdgePreviewEnter(edge.id));
+    path.addEventListener("blur", () => dragHandlers.onNodePreviewLeave());
     path.style.strokeWidth = String(edge.strokeWidth);
     path.style.opacity = String(edge.opacity);
     const title = document.createElementNS(SVG_NS, "title");
@@ -1168,6 +1221,22 @@ function createHoverPreviewContent(preview: GraphHoverPreview): HTMLElement {
     summary.textContent = preview.summary;
     article.appendChild(summary);
   }
+  return article;
+}
+
+function createEdgeHoverPreviewContent(relationType: string, confidence: string): HTMLElement {
+  const article = document.createElement("article");
+  article.className = "graph-hover-preview-card graph-edge-hover-card";
+  const type = document.createElement("div");
+  type.className = "graph-hover-preview-type";
+  type.textContent = "关系";
+  const title = document.createElement("div");
+  title.className = "graph-hover-preview-title";
+  title.textContent = relationType;
+  const summary = document.createElement("p");
+  summary.className = "graph-hover-preview-summary";
+  summary.textContent = `置信度：${edgeConfidenceLabel(confidence)}`;
+  article.append(type, title, summary);
   return article;
 }
 
@@ -1430,10 +1499,69 @@ function createGraphToolbar(
   legendTitle.className = "graph-toolbar-section-title";
   legendTitle.textContent = "边";
   legendPanel.appendChild(legendTitle);
+  legendPanel.appendChild(createEdgeLegend(ownerDocument));
 
   panel.append(filtersPanel, legendPanel);
   element.append(actions, panel);
   return { element, panel, filtersPanel };
+}
+
+function createEdgeLegend(ownerDocument: Document): HTMLElement {
+  const legend = ownerDocument.createElement("div");
+  legend.className = "graph-edge-legend";
+  const relations = ownerDocument.createElement("div");
+  relations.className = "graph-edge-legend-group";
+  relations.appendChild(createEdgeLegendHeading(ownerDocument, "关系类型"));
+  for (const item of [
+    { label: "实现 / 依赖 / 衍生", className: "relation-dependency" },
+    { label: "对比", className: "relation-contrast" },
+    { label: "矛盾", className: "relation-conflict" }
+  ]) {
+    relations.appendChild(createEdgeLegendRelation(ownerDocument, item.label, item.className));
+  }
+
+  const confidences = ownerDocument.createElement("div");
+  confidences.className = "graph-edge-legend-group";
+  confidences.appendChild(createEdgeLegendHeading(ownerDocument, "置信度"));
+  for (const item of [
+    { label: "原文", className: "confidence-extracted" },
+    { label: "推断", className: "confidence-inferred" },
+    { label: "待确认", className: "confidence-ambiguous" }
+  ]) {
+    confidences.appendChild(createEdgeLegendConfidence(ownerDocument, item.label, item.className));
+  }
+
+  legend.append(relations, confidences);
+  return legend;
+}
+
+function createEdgeLegendHeading(ownerDocument: Document, text: string): HTMLElement {
+  const heading = ownerDocument.createElement("div");
+  heading.className = "graph-edge-legend-heading";
+  heading.textContent = text;
+  return heading;
+}
+
+function createEdgeLegendRelation(ownerDocument: Document, label: string, className: string): HTMLElement {
+  const row = ownerDocument.createElement("div");
+  row.className = `graph-edge-legend-row graph-edge-legend-relation ${className}`;
+  const swatch = ownerDocument.createElement("span");
+  swatch.className = "graph-edge-legend-swatch";
+  const text = ownerDocument.createElement("span");
+  text.textContent = label;
+  row.append(swatch, text);
+  return row;
+}
+
+function createEdgeLegendConfidence(ownerDocument: Document, label: string, className: string): HTMLElement {
+  const row = ownerDocument.createElement("div");
+  row.className = `graph-edge-legend-row graph-edge-legend-confidence ${className}`;
+  const line = ownerDocument.createElement("span");
+  line.className = "graph-edge-legend-line";
+  const text = ownerDocument.createElement("span");
+  text.textContent = label;
+  row.append(line, text);
+  return row;
 }
 
 function createTypeFilterGroup(
@@ -1833,6 +1961,57 @@ const STATIC_RENDERER_CSS = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.graph-edge-legend {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+.graph-edge-legend-group {
+  display: grid;
+  gap: 7px;
+}
+.graph-edge-legend-heading {
+  color: var(--muted);
+  font: 11px/1.2 var(--font-ui);
+}
+.graph-edge-legend-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  color: var(--ink);
+  font: 12px/1.2 var(--font-ui);
+}
+.graph-edge-legend-swatch,
+.graph-edge-legend-line {
+  display: block;
+  width: 34px;
+  height: 0;
+  border-top: 2px solid color-mix(in srgb, var(--night) 66%, transparent);
+}
+.graph-edge-legend-relation.relation-contrast .graph-edge-legend-swatch {
+  border-top-color: color-mix(in srgb, var(--amber) 82%, transparent);
+}
+.graph-edge-legend-relation.relation-conflict .graph-edge-legend-swatch {
+  border-top-color: color-mix(in srgb, #d94693 78%, transparent);
+}
+.graph-edge-legend-confidence.confidence-inferred .graph-edge-legend-line {
+  border-top-style: dashed;
+}
+.graph-edge-legend-confidence.confidence-ambiguous .graph-edge-legend-line {
+  border-top-style: dotted;
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-edge-legend-swatch,
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-edge-legend-line {
+  border-top-color: color-mix(in srgb, var(--line) 70%, transparent);
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-edge-legend-relation.relation-contrast .graph-edge-legend-swatch {
+  border-top-color: color-mix(in srgb, var(--amber) 76%, transparent);
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-edge-legend-relation.relation-conflict .graph-edge-legend-swatch {
+  border-top-color: color-mix(in srgb, #f472b6 78%, transparent);
+}
 .community-legend {
   width: 100%;
   border: 0;
@@ -2038,6 +2217,7 @@ const STATIC_RENDERER_CSS = `
   fill: none;
   stroke-linecap: round;
   opacity: .74;
+  pointer-events: stroke;
 }
 .edge.is-diff-added {
   stroke-dasharray: var(--diff-edge-length, 180);
@@ -2092,6 +2272,7 @@ const STATIC_RENDERER_CSS = `
   position: absolute;
   inset: 0;
   z-index: 3;
+  pointer-events: none;
 }
 .graph-hover-preview {
   position: absolute;
@@ -2145,6 +2326,7 @@ const STATIC_RENDERER_CSS = `
 .node {
   position: absolute;
   z-index: 3;
+  pointer-events: auto;
   min-height: 46px;
   max-width: 178px;
   padding: 8px 11px;

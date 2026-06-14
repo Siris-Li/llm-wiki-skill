@@ -283,6 +283,7 @@ async function runLegendChecks(page, options) {
   await waitForToolbarPanel(page, "closed");
   await openToolbarFilters(page);
   await runTypeFilterChecks(page);
+  await runEdgeLegendChecks(page);
   const row = page.locator(".community-legend-row").first();
   await row.hover();
   await page.waitForSelector('.node[data-community-state="faded"]');
@@ -317,6 +318,39 @@ async function runLegendChecks(page, options) {
   } else {
     await assertOfflineSelectionPanel(page, "community");
   }
+}
+
+async function runEdgeLegendChecks(page) {
+  await page.getByRole("button", { name: "图例" }).click();
+  await waitForToolbarPanel(page, "legend");
+  await page.locator(".graph-edge-legend").waitFor();
+  await page.locator(".graph-edge-legend-relation", { hasText: "矛盾" }).waitFor();
+  await page.locator(".graph-edge-legend-confidence", { hasText: "推断" }).waitFor();
+  await hoverFirstEdgeMidpoint(page);
+  await page.waitForSelector(".graph-hover-preview[data-state='open'][data-kind='edge']");
+  const preview = page.locator(".graph-hover-preview");
+  await preview.locator(".graph-hover-preview-type", { hasText: "关系" }).waitFor();
+  await preview.locator(".graph-hover-preview-title").waitFor();
+  await assertBoxInsideViewport(page, ".graph-hover-preview", "edge relation hover preview should stay inside viewport");
+  await page.getByRole("button", { name: "筛选" }).click();
+  await waitForToolbarPanel(page, "filters");
+}
+
+async function hoverFirstEdgeMidpoint(page) {
+  const point = await page.locator(".edge").first().evaluate((edge) => {
+    if (!(edge instanceof SVGPathElement)) throw new Error("edge should be an SVG path");
+    const svg = edge.ownerSVGElement;
+    if (!svg) throw new Error("edge should have an owner SVG");
+    const length = edge.getTotalLength();
+    const mid = edge.getPointAtLength(length / 2);
+    const rect = svg.getBoundingClientRect();
+    const viewBox = svg.viewBox.baseVal;
+    return {
+      x: rect.left + (mid.x - viewBox.x) / viewBox.width * rect.width,
+      y: rect.top + (mid.y - viewBox.y) / viewBox.height * rect.height
+    };
+  });
+  await page.mouse.move(point.x, point.y);
 }
 
 async function runTypeFilterChecks(page) {
