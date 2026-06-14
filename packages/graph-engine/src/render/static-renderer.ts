@@ -125,6 +125,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let searchFocusedNodeId: NodeId | null = null;
   let focus: GraphFocusInput = options.focus || null;
   let typeFilters: GraphTypeFilters = options.typeFilters || {};
+  let availableTypeFilters: GraphTypeFilters = {};
   let searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
   let hoveredCommunityId: string | null = null;
   let previewNodeId: NodeId | null = null;
@@ -189,6 +190,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (Object.hasOwn(next, "selectedNodeId")) selectedNodeId = next.selectedNodeId || null;
     if (Object.hasOwn(next, "selection")) selection = next.selection || null;
     graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, focus, typeFilters, pathCache });
+    availableTypeFilters = graph.typeFilters;
     searchIndex = undefined;
     pinState = new PinState(graph, pins);
     applyTheme(root, theme);
@@ -464,10 +466,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     mountCommunityLegend();
     const toolbar = createGraphToolbar(ownerDocument, {
       panelState: toolbarPanelState,
+      typeFilters: graph.typeFilters,
       onPanelToggle: (panel) => {
         toolbarPanelState = nextToolbarPanelState(toolbarPanelState, panel);
         writeToolbarPanelState(ownerDocument.defaultView?.localStorage, toolbarPanelState);
         render();
+      },
+      onTypeFilterToggle: (type, enabled) => {
+        render({ typeFilters: { ...availableTypeFilters, [type]: enabled } });
       },
       onReset: () => {
         resetViewState();
@@ -1370,7 +1376,9 @@ function createGraphToolbar(
   ownerDocument: Document,
   options: {
     panelState: GraphToolbarPanelState;
+    typeFilters: GraphTypeFilters;
     onPanelToggle: (panel: Exclude<GraphToolbarPanelState, "closed">) => void;
+    onTypeFilterToggle: (type: string, enabled: boolean) => void;
     onReset: () => void;
   }
 ): { element: HTMLElement; panel: HTMLElement; filtersPanel: HTMLElement } {
@@ -1395,6 +1403,7 @@ function createGraphToolbar(
   panel.dataset.state = options.panelState;
   const filtersPanel = ownerDocument.createElement("div");
   filtersPanel.className = "graph-toolbar-section graph-toolbar-filters";
+  filtersPanel.appendChild(createTypeFilterGroup(ownerDocument, options.typeFilters, options.onTypeFilterToggle));
 
   const legendPanel = ownerDocument.createElement("div");
   legendPanel.className = "graph-toolbar-section graph-toolbar-legend";
@@ -1406,6 +1415,51 @@ function createGraphToolbar(
   panel.append(filtersPanel, legendPanel);
   element.append(actions, panel);
   return { element, panel, filtersPanel };
+}
+
+function createTypeFilterGroup(
+  ownerDocument: Document,
+  typeFilters: GraphTypeFilters,
+  onToggle: (type: string, enabled: boolean) => void
+): HTMLElement {
+  const group = ownerDocument.createElement("fieldset");
+  group.className = "graph-type-filter";
+  const title = ownerDocument.createElement("legend");
+  title.className = "graph-toolbar-section-title";
+  title.textContent = "类型筛选";
+  group.appendChild(title);
+
+  for (const type of orderedGraphNodeTypes(typeFilters)) {
+    const label = ownerDocument.createElement("label");
+    label.className = "graph-type-filter-option";
+    const input = ownerDocument.createElement("input");
+    input.type = "checkbox";
+    input.checked = typeFilters[type] !== false;
+    input.dataset.type = type;
+    input.addEventListener("change", () => onToggle(type, input.checked));
+    const text = ownerDocument.createElement("span");
+    text.textContent = graphNodeTypeLabel(type);
+    label.append(input, text);
+    group.appendChild(label);
+  }
+
+  return group;
+}
+
+function orderedGraphNodeTypes(typeFilters: GraphTypeFilters): string[] {
+  const preferred = ["entity", "topic", "source"];
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const type of preferred) {
+    if (Object.hasOwn(typeFilters, type)) {
+      ordered.push(type);
+      seen.add(type);
+    }
+  }
+  for (const type of Object.keys(typeFilters).sort()) {
+    if (!seen.has(type)) ordered.push(type);
+  }
+  return ordered;
 }
 
 function createToolbarButton(ownerDocument: Document, label: string, active: boolean): HTMLButtonElement {
@@ -1722,6 +1776,43 @@ const STATIC_RENDERER_CSS = `
   padding: 10px 12px;
   color: var(--muted);
   font: 12px/1.3 var(--font-ui);
+}
+.graph-type-filter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 52%, transparent);
+  padding: 0 10px 10px;
+}
+.graph-type-filter .graph-toolbar-section-title {
+  grid-column: 1 / -1;
+  padding: 10px 2px 2px;
+}
+.graph-type-filter-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--rule) 52%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 48%, transparent);
+  padding: 0 8px;
+  color: var(--ink);
+  font: 12px/1.2 var(--font-ui);
+  cursor: pointer;
+}
+.graph-type-filter-option input {
+  margin: 0;
+  accent-color: var(--cinnabar);
+}
+.graph-type-filter-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .community-legend {
   width: 100%;

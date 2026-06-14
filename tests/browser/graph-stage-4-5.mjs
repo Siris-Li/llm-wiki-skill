@@ -281,6 +281,7 @@ async function waitForSearchState(page, state) {
 async function runLegendChecks(page, options) {
   await waitForToolbarPanel(page, "closed");
   await openToolbarFilters(page);
+  await runTypeFilterChecks(page);
   const row = page.locator(".community-legend-row").first();
   await row.hover();
   await page.waitForSelector('.node[data-community-state="faded"]');
@@ -312,6 +313,30 @@ async function runLegendChecks(page, options) {
   } else {
     await assertOfflineSelectionPanel(page, "community");
   }
+}
+
+async function runTypeFilterChecks(page) {
+  const option = page.locator(".graph-type-filter-option").first();
+  await option.waitFor();
+  const type = await option.locator("input").evaluate((input) => input.dataset.type || "");
+  assert.notEqual(type, "", "type filter option should publish its graph node type");
+  const toggle = option.locator("input");
+  const selector = `.node[data-type="${cssString(type)}"]`;
+  const initialTypeNodes = await page.locator(selector).count();
+  const initialNodes = await page.locator(".node").count();
+  await toggle.uncheck();
+  await page.waitForFunction((selector) => document.querySelectorAll(selector).length === 0, selector);
+  const filteredNodes = await page.locator(".node").count();
+  assert.ok(filteredNodes < initialNodes, "turning off a node type should reduce visible graph nodes");
+  await toggle.check();
+  await page.waitForFunction(
+    ({ selector, initialTypeNodes }) => document.querySelectorAll(selector).length === initialTypeNodes,
+    { selector, initialTypeNodes }
+  );
+}
+
+function cssString(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 async function assertOfflineSelectionPanel(page, expectedMode) {
