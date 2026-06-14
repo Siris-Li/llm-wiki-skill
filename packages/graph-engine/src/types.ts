@@ -254,6 +254,12 @@ export type SelectionInput =
   | { kind: "neighbors"; id: NodeId }
   | { kind: "nodes"; ids: NodeId[] };
 
+export type GraphFocusInput =
+  | { kind: "community"; id: CommunityId }
+  | null;
+
+export type GraphTypeFilters = Record<GraphNodeType, boolean>;
+
 export interface GraphOpenPageNode {
   id: NodeId;
   title: string;
@@ -283,6 +289,8 @@ export interface GraphEngineOptions {
   data: GraphData;
   pins?: PinMap;
   theme: ThemeId;
+  focus?: GraphFocusInput;
+  typeFilters?: GraphTypeFilters;
   toolbarContainer?: HTMLElement | null;
   capabilities?: GraphEngineCapabilities;
 }
@@ -291,6 +299,9 @@ export interface GraphEngine {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
   focusNode(path: WikiPath): void;
+  focusCommunity(id: CommunityId): Selection;
+  setTypeFilters(filters: GraphTypeFilters): void;
+  resetView(): void;
   select(selector: SelectionInput): Selection;
   clearInteraction(): void;
   setTheme(theme: ThemeId): void;

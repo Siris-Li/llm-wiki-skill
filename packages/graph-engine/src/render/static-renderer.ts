@@ -1,5 +1,7 @@
 import type {
   CommunityId,
+  GraphFocusInput,
+  GraphTypeFilters,
   GraphData,
   GraphDiff,
   GraphNode,
@@ -58,6 +60,8 @@ interface StaticRendererOptions {
   persistPins?: (pins: PinMap) => Promise<void>;
   onDragStateChange?: (dragging: boolean) => void;
   toolbarContainer?: HTMLElement | null;
+  focus?: GraphFocusInput;
+  typeFilters?: GraphTypeFilters;
   live?: boolean;
 }
 
@@ -70,6 +74,9 @@ export interface StaticGraphRenderer {
   setTheme(theme: ThemeId): void;
   setPins(pins: PinMap): void;
   focusNode(pathOrId: WikiPath): void;
+  focusCommunity(id: CommunityId): void;
+  setTypeFilters(filters: GraphTypeFilters): void;
+  resetView(): void;
   select(selection: SelectionInput): void;
   clearInteraction(): void;
   resetLayout(): void;
@@ -115,6 +122,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let searchOpen = false;
   let searchQuery = "";
   let searchFocusedNodeId: NodeId | null = null;
+  let focus: GraphFocusInput = options.focus || null;
+  let typeFilters: GraphTypeFilters = options.typeFilters || {};
   let searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
   let hoveredCommunityId: string | null = null;
   let previewNodeId: NodeId | null = null;
@@ -159,7 +168,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let viewportAnimationTimer: ReturnType<typeof setTimeout> | null = null;
   let lastEffectiveDensityMode: DensityMode | null = null;
 
-  let graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, pathCache });
+  let graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, focus, typeFilters, pathCache });
   let pinState = new PinState(graph, pins);
   bindViewportHandlers();
 
@@ -168,9 +177,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     data = next.data || data;
     pins = next.pins || pins;
     theme = next.theme || theme;
+    if (Object.hasOwn(next, "focus")) focus = next.focus || null;
+    if (Object.hasOwn(next, "typeFilters")) typeFilters = next.typeFilters || {};
     if (Object.hasOwn(next, "selectedNodeId")) selectedNodeId = next.selectedNodeId || null;
     if (Object.hasOwn(next, "selection")) selection = next.selection || null;
-    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, pathCache });
+    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, focus, typeFilters, pathCache });
     searchIndex = undefined;
     pinState = new PinState(graph, pins);
     applyTheme(root, theme);
@@ -275,6 +286,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       render({ selectedNodeId: node ? node.id : pathOrId });
       root.dataset.focus = pathOrId;
     },
+    focusCommunity(id: CommunityId): void {
+      focusCommunity(id);
+    },
+    setTypeFilters(filters: GraphTypeFilters): void {
+      render({ typeFilters: filters });
+    },
+    resetView(): void {
+      resetViewState();
+    },
     select(nextSelection: SelectionInput): void {
       manualNodeIds = nextSelection.kind === "nodes" ? nextSelection.ids : [];
       render({ selection: nextSelection });
@@ -312,6 +332,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     manualNodeIds = [];
     selection = null;
     selectedNodeId = null;
+    focus = null;
     searchFocusedNodeId = null;
     hoveredCommunityId = null;
     previewNodeId = null;
@@ -324,7 +345,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function hasInteractionState(): boolean {
-    return Boolean(selectedNodeId || selection || root.dataset.focus);
+    return Boolean(selectedNodeId || selection || focus || root.dataset.focus);
   }
 
   function isGraphFocusActive(): boolean {
@@ -440,8 +461,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         render();
       },
       onReset: () => {
-        setViewportAnimating(true);
-        viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize()));
+        resetViewState();
       }
     });
     if (dom.legendElement) toolbar.filtersPanel.appendChild(dom.legendElement);
@@ -471,15 +491,30 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     selection = nextSelection;
     selectedNodeId = null;
     options.onSelectionChange?.(nextSelection);
-    render({ selection: nextSelection });
     focusCommunity(id);
   }
 
   function focusCommunity(id: string): void {
-    const points = graph.nodes.filter((node) => node.community === id).map((node) => node.point);
+    render({ focus: { kind: "community", id }, selection });
+    const points = graph.nodes.map((node) => node.point);
     if (!points.length) return;
     setViewportAnimating(true);
     viewportCommitter.schedule(fitRendererViewportToPoints(points, viewportSize()));
+  }
+
+  function resetViewState(): void {
+    manualNodeIds = [];
+    selection = null;
+    selectedNodeId = null;
+    focus = null;
+    searchFocusedNodeId = null;
+    hoveredCommunityId = null;
+    previewNodeId = null;
+    delete root.dataset.focus;
+    options.onSelectionChange?.({ kind: "nodes", ids: [] });
+    render({ selectedNodeId: null, selection: null, focus: null });
+    setViewportAnimating(true);
+    viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize()));
   }
 
   function applyCommunityHover(): void {

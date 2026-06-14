@@ -1,4 +1,4 @@
-import type { GraphData, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
+import type { GraphData, GraphFocusInput, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
 import {
   atlasNodePoint,
   atlasPointToMinimap,
@@ -18,6 +18,8 @@ export interface RenderableGraph {
   model: Record<string, unknown>;
   layout: Record<string, unknown>;
   selectedNodeId: string | null;
+  focus: GraphFocusInput;
+  typeFilters: GraphTypeFilters;
   densityMode: DensityMode;
   counts: {
     visibleNodes: number;
@@ -90,6 +92,8 @@ interface BuildRenderableGraphOptions {
   theme?: ThemeId;
   selectedNodeId?: string | null;
   selection?: SelectionInput | null;
+  focus?: GraphFocusInput;
+  typeFilters?: GraphTypeFilters;
   positions?: RenderPositionMap;
   pathCache?: RenderPathCache;
 }
@@ -172,7 +176,12 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const selectedNodeIds = resolveSelectedNodeIds(model, options);
   const selectedNodeSet = new Set(selectedNodeIds);
   const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null;
-  const visible = resolveAtlasVisibleSnapshot(model, layout, { selectedNodeId }) as {
+  const focus = normalizeGraphFocus(options.focus, model);
+  const typeFilters = normalizeGraphTypeFilters(options.typeFilters, model.nodes);
+  const visible = resolveAtlasVisibleSnapshot(model, layout, {
+    activeCommunityId: focus?.kind === "community" ? focus.id : "all",
+    selectedNodeId
+  }) as {
     nodes: AtlasNode[];
     edges: AtlasEdge[];
     densityMode: DensityMode;
@@ -193,11 +202,23 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const labelIds = visible.labelNodeIds || {};
   const startIds = visible.startNodeIds || {};
 
-  const nodes = visible.nodes.map((node) => {
+  const filteredVisibleNodes = applyNodeTypeFilters(visible.nodes, typeFilters);
+  const filteredVisibleNodeIds = new Set(filteredVisibleNodes.map((node) => node.id));
+  const filteredVisibleEdges = visible.edges.filter((edge) => filteredVisibleNodeIds.has(edge.source) && filteredVisibleNodeIds.has(edge.target));
+  const filteredDensityMode = getAtlasDensityMode(filteredVisibleNodes.length) as DensityMode;
+  const filteredVisibleCounts = {
+    visible_nodes: filteredVisibleNodes.length,
+    visible_edges: filteredVisibleEdges.length,
+    total_nodes: visible.counts.total_nodes,
+    total_edges: visible.counts.total_edges,
+    total_communities: visible.counts.total_communities
+  };
+
+  const nodes = filteredVisibleNodes.map((node) => {
     const isSelected = selectedNodeSet.has(node.id);
     const displayMode = isSelected
       ? "card"
-      : nodeDisplayMode(node, visible.densityMode, selectedNodeId, previewNodeId, labelIds, importantIds);
+      : nodeDisplayMode(node, filteredDensityMode, selectedNodeId, previewNodeId, labelIds, importantIds);
     const point = renderPointForNode(node, options.positions);
     return {
       id: node.id,
@@ -222,7 +243,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   });
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  const edges = visible.edges.flatMap((edge) => {
+  const edges = filteredVisibleEdges.flatMap((edge) => {
     const source = nodeById.get(edge.source);
     const target = nodeById.get(edge.target);
     if (!source || !target) return [];
@@ -257,13 +278,15 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     model,
     layout,
     selectedNodeId,
-    densityMode: visible.densityMode,
+    focus,
+    typeFilters,
+    densityMode: filteredDensityMode,
     counts: {
-      visibleNodes: visible.counts.visible_nodes,
-      visibleEdges: visible.counts.visible_edges,
-      totalNodes: visible.counts.total_nodes,
-      totalEdges: visible.counts.total_edges,
-      totalCommunities: visible.counts.total_communities
+      visibleNodes: filteredVisibleCounts.visible_nodes,
+      visibleEdges: filteredVisibleCounts.visible_edges,
+      totalNodes: filteredVisibleCounts.total_nodes,
+      totalEdges: filteredVisibleCounts.total_edges,
+      totalCommunities: filteredVisibleCounts.total_communities
     },
     nodes,
     edges,
@@ -341,6 +364,27 @@ function applyPinsToGraphData(data: GraphData, pins: PinMap): GraphData {
       };
     })
   };
+}
+
+function normalizeGraphFocus(
+  focus: GraphFocusInput | undefined,
+  model: { communityById: Record<string, AtlasCommunity> }
+): GraphFocusInput {
+  if (!focus || focus.kind !== "community") return null;
+  const id = String(focus.id || "");
+  return id && model.communityById[id] ? { kind: "community", id } : null;
+}
+
+function normalizeGraphTypeFilters(filters: GraphTypeFilters | undefined, nodes: AtlasNode[]): GraphTypeFilters {
+  const normalized: GraphTypeFilters = {};
+  for (const node of nodes) {
+    normalized[node.type] = filters?.[node.type] !== false;
+  }
+  return normalized;
+}
+
+function applyNodeTypeFilters(nodes: AtlasNode[], filters: GraphTypeFilters): AtlasNode[] {
+  return nodes.filter((node) => filters[node.type] !== false);
 }
 
 function pinKeyForNode(node: { source_path?: unknown; path?: unknown; source?: unknown; id: string }): WikiPath {

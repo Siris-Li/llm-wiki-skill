@@ -151,6 +151,37 @@ describe("buildRenderableGraph", () => {
     assert.equal(graph.minimap.nodes.filter((node) => node.selected).length, 2);
   });
 
+  it("enters a community focus view by hiding nodes outside the selected community", () => {
+    const graph = buildRenderableGraph(sampleGraph(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" }
+    });
+
+    assert.deepEqual(graph.nodes.map((node) => node.id), ["topic", "entity"]);
+    assert.deepEqual(graph.edges.map((edge) => edge.id), ["e1"]);
+    assert.equal(graph.counts.visibleNodes, 2);
+    assert.equal(graph.counts.totalNodes, 4);
+    assert.equal(graph.focus?.kind, "community");
+    assert.equal(graph.focus?.id, "c1");
+  });
+
+  it("filters visible nodes by graph node type and stacks with community focus", () => {
+    const graph = buildRenderableGraph(sampleGraph(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      typeFilters: {
+        entity: true,
+        topic: false,
+        source: true
+      }
+    });
+
+    assert.deepEqual(graph.nodes.map((node) => node.id), ["entity"]);
+    assert.deepEqual(graph.edges, []);
+    assert.equal(graph.counts.visibleNodes, 1);
+    assert.equal(graph.typeFilters.topic, false);
+  });
+
   it("keeps community wash around the member cluster instead of chasing an outlier", () => {
     const graph = buildRenderableGraph(outlierCommunityGraph(), { theme: "shan-shui" });
     const community = graph.communities.find((item) => item.id === "c1");
