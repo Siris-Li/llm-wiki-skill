@@ -91,7 +91,7 @@ bash install.sh --platform codex --with-optional-adapters
 
 1. `bash install.sh --dry-run --platform codex` — 安装脚本不报错
 2. 改过的脚本如果有 `tests/fixtures/`，跑一下 diff 预期输出
-3. `grep -r '/Users/kangjiaqi\|康佳琦' scripts/ templates/ tests/ SKILL.md` — 没泄露隐私路径
+3. `grep -r '本机用户路径\|真实姓名\|私有素材路径' scripts/ templates/ tests/ SKILL.md` — 没泄露隐私路径
 
 ### 第二/三层：工作流测试
 
