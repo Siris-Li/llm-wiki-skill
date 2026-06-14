@@ -283,6 +283,7 @@ export interface GraphEngineOptions {
   data: GraphData;
   pins?: PinMap;
   theme: ThemeId;
+  toolbarContainer?: HTMLElement | null;
   capabilities?: GraphEngineCapabilities;
 }
 

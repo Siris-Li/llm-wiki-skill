@@ -165,6 +165,8 @@ cat > "$output_tmp" <<HTML_HEAD
       min-height: 100vh;
     }
     .offline-header {
+      position: relative;
+      z-index: 20;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -208,13 +210,33 @@ cat > "$output_tmp" <<HTML_HEAD
       border-radius: 999px;
       background: rgba(255, 255, 255, .46);
     }
+    .offline-toolbar-host {
+      position: relative;
+      z-index: 5;
+      flex: 1 1 320px;
+      min-width: 240px;
+      min-height: 38px;
+    }
+    .offline-toolbar-host .graph-toolbar {
+      position: static;
+      inset: auto;
+      justify-items: center;
+    }
+    .offline-toolbar-host .graph-toolbar-panel {
+      position: absolute;
+      top: 38px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
     .offline-main {
+      position: relative;
+      z-index: 1;
       min-height: 0;
       padding: 0;
     }
     #graph-root {
       width: 100%;
-      height: calc(100vh - 65px);
+      height: 100%;
       min-height: 560px;
     }
     .offline-error {
@@ -229,8 +251,11 @@ cat > "$output_tmp" <<HTML_HEAD
     }
     @media (max-width: 720px) {
       .offline-header { align-items: flex-start; flex-direction: column; }
+      .offline-toolbar-host { width: 100%; flex-basis: auto; }
+      .offline-toolbar-host .graph-toolbar { justify-items: start; }
+      .offline-toolbar-host .graph-toolbar-panel { left: 0; transform: none; }
       .offline-badges { justify-content: flex-start; }
-      #graph-root { height: calc(100vh - 118px); min-height: 520px; }
+      #graph-root { min-height: 520px; }
     }
   </style>
 </head>
@@ -241,6 +266,7 @@ cat > "$output_tmp" <<HTML_HEAD
         <h1>${WIKI_TITLE_HTML} 知识舆图</h1>
         <p>国风知识库·数字山水图</p>
       </div>
+      <div class="offline-toolbar-host" data-testid="offline-toolbar-host"></div>
       <div class="offline-badges" aria-label="图谱统计">
         <span>${NODE_COUNT_HTML} 节点</span>
         <span>${EDGE_COUNT_HTML} 关联</span>
@@ -273,6 +299,7 @@ cat >> "$output_tmp" <<'HTML_BOOT'
   <script>
     (function () {
       var root = document.getElementById("graph-root");
+      var toolbarHost = document.querySelector("[data-testid='offline-toolbar-host']");
       var dataEl = document.getElementById("graph-data");
       var layoutEl = document.getElementById("graph-layout");
       function showError(message) {
@@ -336,6 +363,7 @@ cat >> "$output_tmp" <<'HTML_BOOT'
         data: graphData,
         pins: pins,
         theme: "shan-shui",
+        toolbarContainer: toolbarHost,
         capabilities: {
           persistPins: function (nextPins) {
             writeStoredPins(key, nextPins || {});

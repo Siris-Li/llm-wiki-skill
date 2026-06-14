@@ -34,6 +34,7 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
     data: options.data,
     pins: options.pins || {},
     theme: currentTheme,
+    toolbarContainer: options.toolbarContainer,
     onOpenPage: options.capabilities?.onOpenPage,
     onSelectionChange: canSelect
       ? (input) => {

@@ -57,6 +57,7 @@ interface StaticRendererOptions {
   onSelectionChange?: (selection: SelectionInput) => void;
   persistPins?: (pins: PinMap) => Promise<void>;
   onDragStateChange?: (dragging: boolean) => void;
+  toolbarContainer?: HTMLElement | null;
   live?: boolean;
 }
 
@@ -124,6 +125,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   root.dataset.llmWikiGraphRoot = "true";
   root.tabIndex = 0;
   container.replaceChildren(root);
+  const toolbarContainer = options.toolbarContainer || root;
   ensureStaticRendererStyles(container.ownerDocument || document);
   const ownerDocument = container.ownerDocument || document;
   let legendCollapsed = readLegendCollapsed(ownerDocument);
@@ -296,6 +298,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       if (viewportAnimationTimer) clearTimeout(viewportAnimationTimer);
       pathCache.clear();
       root.remove();
+      if (toolbarContainer !== root && dom.toolbarElement && toolbarContainer.contains(dom.toolbarElement)) {
+        toolbarContainer.replaceChildren();
+      }
     }
   };
 
@@ -442,9 +447,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (dom.legendElement) toolbar.filtersPanel.appendChild(dom.legendElement);
     dom.toolbarElement = toolbar.element;
     dom.toolbarPanelElement = toolbar.panel;
-    root.prepend(toolbar.element);
+    toolbarContainer.replaceChildren(toolbar.element);
     root.dataset.toolbarPanel = toolbarPanelState;
     root.dataset.toolbarOpen = toolbarPanelState === "closed" ? "false" : "true";
+    toolbarContainer.dataset.toolbarPanel = toolbarPanelState;
+    toolbarContainer.dataset.toolbarOpen = toolbarPanelState === "closed" ? "false" : "true";
   }
 
   function closeToolbarPanel(): void {
@@ -454,6 +461,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (dom.toolbarElement) dom.toolbarElement.dataset.panel = toolbarPanelState;
     root.dataset.toolbarPanel = toolbarPanelState;
     root.dataset.toolbarOpen = "false";
+    toolbarContainer.dataset.toolbarPanel = toolbarPanelState;
+    toolbarContainer.dataset.toolbarOpen = "false";
   }
 
   function selectCommunity(id: string): void {
