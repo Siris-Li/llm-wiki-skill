@@ -40,6 +40,14 @@ import {
 } from "./viewport";
 import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 import { buildHoverPreview, type GraphHoverPreview } from "./preview";
+import {
+  nextToolbarPanelState,
+  readToolbarPanelState,
+  shouldBlankClickCloseToolbar,
+  toolbarPanelStateAfterBlankClick,
+  writeToolbarPanelState,
+  type GraphToolbarPanelState
+} from "./toolbar";
 
 interface StaticRendererOptions {
   data: GraphData;
@@ -84,6 +92,8 @@ interface PaintedGraphDom {
   searchElement: HTMLElement | null;
   searchInput: HTMLInputElement | null;
   searchStatusElement: HTMLElement | null;
+  toolbarElement: HTMLElement | null;
+  toolbarPanelElement: HTMLElement | null;
   legendElement: HTMLElement | null;
   legendRows: Map<string, HTMLButtonElement>;
   previewElement: HTMLElement | null;
@@ -117,6 +127,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   ensureStaticRendererStyles(container.ownerDocument || document);
   const ownerDocument = container.ownerDocument || document;
   let legendCollapsed = readLegendCollapsed(ownerDocument);
+  let toolbarPanelState: GraphToolbarPanelState = readToolbarPanelState(ownerDocument.defaultView?.localStorage);
   const handleDocumentKeydown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
     if ((event.metaKey || event.ctrlKey) && key === "f" && isGraphFocusActive()) {
@@ -128,6 +139,12 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       event.preventDefault();
       event.stopPropagation();
       closeSearch();
+      return;
+    }
+    if (event.key === "Escape" && shouldBlankClickCloseToolbar(toolbarPanelState)) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeToolbarPanel();
       return;
     }
     if (event.key !== "Escape" || !hasInteractionState()) return;
@@ -218,7 +235,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     });
     lastEffectiveDensityMode = null;
     mountSearchControl();
-    mountCommunityLegend();
+    mountGraphToolbar();
     applySearchQuery(searchQuery);
     applyCommunityHover();
     commitViewport(viewport);
@@ -405,8 +422,38 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     });
     dom.legendElement = legend.element;
     dom.legendRows = legend.rows;
-    root.prepend(legend.element);
     root.dataset.legendCollapsed = legendCollapsed ? "true" : "false";
+  }
+
+  function mountGraphToolbar(): void {
+    mountCommunityLegend();
+    const toolbar = createGraphToolbar(ownerDocument, {
+      panelState: toolbarPanelState,
+      onPanelToggle: (panel) => {
+        toolbarPanelState = nextToolbarPanelState(toolbarPanelState, panel);
+        writeToolbarPanelState(ownerDocument.defaultView?.localStorage, toolbarPanelState);
+        render();
+      },
+      onReset: () => {
+        setViewportAnimating(true);
+        viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize()));
+      }
+    });
+    if (dom.legendElement) toolbar.filtersPanel.appendChild(dom.legendElement);
+    dom.toolbarElement = toolbar.element;
+    dom.toolbarPanelElement = toolbar.panel;
+    root.prepend(toolbar.element);
+    root.dataset.toolbarPanel = toolbarPanelState;
+    root.dataset.toolbarOpen = toolbarPanelState === "closed" ? "false" : "true";
+  }
+
+  function closeToolbarPanel(): void {
+    toolbarPanelState = toolbarPanelStateAfterBlankClick(toolbarPanelState);
+    writeToolbarPanelState(ownerDocument.defaultView?.localStorage, toolbarPanelState);
+    if (dom.toolbarPanelElement) dom.toolbarPanelElement.dataset.state = toolbarPanelState;
+    if (dom.toolbarElement) dom.toolbarElement.dataset.panel = toolbarPanelState;
+    root.dataset.toolbarPanel = toolbarPanelState;
+    root.dataset.toolbarOpen = "false";
   }
 
   function selectCommunity(id: string): void {
@@ -529,6 +576,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     }, { passive: false });
     root.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || !isBlankViewportTarget(event.target)) return;
+      if (shouldBlankClickCloseToolbar(toolbarPanelState)) {
+        event.preventDefault();
+        closeToolbarPanel();
+        return;
+      }
       root.focus({ preventScroll: true });
       blankPan = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY };
       setViewportAnimating(false);
@@ -1226,7 +1278,58 @@ function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number;
 function isBlankViewportTarget(target: EventTarget | null): boolean {
   const element = target instanceof Element ? target : null;
   if (!element) return false;
-  return !element.closest(".node, .mini-map, .graph-reader, .graph-search, .community-legend, .community-wash");
+  return !element.closest(".node, .mini-map, .graph-reader, .graph-search, .graph-toolbar, .community-legend, .community-wash");
+}
+
+function createGraphToolbar(
+  ownerDocument: Document,
+  options: {
+    panelState: GraphToolbarPanelState;
+    onPanelToggle: (panel: Exclude<GraphToolbarPanelState, "closed">) => void;
+    onReset: () => void;
+  }
+): { element: HTMLElement; panel: HTMLElement; filtersPanel: HTMLElement } {
+  const element = ownerDocument.createElement("nav");
+  element.className = "graph-toolbar";
+  element.dataset.panel = options.panelState;
+  element.setAttribute("aria-label", "图谱控制");
+  element.addEventListener("click", (event) => event.stopPropagation());
+
+  const actions = ownerDocument.createElement("div");
+  actions.className = "graph-toolbar-actions";
+  const filters = createToolbarButton(ownerDocument, "筛选", options.panelState === "filters");
+  filters.addEventListener("click", () => options.onPanelToggle("filters"));
+  const legend = createToolbarButton(ownerDocument, "图例", options.panelState === "legend");
+  legend.addEventListener("click", () => options.onPanelToggle("legend"));
+  const reset = createToolbarButton(ownerDocument, "回全图", false);
+  reset.addEventListener("click", options.onReset);
+  actions.append(filters, legend, reset);
+
+  const panel = ownerDocument.createElement("section");
+  panel.className = "graph-toolbar-panel";
+  panel.dataset.state = options.panelState;
+  const filtersPanel = ownerDocument.createElement("div");
+  filtersPanel.className = "graph-toolbar-section graph-toolbar-filters";
+
+  const legendPanel = ownerDocument.createElement("div");
+  legendPanel.className = "graph-toolbar-section graph-toolbar-legend";
+  const legendTitle = ownerDocument.createElement("div");
+  legendTitle.className = "graph-toolbar-section-title";
+  legendTitle.textContent = "边";
+  legendPanel.appendChild(legendTitle);
+
+  panel.append(filtersPanel, legendPanel);
+  element.append(actions, panel);
+  return { element, panel, filtersPanel };
+}
+
+function createToolbarButton(ownerDocument: Document, label: string, active: boolean): HTMLButtonElement {
+  const button = ownerDocument.createElement("button");
+  button.type = "button";
+  button.className = "graph-toolbar-button";
+  button.dataset.active = active ? "true" : "false";
+  button.textContent = label;
+  return button;
 }
 
 function createCommunityLegend(
@@ -1338,6 +1441,8 @@ function emptyPaintedDom(): PaintedGraphDom {
     searchElement: null,
     searchInput: null,
     searchStatusElement: null,
+    toolbarElement: null,
+    toolbarPanelElement: null,
     legendElement: null,
     legendRows: new Map(),
     previewElement: null
@@ -1417,7 +1522,7 @@ const STATIC_RENDERER_CSS = `
 }
 .graph-search {
   position: absolute;
-  top: 14px;
+  top: 64px;
   left: 14px;
   z-index: 7;
   display: grid;
@@ -1461,20 +1566,88 @@ const STATIC_RENDERER_CSS = `
   font-size: 11px;
   white-space: nowrap;
 }
-.community-legend {
+.graph-toolbar {
   position: absolute;
-  top: 64px;
+  top: 14px;
   left: 14px;
-  z-index: 6;
-  width: min(260px, calc(100% - 28px));
-  border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+  right: 14px;
+  z-index: 8;
+  display: grid;
+  justify-items: start;
+  pointer-events: none;
+}
+.graph-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--rule) 62%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  box-shadow: 0 14px 28px rgba(36, 24, 12, .08);
+  background: color-mix(in srgb, var(--surface) 64%, transparent);
+  box-shadow: 0 14px 30px rgba(36, 24, 12, .08);
+  backdrop-filter: blur(14px);
+  padding: 4px;
+  pointer-events: auto;
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-toolbar-actions {
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+}
+.graph-toolbar-button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: 12px/1.2 var(--font-ui);
+  padding: 0 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.graph-toolbar-button:hover,
+.graph-toolbar-button[data-active="true"] {
+  background: color-mix(in srgb, var(--cinnabar) 10%, transparent);
+  color: var(--ink);
+}
+.graph-toolbar-panel {
+  width: min(320px, calc(100vw - 28px));
+  max-height: min(58vh, 420px);
+  margin-top: 8px;
+  border: 1px solid color-mix(in srgb, var(--rule) 62%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  box-shadow: 0 20px 42px rgba(36, 24, 12, .12);
+  backdrop-filter: blur(16px);
+  overflow: auto;
+  pointer-events: auto;
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-toolbar-panel {
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+}
+.graph-toolbar-panel[data-state="closed"] {
+  display: none;
+}
+.graph-toolbar-section {
+  display: none;
+}
+.graph-toolbar-panel[data-state="filters"] .graph-toolbar-filters,
+.graph-toolbar-panel[data-state="legend"] .graph-toolbar-legend {
+  display: block;
+}
+.graph-toolbar-section-title {
+  padding: 10px 12px;
+  color: var(--muted);
+  font: 12px/1.3 var(--font-ui);
+}
+.community-legend {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   overflow: hidden;
 }
 .llm-wiki-graph-engine[data-theme="mo-ye"] .community-legend {
-  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  background: transparent;
 }
 .community-legend-toggle {
   width: 100%;

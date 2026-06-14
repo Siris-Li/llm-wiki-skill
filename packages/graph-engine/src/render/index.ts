@@ -23,6 +23,16 @@ export type {
 } from "./model";
 export { buildCommunityLegend } from "./legend";
 export type { CommunityLegendRow } from "./legend";
+export {
+  GRAPH_TOOLBAR_PANEL_KEY,
+  nextToolbarPanelState,
+  normalizeToolbarPanelState,
+  readToolbarPanelState,
+  shouldBlankClickCloseToolbar,
+  toolbarPanelStateAfterBlankClick,
+  writeToolbarPanelState
+} from "./toolbar";
+export type { GraphToolbarPanelState, GraphToolbarStorage } from "./toolbar";
 export { createStaticGraphRenderer } from "./static-renderer";
 export type { StaticGraphRenderer } from "./static-renderer";
 export { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
