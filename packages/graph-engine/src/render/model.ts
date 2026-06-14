@@ -58,6 +58,8 @@ export interface RenderableEdge {
   source: string;
   target: string;
   type: string;
+  confidence: string;
+  relationType: string;
   path: string;
   curveOffset: number;
   strokeWidth: number;
@@ -111,6 +113,8 @@ type AtlasEdge = {
   source: string;
   target: string;
   type: string;
+  confidence?: string;
+  relation_type?: string;
   weight?: number;
 };
 
@@ -228,6 +232,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       source: edge.source,
       target: edge.target,
       type: String(edge.type || "EXTRACTED").toLowerCase(),
+      confidence: String(edge.confidence || edge.type || "EXTRACTED").toLowerCase(),
+      relationType: String(edge.relation_type || "依赖"),
       path: makeEdgePathFromPoints(source.point, target.point, curveOffset),
       curveOffset,
       strokeWidth: edgeStrokeWidth(edge),

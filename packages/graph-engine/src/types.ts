@@ -15,6 +15,7 @@ export type GraphNodeType =
   | string;
 
 export type Confidence = "EXTRACTED" | "INFERRED" | "AMBIGUOUS" | "UNVERIFIED" | string;
+export type GraphRelationType = "实现" | "依赖" | "对比" | "矛盾" | "衍生" | string;
 
 export interface GraphData {
   meta: GraphMeta;
@@ -57,6 +58,8 @@ export interface GraphEdge {
   id: EdgeId;
   from: NodeId;
   to: NodeId;
+  confidence?: Confidence;
+  relation_type?: GraphRelationType;
   type: Confidence;
   weight?: number;
   source_signal_available?: boolean;

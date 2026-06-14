@@ -231,9 +231,79 @@ EOF
         || fail "M→N should keep first explicit INFERRED, got: $m_to_n_type"
 }
 
+test_edge_contract_separates_relation_type_and_confidence() {
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' RETURN
+
+    mkdir -p "$tmp_dir/wiki/entities"
+
+    cat > "$tmp_dir/wiki/entities/A.md" <<'EOF'
+---
+tags: [test]
+---
+
+# A
+
+See [[B]] without labels first.
+
+## 相关页面
+
+- [[B]] <!-- relation: 实现 --> <!-- confidence: INFERRED --> — explicit contract
+- [[C]] — default contract
+EOF
+
+    cat > "$tmp_dir/wiki/entities/B.md" <<'EOF'
+---
+tags: [test]
+---
+
+# B
+EOF
+
+    cat > "$tmp_dir/wiki/entities/C.md" <<'EOF'
+---
+tags: [test]
+---
+
+# C
+EOF
+
+    cat > "$tmp_dir/purpose.md" <<'EOF'
+# 研究目的
+test
+EOF
+
+    LLM_WIKI_TEST_MODE=1 \
+        bash "$SCRIPT" "$tmp_dir" "$tmp_dir/graph-data.json" > /dev/null 2>&1 \
+        || fail "build-graph-data.sh should succeed on relation contract fixture"
+
+    local a_to_b_type a_to_b_confidence a_to_b_relation
+    a_to_b_type=$(jq -r '.edges[] | select(.from == "A" and .to == "B") | .type' "$tmp_dir/graph-data.json")
+    a_to_b_confidence=$(jq -r '.edges[] | select(.from == "A" and .to == "B") | .confidence' "$tmp_dir/graph-data.json")
+    a_to_b_relation=$(jq -r '.edges[] | select(.from == "A" and .to == "B") | .relation_type' "$tmp_dir/graph-data.json")
+
+    [ "$a_to_b_type" = "INFERRED" ] \
+        || fail "A→B legacy type should remain INFERRED for compatibility, got: $a_to_b_type"
+    [ "$a_to_b_confidence" = "INFERRED" ] \
+        || fail "A→B confidence should be INFERRED, got: $a_to_b_confidence"
+    [ "$a_to_b_relation" = "实现" ] \
+        || fail "A→B relation_type should be 实现, got: $a_to_b_relation"
+
+    local a_to_c_confidence a_to_c_relation
+    a_to_c_confidence=$(jq -r '.edges[] | select(.from == "A" and .to == "C") | .confidence' "$tmp_dir/graph-data.json")
+    a_to_c_relation=$(jq -r '.edges[] | select(.from == "A" and .to == "C") | .relation_type' "$tmp_dir/graph-data.json")
+
+    [ "$a_to_c_confidence" = "EXTRACTED" ] \
+        || fail "A→C confidence should default to EXTRACTED, got: $a_to_c_confidence"
+    [ "$a_to_c_relation" = "依赖" ] \
+        || fail "A→C relation_type should default to 依赖, got: $a_to_c_relation"
+}
+
 test_explicit_confidence_overrides_default_on_same_page
 test_ambiguous_overrides_default_when_mixed
 test_default_extracted_when_no_annotation
 test_first_explicit_wins_among_multiple_explicit
+test_edge_contract_separates_relation_type_and_confidence
 
 echo "PASS: graph-data-confidence-merge.regression-1"
