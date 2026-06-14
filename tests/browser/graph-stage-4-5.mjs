@@ -36,6 +36,7 @@ async function runOfflineChecks(browser) {
 
   await page.waitForSelector("[data-llm-wiki-graph-root='true']");
   await page.waitForSelector("[data-viewport-layer='true']");
+  await runOfflineThemeChecks(page);
 
   const initial = await layerTransform(page);
   await page.mouse.move(64, 120);
@@ -161,6 +162,14 @@ async function runOfflineChecks(browser) {
       }, null, 2)}\n`
     );
   }
+}
+
+async function runOfflineThemeChecks(page) {
+  await page.waitForFunction(() => document.querySelector(".llm-wiki-graph-engine")?.dataset.theme === "shan-shui");
+  await page.getByRole("button", { name: "切换墨夜主题" }).click();
+  await page.waitForFunction(() => document.querySelector(".llm-wiki-graph-engine")?.dataset.theme === "mo-ye");
+  await page.getByRole("button", { name: "切换山水主题" }).click();
+  await page.waitForFunction(() => document.querySelector(".llm-wiki-graph-engine")?.dataset.theme === "shan-shui");
 }
 
 async function layerTransform(page) {
@@ -301,12 +310,25 @@ async function runLegendChecks(page, options) {
     await openToolbarFilters(page);
   }
 
+  await page.waitForSelector(".edge");
+  const focusableCommunity = await firstCommunityWithInternalEdge(page);
+  const focusRow = page.locator(`.community-legend-row[data-community-id="${cssString(focusableCommunity)}"]`);
   const beforeClick = await layerTransform(page);
+  const globalEdge = await page.locator(".edge").first().evaluate((edge) => ({
+    opacity: Number((edge instanceof SVGPathElement ? edge.style.opacity : "0") || "0"),
+    strokeWidth: Number((edge instanceof SVGPathElement ? edge.style.strokeWidth : "0") || "0")
+  }));
   const initialNodes = await page.locator(".node").count();
-  await row.click();
+  await focusRow.click();
   await waitForLayerTransform(page, beforeClick);
   const focusedNodes = await page.locator(".node").count();
   assert.ok(focusedNodes < initialNodes, "legend click should enter a focused community view with fewer visible nodes");
+  const focusedEdge = await page.locator(".edge").first().evaluate((edge) => ({
+    opacity: Number((edge instanceof SVGPathElement ? edge.style.opacity : "0") || "0"),
+    strokeWidth: Number((edge instanceof SVGPathElement ? edge.style.strokeWidth : "0") || "0")
+  }));
+  assert.ok(focusedEdge.opacity > globalEdge.opacity, "focused community view should make relation edges more visible");
+  assert.ok(focusedEdge.strokeWidth > globalEdge.strokeWidth, "focused community view should make relation edges fuller");
   const selected = await page.locator(".node[aria-pressed='true']").count();
   assert.ok(selected >= 1, "legend click should select the community nodes");
 
@@ -318,6 +340,24 @@ async function runLegendChecks(page, options) {
   } else {
     await assertOfflineSelectionPanel(page, "community");
   }
+}
+
+async function firstCommunityWithInternalEdge(page) {
+  const communityId = await page.evaluate(() => {
+    const nodeCommunity = new Map();
+    for (const node of document.querySelectorAll(".node")) {
+      nodeCommunity.set(node.getAttribute("data-id"), node.getAttribute("data-community"));
+    }
+    for (const edge of document.querySelectorAll(".edge")) {
+      const from = edge.getAttribute("data-from");
+      const to = edge.getAttribute("data-to");
+      const fromCommunity = nodeCommunity.get(from);
+      if (fromCommunity && fromCommunity === nodeCommunity.get(to)) return fromCommunity;
+    }
+    return "";
+  });
+  assert.notEqual(communityId, "", "fixture should include a community with at least one internal relation edge");
+  return communityId;
 }
 
 async function runEdgeLegendChecks(page) {

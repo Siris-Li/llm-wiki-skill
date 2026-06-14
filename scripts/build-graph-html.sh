@@ -210,6 +210,21 @@ cat > "$output_tmp" <<HTML_HEAD
       border-radius: 999px;
       background: rgba(255, 255, 255, .46);
     }
+    .offline-theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .52);
+      color: var(--ink);
+      padding: 4px 10px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .offline-theme-toggle:hover {
+      background: rgba(168, 63, 53, .08);
+    }
     .offline-toolbar-host {
       position: relative;
       z-index: 5;
@@ -271,6 +286,7 @@ cat > "$output_tmp" <<HTML_HEAD
         <span>${NODE_COUNT_HTML} 节点</span>
         <span>${EDGE_COUNT_HTML} 关联</span>
         <span>${BUILD_DATE_SHORT_HTML}</span>
+        <button class="offline-theme-toggle" type="button" data-testid="offline-theme-toggle" aria-label="切换墨夜主题">墨夜</button>
       </div>
     </header>
     <main class="offline-main">
@@ -358,11 +374,33 @@ cat >> "$output_tmp" <<'HTML_BOOT'
       }
       var bakedLayout = parseJson(layoutEl, { pins: {} });
       var key = storageNamespace(graphData.meta || {}, window.location && window.location.pathname) + ":graph-pins";
+      var themeKey = storageNamespace(graphData.meta || {}, window.location && window.location.pathname) + ":graph-theme";
       var pins = Object.assign({}, bakedLayout && bakedLayout.pins ? bakedLayout.pins : {}, readStoredPins(key));
+      var themeToggle = document.querySelector("[data-testid='offline-theme-toggle']");
+      function readStoredTheme() {
+        try {
+          var value = window.localStorage && window.localStorage.getItem(themeKey);
+          return value === "mo-ye" ? "mo-ye" : "shan-shui";
+        } catch (_) {
+          return "shan-shui";
+        }
+      }
+      function writeStoredTheme(theme) {
+        try {
+          if (window.localStorage) window.localStorage.setItem(themeKey, theme);
+        } catch (_) {}
+      }
+      function syncThemeToggle(theme) {
+        if (!themeToggle) return;
+        var next = theme === "mo-ye" ? "shan-shui" : "mo-ye";
+        themeToggle.textContent = theme === "mo-ye" ? "山水" : "墨夜";
+        themeToggle.setAttribute("aria-label", next === "mo-ye" ? "切换墨夜主题" : "切换山水主题");
+      }
+      var currentTheme = readStoredTheme();
       var engine = window.LlmWikiGraphEngine.createGraphEngine(root, {
         data: graphData,
         pins: pins,
-        theme: "shan-shui",
+        theme: currentTheme,
         toolbarContainer: toolbarHost,
         capabilities: {
           persistPins: function (nextPins) {
@@ -371,8 +409,18 @@ cat >> "$output_tmp" <<'HTML_BOOT'
           }
         }
       });
+      syncThemeToggle(currentTheme);
+      if (themeToggle) {
+        themeToggle.addEventListener("click", function () {
+          currentTheme = currentTheme === "mo-ye" ? "shan-shui" : "mo-ye";
+          engine.setTheme(currentTheme);
+          writeStoredTheme(currentTheme);
+          syncThemeToggle(currentTheme);
+        });
+      }
       window.__LLM_WIKI_GRAPH_ENGINE__ = engine;
       window.__LLM_WIKI_GRAPH_PINS_KEY__ = key;
+      window.__LLM_WIKI_GRAPH_THEME_KEY__ = themeKey;
     })();
   </script>
 </body>
