@@ -10,7 +10,7 @@
 
 把碎片化的信息变成持续积累、互相链接的知识库
 
-[![version](https://img.shields.io/badge/v3.6.4-数字山水图谱-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.6-动态工具状态-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-多平台-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -67,6 +67,7 @@ bash install.sh --platform hermes
 | 🏷️ | **置信度标注** | EXTRACTED / INFERRED / AMBIGUOUS / UNVERIFIED，一眼看出哪些需要核实 |
 | 🔄 | **智能缓存** | SHA256 去重 + 写入即更新 + 自愈安全网，弱模型也不会漏缓存 |
 | 🧠 | **对话结晶化** | 把有价值的对话内容直接沉淀为知识库页面 |
+| 🧰 | **工作台动态工具状态** | agent 执行工具时显示当前动作；完成后折叠成摘要，避免主对话被工具流水账刷屏 |
 | 📡 | **自动上下文注入** | SessionStart hook 让 agent 每次会话自动感知知识库 |
 | 📊 | **多格式分析** | 深度报告、对比表、时间线三种综合分析格式 |
 
@@ -112,6 +113,7 @@ bash install.sh --platform claude --with-optional-adapters
 - **图谱运行时兜底更稳** — helper 同时支持浏览器全局与 CommonJS，旧运行时下的复杂 emoji 截断和离线 HTML 失败回滚都更可靠
 - **查询结果持久化** — 有价值的综合回答可保存回知识库，越用越完整
 - **批量消化** — 给一个文件夹路径，批量处理所有文件
+- **工作台工具摘要** — `workbench/` 对话区采用 `omp` 风格动态工具状态，停止时显示取消状态，历史工具调用默认折叠为分组摘要
 - **知识库健康检查** — 脚本检测孤立页面、断链、index 一致性；AI 层面检查矛盾和交叉引用
 - **ingest 隐私自查** — 首次消化素材时提醒检查手机号、API key 等敏感信息
 - **图谱关系词汇表** — 可选的手动标注词汇，让图谱表达更精确

@@ -11,7 +11,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts test/*.test.tsx",
     "pretypecheck": "npm run build -w @llm-wiki/graph-engine",
     "typecheck": "tsc -b --noEmit"
   },
