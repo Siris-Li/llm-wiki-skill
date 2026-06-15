@@ -341,7 +341,7 @@
             "Verified npm run typecheck exited 0.",
             "Verified git diff --check exited 0."
           ],
-          "commit": null
+          "commit": "d2c686f0fbc047d77a637cf675bbe8e718ac076a"
         }
       ]
     },
@@ -601,7 +601,8 @@
         "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
         "Updated history conversion to regenerate completed tool summaries from assistant tool calls and toolResult messages, with best-effort fallback for incomplete old sessions and no empty summaries for messages without tools.",
         "Added conversations.test.ts and verified conversations, tool-status-events, retrieval, server typecheck, full typecheck, and git diff --check all passed.",
-        "All phase-2 acceptance checks now pass, so the progress pointer advanced to phase-3 task 3.1."
+        "All phase-2 acceptance checks now pass, so the progress pointer advanced to phase-3 task 3.1.",
+        "Committed verified task 2.3 as d2c686f0fbc047d77a637cf675bbe8e718ac076a."
       ]
     }
   ],
