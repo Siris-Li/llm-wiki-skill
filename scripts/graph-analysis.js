@@ -650,6 +650,8 @@ function analyzeGraph(nodes, edges, options = {}) {
       from: edge.from,
       to: edge.to,
       type: edge.type,
+      confidence: edge.confidence || edge.type,
+      relation_type: edge.relation_type || "依赖",
       weight: metrics.weight,
       source_signal_available: metrics.source_signal_available,
       signals: metrics.signals

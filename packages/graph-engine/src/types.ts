@@ -15,6 +15,7 @@ export type GraphNodeType =
   | string;
 
 export type Confidence = "EXTRACTED" | "INFERRED" | "AMBIGUOUS" | "UNVERIFIED" | string;
+export type GraphRelationType = "实现" | "依赖" | "对比" | "矛盾" | "衍生" | string;
 
 export interface GraphData {
   meta: GraphMeta;
@@ -57,6 +58,8 @@ export interface GraphEdge {
   id: EdgeId;
   from: NodeId;
   to: NodeId;
+  confidence?: Confidence;
+  relation_type?: GraphRelationType;
   type: Confidence;
   weight?: number;
   source_signal_available?: boolean;
@@ -251,6 +254,12 @@ export type SelectionInput =
   | { kind: "neighbors"; id: NodeId }
   | { kind: "nodes"; ids: NodeId[] };
 
+export type GraphFocusInput =
+  | { kind: "community"; id: CommunityId }
+  | null;
+
+export type GraphTypeFilters = Record<GraphNodeType, boolean>;
+
 export interface GraphOpenPageNode {
   id: NodeId;
   title: string;
@@ -273,6 +282,7 @@ export interface GraphEngineCapabilities {
   onAsk?: (selection: Selection) => void;
   onOpenPage?: (payload: GraphOpenPagePayload) => void;
   onSelectionChange?: (selection: Selection) => void;
+  onSelectionClear?: () => void;
   onDragStateChange?: (dragging: boolean) => void;
 }
 
@@ -280,6 +290,9 @@ export interface GraphEngineOptions {
   data: GraphData;
   pins?: PinMap;
   theme: ThemeId;
+  focus?: GraphFocusInput;
+  typeFilters?: GraphTypeFilters;
+  toolbarContainer?: HTMLElement | null;
   capabilities?: GraphEngineCapabilities;
 }
 
@@ -287,6 +300,9 @@ export interface GraphEngine {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
   focusNode(path: WikiPath): void;
+  focusCommunity(id: CommunityId): Selection;
+  setTypeFilters(filters: GraphTypeFilters): void;
+  resetView(): void;
   select(selector: SelectionInput): Selection;
   clearInteraction(): void;
   setTheme(theme: ThemeId): void;

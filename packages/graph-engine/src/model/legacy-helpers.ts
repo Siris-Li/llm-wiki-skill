@@ -603,6 +603,11 @@
     return ATLAS_CONFIDENCE_LABELS[normalized];
   }
 
+  function normalizeAtlasRelationType(relationType) {
+    var normalized = String(relationType || "依赖").trim();
+    return normalized || "依赖";
+  }
+
   function atlasTypeLabel(type) {
     var normalized = normalizeAtlasType(type);
     return ATLAS_TYPE_LABELS[normalized];
@@ -898,14 +903,17 @@
     var raw = rawEdge && typeof rawEdge === "object" ? rawEdge : {};
     var sourceId = atlasEndpointId(raw.from != null ? raw.from : raw.source);
     var targetId = atlasEndpointId(raw.to != null ? raw.to : raw.target);
+    var confidence = normalizeAtlasConfidence(raw.confidence || raw.type || raw.type_confidence);
     return {
       id: raw.id == null ? "edge-" + index : String(raw.id),
       source: sourceId,
       target: targetId,
       from: sourceId,
       to: targetId,
-      type: normalizeAtlasConfidence(raw.type || raw.confidence),
-      confidence_label: atlasConfidenceLabel(raw.type || raw.confidence),
+      type: confidence,
+      confidence: confidence,
+      confidence_label: atlasConfidenceLabel(confidence),
+      relation_type: normalizeAtlasRelationType(raw.relation_type || raw.relationship_type || raw.relation),
       weight: clampAtlasNumber(raw.weight, 0.6, 0, 1),
       signals: raw.signals && typeof raw.signals === "object" ? raw.signals : {},
       source_signal_available: raw.source_signal_available === true

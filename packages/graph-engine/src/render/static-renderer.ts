@@ -1,5 +1,7 @@
 import type {
   CommunityId,
+  GraphFocusInput,
+  GraphTypeFilters,
   GraphData,
   GraphDiff,
   GraphNode,
@@ -40,6 +42,19 @@ import {
 } from "./viewport";
 import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 import { buildHoverPreview, type GraphHoverPreview } from "./preview";
+import {
+  nextToolbarPanelState,
+  readToolbarPanelState,
+  shouldBlankClickCloseToolbar,
+  toolbarPanelStateAfterBlankClick,
+  writeToolbarPanelState,
+  type GraphToolbarPanelState
+} from "./toolbar";
+
+// 聚焦单个社区时，子集包围盒常很小；用默认 4× fit 会把少量节点放大成糊屏巨卡。
+// 聚焦 fit 限制到适度放大，让节点保持可读、社区居中留白（镜头推进而非贴脸）。
+// 大社区包围盒大、fit 算出的 scale 本就 < 此上限，不受影响。
+const FOCUS_FIT_MAX_SCALE = 1.5;
 
 interface StaticRendererOptions {
   data: GraphData;
@@ -47,8 +62,12 @@ interface StaticRendererOptions {
   theme: ThemeId;
   onOpenPage?: (payload: GraphOpenPagePayload) => void;
   onSelectionChange?: (selection: SelectionInput) => void;
+  onSelectionClear?: () => void;
   persistPins?: (pins: PinMap) => Promise<void>;
   onDragStateChange?: (dragging: boolean) => void;
+  toolbarContainer?: HTMLElement | null;
+  focus?: GraphFocusInput;
+  typeFilters?: GraphTypeFilters;
   live?: boolean;
 }
 
@@ -61,6 +80,9 @@ export interface StaticGraphRenderer {
   setTheme(theme: ThemeId): void;
   setPins(pins: PinMap): void;
   focusNode(pathOrId: WikiPath): void;
+  focusCommunity(id: CommunityId): void;
+  setTypeFilters(filters: GraphTypeFilters): void;
+  resetView(): void;
   select(selection: SelectionInput): void;
   clearInteraction(): void;
   resetLayout(): void;
@@ -84,6 +106,8 @@ interface PaintedGraphDom {
   searchElement: HTMLElement | null;
   searchInput: HTMLInputElement | null;
   searchStatusElement: HTMLElement | null;
+  toolbarElement: HTMLElement | null;
+  toolbarPanelElement: HTMLElement | null;
   legendElement: HTMLElement | null;
   legendRows: Map<string, HTMLButtonElement>;
   previewElement: HTMLElement | null;
@@ -104,9 +128,13 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let searchOpen = false;
   let searchQuery = "";
   let searchFocusedNodeId: NodeId | null = null;
+  let focus: GraphFocusInput = options.focus || null;
+  let typeFilters: GraphTypeFilters = options.typeFilters || {};
+  let availableTypeFilters: GraphTypeFilters = {};
   let searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
   let hoveredCommunityId: string | null = null;
   let previewNodeId: NodeId | null = null;
+  let previewEdgeId: string | null = null;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
   const pathCache = createRenderPathCache();
   const root = document.createElement("div");
@@ -114,9 +142,12 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   root.dataset.llmWikiGraphRoot = "true";
   root.tabIndex = 0;
   container.replaceChildren(root);
+  const toolbarContainer = options.toolbarContainer || root;
+  const hasExternalToolbarContainer = toolbarContainer !== root;
   ensureStaticRendererStyles(container.ownerDocument || document);
   const ownerDocument = container.ownerDocument || document;
   let legendCollapsed = readLegendCollapsed(ownerDocument);
+  let toolbarPanelState: GraphToolbarPanelState = readToolbarPanelState(ownerDocument.defaultView?.localStorage);
   const handleDocumentKeydown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
     if ((event.metaKey || event.ctrlKey) && key === "f" && isGraphFocusActive()) {
@@ -130,17 +161,28 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       closeSearch();
       return;
     }
+    if (event.key === "Escape" && shouldBlankClickCloseToolbar(toolbarPanelState)) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeToolbarPanel();
+      return;
+    }
     if (event.key !== "Escape" || !hasInteractionState()) return;
+    event.preventDefault();
     event.stopPropagation();
+    if (focus) {
+      resetViewState();
+      return;
+    }
     clearInteractionState();
   };
   ownerDocument.addEventListener("keydown", handleDocumentKeydown);
   const viewportCommitter = createViewportFrameCommitter(commitViewport, root.ownerDocument.defaultView || undefined);
-  let blankPan: { pointerId: number; lastX: number; lastY: number } | null = null;
+  let blankPan: { pointerId: number; lastX: number; lastY: number; startX: number; startY: number; moved: boolean } | null = null;
   let viewportAnimationTimer: ReturnType<typeof setTimeout> | null = null;
   let lastEffectiveDensityMode: DensityMode | null = null;
 
-  let graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, pathCache });
+  let graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, focus, typeFilters, pathCache });
   let pinState = new PinState(graph, pins);
   bindViewportHandlers();
 
@@ -149,9 +191,12 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     data = next.data || data;
     pins = next.pins || pins;
     theme = next.theme || theme;
+    if (Object.hasOwn(next, "focus")) focus = next.focus || null;
+    if (Object.hasOwn(next, "typeFilters")) typeFilters = next.typeFilters || {};
     if (Object.hasOwn(next, "selectedNodeId")) selectedNodeId = next.selectedNodeId || null;
     if (Object.hasOwn(next, "selection")) selection = next.selection || null;
-    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, pathCache });
+    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, focus, typeFilters, pathCache });
+    availableTypeFilters = graph.typeFilters;
     searchIndex = undefined;
     pinState = new PinState(graph, pins);
     applyTheme(root, theme);
@@ -212,13 +257,16 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       onNodePreviewEnter: (id) => {
         scheduleHoverPreview(id);
       },
+      onEdgePreviewEnter: (id) => {
+        showEdgeHoverPreview(id);
+      },
       onNodePreviewLeave: () => {
         clearHoverPreview();
       }
     });
     lastEffectiveDensityMode = null;
     mountSearchControl();
-    mountCommunityLegend();
+    mountGraphToolbar();
     applySearchQuery(searchQuery);
     applyCommunityHover();
     commitViewport(viewport);
@@ -256,6 +304,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       render({ selectedNodeId: node ? node.id : pathOrId });
       root.dataset.focus = pathOrId;
     },
+    focusCommunity(id: CommunityId): void {
+      focusCommunity(id);
+    },
+    setTypeFilters(filters: GraphTypeFilters): void {
+      render({ typeFilters: filters });
+    },
+    resetView(): void {
+      resetViewState();
+    },
     select(nextSelection: SelectionInput): void {
       manualNodeIds = nextSelection.kind === "nodes" ? nextSelection.ids : [];
       render({ selection: nextSelection });
@@ -279,6 +336,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       if (viewportAnimationTimer) clearTimeout(viewportAnimationTimer);
       pathCache.clear();
       root.remove();
+      if (hasExternalToolbarContainer && dom.toolbarElement && toolbarContainer.contains(dom.toolbarElement)) {
+        toolbarContainer.replaceChildren();
+      }
     }
   };
 
@@ -290,24 +350,28 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     manualNodeIds = [];
     selection = null;
     selectedNodeId = null;
+    focus = null;
     searchFocusedNodeId = null;
     hoveredCommunityId = null;
     previewNodeId = null;
+    previewEdgeId = null;
     if (previewTimer) {
       clearTimeout(previewTimer);
       previewTimer = null;
     }
     delete root.dataset.focus;
-    render({ selectedNodeId: null, selection: null });
+    options.onSelectionClear?.();
+    render({ selectedNodeId: null, selection: null, focus: null });
   }
 
   function hasInteractionState(): boolean {
-    return Boolean(selectedNodeId || selection || root.dataset.focus);
+    return Boolean(selectedNodeId || selection || focus || root.dataset.focus);
   }
 
   function isGraphFocusActive(): boolean {
     const active = ownerDocument.activeElement;
-    return active === root || Boolean(active && root.contains(active));
+    if (active === root || Boolean(active && root.contains(active))) return true;
+    return !isTextEditingElement(active);
   }
 
   function openSearch(): void {
@@ -405,8 +469,49 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     });
     dom.legendElement = legend.element;
     dom.legendRows = legend.rows;
-    root.prepend(legend.element);
     root.dataset.legendCollapsed = legendCollapsed ? "true" : "false";
+  }
+
+  function mountGraphToolbar(): void {
+    mountCommunityLegend();
+    const toolbar = createGraphToolbar(ownerDocument, {
+      panelState: toolbarPanelState,
+      typeFilters: graph.typeFilters,
+      onPanelToggle: (panel) => {
+        toolbarPanelState = nextToolbarPanelState(toolbarPanelState, panel);
+        writeToolbarPanelState(ownerDocument.defaultView?.localStorage, toolbarPanelState);
+        render();
+      },
+      onTypeFilterToggle: (type, enabled) => {
+        render({ typeFilters: { ...availableTypeFilters, [type]: enabled } });
+      },
+      onReset: () => {
+        resetViewState();
+      }
+    });
+    if (dom.legendElement) toolbar.filtersPanel.appendChild(dom.legendElement);
+    dom.toolbarElement = toolbar.element;
+    dom.toolbarPanelElement = toolbar.panel;
+    if (hasExternalToolbarContainer) {
+      toolbarContainer.replaceChildren(toolbar.element);
+    } else {
+      root.prepend(toolbar.element);
+    }
+    root.dataset.toolbarPanel = toolbarPanelState;
+    root.dataset.toolbarOpen = toolbarPanelState === "closed" ? "false" : "true";
+    toolbarContainer.dataset.toolbarPanel = toolbarPanelState;
+    toolbarContainer.dataset.toolbarOpen = toolbarPanelState === "closed" ? "false" : "true";
+  }
+
+  function closeToolbarPanel(): void {
+    toolbarPanelState = toolbarPanelStateAfterBlankClick(toolbarPanelState);
+    writeToolbarPanelState(ownerDocument.defaultView?.localStorage, toolbarPanelState);
+    if (dom.toolbarPanelElement) dom.toolbarPanelElement.dataset.state = toolbarPanelState;
+    if (dom.toolbarElement) dom.toolbarElement.dataset.panel = toolbarPanelState;
+    root.dataset.toolbarPanel = toolbarPanelState;
+    root.dataset.toolbarOpen = "false";
+    toolbarContainer.dataset.toolbarPanel = toolbarPanelState;
+    toolbarContainer.dataset.toolbarOpen = "false";
   }
 
   function selectCommunity(id: string): void {
@@ -415,15 +520,44 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     selection = nextSelection;
     selectedNodeId = null;
     options.onSelectionChange?.(nextSelection);
-    render({ selection: nextSelection });
     focusCommunity(id);
   }
 
   function focusCommunity(id: string): void {
-    const points = graph.nodes.filter((node) => node.community === id).map((node) => node.point);
+    render({ focus: { kind: "community", id }, selection });
+    const points = graph.nodes.map((node) => node.point);
     if (!points.length) return;
     setViewportAnimating(true);
-    viewportCommitter.schedule(fitRendererViewportToPoints(points, viewportSize()));
+    viewportCommitter.schedule(fitRendererViewportToPoints(points, viewportSize(), { maxScale: FOCUS_FIT_MAX_SCALE }));
+  }
+
+  function resetViewState(): void {
+    manualNodeIds = [];
+    selection = null;
+    selectedNodeId = null;
+    focus = null;
+    searchFocusedNodeId = null;
+    hoveredCommunityId = null;
+    previewNodeId = null;
+    previewEdgeId = null;
+    delete root.dataset.focus;
+    options.onSelectionClear?.();
+    render({ selectedNodeId: null, selection: null, focus: null });
+    setViewportAnimating(true);
+    viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize()));
+  }
+
+  function retreatFocusedView(): void {
+    manualNodeIds = [];
+    selection = null;
+    selectedNodeId = null;
+    searchFocusedNodeId = null;
+    hoveredCommunityId = null;
+    previewNodeId = null;
+    previewEdgeId = null;
+    delete root.dataset.focus;
+    options.onSelectionClear?.();
+    render({ selectedNodeId: null, selection: null, focus });
   }
 
   function applyCommunityHover(): void {
@@ -465,7 +599,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function applyMotionFrame(positions: RenderPositionMap): void {
     if (destroyed) return;
-    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, positions, pathCache });
+    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, focus, typeFilters, positions, pathCache });
     const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
     for (const node of graph.nodes) {
       const element = dom.nodeElements.get(node.id);
@@ -529,32 +663,51 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     }, { passive: false });
     root.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || !isBlankViewportTarget(event.target)) return;
+      // 空白按下一律先准备平移；究竟是"单击手势"（关弹层 / 退一层）还是"拖动平移"，
+      // 留到 pointerup 时按"指针是否移动过"判定——否则在聚焦视图里一按下就退层会吃掉拖动。
       root.focus({ preventScroll: true });
-      blankPan = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY };
+      blankPan = {
+        pointerId: event.pointerId,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false
+      };
       setViewportAnimating(false);
-      root.dataset.viewportDragging = "true";
       root.setPointerCapture(event.pointerId);
     });
     root.addEventListener("pointermove", (event) => {
       if (!blankPan || event.pointerId !== blankPan.pointerId) return;
       const dx = event.clientX - blankPan.lastX;
       const dy = event.clientY - blankPan.lastY;
-      blankPan = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY };
+      const moved = blankPan.moved
+        || Math.abs(event.clientX - blankPan.startX) > 3
+        || Math.abs(event.clientY - blankPan.startY) > 3;
+      blankPan = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY, startX: blankPan.startX, startY: blankPan.startY, moved };
+      if (moved) root.dataset.viewportDragging = "true";
       viewportCommitter.schedule(panRendererViewport(viewport, { x: dx, y: dy }, viewportSize()));
     });
     const endPan = (event: PointerEvent) => {
       if (!blankPan || event.pointerId !== blankPan.pointerId) return;
+      const wasClick = !blankPan.moved;
       blankPan = null;
       delete root.dataset.viewportDragging;
       if (root.hasPointerCapture(event.pointerId)) root.releasePointerCapture(event.pointerId);
+      if (!wasClick) return;
+      // 真·单击空白（按下到抬起没拖动）：关弹层 → 退一层（聚焦态），与拖动平移互不冲突
+      if (shouldBlankClickCloseToolbar(toolbarPanelState)) {
+        closeToolbarPanel();
+        return;
+      }
+      if (focus) retreatFocusedView();
     };
     root.addEventListener("pointerup", endPan);
     root.addEventListener("pointercancel", endPan);
     root.addEventListener("dblclick", (event) => {
       if (!isBlankViewportTarget(event.target)) return;
       event.preventDefault();
-      setViewportAnimating(true);
-      viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize()));
+      resetViewState();
     });
   }
 
@@ -582,7 +735,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function renderMotionOverlays(): void {
     if (dom.readerElement?.dataset.state === "open") renderReader();
     if (dom.selectionElement?.dataset.state === "open") renderSelectionPanel();
-    if (previewNodeId || dom.previewElement?.dataset.state === "open") renderHoverPreview();
+    if (previewNodeId || previewEdgeId || dom.previewElement?.dataset.state === "open") renderHoverPreview();
   }
 
   function updateMinimapViewport(): void {
@@ -832,8 +985,19 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     previewTimer = setTimeout(() => {
       previewTimer = null;
       previewNodeId = id;
+      previewEdgeId = null;
       renderHoverPreview();
     }, 300);
+  }
+
+  function showEdgeHoverPreview(id: string): void {
+    if (previewTimer) {
+      clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    previewNodeId = null;
+    previewEdgeId = id;
+    renderHoverPreview();
   }
 
   function clearHoverPreview(): void {
@@ -841,17 +1005,26 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       clearTimeout(previewTimer);
       previewTimer = null;
     }
-    if (!previewNodeId) return;
+    if (!previewNodeId && !previewEdgeId) return;
     previewNodeId = null;
+    previewEdgeId = null;
     renderHoverPreview();
   }
 
   function renderHoverPreview(): void {
     const preview = dom.previewElement;
     if (!preview) return;
+    const edge = previewEdgeId ? graph.edges.find((item) => item.id === previewEdgeId) : null;
     const rawNode = previewNodeId ? data.nodes.find((node) => node.id === previewNodeId) : null;
     const renderedNode = previewNodeId ? graph.nodes.find((node) => node.id === previewNodeId) : null;
     preview.replaceChildren();
+    preview.dataset.kind = edge ? "edge" : "node";
+    if (edge) {
+      preview.dataset.state = "open";
+      preview.append(createEdgeHoverPreviewContent(edge.relationType, edge.confidence));
+      positionEdgeHoverPreview(preview, edge);
+      return;
+    }
     preview.dataset.state = rawNode && renderedNode ? "open" : "closed";
     if (!rawNode || !renderedNode) return;
     const content = buildHoverPreview(rawNode);
@@ -874,6 +1047,26 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     preview.style.left = `${left}px`;
     preview.style.top = `${top}px`;
   }
+
+  function positionEdgeHoverPreview(preview: HTMLElement, edge: RenderableGraph["edges"][number]): void {
+    const rootRect = root.getBoundingClientRect();
+    const previewRect = preview.getBoundingClientRect();
+    const source = graph.nodes.find((node) => node.id === edge.source);
+    const target = graph.nodes.find((node) => node.id === edge.target);
+    const margin = 12;
+    const sourceX = source ? rootRect.width * source.x / 100 : rootRect.width / 2;
+    const sourceY = source ? rootRect.height * source.y / 100 : rootRect.height / 2;
+    const targetX = target ? rootRect.width * target.x / 100 : rootRect.width / 2;
+    const targetY = target ? rootRect.height * target.y / 100 : rootRect.height / 2;
+    const midX = (sourceX + targetX) / 2;
+    const midY = (sourceY + targetY) / 2;
+    const maxLeft = Math.max(margin, rootRect.width - previewRect.width - margin);
+    const maxTop = Math.max(margin, rootRect.height - previewRect.height - margin);
+    const left = clamp(midX + 16, margin, maxLeft);
+    const top = clamp(midY - previewRect.height - 16, margin, maxTop);
+    preview.style.left = `${left}px`;
+    preview.style.top = `${top}px`;
+  }
 }
 
 interface DragHandlers {
@@ -884,6 +1077,7 @@ interface DragHandlers {
   onDragEnd: (id: string, event: PointerEvent) => void;
   onNodeDoubleClick: (id: string) => boolean;
   onNodePreviewEnter: (id: NodeId) => void;
+  onEdgePreviewEnter: (id: string) => void;
   onNodePreviewLeave: () => void;
 }
 
@@ -937,12 +1131,23 @@ function paint(
   for (const edge of graph.edges) {
     const path = document.createElementNS(SVG_NS, "path");
     path.setAttribute("d", edge.path);
-    path.setAttribute("class", `edge ${edge.type}`);
+    path.setAttribute("class", `edge confidence-${edge.confidence} ${edge.relationClass}`);
     path.setAttribute("data-from", edge.source);
     path.setAttribute("data-to", edge.target);
     path.setAttribute("data-edge-id", edge.id);
+    path.setAttribute("data-confidence", edge.confidence);
+    path.setAttribute("data-relation-type", edge.relationType);
+    path.setAttribute("aria-label", `${edge.relationType} · ${edgeConfidenceLabel(edge.confidence)}`);
+    path.setAttribute("tabindex", "0");
+    path.addEventListener("pointerenter", () => dragHandlers.onEdgePreviewEnter(edge.id));
+    path.addEventListener("pointerleave", () => dragHandlers.onNodePreviewLeave());
+    path.addEventListener("focus", () => dragHandlers.onEdgePreviewEnter(edge.id));
+    path.addEventListener("blur", () => dragHandlers.onNodePreviewLeave());
     path.style.strokeWidth = String(edge.strokeWidth);
     path.style.opacity = String(edge.opacity);
+    const title = document.createElementNS(SVG_NS, "title");
+    title.textContent = `${edge.relationType} · ${edgeConfidenceLabel(edge.confidence)}`;
+    path.appendChild(title);
     edgeLayer.appendChild(path);
     painted.edgeElements.set(edge.id, path);
   }
@@ -1031,6 +1236,22 @@ function createHoverPreviewContent(preview: GraphHoverPreview): HTMLElement {
     summary.textContent = preview.summary;
     article.appendChild(summary);
   }
+  return article;
+}
+
+function createEdgeHoverPreviewContent(relationType: string, confidence: string): HTMLElement {
+  const article = document.createElement("article");
+  article.className = "graph-hover-preview-card graph-edge-hover-card";
+  const type = document.createElement("div");
+  type.className = "graph-hover-preview-type";
+  type.textContent = "关系";
+  const title = document.createElement("div");
+  title.className = "graph-hover-preview-title";
+  title.textContent = relationType;
+  const summary = document.createElement("p");
+  summary.className = "graph-hover-preview-summary";
+  summary.textContent = `置信度：${edgeConfidenceLabel(confidence)}`;
+  article.append(type, title, summary);
   return article;
 }
 
@@ -1215,6 +1436,19 @@ function graphReaderMetaItems(node: GraphOpenPagePayload["node"]): string[] {
   return items;
 }
 
+function edgeConfidenceLabel(confidence: string): string {
+  switch (confidence) {
+    case "inferred":
+      return "推断";
+    case "ambiguous":
+      return "待确认";
+    case "unverified":
+      return "未验证";
+    default:
+      return "原文";
+  }
+}
+
 function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number; y: number } {
   const rect = root.getBoundingClientRect();
   return {
@@ -1226,7 +1460,177 @@ function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number;
 function isBlankViewportTarget(target: EventTarget | null): boolean {
   const element = target instanceof Element ? target : null;
   if (!element) return false;
-  return !element.closest(".node, .mini-map, .graph-reader, .graph-search, .community-legend, .community-wash");
+  return !element.closest(".node, .mini-map, .graph-reader, .graph-search, .graph-toolbar, .community-legend, .community-wash");
+}
+
+function isTextEditingElement(element: Element | null): boolean {
+  if (!element) return false;
+  const tagName = element.tagName.toLowerCase();
+  if (tagName === "textarea") return true;
+  if (tagName === "input") {
+    const input = element as HTMLInputElement;
+    const type = input.type.toLowerCase();
+    return !["button", "checkbox", "radio", "range", "submit", "reset"].includes(type);
+  }
+  return element instanceof HTMLElement && element.isContentEditable;
+}
+
+function createGraphToolbar(
+  ownerDocument: Document,
+  options: {
+    panelState: GraphToolbarPanelState;
+    typeFilters: GraphTypeFilters;
+    onPanelToggle: (panel: Exclude<GraphToolbarPanelState, "closed">) => void;
+    onTypeFilterToggle: (type: string, enabled: boolean) => void;
+    onReset: () => void;
+  }
+): { element: HTMLElement; panel: HTMLElement; filtersPanel: HTMLElement } {
+  const element = ownerDocument.createElement("nav");
+  element.className = "graph-toolbar";
+  element.dataset.panel = options.panelState;
+  element.setAttribute("aria-label", "图谱控制");
+  element.addEventListener("click", (event) => event.stopPropagation());
+
+  const actions = ownerDocument.createElement("div");
+  actions.className = "graph-toolbar-actions";
+  const filters = createToolbarButton(ownerDocument, "筛选", options.panelState === "filters");
+  filters.addEventListener("click", () => options.onPanelToggle("filters"));
+  const legend = createToolbarButton(ownerDocument, "图例", options.panelState === "legend");
+  legend.addEventListener("click", () => options.onPanelToggle("legend"));
+  const reset = createToolbarButton(ownerDocument, "回全图", false);
+  reset.addEventListener("click", options.onReset);
+  actions.append(filters, legend, reset);
+
+  const panel = ownerDocument.createElement("section");
+  panel.className = "graph-toolbar-panel";
+  panel.dataset.state = options.panelState;
+  const filtersPanel = ownerDocument.createElement("div");
+  filtersPanel.className = "graph-toolbar-section graph-toolbar-filters";
+  filtersPanel.appendChild(createTypeFilterGroup(ownerDocument, options.typeFilters, options.onTypeFilterToggle));
+
+  const legendPanel = ownerDocument.createElement("div");
+  legendPanel.className = "graph-toolbar-section graph-toolbar-legend";
+  const legendTitle = ownerDocument.createElement("div");
+  legendTitle.className = "graph-toolbar-section-title";
+  legendTitle.textContent = "边";
+  legendPanel.appendChild(legendTitle);
+  legendPanel.appendChild(createEdgeLegend(ownerDocument));
+
+  panel.append(filtersPanel, legendPanel);
+  element.append(actions, panel);
+  return { element, panel, filtersPanel };
+}
+
+function createEdgeLegend(ownerDocument: Document): HTMLElement {
+  const legend = ownerDocument.createElement("div");
+  legend.className = "graph-edge-legend";
+  const relations = ownerDocument.createElement("div");
+  relations.className = "graph-edge-legend-group";
+  relations.appendChild(createEdgeLegendHeading(ownerDocument, "关系类型"));
+  for (const item of [
+    { label: "实现 / 依赖 / 衍生", className: "relation-dependency" },
+    { label: "对比", className: "relation-contrast" },
+    { label: "矛盾", className: "relation-conflict" }
+  ]) {
+    relations.appendChild(createEdgeLegendRelation(ownerDocument, item.label, item.className));
+  }
+
+  const confidences = ownerDocument.createElement("div");
+  confidences.className = "graph-edge-legend-group";
+  confidences.appendChild(createEdgeLegendHeading(ownerDocument, "置信度"));
+  for (const item of [
+    { label: "原文", className: "confidence-extracted" },
+    { label: "推断", className: "confidence-inferred" },
+    { label: "待确认", className: "confidence-ambiguous" }
+  ]) {
+    confidences.appendChild(createEdgeLegendConfidence(ownerDocument, item.label, item.className));
+  }
+
+  legend.append(relations, confidences);
+  return legend;
+}
+
+function createEdgeLegendHeading(ownerDocument: Document, text: string): HTMLElement {
+  const heading = ownerDocument.createElement("div");
+  heading.className = "graph-edge-legend-heading";
+  heading.textContent = text;
+  return heading;
+}
+
+function createEdgeLegendRelation(ownerDocument: Document, label: string, className: string): HTMLElement {
+  const row = ownerDocument.createElement("div");
+  row.className = `graph-edge-legend-row graph-edge-legend-relation ${className}`;
+  const swatch = ownerDocument.createElement("span");
+  swatch.className = "graph-edge-legend-swatch";
+  const text = ownerDocument.createElement("span");
+  text.textContent = label;
+  row.append(swatch, text);
+  return row;
+}
+
+function createEdgeLegendConfidence(ownerDocument: Document, label: string, className: string): HTMLElement {
+  const row = ownerDocument.createElement("div");
+  row.className = `graph-edge-legend-row graph-edge-legend-confidence ${className}`;
+  const line = ownerDocument.createElement("span");
+  line.className = "graph-edge-legend-line";
+  const text = ownerDocument.createElement("span");
+  text.textContent = label;
+  row.append(line, text);
+  return row;
+}
+
+function createTypeFilterGroup(
+  ownerDocument: Document,
+  typeFilters: GraphTypeFilters,
+  onToggle: (type: string, enabled: boolean) => void
+): HTMLElement {
+  const group = ownerDocument.createElement("fieldset");
+  group.className = "graph-type-filter";
+  const title = ownerDocument.createElement("legend");
+  title.className = "graph-toolbar-section-title";
+  title.textContent = "类型筛选";
+  group.appendChild(title);
+
+  for (const type of orderedGraphNodeTypes(typeFilters)) {
+    const label = ownerDocument.createElement("label");
+    label.className = "graph-type-filter-option";
+    const input = ownerDocument.createElement("input");
+    input.type = "checkbox";
+    input.checked = typeFilters[type] !== false;
+    input.dataset.type = type;
+    input.addEventListener("change", () => onToggle(type, input.checked));
+    const text = ownerDocument.createElement("span");
+    text.textContent = graphNodeTypeLabel(type);
+    label.append(input, text);
+    group.appendChild(label);
+  }
+
+  return group;
+}
+
+function orderedGraphNodeTypes(typeFilters: GraphTypeFilters): string[] {
+  const preferred = ["entity", "topic", "source"];
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const type of preferred) {
+    if (Object.hasOwn(typeFilters, type)) {
+      ordered.push(type);
+      seen.add(type);
+    }
+  }
+  for (const type of Object.keys(typeFilters).sort()) {
+    if (!seen.has(type)) ordered.push(type);
+  }
+  return ordered;
+}
+
+function createToolbarButton(ownerDocument: Document, label: string, active: boolean): HTMLButtonElement {
+  const button = ownerDocument.createElement("button");
+  button.type = "button";
+  button.className = "graph-toolbar-button";
+  button.dataset.active = active ? "true" : "false";
+  button.textContent = label;
+  return button;
 }
 
 function createCommunityLegend(
@@ -1338,6 +1742,8 @@ function emptyPaintedDom(): PaintedGraphDom {
     searchElement: null,
     searchInput: null,
     searchStatusElement: null,
+    toolbarElement: null,
+    toolbarPanelElement: null,
     legendElement: null,
     legendRows: new Map(),
     previewElement: null
@@ -1417,7 +1823,7 @@ const STATIC_RENDERER_CSS = `
 }
 .graph-search {
   position: absolute;
-  top: 14px;
+  top: 64px;
   left: 14px;
   z-index: 7;
   display: grid;
@@ -1461,20 +1867,176 @@ const STATIC_RENDERER_CSS = `
   font-size: 11px;
   white-space: nowrap;
 }
-.community-legend {
+.graph-toolbar {
   position: absolute;
-  top: 64px;
+  top: 14px;
   left: 14px;
-  z-index: 6;
-  width: min(260px, calc(100% - 28px));
-  border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+  right: 14px;
+  z-index: 8;
+  display: grid;
+  justify-items: start;
+  pointer-events: none;
+}
+.graph-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--rule) 62%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  box-shadow: 0 14px 28px rgba(36, 24, 12, .08);
+  background: color-mix(in srgb, var(--surface) 64%, transparent);
+  box-shadow: 0 14px 30px rgba(36, 24, 12, .08);
+  backdrop-filter: blur(14px);
+  padding: 4px;
+  pointer-events: auto;
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-toolbar-actions {
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+}
+.graph-toolbar-button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: 12px/1.2 var(--font-ui);
+  padding: 0 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.graph-toolbar-button:hover,
+.graph-toolbar-button[data-active="true"] {
+  background: color-mix(in srgb, var(--cinnabar) 10%, transparent);
+  color: var(--ink);
+}
+.graph-toolbar-panel {
+  width: min(320px, calc(100vw - 28px));
+  max-height: min(58vh, 420px);
+  margin-top: 8px;
+  border: 1px solid color-mix(in srgb, var(--rule) 62%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  box-shadow: 0 20px 42px rgba(36, 24, 12, .12);
+  backdrop-filter: blur(16px);
+  overflow: auto;
+  pointer-events: auto;
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-toolbar-panel {
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+}
+.graph-toolbar-panel[data-state="closed"] {
+  display: none;
+}
+.graph-toolbar-section {
+  display: none;
+}
+.graph-toolbar-panel[data-state="filters"] .graph-toolbar-filters,
+.graph-toolbar-panel[data-state="legend"] .graph-toolbar-legend {
+  display: block;
+}
+.graph-toolbar-section-title {
+  padding: 10px 12px;
+  color: var(--muted);
+  font: 12px/1.3 var(--font-ui);
+}
+.graph-type-filter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 52%, transparent);
+  padding: 0 10px 10px;
+}
+.graph-type-filter .graph-toolbar-section-title {
+  grid-column: 1 / -1;
+  padding: 10px 2px 2px;
+}
+.graph-type-filter-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--rule) 52%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 48%, transparent);
+  padding: 0 8px;
+  color: var(--ink);
+  font: 12px/1.2 var(--font-ui);
+  cursor: pointer;
+}
+.graph-type-filter-option input {
+  margin: 0;
+  accent-color: var(--cinnabar);
+}
+.graph-type-filter-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-edge-legend {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+.graph-edge-legend-group {
+  display: grid;
+  gap: 7px;
+}
+.graph-edge-legend-heading {
+  color: var(--muted);
+  font: 11px/1.2 var(--font-ui);
+}
+.graph-edge-legend-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  color: var(--ink);
+  font: 12px/1.2 var(--font-ui);
+}
+.graph-edge-legend-swatch,
+.graph-edge-legend-line {
+  display: block;
+  width: 34px;
+  height: 0;
+  border-top: 2px solid color-mix(in srgb, var(--night) 66%, transparent);
+}
+.graph-edge-legend-relation.relation-contrast .graph-edge-legend-swatch {
+  border-top-color: color-mix(in srgb, var(--amber) 82%, transparent);
+}
+.graph-edge-legend-relation.relation-conflict .graph-edge-legend-swatch {
+  border-top-color: color-mix(in srgb, #d94693 78%, transparent);
+}
+.graph-edge-legend-confidence.confidence-inferred .graph-edge-legend-line {
+  border-top-style: dashed;
+}
+.graph-edge-legend-confidence.confidence-ambiguous .graph-edge-legend-line {
+  border-top-style: dotted;
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-edge-legend-swatch,
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-edge-legend-line {
+  border-top-color: color-mix(in srgb, var(--line) 70%, transparent);
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-edge-legend-relation.relation-contrast .graph-edge-legend-swatch {
+  border-top-color: color-mix(in srgb, var(--amber) 76%, transparent);
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-edge-legend-relation.relation-conflict .graph-edge-legend-swatch {
+  border-top-color: color-mix(in srgb, #f472b6 78%, transparent);
+}
+.community-legend {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   overflow: hidden;
 }
 .llm-wiki-graph-engine[data-theme="mo-ye"] .community-legend {
-  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  background: transparent;
 }
 .community-legend-toggle {
   width: 100%;
@@ -1670,6 +2232,7 @@ const STATIC_RENDERER_CSS = `
   fill: none;
   stroke-linecap: round;
   opacity: .74;
+  pointer-events: stroke;
 }
 .edge.is-diff-added {
   stroke-dasharray: var(--diff-edge-length, 180);
@@ -1679,17 +2242,34 @@ const STATIC_RENDERER_CSS = `
 .edge.is-diff-removed {
   animation: llm-wiki-fade-out .72s ease forwards;
 }
-.edge.extracted { stroke: color-mix(in srgb, var(--night) 74%, transparent); }
-.edge.inferred { stroke: color-mix(in srgb, var(--jade) 62%, transparent); stroke-dasharray: 6 8; }
-.edge.ambiguous { stroke: color-mix(in srgb, var(--amber) 66%, transparent); stroke-dasharray: 2 7; }
-.edge.unverified { stroke: color-mix(in srgb, var(--muted) 45%, transparent); stroke-dasharray: 1 8; }
+.edge.relation-implementation,
+.edge.relation-dependency,
+.edge.relation-derivation {
+  stroke: color-mix(in srgb, var(--night) 66%, transparent);
+}
+.edge.relation-contrast {
+  stroke: color-mix(in srgb, var(--amber) 82%, transparent);
+}
+.edge.relation-conflict {
+  stroke: color-mix(in srgb, #d94693 78%, transparent);
+}
+.edge.confidence-inferred { stroke-dasharray: 6 8; }
+.edge.confidence-ambiguous { stroke-dasharray: 2 7; }
+.edge.confidence-unverified { stroke-dasharray: 1 8; }
 .llm-wiki-graph-engine[data-theme="mo-ye"] .edge {
   opacity: .82;
 }
-.llm-wiki-graph-engine[data-theme="mo-ye"] .edge.extracted { stroke: color-mix(in srgb, var(--line) 68%, transparent); }
-.llm-wiki-graph-engine[data-theme="mo-ye"] .edge.inferred { stroke: color-mix(in srgb, var(--jade) 70%, transparent); }
-.llm-wiki-graph-engine[data-theme="mo-ye"] .edge.ambiguous { stroke: color-mix(in srgb, var(--amber) 72%, transparent); }
-.llm-wiki-graph-engine[data-theme="mo-ye"] .edge.unverified { stroke: color-mix(in srgb, var(--muted) 52%, transparent); }
+.llm-wiki-graph-engine[data-theme="mo-ye"] .edge.relation-implementation,
+.llm-wiki-graph-engine[data-theme="mo-ye"] .edge.relation-dependency,
+.llm-wiki-graph-engine[data-theme="mo-ye"] .edge.relation-derivation {
+  stroke: color-mix(in srgb, var(--line) 70%, transparent);
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .edge.relation-contrast {
+  stroke: color-mix(in srgb, var(--amber) 76%, transparent);
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .edge.relation-conflict {
+  stroke: color-mix(in srgb, #f472b6 78%, transparent);
+}
 .community-wash {
   transition: opacity .16s ease, cx .24s ease, cy .24s ease, rx .24s ease, ry .24s ease;
 }
@@ -1707,6 +2287,7 @@ const STATIC_RENDERER_CSS = `
   position: absolute;
   inset: 0;
   z-index: 3;
+  pointer-events: none;
 }
 .graph-hover-preview {
   position: absolute;
@@ -1760,6 +2341,7 @@ const STATIC_RENDERER_CSS = `
 .node {
   position: absolute;
   z-index: 3;
+  pointer-events: auto;
   min-height: 46px;
   max-width: 178px;
   padding: 8px 11px;

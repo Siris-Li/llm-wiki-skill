@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
   buildRenderableGraph,
   edgeOpacity,
+  edgeRelationClass,
   edgeStrokeWidth,
+  edgeVisualOpacity,
+  edgeVisualStrokeWidth,
   makeEdgePath,
   nodeDisplayModeForDensity,
   screenEffectiveDensityMode
@@ -25,8 +28,8 @@ function sampleGraph(): GraphData {
       { id: "island", label: "孤岛", type: "entity", community: "c3", source_path: "wiki/island.md", weight: 10 }
     ],
     edges: [
-      { id: "e1", from: "topic", to: "entity", type: "EXTRACTED", weight: 1 },
-      { id: "e2", from: "topic", to: "source", type: "INFERRED", weight: 0.5 },
+      { id: "e1", from: "topic", to: "entity", type: "EXTRACTED", confidence: "EXTRACTED", relation_type: "实现", weight: 1 },
+      { id: "e2", from: "topic", to: "source", type: "INFERRED", confidence: "INFERRED", relation_type: "对比", weight: 0.5 },
       { id: "missing", from: "topic", to: "missing", type: "UNVERIFIED", weight: 0.1 }
     ],
     learning: {
@@ -89,9 +92,29 @@ describe("buildRenderableGraph", () => {
     assert.equal(graph.densityMode, "card");
     assert.equal(graph.nodes.find((node) => node.id === "topic")?.visualRole, "index-slip");
     assert.equal(graph.edges[0].type, "extracted");
+    assert.equal(graph.edges[0].confidence, "extracted");
+    assert.equal(graph.edges[0].relationType, "实现");
+    assert.equal(graph.edges[0].relationClass, "relation-implementation");
+    assert.equal(graph.edges[1].confidence, "inferred");
+    assert.equal(graph.edges[1].relationType, "对比");
+    assert.equal(graph.edges[1].relationClass, "relation-contrast");
     assert.match(graph.edges[0].path, /^M \d+ \d+ Q /);
     assert.equal(graph.minimap.path, "M8 40 C34 20 54 36 76 22 C98 8 118 24 150 12");
     assert.equal(graph.minimap.nodes.length, 4);
+  });
+
+  it("uses low-weight global edges and fuller focused relation edges", () => {
+    const global = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
+    const focused = buildRenderableGraph(sampleGraph(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" }
+    });
+
+    assert.equal(global.edges.find((edge) => edge.id === "e1")?.relationClass, "relation-implementation");
+    assert.equal(global.edges.find((edge) => edge.id === "e2")?.relationClass, "relation-contrast");
+    assert.equal(focused.edges[0].relationClass, "relation-implementation");
+    assert.ok(focused.edges[0].strokeWidth > global.edges[0].strokeWidth, "focused relation edge should render with a fuller stroke");
+    assert.ok(focused.edges[0].opacity > global.edges[0].opacity, "focused relation edge should render with higher opacity");
   });
 
   it("uses pins as the cold-start coordinates when a node source path matches", () => {
@@ -151,6 +174,68 @@ describe("buildRenderableGraph", () => {
     assert.equal(graph.minimap.nodes.filter((node) => node.selected).length, 2);
   });
 
+  it("enters a community focus view by hiding nodes outside the selected community", () => {
+    const graph = buildRenderableGraph(sampleGraph(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" }
+    });
+
+    assert.deepEqual(graph.nodes.map((node) => node.id), ["topic", "entity"]);
+    assert.deepEqual(graph.edges.map((edge) => edge.id), ["e1"]);
+    assert.equal(graph.counts.visibleNodes, 2);
+    assert.equal(graph.counts.totalNodes, 4);
+    assert.equal(graph.focus?.kind, "community");
+    assert.equal(graph.focus?.id, "c1");
+    assert.deepEqual(
+      communityWashStates(graph),
+      [["c1", true], ["c2", false], ["c3", false]]
+    );
+  });
+
+  it("filters visible nodes by graph node type and stacks with community focus", () => {
+    const graph = buildRenderableGraph(sampleGraph(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      typeFilters: {
+        entity: true,
+        topic: false,
+        source: true
+      }
+    });
+
+    assert.deepEqual(graph.nodes.map((node) => node.id), ["entity"]);
+    assert.deepEqual(graph.edges, []);
+    assert.equal(graph.counts.visibleNodes, 1);
+    assert.equal(graph.typeFilters.topic, false);
+  });
+
+  it("preserves community focus and type filters when positions are reapplied", () => {
+    const graph = buildRenderableGraph(sampleGraph(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      typeFilters: {
+        entity: true,
+        topic: false,
+        source: true
+      },
+      positions: {
+        topic: { x: 500, y: 500 },
+        entity: { x: 420, y: 320 },
+        source: { x: 900, y: 120 },
+        island: { x: 120, y: 120 }
+      }
+    });
+
+    assert.deepEqual(graph.nodes.map((node) => node.id), ["entity"]);
+    assert.deepEqual(graph.edges, []);
+    assert.equal(graph.focus?.id, "c1");
+    assert.equal(graph.typeFilters.topic, false);
+    assert.deepEqual(
+      communityWashStates(graph),
+      [["c1", true], ["c2", false], ["c3", false]]
+    );
+  });
+
   it("keeps community wash around the member cluster instead of chasing an outlier", () => {
     const graph = buildRenderableGraph(outlierCommunityGraph(), { theme: "shan-shui" });
     const community = graph.communities.find((item) => item.id === "c1");
@@ -161,6 +246,12 @@ describe("buildRenderableGraph", () => {
     assert.ok(community.wash.rx < 140, `wash radius should not stretch to the outlier, got ${community.wash.rx}`);
   });
 });
+
+function communityWashStates(graph: ReturnType<typeof buildRenderableGraph>): Array<[string, boolean]> {
+  return graph.communities
+    .map((community): [string, boolean] => [community.id, Boolean(community.wash)])
+    .sort(([left], [right]) => left.localeCompare(right));
+}
 
 describe("screen-effective density", () => {
   it("uses viewport scale to choose the effective density mode", () => {
@@ -201,6 +292,22 @@ describe("edge drawing helpers", () => {
     assert.equal(edgeStrokeWidth({ weight: 1 }), 2.9);
     assert.equal(edgeOpacity({ weight: 0 }), 0.32);
     assert.equal(edgeOpacity({ weight: 1 }), 0.76);
+  });
+
+  it("maps relation type to a separate visual class from confidence", () => {
+    assert.equal(edgeRelationClass("实现"), "relation-implementation");
+    assert.equal(edgeRelationClass("依赖"), "relation-dependency");
+    assert.equal(edgeRelationClass("衍生"), "relation-derivation");
+    assert.equal(edgeRelationClass("对比"), "relation-contrast");
+    assert.equal(edgeRelationClass("矛盾"), "relation-conflict");
+    assert.equal(edgeRelationClass("未知"), "relation-dependency");
+  });
+
+  it("keeps global relation edges subdued and focused edges fuller", () => {
+    assert.equal(edgeVisualStrokeWidth({ weight: 1 }, false), 1.7);
+    assert.equal(edgeVisualStrokeWidth({ weight: 1 }, true), 2.9);
+    assert.equal(edgeVisualOpacity({ weight: 1 }, false), 0.42);
+    assert.equal(edgeVisualOpacity({ weight: 1 }, true), 0.76);
   });
 
   it("builds a curved path from atlas node coordinates", () => {

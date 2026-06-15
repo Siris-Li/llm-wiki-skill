@@ -15,7 +15,8 @@ test_graph_html_has_responsive_css() {
 
     assert_file_contains "$html" "@media (max-width: 720px)"
     assert_file_contains "$html" ".offline-header { align-items: flex-start; flex-direction: column; }"
-    assert_file_contains "$html" "#graph-root { height: calc(100vh - 118px); min-height: 520px; }"
+    assert_file_contains "$html" ".offline-toolbar-host { width: 100%; flex-basis: auto; }"
+    assert_file_contains "$html" "#graph-root { min-height: 520px; }"
     assert_file_contains "$html" "width: min(360px, calc(100% - 32px));"
     assert_file_contains "$html" "overflow-wrap: anywhere;"
 
@@ -32,7 +33,7 @@ test_graph_html_has_stable_mobile_shell_dimensions() {
     assert_file_contains "$html" ".offline-shell"
     assert_file_contains "$html" "grid-template-rows: auto minmax(0, 1fr);"
     assert_file_contains "$html" "#graph-root"
-    assert_file_contains "$html" "height: calc(100vh - 65px);"
+    assert_file_contains "$html" "height: 100%;"
     assert_file_contains "$html" "min-height: 560px;"
 
     rm -rf "$tmp_dir"

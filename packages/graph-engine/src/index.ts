@@ -34,6 +34,9 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
     data: options.data,
     pins: options.pins || {},
     theme: currentTheme,
+    toolbarContainer: options.toolbarContainer,
+    focus: options.focus,
+    typeFilters: options.typeFilters,
     onOpenPage: options.capabilities?.onOpenPage,
     onSelectionChange: canSelect
       ? (input) => {
@@ -43,6 +46,7 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
         }
       : undefined,
     persistPins: options.capabilities?.persistPins,
+    onSelectionClear: options.capabilities?.onSelectionClear,
     onDragStateChange: options.capabilities?.onDragStateChange
   });
 
@@ -64,6 +68,24 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
       assertActive();
       container.dataset.llmWikiGraphFocus = path;
       renderer.focusNode(path);
+    },
+
+    focusCommunity(id): Selection {
+      assertActive();
+      container.dataset.llmWikiGraphFocus = `community:${id}`;
+      renderer.focusCommunity(id);
+      return resolveForHostCapabilities({ kind: "community", id });
+    },
+
+    setTypeFilters(filters): void {
+      assertActive();
+      renderer.setTypeFilters(filters);
+    },
+
+    resetView(): void {
+      assertActive();
+      delete container.dataset.llmWikiGraphFocus;
+      renderer.resetView();
     },
 
     select(selector: SelectionInput): Selection {

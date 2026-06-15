@@ -81,6 +81,8 @@
       "from": "Attention",
       "to": "Transformer",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.733,
       "source_signal_available": true,
       "signals": {
@@ -94,6 +96,8 @@
       "from": "Decoder",
       "to": "Transformer",
       "type": "INFERRED",
+      "confidence": "INFERRED",
+      "relation_type": "依赖",
       "weight": 0.733,
       "source_signal_available": true,
       "signals": {
@@ -107,6 +111,8 @@
       "from": "Encoder",
       "to": "Transformer",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.733,
       "source_signal_available": true,
       "signals": {
@@ -120,6 +126,8 @@
       "from": "GPT",
       "to": "Transformer",
       "type": "AMBIGUOUS",
+      "confidence": "AMBIGUOUS",
+      "relation_type": "依赖",
       "weight": 0.333,
       "source_signal_available": true,
       "signals": {
@@ -133,6 +141,8 @@
       "from": "Transformer",
       "to": "Attention",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.733,
       "source_signal_available": true,
       "signals": {
@@ -146,6 +156,8 @@
       "from": "Transformer",
       "to": "Decoder",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.733,
       "source_signal_available": true,
       "signals": {
@@ -159,6 +171,8 @@
       "from": "Transformer",
       "to": "Encoder",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.733,
       "source_signal_available": true,
       "signals": {
@@ -172,6 +186,8 @@
       "from": "arch",
       "to": "Attention",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.667,
       "source_signal_available": true,
       "signals": {
@@ -185,6 +201,8 @@
       "from": "arch",
       "to": "Decoder",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.667,
       "source_signal_available": true,
       "signals": {
@@ -198,6 +216,8 @@
       "from": "arch",
       "to": "Encoder",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.667,
       "source_signal_available": true,
       "signals": {
@@ -211,6 +231,8 @@
       "from": "arch",
       "to": "Transformer",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.667,
       "source_signal_available": true,
       "signals": {
@@ -224,6 +246,8 @@
       "from": "finetune",
       "to": "GPT",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.667,
       "source_signal_available": true,
       "signals": {
@@ -237,6 +261,8 @@
       "from": "paper",
       "to": "Attention",
       "type": "EXTRACTED",
+      "confidence": "EXTRACTED",
+      "relation_type": "依赖",
       "weight": 0.533,
       "source_signal_available": true,
       "signals": {

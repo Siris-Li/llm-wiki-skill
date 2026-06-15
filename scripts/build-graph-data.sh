@@ -157,10 +157,19 @@ while IFS=$'\t' read -r id label type path; do
     {
       line = $0
       conf = ""
+      rel = ""
       if (match(line, /<!--[[:space:]]*confidence:[[:space:]]*[A-Z]+[[:space:]]*-->/)) {
         kind_str = substr(line, RSTART, RLENGTH)
         if (match(kind_str, /[A-Z]+/)) {
           conf = substr(kind_str, RSTART, RLENGTH)
+        }
+      }
+      if (match(line, /<!--[[:space:]]*relation(_type)?:[[:space:]]*/)) {
+        rel_str = substr(line, RSTART + RLENGTH)
+        rel_end = index(rel_str, "-->")
+        if (rel_end > 0) {
+          rel = substr(rel_str, 1, rel_end - 1)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", rel)
         }
       }
       rest = line
@@ -171,7 +180,7 @@ while IFS=$'\t' read -r id label type path; do
         if (n > 0) inner = substr(inner, 1, n - 1)
         gsub(/^[[:space:]]+|[[:space:]]+$/, "", inner)
         if (inner == "" || inner == src) continue
-        print src "\t" NR "\t" inner "\t" conf
+        print src "\t" NR "\t" inner "\t" conf "\t" rel
       }
     }
   ' "$path" >> "$EDGES_RAW"
@@ -194,17 +203,22 @@ awk -F'\t' -v valids="$VALID_IDS" '
     close(valids)
   }
   {
-    from = $1; to = $3; conf = $4
+    from = $1; to = $3; conf = $4; rel = $5
     if (!(to in valid)) next
     if (from == to) next
     key = from "\t" to
     if (!(key in seen)) {
       seen[key] = 1
       saved_conf[key] = conf  # 可能为空，在 END 中兜底为 EXTRACTED
+      saved_rel[key] = rel    # 可能为空，在 END 中兜底为依赖
       order[++count] = key
     } else if (conf != "" && saved_conf[key] == "") {
       # 升级：之前未见显式 conf（留空），现在有，采用
       saved_conf[key] = conf
+    }
+    if (rel != "" && saved_rel[key] == "") {
+      # 升级：之前未见显式 relation type，现在有，采用
+      saved_rel[key] = rel
     }
   }
   END {
@@ -212,7 +226,9 @@ awk -F'\t' -v valids="$VALID_IDS" '
       split(order[i], parts, "\t")
       t = saved_conf[order[i]]
       if (t != "EXTRACTED" && t != "INFERRED" && t != "AMBIGUOUS") t = "EXTRACTED"
-      print parts[1] "\t" parts[2] "\t" t
+      r = saved_rel[order[i]]
+      if (r == "") r = "依赖"
+      print parts[1] "\t" parts[2] "\t" t "\t" r
     }
   }
 ' "$EDGES_RAW" > "$EDGES_TSV"
@@ -251,14 +267,15 @@ done < "$NODES_TSV"
 EDGES_JSONL="$TMPDIR/edges.jsonl"
 : > "$EDGES_JSONL"
 idx=0
-while IFS=$'\t' read -r from to etype; do
+while IFS=$'\t' read -r from to etype relation_type; do
   idx=$((idx + 1))
   jq -n \
     --arg id "e$idx" \
     --arg from "$from" \
     --arg to "$to" \
     --arg etype "$etype" \
-    '{id: $id, from: $from, to: $to, type: $etype}' >> "$EDGES_JSONL"
+    --arg relation_type "$relation_type" \
+    '{id: $id, from: $from, to: $to, type: $etype, confidence: $etype, relation_type: $relation_type}' >> "$EDGES_JSONL"
 done < "$EDGES_TSV"
 
 if [ "${LLM_WIKI_TEST_MODE:-0}" = "1" ]; then

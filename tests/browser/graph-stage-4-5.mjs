@@ -36,6 +36,7 @@ async function runOfflineChecks(browser) {
 
   await page.waitForSelector("[data-llm-wiki-graph-root='true']");
   await page.waitForSelector("[data-viewport-layer='true']");
+  await runOfflineThemeChecks(page);
 
   const initial = await layerTransform(page);
   await page.mouse.move(64, 120);
@@ -163,6 +164,14 @@ async function runOfflineChecks(browser) {
   }
 }
 
+async function runOfflineThemeChecks(page) {
+  await page.waitForFunction(() => document.querySelector(".llm-wiki-graph-engine")?.dataset.theme === "shan-shui");
+  await page.getByRole("button", { name: "切换墨夜主题" }).click();
+  await page.waitForFunction(() => document.querySelector(".llm-wiki-graph-engine")?.dataset.theme === "mo-ye");
+  await page.getByRole("button", { name: "切换山水主题" }).click();
+  await page.waitForFunction(() => document.querySelector(".llm-wiki-graph-engine")?.dataset.theme === "shan-shui");
+}
+
 async function layerTransform(page) {
   return page.locator("[data-viewport-layer='true']").evaluate((element) => element.style.transform);
 }
@@ -200,6 +209,7 @@ async function assertOfflineReaderMeta(page, expected) {
   } else {
     assert.equal(await reader.locator(".graph-reader-source").count(), 0, "non-source pages should not expose source path reader links");
   }
+  await assertNoOfflineAskActions(reader);
 }
 
 async function runOfflinePinReloadCheck(page) {
@@ -279,25 +289,46 @@ async function waitForSearchState(page, state) {
 }
 
 async function runLegendChecks(page, options) {
-  await page.waitForSelector(".community-legend-row");
+  await waitForToolbarPanel(page, "closed");
+  await openToolbarFilters(page);
+  await runTypeFilterChecks(page);
+  await runEdgeLegendChecks(page);
   const row = page.locator(".community-legend-row").first();
   await row.hover();
   await page.waitForSelector('.node[data-community-state="faded"]');
   await page.mouse.move(900, 120);
 
   if (options.persistReload) {
-    await page.locator(".community-legend-toggle").click();
-    await waitForLegendState(page, "collapsed");
     await page.reload();
     await page.waitForSelector("[data-llm-wiki-graph-root='true']");
-    await waitForLegendState(page, "collapsed");
-    await page.locator(".community-legend-toggle").click();
-    await waitForLegendState(page, "open");
+    await waitForToolbarPanel(page, "filters");
+    await closeToolbarWithBlankClick(page);
+    await waitForToolbarPanel(page, "closed");
+    await page.reload();
+    await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+    await waitForToolbarPanel(page, "closed");
+    await openToolbarFilters(page);
   }
 
+  await page.waitForSelector(".edge");
+  const focusableCommunity = await firstCommunityWithInternalEdge(page);
+  const focusRow = page.locator(`.community-legend-row[data-community-id="${cssString(focusableCommunity)}"]`);
   const beforeClick = await layerTransform(page);
-  await row.click();
+  const globalEdge = await page.locator(".edge").first().evaluate((edge) => ({
+    opacity: Number((edge instanceof SVGPathElement ? edge.style.opacity : "0") || "0"),
+    strokeWidth: Number((edge instanceof SVGPathElement ? edge.style.strokeWidth : "0") || "0")
+  }));
+  const initialNodes = await page.locator(".node").count();
+  await focusRow.click();
   await waitForLayerTransform(page, beforeClick);
+  const focusedNodes = await page.locator(".node").count();
+  assert.ok(focusedNodes < initialNodes, "legend click should enter a focused community view with fewer visible nodes");
+  const focusedEdge = await page.locator(".edge").first().evaluate((edge) => ({
+    opacity: Number((edge instanceof SVGPathElement ? edge.style.opacity : "0") || "0"),
+    strokeWidth: Number((edge instanceof SVGPathElement ? edge.style.strokeWidth : "0") || "0")
+  }));
+  assert.ok(focusedEdge.opacity > globalEdge.opacity, "focused community view should make relation edges more visible");
+  assert.ok(focusedEdge.strokeWidth > globalEdge.strokeWidth, "focused community view should make relation edges fuller");
   const selected = await page.locator(".node[aria-pressed='true']").count();
   assert.ok(selected >= 1, "legend click should select the community nodes");
 
@@ -311,6 +342,81 @@ async function runLegendChecks(page, options) {
   }
 }
 
+async function firstCommunityWithInternalEdge(page) {
+  const communityId = await page.evaluate(() => {
+    const nodeCommunity = new Map();
+    for (const node of document.querySelectorAll(".node")) {
+      nodeCommunity.set(node.getAttribute("data-id"), node.getAttribute("data-community"));
+    }
+    for (const edge of document.querySelectorAll(".edge")) {
+      const from = edge.getAttribute("data-from");
+      const to = edge.getAttribute("data-to");
+      const fromCommunity = nodeCommunity.get(from);
+      if (fromCommunity && fromCommunity === nodeCommunity.get(to)) return fromCommunity;
+    }
+    return "";
+  });
+  assert.notEqual(communityId, "", "fixture should include a community with at least one internal relation edge");
+  return communityId;
+}
+
+async function runEdgeLegendChecks(page) {
+  await page.getByRole("button", { name: "图例" }).click();
+  await waitForToolbarPanel(page, "legend");
+  await page.locator(".graph-edge-legend").waitFor();
+  await page.locator(".graph-edge-legend-relation", { hasText: "矛盾" }).waitFor();
+  await page.locator(".graph-edge-legend-confidence", { hasText: "推断" }).waitFor();
+  await hoverFirstEdgeMidpoint(page);
+  await page.waitForSelector(".graph-hover-preview[data-state='open'][data-kind='edge']");
+  const preview = page.locator(".graph-hover-preview");
+  await preview.locator(".graph-hover-preview-type", { hasText: "关系" }).waitFor();
+  await preview.locator(".graph-hover-preview-title").waitFor();
+  await assertBoxInsideViewport(page, ".graph-hover-preview", "edge relation hover preview should stay inside viewport");
+  await page.getByRole("button", { name: "筛选" }).click();
+  await waitForToolbarPanel(page, "filters");
+}
+
+async function hoverFirstEdgeMidpoint(page) {
+  const point = await page.locator(".edge").first().evaluate((edge) => {
+    if (!(edge instanceof SVGPathElement)) throw new Error("edge should be an SVG path");
+    const svg = edge.ownerSVGElement;
+    if (!svg) throw new Error("edge should have an owner SVG");
+    const length = edge.getTotalLength();
+    const mid = edge.getPointAtLength(length / 2);
+    const rect = svg.getBoundingClientRect();
+    const viewBox = svg.viewBox.baseVal;
+    return {
+      x: rect.left + (mid.x - viewBox.x) / viewBox.width * rect.width,
+      y: rect.top + (mid.y - viewBox.y) / viewBox.height * rect.height
+    };
+  });
+  await page.mouse.move(point.x, point.y);
+}
+
+async function runTypeFilterChecks(page) {
+  const option = page.locator(".graph-type-filter-option").first();
+  await option.waitFor();
+  const type = await option.locator("input").evaluate((input) => input.dataset.type || "");
+  assert.notEqual(type, "", "type filter option should publish its graph node type");
+  const toggle = option.locator("input");
+  const selector = `.node[data-type="${cssString(type)}"]`;
+  const initialTypeNodes = await page.locator(selector).count();
+  const initialNodes = await page.locator(".node").count();
+  await toggle.uncheck();
+  await page.waitForFunction((selector) => document.querySelectorAll(selector).length === 0, selector);
+  const filteredNodes = await page.locator(".node").count();
+  assert.ok(filteredNodes < initialNodes, "turning off a node type should reduce visible graph nodes");
+  await toggle.check();
+  await page.waitForFunction(
+    ({ selector, initialTypeNodes }) => document.querySelectorAll(selector).length === initialTypeNodes,
+    { selector, initialTypeNodes }
+  );
+}
+
+function cssString(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 async function assertOfflineSelectionPanel(page, expectedMode) {
   await page.waitForSelector(".graph-selection-panel[data-state='open']");
   const panel = page.locator(".graph-selection-panel");
@@ -318,6 +424,7 @@ async function assertOfflineSelectionPanel(page, expectedMode) {
   await panel.getByText("内部关联").waitFor();
   assert.ok(await panel.locator(".graph-selection-fact").count() >= 4, "offline selection panel should show structural facts");
   assert.equal(await panel.getByText("提问选区").count(), 0, "offline selection panel should not show ask actions");
+  await assertNoOfflineAskActions(panel);
   if (expectedMode === "community") {
     await panel.getByText(/社区选区/).waitFor();
   } else {
@@ -325,9 +432,36 @@ async function assertOfflineSelectionPanel(page, expectedMode) {
   }
 }
 
-async function waitForLegendState(page, state) {
+async function assertNoOfflineAskActions(scope) {
+  for (const label of ["提问选区", "在对话中引用", "它和谁有关", "总结这一组", "探索潜在联系"]) {
+    assert.equal(await scope.getByText(label).count(), 0, `offline graph should not show ${label}`);
+  }
+}
+
+async function openToolbarFilters(page) {
+  const state = await page.locator("[data-llm-wiki-graph-root='true']").evaluate((element) => element.dataset.toolbarPanel || "");
+  if (state !== "filters") {
+    await page.getByRole("button", { name: "筛选" }).click();
+  }
+  await waitForToolbarPanel(page, "filters");
+  await page.waitForSelector('.graph-toolbar-panel[data-state="filters"] .community-legend-row');
+}
+
+async function closeToolbarWithBlankClick(page) {
+  const root = page.locator("[data-llm-wiki-graph-root='true']");
+  await root.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 1,
+    clientX: 32,
+    clientY: 128,
+    bubbles: true,
+    cancelable: true
+  });
+}
+
+async function waitForToolbarPanel(page, state) {
   await page.waitForFunction((state) => {
-    return document.querySelector(".community-legend")?.dataset.state === state;
+    return document.querySelector(".llm-wiki-graph-engine")?.dataset.toolbarPanel === state;
   }, state);
 }
 
@@ -449,9 +583,12 @@ async function runWorkbenchThemeViewportMatrix(browser) {
 async function runWorkbenchThemeViewportChecks(page, item) {
   await runPreviewCheck(page, `${item.name} hover preview should open`);
   await runSearchKeyboardChecks(page, `${item.name} workbench graph search should work`);
+  await openToolbarFilters(page);
   await page.locator(".community-legend-row").first().hover();
   await page.waitForSelector('.node[data-community-state="faded"]');
   await page.mouse.move(80, 80);
+  await closeToolbarWithBlankClick(page);
+  await waitForToolbarPanel(page, "closed");
 
   await page.locator(".node[data-id='A']").click();
 
