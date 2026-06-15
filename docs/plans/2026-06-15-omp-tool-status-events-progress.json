@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-06-15-omp-tool-status-events-phased-plan.md",
   "status": {
     "overall": "in_progress",
-    "phase": "phase-1",
-    "task": "1.3",
-    "next_allowed_action": "Implement phase-1 task 1.3; do not enter phase-2 until all phase-1 acceptance checks pass"
+    "phase": "phase-2",
+    "task": "2.1",
+    "next_allowed_action": "Implement phase-2 task 2.1; phase-1 acceptance checks passed"
   },
   "execution_rules": {
     "branch": "codex/feat-omp-tool-status-events",
@@ -76,7 +76,7 @@
     {
       "id": "phase-1",
       "goal": "Migrate and verify project-internal pi-agent dependency capability",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
 				{
 					"check": "Project dependency target and package-name decision recorded in decision_log",
@@ -142,8 +142,19 @@
         },
         {
           "check": "Browser loads http://localhost:5180/ and a basic prompt receives an assistant reply",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "Baseline before smoke: git log --oneline -15 exited 0 and npm run typecheck exited 0.",
+            "Cleared stale current-repo dev listeners on ports 5180 and 8787 before the final run; both ports were empty before starting.",
+            "npm run dev started the web and server workspaces; Vite reported Local http://localhost:5180/ and the backend reported listening on http://127.0.0.1:8787.",
+            "Readiness checks passed: curl http://localhost:8787/api/health returned status ok, and curl -I http://localhost:5180/ returned HTTP 200.",
+            "Browser smoke used system Google Chrome through temporary Playwright install outside the repo; http://localhost:5180/ loaded, pi-agent knowledge base was selected, deepseek/deepseek-v4-flash model was visible, and the chat input/send controls were usable.",
+            "Browser smoke sent a normal prompt and observed a new non-empty assistant reply.",
+            "Browser smoke sent a retrieval-triggering prompt and observed knowledge retrieval UI text matching 已检索到 or 当前知识库未找到相关页面; captured screenshot at /tmp/llm-wiki-omp-phase-1-3-smoke.png.",
+            "Backend dev log during the final smoke showed normal startup and no backend error output.",
+            "Stopped npm run dev with Ctrl-C and confirmed no listeners remained on ports 5180 or 8787.",
+            "npm run typecheck exited 0 after the smoke run."
+          ]
         }
       ],
       "tasks": [
@@ -178,8 +189,17 @@
         {
           "id": "1.3",
           "title": "Backend and browser smoke verification",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-1 task 1.3.",
+            "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+            "Started npm run dev after clearing stale listeners; frontend readiness on port 5180 and backend readiness on port 8787 both passed.",
+            "Selected the pi-agent knowledge base and verified active model deepseek/deepseek-v4-flash and chat controls in a real browser.",
+            "Sent one ordinary prompt in the browser and observed a new non-empty assistant reply.",
+            "Sent one retrieval-triggering prompt in the browser and observed retrieval status text without backend error output.",
+            "Stopped the dev server and confirmed ports 5180 and 8787 had no listeners.",
+            "Ran npm run typecheck after smoke verification; it exited 0."
+          ],
           "commit": null
         }
       ]
@@ -469,6 +489,17 @@
         "No source import changes were needed because the service already used the @earendil-works package family and the 0.79.4 exports remain compatible.",
         "Verified npm run typecheck --workspace=@llm-wiki-agent/server, npm run typecheck, npm ls for the three pi packages, and git diff --check.",
         "Committed verified task 1.2 as babf3309b98845d31244a5b306daa2a8deb351d8."
+      ]
+    },
+    {
+      "turn": "phase-1-task-1.3",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-1 task 1.3.",
+        "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+        "Started npm run dev from clean ports; readiness checks proved frontend port 5180 and backend port 8787.",
+        "Ran browser smoke at http://localhost:5180/ with pi-agent selected, visible current model, usable chat area, ordinary assistant reply, and retrieval-triggering prompt with no backend error output.",
+        "Stopped npm run dev, confirmed process cleanup on ports 5180 and 8787, and reran npm run typecheck successfully."
       ]
     }
   ],
