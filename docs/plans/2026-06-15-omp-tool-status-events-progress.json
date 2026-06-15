@@ -283,7 +283,7 @@
             "Verified npm run typecheck exited 0.",
             "Verified git diff --check exited 0."
           ],
-          "commit": null
+          "commit": "391ddc204253a399c97772a93058a692cc30d0f9"
         },
         {
           "id": "2.2",
@@ -533,7 +533,8 @@
         "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
         "Implemented backend ToolStatusEventAdapter and shared contract fixture in workbench/server/src/tool-status-events.ts.",
         "Added workbench/server/src/tool-status-events.test.ts covering v1 schema fields, ordered seq, start/update/end/failure/missing args, common tool formatting, redaction, parallel tools, cancellation, and shared fixture snapshot.",
-        "Verified node --import tsx --test workbench/server/src/tool-status-events.test.ts, npm run typecheck --workspace=@llm-wiki-agent/server, npm run typecheck, and git diff --check all exited 0."
+        "Verified node --import tsx --test workbench/server/src/tool-status-events.test.ts, npm run typecheck --workspace=@llm-wiki-agent/server, npm run typecheck, and git diff --check all exited 0.",
+        "Committed verified task 2.1 as 391ddc204253a399c97772a93058a692cc30d0f9."
       ]
     }
   ],
