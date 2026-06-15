@@ -226,23 +226,37 @@
 				},
 				{
 					"check": "Client abort or explicit stop calls the session abort path where supported and emits cancelled tool status endings for active tools",
-					"status": "pending",
-					"evidence": []
+					"status": "passed",
+					"evidence": [
+						"/api/prompt now registers stream.onAbort, calls session.abort when the response has not finished, clears pending knowledge context, closes the ordered writer, and releases the prompt run registry.",
+						"ToolStatusEventAdapter.cancelAssistant emits cancelled tool_status_end events for active tools plus assistant_cancelled when the client is still writable; tool-status-events.test.ts covers active-tool cancellation and redaction."
+					]
 				},
 				{
 					"check": "Stable event contract is schemaVersioned and every prompt event includes runId, messageId, and monotonic seq",
-					"status": "pending",
-					"evidence": []
+					"status": "passed",
+					"evidence": [
+						"/api/prompt now creates one ToolStatusEventAdapter per prompt run and emits assistant_text_delta, tool_status_start/update/end/summary, assistant_done, assistant_cancelled, and assistant_error as schemaVersion 1 events with runId, messageId, and seq.",
+						"API smoke against http://localhost:8787/api/prompt observed schemaVersions [1], one runId, one messageId, and monotonic seq across knowledge_search tool events, text deltas, summary, and assistant_done."
+					]
 				},
 				{
 					"check": "/api/prompt uses a single ordered writer and same-session concurrent prompts are rejected or queued without mixed events",
-					"status": "pending",
-					"evidence": []
+					"status": "passed",
+					"evidence": [
+						"/api/prompt now writes agent events, knowledge-search tool events, artifact_created, assistant_done, assistant_error, and assistant_cancelled through OrderedSseWriter.",
+						"PromptRunRegistry rejects a second prompt for the same active conversation while one run owns it; tool-status-events.test.ts covers owner release and wrong-owner end safety.",
+						"ordered SSE writer test proves mixed async writes preserve call order."
+					]
 				},
 				{
 					"check": "Backend redacts private local paths and long sensitive command targets before emitting tool status events or persisted summaries",
-					"status": "pending",
-					"evidence": []
+					"status": "passed",
+					"evidence": [
+						"Tool status adapter sanitizes args, partial results, results, summaries, errors, path targets, and command targets before event output.",
+						"API smoke for /api/prompt selected /Users/kangjiaqi/llm-wiki/pi-agent but observed no /Users/kangjiaqi leakage in the SSE payload; emitted path target was ~/llm-wiki/pi-agent.",
+						"tool-status-events.test.ts covers home absolute path redaction and long command truncation."
+					]
 				},
 				{
 					"check": "node --import tsx --test workbench/server/src/tool-status-events.test.ts exits 0",
@@ -288,8 +302,22 @@
         {
           "id": "2.2",
           "title": "Connect /api/prompt SSE to stable tool status events",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-2 task 2.2.",
+            "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+            "Updated /api/prompt to use one OrderedSseWriter and one ToolStatusEventAdapter per prompt run.",
+            "Replaced old text_delta, tool_start, tool_end, knowledge_search_start/done/empty/error, done, and error SSE output with stable schemaVersion 1 contract events while preserving artifact_created.",
+            "Added PromptRunRegistry to reject concurrent prompts for the same active conversation instead of mixing events.",
+            "Added stream.onAbort handling that calls session.abort when supported, clears pending knowledge context, closes the writer, and releases the run owner.",
+            "Added adapter helpers and tests for manual knowledge_search lifecycle, ordered SSE writes, prompt run ownership, and assistant_cancelled/cancelled active tools.",
+            "Verified node --import tsx --test workbench/server/src/tool-status-events.test.ts exited 0 with 10 passing subtests.",
+            "Verified npm run typecheck --workspace=@llm-wiki-agent/server exited 0.",
+            "Verified npm run typecheck exited 0.",
+            "Verified API smoke against /api/prompt emitted tool_status_start/update/end for knowledge_search, assistant_text_delta, tool_status_summary, assistant_done, schemaVersion 1, stable runId/messageId, monotonic seq, and no /Users/kangjiaqi path leakage.",
+            "Stopped npm run dev and confirmed ports 5180 and 8787 had no listeners.",
+            "Verified git diff --check exited 0."
+          ],
           "commit": null
         },
         {
@@ -535,6 +563,16 @@
         "Added workbench/server/src/tool-status-events.test.ts covering v1 schema fields, ordered seq, start/update/end/failure/missing args, common tool formatting, redaction, parallel tools, cancellation, and shared fixture snapshot.",
         "Verified node --import tsx --test workbench/server/src/tool-status-events.test.ts, npm run typecheck --workspace=@llm-wiki-agent/server, npm run typecheck, and git diff --check all exited 0.",
         "Committed verified task 2.1 as 391ddc204253a399c97772a93058a692cc30d0f9."
+      ]
+    },
+    {
+      "turn": "phase-2-task-2.2",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-2 task 2.2.",
+        "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+        "Connected /api/prompt to ToolStatusEventAdapter and OrderedSseWriter, including knowledge_search tool events, artifact_created preservation, assistant_done/error/cancelled handling, prompt concurrency rejection, and abort cleanup.",
+        "Verified node --import tsx --test workbench/server/src/tool-status-events.test.ts, npm run typecheck --workspace=@llm-wiki-agent/server, npm run typecheck, API SSE smoke, process cleanup, and git diff --check all passed."
       ]
     }
   ],

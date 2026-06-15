@@ -6,6 +6,8 @@ import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import {
 	buildToolStatusContractFixture,
 	formatToolDisplay,
+	OrderedSseWriter,
+	PromptRunRegistry,
 	ToolStatusEventAdapter,
 	type ToolStatusContractEvent,
 } from "./tool-status-events.js";
@@ -157,11 +159,72 @@ test("tool status adapter emits cancelled endings for active tools", () => {
 	adapter.adapt(startEvent("read-1", "read", { path: "/Users/example/a.md" }));
 	adapter.adapt(startEvent("write-1", "write", { path: "/Users/example/b.md" }));
 
-	const cancelled = adapter.cancelActiveTools("client disconnected from /Users/example/private");
+	const cancelled = adapter.cancelAssistant("client disconnected from /Users/example/private");
 
-	assert.deepEqual(cancelled.map((event) => event.status), ["cancelled", "cancelled"]);
+	assert.deepEqual(cancelled.map((event) => event.type), [
+		"tool_status_end",
+		"tool_status_end",
+		"assistant_cancelled",
+	]);
 	assert.equal(JSON.stringify(cancelled).includes("/Users/example"), false);
 	assert.deepEqual(adapter.getRunningTools(), []);
+});
+
+test("manual tool events cover knowledge-base retrieval lifecycle", () => {
+	const adapter = createAdapter();
+
+	const start = adapter.startTool({
+		toolCallId: "knowledge-search-1",
+		toolName: "knowledge_search",
+		args: { query: "OpenClaw", path: "/Users/example/wiki" },
+	});
+	const done = adapter.endTool({
+		toolCallId: "knowledge-search-1",
+		toolName: "knowledge_search",
+		result: { summary: "found 2 pages", paths: ["/Users/example/wiki/a.md"] },
+	});
+	const failed = adapter.endTool({
+		toolCallId: "knowledge-search-2",
+		toolName: "knowledge_search",
+		result: { error: "read failed at /Users/example/wiki/private.md" },
+		isError: true,
+	});
+
+	assert.equal(start.type, "tool_status_start");
+	assert.equal(start.action, "搜索");
+	assert.equal(start.target, "OpenClaw in ~/wiki");
+	assert.equal(done.type, "tool_status_end");
+	assert.equal(done.status, "done");
+	assert.equal(done.summary, "found 2 pages");
+	assert.equal(failed.status, "failed");
+	assert.equal(failed.error, "read failed at ~/wiki/private.md");
+});
+
+test("ordered SSE writer serializes mixed async writes", async () => {
+	const order: string[] = [];
+	const writer = new OrderedSseWriter(async (payload) => {
+		await new Promise((resolve) => setTimeout(resolve, payload.event === "slow" ? 5 : 0));
+		order.push(`${payload.event}:${payload.data}`);
+	});
+
+	const first = writer.writeNamed("slow", "1");
+	const second = writer.writeNamed("fast", "2");
+	await Promise.all([second, first]);
+	await writer.flush();
+
+	assert.deepEqual(order, ["slow:1", "fast:2"]);
+});
+
+test("prompt run registry rejects same-session concurrency and releases owner", () => {
+	const registry = new PromptRunRegistry();
+
+	assert.equal(registry.begin("session-1", "run-a"), true);
+	assert.equal(registry.begin("session-1", "run-b"), false);
+	assert.equal(registry.get("session-1"), "run-a");
+	registry.end("session-1", "run-b");
+	assert.equal(registry.get("session-1"), "run-a");
+	registry.end("session-1", "run-a");
+	assert.equal(registry.begin("session-1", "run-b"), true);
 });
 
 test("tool status contract fixture snapshots shared sample events", () => {
@@ -268,7 +331,13 @@ function startEvent(toolCallId: string, toolName: string, args: unknown): AgentE
 function compactEvent(event: ToolStatusContractEvent): Record<string, unknown> {
 	const base = { type: event.type, seq: event.seq };
 	if (event.type === "assistant_text_delta") return { ...base, delta: event.delta };
-	if (event.type === "assistant_done" || event.type === "assistant_error") return base;
+	if (
+		event.type === "assistant_done" ||
+		event.type === "assistant_error" ||
+		event.type === "assistant_cancelled"
+	) {
+		return base;
+	}
 	if (event.type === "tool_status_summary") {
 		return { ...base, items: event.items, remainingRunningCount: event.remainingRunningCount };
 	}

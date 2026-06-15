@@ -83,9 +83,15 @@ import {
 	shouldUseKnowledgeBase,
 	writeRetrievalLog,
 } from "./retrieval.js";
+import {
+	OrderedSseWriter,
+	PromptRunRegistry,
+	ToolStatusEventAdapter,
+} from "./tool-status-events.js";
 import { createWiki, InitConflictError, initExistingWiki } from "./wiki-init.js";
 
 const execFileAsync = promisify(execFile);
+const promptRuns = new PromptRunRegistry();
 
 /** 从 session 安全取出模型 provider+id（pi 类型未导出 Model，用结构化访问） */
 function extractModelInfo(session: AgentSession): { provider: string; id: string } | null {
@@ -908,64 +914,86 @@ app.post("/api/prompt", async (c) => {
 
 	return streamSSE(c, async (stream) => {
 		let session;
+		let activeForRun;
 		try {
 			session = await getActiveSession();
+			activeForRun = getActive();
 		} catch (err) {
 			clearPendingKnowledgeContext();
+			const adapter = new ToolStatusEventAdapter({
+				runId: "unavailable",
+				messageId: "unavailable",
+			});
+			const errorEvent = adapter.failAssistant(err)[0] ?? {
+				schemaVersion: 1 as const,
+				type: "assistant_error" as const,
+				runId: "unavailable",
+				messageId: "unavailable",
+				seq: 1,
+				error: err instanceof Error ? err.message : String(err),
+			};
 			await stream.writeSSE({
-				event: "error",
+				event: errorEvent.type,
+				data: JSON.stringify({ ...errorEvent, hint: "请先在侧栏选择一个知识库" }),
+			});
+			return;
+		}
+
+		const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+		const messageId = `assistant-${runId}`;
+		const sessionId = activeForRun?.conversationId ?? "active-session";
+		if (!promptRuns.begin(sessionId, runId)) {
+			await stream.writeSSE({
+				event: "assistant_error",
 				data: JSON.stringify({
-					message: err instanceof Error ? err.message : String(err),
-					hint: "请先在侧栏选择一个知识库",
+					schemaVersion: 1,
+					runId,
+					messageId,
+					seq: 1,
+					type: "assistant_error",
+					error: "当前对话正在生成，请等待上一条回复完成。",
 				}),
 			});
 			return;
 		}
 
+		let aborted = false;
+		let streamOpen = true;
+		let responseFinished = false;
+		const adapter = new ToolStatusEventAdapter({ runId, messageId });
+		const writer = new OrderedSseWriter(async ({ event, data }) => {
+			if (!streamOpen) return;
+			await stream.writeSSE({ event, data });
+		});
 		const unsubscribe = session.subscribe(async (event) => {
 			try {
-				if (event.type === "message_update") {
-					const inner = event.assistantMessageEvent;
-					if (inner.type === "text_delta") {
-						await stream.writeSSE({ event: "text_delta", data: inner.delta });
-					}
-				} else if (event.type === "tool_execution_start") {
-					await stream.writeSSE({
-						event: "tool_start",
-						data: JSON.stringify({
-							toolName: event.toolName,
-							toolCallId: event.toolCallId,
-						}),
-					});
-				} else if (event.type === "tool_execution_end") {
-					await stream.writeSSE({
-						event: "tool_end",
-						data: JSON.stringify({
-							toolName: event.toolName,
-							toolCallId: event.toolCallId,
-						}),
-					});
+				for (const contractEvent of adapter.adapt(event)) {
+					await writer.writeContract(contractEvent);
 				}
 			} catch {
-				// 客户端断开，吞
+				streamOpen = false;
 			}
 		});
 		const onArtifactCreated = async (event: ArtifactCreatedEvent) => {
 			if (event.conversationId !== getActive()?.conversationId) return;
 			try {
-				await stream.writeSSE({
-					event: "artifact_created",
-					data: JSON.stringify({
-						id: event.id,
-						kind: event.kind,
-						title: event.title,
-					}),
+				await writer.writeNamed("artifact_created", {
+					id: event.id,
+					kind: event.kind,
+					title: event.title,
 				});
 			} catch {
-				// 客户端断开，吞
+				streamOpen = false;
 			}
 		};
 		artifactEvents.on("artifact_created", onArtifactCreated);
+		stream.onAbort(() => {
+			aborted = true;
+			streamOpen = false;
+			writer.close();
+			clearPendingKnowledgeContext();
+			if (!responseFinished) session.abort?.();
+		});
 
 		try {
 			const active = getActive();
@@ -980,10 +1008,24 @@ app.post("/api/prompt", async (c) => {
 					explicitRefs,
 				};
 				if (shouldSearch) {
-					await stream.writeSSE({
-						event: "knowledge_search_start",
-						data: JSON.stringify({ message: "正在检索当前知识库" }),
-					});
+					const toolCallId = `${runId}-knowledge-search`;
+					await writer.writeContract(adapter.startTool({
+						toolCallId,
+						toolName: "knowledge_search",
+						args: {
+							query: message,
+							path: active.kb.path,
+						},
+					}));
+					await writer.writeContract(adapter.updateTool({
+						toolCallId,
+						toolName: "knowledge_search",
+						args: {
+							query: message,
+							path: active.kb.path,
+						},
+						partialResult: { summary: "正在检索当前知识库" },
+					}));
 					try {
 						const search = await searchKnowledgeBase(active.kb.path, message, {
 							explicitRefs,
@@ -998,10 +1040,17 @@ app.post("/api/prompt", async (c) => {
 							count: search.results.length,
 							paths: search.results.map((result) => result.path),
 						};
-						await stream.writeSSE({
-							event: search.results.length > 0 ? "knowledge_search_done" : "knowledge_search_empty",
-							data: JSON.stringify(payload),
-						});
+						await writer.writeContract(adapter.endTool({
+							toolCallId,
+							toolName: "knowledge_search",
+							result: {
+								summary:
+									search.results.length > 0
+										? `已检索到 ${search.results.length} 个相关页面`
+										: "当前知识库未找到相关页面",
+								...payload,
+							},
+						}));
 						await writeRetrievalLog({
 							...baseLog,
 							triggered: true,
@@ -1015,12 +1064,14 @@ app.post("/api/prompt", async (c) => {
 						}).catch(() => {});
 					} catch (err) {
 						const error = err instanceof Error ? err.stack ?? err.message : String(err);
-						await stream.writeSSE({
-							event: "knowledge_search_error",
-							data: JSON.stringify({
-								message: err instanceof Error ? err.message : String(err),
-							}),
-						});
+						await writer.writeContract(adapter.endTool({
+							toolCallId,
+							toolName: "knowledge_search",
+							result: {
+								error: err instanceof Error ? err.message : String(err),
+							},
+							isError: true,
+						}));
 						await writeRetrievalLog({
 							...baseLog,
 							triggered: true,
@@ -1040,18 +1091,28 @@ app.post("/api/prompt", async (c) => {
 				}
 			}
 			await session.prompt(message);
-			await stream.writeSSE({ event: "done", data: "" });
+			responseFinished = true;
+			for (const event of adapter.finishAssistant()) {
+				await writer.writeContract(event);
+			}
+			await writer.flush();
 		} catch (err) {
-			await stream.writeSSE({
-				event: "error",
-				data: JSON.stringify({
-					message: err instanceof Error ? err.message : String(err),
-				}),
-			});
+			if (aborted) {
+				for (const event of adapter.cancelAssistant("client disconnected")) {
+					await writer.writeContract(event);
+				}
+			} else {
+				for (const event of adapter.failAssistant(err)) {
+					await writer.writeContract(event);
+				}
+			}
+			await writer.flush();
 		} finally {
 			clearPendingKnowledgeContext();
 			unsubscribe();
 			artifactEvents.off("artifact_created", onArtifactCreated);
+			promptRuns.end(sessionId, runId);
+			writer.close();
 		}
 	});
 });

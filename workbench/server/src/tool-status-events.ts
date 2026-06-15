@@ -11,6 +11,7 @@ export type ToolStatusKind =
 	| "tool_status_end"
 	| "tool_status_summary"
 	| "assistant_done"
+	| "assistant_cancelled"
 	| "assistant_error";
 
 export type ToolRunStatus = "running" | "done" | "failed" | "cancelled";
@@ -73,6 +74,11 @@ export interface AssistantDoneEvent extends ToolStatusBaseEvent {
 	type: "assistant_done";
 }
 
+export interface AssistantCancelledEvent extends ToolStatusBaseEvent {
+	type: "assistant_cancelled";
+	reason: string;
+}
+
 export interface AssistantErrorEvent extends ToolStatusBaseEvent {
 	type: "assistant_error";
 	error: string;
@@ -85,6 +91,7 @@ export type ToolStatusContractEvent =
 	| ToolStatusEndEvent
 	| ToolStatusSummaryEvent
 	| AssistantDoneEvent
+	| AssistantCancelledEvent
 	| AssistantErrorEvent;
 
 type ToolStatusEventDraft = ToolStatusContractEvent extends infer Event
@@ -118,6 +125,80 @@ type ToolExecutionEvent = Extract<
 	{ type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end" }
 >;
 
+export interface ToolStatusStartInput {
+	toolCallId: string;
+	toolName: string;
+	args?: unknown;
+}
+
+export interface ToolStatusUpdateInput extends ToolStatusStartInput {
+	partialResult?: unknown;
+}
+
+export interface ToolStatusEndInput {
+	toolCallId: string;
+	toolName: string;
+	result?: unknown;
+	isError?: boolean;
+}
+
+export interface SsePayload {
+	event: string;
+	data: string;
+}
+
+export type SsePayloadWriter = (payload: SsePayload) => Promise<void>;
+
+export class OrderedSseWriter {
+	private queue: Promise<void> = Promise.resolve();
+	private closed = false;
+
+	constructor(private readonly writePayload: SsePayloadWriter) {}
+
+	writeContract(event: ToolStatusContractEvent): Promise<void> {
+		return this.write({ event: event.type, data: JSON.stringify(event) });
+	}
+
+	writeNamed(event: string, data: unknown): Promise<void> {
+		return this.write({ event, data: typeof data === "string" ? data : JSON.stringify(data) });
+	}
+
+	write(payload: SsePayload): Promise<void> {
+		if (this.closed) return this.queue;
+		const next = this.queue.then(async () => {
+			if (!this.closed) await this.writePayload(payload);
+		});
+		this.queue = next.catch(() => {});
+		return next;
+	}
+
+	flush(): Promise<void> {
+		return this.queue;
+	}
+
+	close(): void {
+		this.closed = true;
+	}
+}
+
+export class PromptRunRegistry {
+	private readonly activeRunIds = new Map<string, string>();
+
+	begin(sessionId: string, runId: string): boolean {
+		if (this.activeRunIds.has(sessionId)) return false;
+		this.activeRunIds.set(sessionId, runId);
+		return true;
+	}
+
+	end(sessionId: string, runId: string): void {
+		if (this.activeRunIds.get(sessionId) === runId) this.activeRunIds.delete(sessionId);
+	}
+
+	get(sessionId: string): string | null {
+		return this.activeRunIds.get(sessionId) ?? null;
+	}
+}
+
 export class ToolStatusEventAdapter {
 	private seq: number;
 	private readonly now: () => number;
@@ -131,18 +212,47 @@ export class ToolStatusEventAdapter {
 		this.redaction = { homeDir: options.homeDir ?? homedir() };
 	}
 
-	adapt(event: AgentEvent): ToolStatusContractEvent[] {
-		if (event.type === "message_update") {
+	adapt(event: unknown): ToolStatusContractEvent[] {
+		if (isAgentEventType(event, "message_update")) {
 			const inner = event.assistantMessageEvent;
 			if (inner.type === "text_delta") {
 				return [this.makeEvent({ type: "assistant_text_delta", delta: inner.delta })];
 			}
 			return [];
 		}
-		if (event.type === "tool_execution_start") return [this.toolStart(event)];
-		if (event.type === "tool_execution_update") return [this.toolUpdate(event)];
-		if (event.type === "tool_execution_end") return [this.toolEnd(event)];
+		if (isAgentEventType(event, "tool_execution_start")) return [this.toolStart(event)];
+		if (isAgentEventType(event, "tool_execution_update")) return [this.toolUpdate(event)];
+		if (isAgentEventType(event, "tool_execution_end")) return [this.toolEnd(event)];
 		return [];
+	}
+
+	startTool(input: ToolStatusStartInput): ToolStatusStartEvent {
+		return this.toolStart({
+			type: "tool_execution_start",
+			toolCallId: input.toolCallId,
+			toolName: input.toolName,
+			args: input.args,
+		});
+	}
+
+	updateTool(input: ToolStatusUpdateInput): ToolStatusUpdateEvent {
+		return this.toolUpdate({
+			type: "tool_execution_update",
+			toolCallId: input.toolCallId,
+			toolName: input.toolName,
+			args: input.args,
+			partialResult: input.partialResult,
+		});
+	}
+
+	endTool(input: ToolStatusEndInput): ToolStatusEndEvent {
+		return this.toolEnd({
+			type: "tool_execution_end",
+			toolCallId: input.toolCallId,
+			toolName: input.toolName,
+			result: input.result,
+			isError: input.isError ?? false,
+		});
 	}
 
 	finishAssistant(): ToolStatusContractEvent[] {
@@ -162,6 +272,13 @@ export class ToolStatusEventAdapter {
 
 	failAssistant(error: unknown): ToolStatusContractEvent[] {
 		return [this.makeEvent({ type: "assistant_error", error: normalizeError(error, this.redaction) })];
+	}
+
+	cancelAssistant(reason = "cancelled"): ToolStatusContractEvent[] {
+		return [
+			...this.cancelActiveTools(reason),
+			this.makeEvent({ type: "assistant_cancelled", reason: redactText(reason, this.redaction, 160) }),
+		];
 	}
 
 	cancelActiveTools(reason = "cancelled"): ToolStatusEndEvent[] {
@@ -476,7 +593,7 @@ function normalizeError(error: unknown, redaction: RedactionOptions): string {
 }
 
 function toRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+	return isRecord(value) ? value : {};
 }
 
 function firstString(record: Record<string, unknown>, keys: string[]): string | undefined {
@@ -485,4 +602,15 @@ function firstString(record: Record<string, unknown>, keys: string[]): string | 
 		if (typeof value === "string" && value.trim()) return value.trim();
 	}
 	return undefined;
+}
+
+function isAgentEventType<T extends AgentEvent["type"]>(
+	event: unknown,
+	type: T,
+): event is Extract<AgentEvent, { type: T }> {
+	return isRecord(event) && event.type === type;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
