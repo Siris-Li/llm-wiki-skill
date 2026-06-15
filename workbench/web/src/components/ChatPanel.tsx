@@ -5,6 +5,7 @@ import { CommandMenu } from "@/components/CommandMenu";
 import { ExportButtons } from "@/components/ExportButtons";
 import { MarkdownView } from "@/components/MarkdownView";
 import { RefMenu } from "@/components/RefMenu";
+import { ToolHistorySummary } from "@/components/ToolHistorySummary";
 import { ToolStatusRunway } from "@/components/ToolStatusRunway";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -21,6 +22,7 @@ import {
 	type ToolStatusContractEvent,
 	type UIMessage,
 } from "@/lib/api";
+import { createLegacyToolStatusState } from "@/lib/legacy-tool-status";
 import {
 	cancelActiveToolStatus,
 	createToolStatusState,
@@ -46,11 +48,13 @@ function newId() {
 }
 
 function fromUIMessage(m: UIMessage): Message {
+	const tools = m.tools.map((t) => ({ name: t.name, status: "done" as const }));
 	return {
 		id: m.id,
 		role: m.role,
 		content: m.content,
-		tools: m.tools.map((t) => ({ name: t.name, status: "done" as const })),
+		tools,
+		toolStatus: m.role === "assistant" ? createLegacyToolStatusState(m.id, tools) : undefined,
 	};
 }
 
@@ -756,17 +760,12 @@ function MessageBubble({
 			<div className="msg-body">
 				<div className="msg-role">{isUser ? "你" : "assistant"}</div>
 				{message.toolStatus ? (
-					<ToolStatusRunway state={message.toolStatus} />
-				) : message.tools.length > 0 && (
-					<div className="msg-tools">
-						{message.tools.map((t, i) => (
-							<div key={i} className="msg-tool">
-								<span className={cn("msg-tool-dot", t.status === "running" ? "msg-tool-running" : "msg-tool-done")} />
-								<span>{t.name}</span>
-							</div>
-						))}
-					</div>
-				)}
+					showCursor ? (
+						<ToolStatusRunway state={message.toolStatus} />
+					) : (
+						<ToolHistorySummary state={message.toolStatus} />
+					)
+				) : null}
 				<div className="msg-content">
 					{isUser ? (
 						<span className="whitespace-pre-wrap">{message.content}</span>

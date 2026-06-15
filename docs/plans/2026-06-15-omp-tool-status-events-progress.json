@@ -505,15 +505,22 @@
         },
         {
           "check": "ChatPanel no longer renders long live .msg-tools streams during complex tasks",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "ChatPanel now renders ToolStatusRunway only for the actively streaming assistant message and ToolHistorySummary for completed or historical assistant messages.",
+            "Removed the legacy .msg-tools/.msg-tool rendering branch from ChatPanel and removed the matching CSS rules from workbench/web/src/index.css.",
+            "Added createLegacyToolStatusState so historical UIMessage.tools records are converted into folded ToolHistorySummary state instead of the old live list.",
+            "Added workbench/web/test/chat-panel-tool-status.test.tsx proving legacy historical tool calls render as tool-history-summary and not msg-tools or tool-runway.",
+            "Headless Chrome loaded http://localhost:5180/ at 1440px and 390px; both had appLoaded=true, msgTools=0, msgToolRows=0, and hasHorizontalOverflow=false."
+          ]
         },
         {
           "check": "npm run typecheck exits 0",
           "status": "passed",
           "evidence": [
             "npm run typecheck exited 0 after ToolStatusRunway implementation.",
-            "npm run typecheck exited 0 after ToolHistorySummary implementation."
+            "npm run typecheck exited 0 after ToolHistorySummary implementation.",
+            "npm run typecheck exited 0 after ChatPanel old tool list replacement; an earlier parallelized check raced graph-engine declaration generation, then the single command rerun passed."
           ]
         }
       ],
@@ -559,8 +566,21 @@
         {
           "id": "4.3",
           "title": "Replace old tool list rendering in assistant messages",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-4 task 4.3.",
+            "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+            "Updated ChatPanel so active streaming assistant messages render ToolStatusRunway, while completed and historical assistant messages render ToolHistorySummary.",
+            "Removed the legacy .msg-tools live list branch and deleted its CSS.",
+            "Added legacy tool-status conversion for historical UIMessage.tools so old conversation history uses folded summaries instead of live runway or long lists.",
+            "Added chat-panel-tool-status.test.tsx proving legacy history renders a folded summary and not msg-tools or tool-runway.",
+            "Verified node --import tsx --test workbench/web/test/chat-panel-tool-status.test.tsx exited 0.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web exited 0.",
+            "Verified npm run typecheck --workspace=@llm-wiki-agent/web exited 0.",
+            "A parallel npm run typecheck attempt failed because graph-engine declaration output was generated concurrently; rerunning npm run typecheck by itself exited 0.",
+            "Verified git diff --check exited 0.",
+            "Started npm run dev; headless Chrome loaded http://localhost:5180/ at 1440px and 390px with no .msg-tools nodes and no horizontal overflow; stopped dev server and confirmed ports 5180 and 8787 had no listeners."
+          ],
           "commit": null
         }
       ]
@@ -768,6 +788,18 @@
         "Verified node --import tsx --test workbench/web/test/tool-history-summary.test.tsx, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, and git diff --check all exited 0.",
         "Committed verified task 4.2 as aa44ea99533b4b21f7acc0d9be376e07becf2824.",
         "Advanced current task pointer to phase-4 task 4.3 after recording the 4.2 commit hash."
+      ]
+    },
+    {
+      "turn": "phase-4-task-4.3",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-4 task 4.3.",
+        "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+        "Replaced old assistant tool-list rendering with ToolStatusRunway for the active stream and ToolHistorySummary for completed or historical assistant messages.",
+        "Added legacy history conversion and test coverage proving old UIMessage.tools records render as folded summaries instead of .msg-tools or tool-runway.",
+        "Verified node --import tsx --test workbench/web/test/chat-panel-tool-status.test.tsx, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, git diff --check, and headless Chrome desktop/narrow checks all passed.",
+        "Task 4.3 is ready to commit; commit hash will be recorded after the verified task commit is created."
       ]
     }
   ],

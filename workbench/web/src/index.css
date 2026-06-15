@@ -1022,47 +1022,6 @@
     font-weight: 550;
   }
 
-  .msg-tools {
-    margin: 0 0 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .msg-tool {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 0;
-    color: var(--app-muted);
-    font-family: var(--font-mono);
-    font-size: 11px;
-  }
-
-  .msg-tool-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 999px;
-    flex-shrink: 0;
-  }
-
-  .msg-tool-running {
-    background: var(--app-accent);
-    animation: pulse-dot 1s infinite;
-  }
-
-  .msg-tool-done {
-    background: var(--app-success);
-  }
-
-  .msg-tool-failed {
-    background: var(--app-danger);
-  }
-
-  .msg-tool-cancelled {
-    background: var(--app-muted);
-  }
-
   .tool-runway {
     position: relative;
     display: flex;
