@@ -1,10 +1,10 @@
 {
   "plan": "docs/plans/2026-06-15-omp-tool-status-events-phased-plan.md",
   "status": {
-    "overall": "pending",
+    "overall": "in_progress",
     "phase": "phase-1",
-    "task": "1.1",
-    "next_allowed_action": "Implement the current task; after verified completion, advance to the next task or phase automatically"
+    "task": "1.2",
+    "next_allowed_action": "Implement phase-1 task 1.2; do not enter phase-2 until all phase-1 acceptance checks pass"
   },
   "execution_rules": {
     "branch": "codex/feat-omp-tool-status-events",
@@ -64,6 +64,12 @@
       "reason": "Codex outside voice identified these as the main ways the dynamic runway could look right but behave unreliably.",
       "source": "plan-eng-review D6 / codex outside voice",
       "status": "recorded"
+    },
+    {
+      "decision": "Use @earendil-works/pi-coding-agent, @earendil-works/pi-agent-core, and @earendil-works/pi-ai 0.79.4 as the project migration target; do not directly migrate the workbench backend to @oh-my-pi/pi-coding-agent 15.13.3 in phase 1.2",
+      "reason": "The current project already uses the @earendil-works package family at 0.75.5, npm latest is 0.79.4 with Node-compatible dist exports and tool_execution_update support, while the isolated @oh-my-pi 15.13.3 probe failed under Node 22 because its package exports TypeScript source and imports the Bun-only package 'bun'. Global omp 15.5.2 remains only a reference sample.",
+      "source": "phase-1 task 1.1 npm metadata and isolated Node probes",
+      "status": "recorded"
     }
   ],
   "phases": [
@@ -74,24 +80,44 @@
       "acceptance": [
 				{
 					"check": "Project dependency target and package-name decision recorded in decision_log",
-					"status": "pending",
-					"evidence": []
-				},
-				{
-					"check": "Isolated Node probe proves the target pi-agent SDK can be imported, can create a minimal session, and exposes usable tool start/update/end event fields before project dependency migration begins",
-					"status": "pending",
-					"evidence": []
-				},
-				{
-					"check": "Dependency reconnaissance treats the target package as a possible runtime migration and verifies SessionManager, auth/model config, ResourceLoader, extensions, message types, artifacts, and abort support",
-					"status": "pending",
-					"evidence": []
-				},
-				{
-					"check": "Isolated probe runs in a temporary directory with recorded command, package version, Node version, and reproducible evidence without modifying project package files or node_modules",
-					"status": "pending",
-					"evidence": []
-				},
+						"status": "passed",
+						"evidence": [
+							"npm view @earendil-works/pi-coding-agent @0.79.4 metadata: latest=0.79.4, exports import ./dist/index.js, depends on @earendil-works/pi-agent-core ^0.79.4 and @earendil-works/pi-ai ^0.79.4.",
+							"npm view @oh-my-pi/pi-coding-agent @15.13.3 metadata: latest=15.13.3, exports import ./src/index.ts; global omp is 15.5.2 and installed from @oh-my-pi/pi-coding-agent.",
+							"Decision recorded in decision_log: target @earendil-works package family 0.79.4; @oh-my-pi 15.13.3 direct migration rejected for Node backend phase 1.2."
+						]
+					},
+					{
+						"check": "Isolated Node probe proves the target pi-agent SDK can be imported, can create a minimal session, and exposes usable tool start/update/end event fields before project dependency migration begins",
+						"status": "passed",
+						"evidence": [
+							"Temporary directory /tmp/llm-wiki-earendil-probe-EIwMnx installed @earendil-works/pi-coding-agent@0.79.4, @earendil-works/pi-agent-core@0.79.4, and @earendil-works/pi-ai@0.79.4 without modifying project package files.",
+							"Node v22.22.3 import probe succeeded for @earendil-works/pi-coding-agent and listed SessionManager, createAgentSession, DefaultResourceLoader, AuthStorage, ModelRegistry, ExtensionAPI-related exports, and AgentSession.",
+							"Minimal createAgentSession probe succeeded with active custom tool probe_tool and emitted tool_execution_start, tool_execution_update, and tool_execution_end for toolCallId probe-call-1.",
+							"Observed usable fields: toolName=probe_tool, args.target=fixture.txt, args.intent=inspect, partialResult.details.phase=mid, result.details.status=ok."
+						]
+					},
+					{
+						"check": "Dependency reconnaissance treats the target package as a possible runtime migration and verifies SessionManager, auth/model config, ResourceLoader, extensions, message types, artifacts, and abort support",
+						"status": "passed",
+						"evidence": [
+							"SessionManager support verified from @earendil-works/pi-coding-agent 0.79.4 exports and existing project usage: create, open, continueRecent, inMemory, and list remain present.",
+							"Auth/model config support verified from 0.79.4 exports: AuthStorage, ModelRegistry, SettingsManager, and @earendil-works/pi-ai model registry helpers are importable.",
+							"ResourceLoader and extensions support verified from 0.79.4 exports: DefaultResourceLoader, createExtensionRuntime, ExtensionAPI types, customTools, and extension examples remain available.",
+							"Message types and artifact-relevant history support verified from @earendil-works/pi-agent-core 0.79.4 exports/docs: AgentMessage, toolResult messages, tool_execution_start/update/end, and structured AgentToolResult.details are present.",
+							"Abort support verified in probe: createAgentSession returned session.abort as a function; low-level Agent probe returned agent.abort as a function."
+						]
+					},
+					{
+						"check": "Isolated probe runs in a temporary directory with recorded command, package version, Node version, and reproducible evidence without modifying project package files or node_modules",
+						"status": "passed",
+						"evidence": [
+							"Command pattern: tmpdir=$(mktemp -d /tmp/llm-wiki-earendil-probe-XXXXXX); npm init -y; npm install @earendil-works/pi-coding-agent@0.79.4 @earendil-works/pi-agent-core@0.79.4 @earendil-works/pi-ai@0.79.4; node --input-type=module <probe script>.",
+							"Recorded versions: Node v22.22.3; npm 10.9.8; @earendil-works/pi-coding-agent 0.79.4; @earendil-works/pi-agent-core 0.79.4; @earendil-works/pi-ai 0.79.4.",
+							"Negative control: /tmp/llm-wiki-pi-probe-NO7eLR with @oh-my-pi/pi-coding-agent@15.13.3 failed under Node 22: direct Node import cannot strip TypeScript in node_modules; tsx import then failed to resolve package 'bun'.",
+							"Project package.json, package-lock.json, and node_modules were not modified during 1.1; git status before ledger update showed only untracked .superpowers/."
+						]
+					},
 				{
 					"check": "npm install exits 0 after dependency migration",
 					"status": "pending",
@@ -117,10 +143,15 @@
 				{
 					"id": "1.1",
 					"title": "Dependency/API reconnaissance and isolated Node probe",
-					"status": "pending",
-					"verification": [],
-					"commit": null
-				},
+						"status": "completed",
+						"verification": [
+							"git log --oneline -15 exited 0 before work; head was 63ce4a0 docs: harden omp tool status implementation plan.",
+							"npm run typecheck exited 0 before work in the original project state.",
+							"Isolated @oh-my-pi/pi-coding-agent@15.13.3 probe failed under Node 22, preventing direct @oh-my-pi target selection for 1.2.",
+							"Isolated @earendil-works/pi-coding-agent@0.79.4 probe exited 0 and emitted tool_execution_start/update/end from a minimal createAgentSession run."
+						],
+						"commit": null
+					},
         {
           "id": "1.2",
           "title": "Migrate project dependency and imports",
@@ -398,6 +429,19 @@
       ]
     }
   ],
-  "turn_log": [],
+  "turn_log": [
+    {
+      "turn": "phase-1-task-1.1",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-1 task 1.1.",
+        "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+        "Confirmed current branch codex/feat-omp-tool-status-events and ignored unrelated untracked .superpowers/.",
+        "Ran npm metadata checks for current @earendil-works 0.75.5 lockfile state, latest @earendil-works 0.79.4, global omp 15.5.2, and @oh-my-pi 15.13.3.",
+        "Ran isolated Node probes in /tmp/llm-wiki-pi-probe-NO7eLR and /tmp/llm-wiki-earendil-probe-EIwMnx.",
+        "Selected @earendil-works 0.79.4 target because it satisfies Node backend import/session/tool event requirements while @oh-my-pi 15.13.3 does not."
+      ]
+    }
+  ],
   "residual_risk": []
 }
