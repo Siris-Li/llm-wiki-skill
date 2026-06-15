@@ -592,13 +592,26 @@
       "acceptance": [
         {
           "check": "Browser QA at 1440px, 768px, and 390px proves one live tool runway, folded summary, stop/cancel behavior, no overflow, and expandable details",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "Started npm run dev; web loaded at http://localhost:5180/ and backend reported http://127.0.0.1:8787.",
+            "Headless Chrome QA opened http://localhost:5180/ at 1440px, 768px, and 390px using a deterministic fake /api/prompt stream injected in the browser.",
+            "During the long fake task, the current assistant reply had exactly one .tool-runway while tools were running; observed runway text changing from read to command/failure activity.",
+            "After completion, the current assistant reply switched to one folded .tool-history-summary and no .tool-runway.",
+            "Expanded summary rendered 20 detail rows, showed remaining count '还有 44 项', and displayed File, Command, Search, and Skill groups.",
+            "At 1440px, 768px, and 390px, document and body scroll widths matched viewport width; hasHorizontalOverflow=false in every checked state.",
+            "A second slow fake task showed the stop button, clicking stop left a cancelled runway visible with text '用户已停止', and the fake backend stats recorded aborted=true with chunksAfterAbort=0.",
+            "Stopped npm run dev and confirmed no listeners remained on ports 5180 or 8787."
+          ]
         },
         {
           "check": "Deterministic fake event stream or test harness covers start/update/end/fail/cancel/parallel-tools/long-history in addition to real model smoke QA",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "Browser QA fake stream emitted tool_status_start, tool_status_update, tool_status_end, tool_status_summary, assistant_text_delta, and assistant_done events.",
+            "The fake stream covered parallel tools with read and bash active together, a failed bash ending, search and Skill completions, 64 completed tool items for long-history overflow, and a slow cancellable read task.",
+            "The stop path used the real ChatPanel stop button and AbortController path; fake stream instrumentation confirmed no chunks were written after abort."
+          ]
         },
         {
           "check": "npm run typecheck exits 0",
@@ -630,8 +643,22 @@
         {
           "id": "5.1",
           "title": "Run real browser QA on a multi-tool task",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-5 task 5.1.",
+            "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+            "Ran deterministic headless Chrome QA against http://localhost:5180/ with a fake /api/prompt stream covering start, update, end, fail, cancel, parallel tools, and long history.",
+            "Verified the active assistant reply showed exactly one runway during running states and that the runway text changed as tool events changed.",
+            "Verified completion switched to folded ToolHistorySummary, and expanding it showed grouped detail rows capped at 20 with remaining count.",
+            "Verified 1440px, 768px, and 390px viewports had no horizontal overflow.",
+            "Verified clicking stop on a slow fake task showed a cancelled runway with '用户已停止' and fake backend stats aborted=true, chunksAfterAbort=0.",
+            "Adjusted ChatPanel so cancelled or failed current messages keep showing ToolStatusRunway instead of immediately switching to folded history.",
+            "Verified node --import tsx --test workbench/web/test/chat-panel-tool-status.test.tsx exited 0.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web exited 0.",
+            "Verified npm run typecheck exited 0.",
+            "Verified git diff --check exited 0.",
+            "Stopped npm run dev and confirmed ports 5180 and 8787 had no listeners."
+          ],
           "commit": null
         },
         {
@@ -801,6 +828,19 @@
         "Verified node --import tsx --test workbench/web/test/chat-panel-tool-status.test.tsx, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, git diff --check, and headless Chrome desktop/narrow checks all passed.",
         "Committed verified task 4.3 as 31396aa543837ed57141b3ffeb53c66715965d7a.",
         "All phase-4 acceptance checks now pass, so phase-4 was marked completed and the progress pointer advanced to phase-5 task 5.1."
+      ]
+    },
+    {
+      "turn": "phase-5-task-5.1",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-5 task 5.1.",
+        "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+        "Ran headless Chrome QA on http://localhost:5180/ with a deterministic fake prompt stream covering start, update, end, fail, cancel, parallel tools, and long-history overflow.",
+        "Verified exactly one live runway while running, folded summary after completion, expandable grouped details, cancellation runway after stop, no writes after abort, and no horizontal overflow at 1440px, 768px, or 390px.",
+        "Fixed the stop-state visual so cancelled or failed current messages keep showing ToolStatusRunway instead of immediately becoming folded history.",
+        "Verified node --import tsx --test workbench/web/test/chat-panel-tool-status.test.tsx, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck, and git diff --check all exited 0.",
+        "Task 5.1 is ready to commit; commit hash will be recorded after the verified task commit is created."
       ]
     }
   ],

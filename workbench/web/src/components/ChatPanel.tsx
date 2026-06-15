@@ -752,6 +752,9 @@ function MessageBubble({
 	onWikiLinkSeen?: (path: string) => void;
 }) {
 	const isUser = message.role === "user";
+	const showToolRunway = Boolean(
+		message.toolStatus && (showCursor || message.toolStatus.cancelReason || message.toolStatus.error),
+	);
 	return (
 		<div className={cn("msg-row", isUser ? "msg-row-user" : "msg-row-assistant")}>
 			<div className={cn("msg-avatar", isUser ? "msg-avatar-user" : "msg-avatar-assistant")}>
@@ -760,7 +763,7 @@ function MessageBubble({
 			<div className="msg-body">
 				<div className="msg-role">{isUser ? "你" : "assistant"}</div>
 				{message.toolStatus ? (
-					showCursor ? (
+					showToolRunway ? (
 						<ToolStatusRunway state={message.toolStatus} />
 					) : (
 						<ToolHistorySummary state={message.toolStatus} />
