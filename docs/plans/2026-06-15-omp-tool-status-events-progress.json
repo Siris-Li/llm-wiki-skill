@@ -34,6 +34,36 @@
       "reason": "The user selected visual direction A.",
       "source": "visual companion discussion",
       "status": "recorded"
+    },
+    {
+      "decision": "Run an isolated Node probe before formal pi-agent dependency migration",
+      "reason": "The target @oh-my-pi package may be Bun-oriented or a deeper runtime migration rather than a direct dependency bump.",
+      "source": "plan-eng-review D2",
+      "status": "recorded"
+    },
+    {
+      "decision": "Use a schema-versioned shared Tool Status contract with backend/frontend fixture reuse",
+      "reason": "The backend and frontend must not silently drift on streamed event fields.",
+      "source": "plan-eng-review D3",
+      "status": "recorded"
+    },
+    {
+      "decision": "Treat stop, disconnect, and abort as first-class cancellation paths",
+      "reason": "The UI must not show a fake running state after the user stops a response, and the backend must clean up current work.",
+      "source": "plan-eng-review D4",
+      "status": "recorded"
+    },
+    {
+      "decision": "Coalesce rapid tool updates and cap long history summaries",
+      "reason": "OMP-like quality requires smooth rendering during long tool runs, not just raw event display.",
+      "source": "plan-eng-review D5",
+      "status": "recorded"
+    },
+    {
+      "decision": "Add request ownership, ordered writing, prompt concurrency guard, backend redaction, best-effort legacy history, and deterministic fake event QA",
+      "reason": "Codex outside voice identified these as the main ways the dynamic runway could look right but behave unreliably.",
+      "source": "plan-eng-review D6 / codex outside voice",
+      "status": "recorded"
     }
   ],
   "phases": [
@@ -42,15 +72,30 @@
       "goal": "Migrate and verify project-internal pi-agent dependency capability",
       "status": "pending",
       "acceptance": [
-        {
-          "check": "Project dependency target and package-name decision recorded in decision_log",
-          "status": "pending",
-          "evidence": []
-        },
-        {
-          "check": "npm install exits 0 after dependency migration",
-          "status": "pending",
-          "evidence": []
+				{
+					"check": "Project dependency target and package-name decision recorded in decision_log",
+					"status": "pending",
+					"evidence": []
+				},
+				{
+					"check": "Isolated Node probe proves the target pi-agent SDK can be imported, can create a minimal session, and exposes usable tool start/update/end event fields before project dependency migration begins",
+					"status": "pending",
+					"evidence": []
+				},
+				{
+					"check": "Dependency reconnaissance treats the target package as a possible runtime migration and verifies SessionManager, auth/model config, ResourceLoader, extensions, message types, artifacts, and abort support",
+					"status": "pending",
+					"evidence": []
+				},
+				{
+					"check": "Isolated probe runs in a temporary directory with recorded command, package version, Node version, and reproducible evidence without modifying project package files or node_modules",
+					"status": "pending",
+					"evidence": []
+				},
+				{
+					"check": "npm install exits 0 after dependency migration",
+					"status": "pending",
+					"evidence": []
         },
         {
           "check": "npm run typecheck --workspace=@llm-wiki-agent/server exits 0",
@@ -69,13 +114,13 @@
         }
       ],
       "tasks": [
-        {
-          "id": "1.1",
-          "title": "Dependency and API reconnaissance",
-          "status": "pending",
-          "verification": [],
-          "commit": null
-        },
+				{
+					"id": "1.1",
+					"title": "Dependency/API reconnaissance and isolated Node probe",
+					"status": "pending",
+					"verification": [],
+					"commit": null
+				},
         {
           "id": "1.2",
           "title": "Migrate project dependency and imports",
@@ -97,14 +142,39 @@
       "goal": "Expose stable backend tool status events",
       "status": "pending",
       "acceptance": [
-        {
-          "check": "Stable tool status adapter covers start, update, end, failure, missing args, and common tool formatting",
-          "status": "pending",
-          "evidence": []
-        },
-        {
-          "check": "node --import tsx --test workbench/server/src/tool-status-events.test.ts exits 0",
-          "status": "pending",
+				{
+					"check": "Stable tool status adapter covers start, update, end, failure, missing args, and common tool formatting",
+					"status": "pending",
+					"evidence": []
+				},
+				{
+					"check": "Backend and frontend tests share contract event fixtures so SSE event fields cannot drift silently",
+					"status": "pending",
+					"evidence": []
+				},
+				{
+					"check": "Client abort or explicit stop calls the session abort path where supported and emits cancelled tool status endings for active tools",
+					"status": "pending",
+					"evidence": []
+				},
+				{
+					"check": "Stable event contract is schemaVersioned and every prompt event includes runId, messageId, and monotonic seq",
+					"status": "pending",
+					"evidence": []
+				},
+				{
+					"check": "/api/prompt uses a single ordered writer and same-session concurrent prompts are rejected or queued without mixed events",
+					"status": "pending",
+					"evidence": []
+				},
+				{
+					"check": "Backend redacts private local paths and long sensitive command targets before emitting tool status events or persisted summaries",
+					"status": "pending",
+					"evidence": []
+				},
+				{
+					"check": "node --import tsx --test workbench/server/src/tool-status-events.test.ts exits 0",
+					"status": "pending",
           "evidence": []
         },
         {
@@ -149,6 +219,21 @@
       "acceptance": [
         {
           "check": "Tool status reducer tests cover switching, missing args, failed/cancelled tools, parallel tools, and truncation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Reducer keys events by runId/messageId and ignores late, duplicate, or unknown-run events",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Rapid tool update events are coalesced or throttled, and long tool histories are capped with a remaining-count summary",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Streaming UI exposes a stop action and clears or cancels the live runway instead of leaving a stale running state",
           "status": "pending",
           "evidence": []
         },
@@ -203,6 +288,11 @@
           "evidence": []
         },
         {
+          "check": "Visual component respects concrete limits: 3 folded targets, 50 expanded rows, 80-150ms live update cadence, 390px no horizontal scroll, readable reduced-motion mode",
+          "status": "pending",
+          "evidence": []
+        },
+        {
           "check": "ToolHistorySummary defaults folded, groups tool types, and expands full detail",
           "status": "pending",
           "evidence": []
@@ -248,7 +338,12 @@
       "status": "pending",
       "acceptance": [
         {
-          "check": "Browser QA at 1440px, 768px, and 390px proves one live tool runway, folded summary, no overflow, and expandable details",
+          "check": "Browser QA at 1440px, 768px, and 390px proves one live tool runway, folded summary, stop/cancel behavior, no overflow, and expandable details",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Deterministic fake event stream or test harness covers start/update/end/fail/cancel/parallel-tools/long-history in addition to real model smoke QA",
           "status": "pending",
           "evidence": []
         },
