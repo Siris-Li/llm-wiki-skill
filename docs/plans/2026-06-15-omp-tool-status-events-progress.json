@@ -3,8 +3,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-1",
-    "task": "1.2",
-    "next_allowed_action": "Implement phase-1 task 1.2; do not enter phase-2 until all phase-1 acceptance checks pass"
+    "task": "1.3",
+    "next_allowed_action": "Implement phase-1 task 1.3; do not enter phase-2 until all phase-1 acceptance checks pass"
   },
   "execution_rules": {
     "branch": "codex/feat-omp-tool-status-events",
@@ -120,18 +120,25 @@
 					},
 				{
 					"check": "npm install exits 0 after dependency migration",
-					"status": "pending",
-					"evidence": []
+					"status": "passed",
+					"evidence": [
+						"npm install --workspace=@llm-wiki-agent/server @earendil-works/pi-agent-core@^0.79.4 @earendil-works/pi-coding-agent@^0.79.4 @earendil-works/pi-ai@^0.79.4 exited 0.",
+						"npm output: added 1 package, removed 1 package, and changed 24 packages."
+					]
         },
         {
           "check": "npm run typecheck --workspace=@llm-wiki-agent/server exits 0",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "npm run typecheck --workspace=@llm-wiki-agent/server exited 0 after dependency migration."
+          ]
         },
         {
           "check": "npm run typecheck exits 0",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "npm run typecheck exited 0 after dependency migration; server, web, and graph-engine typechecks completed."
+          ]
         },
         {
           "check": "Browser loads http://localhost:5180/ and a basic prompt receives an assistant reply",
@@ -155,8 +162,17 @@
         {
           "id": "1.2",
           "title": "Migrate project dependency and imports",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Baseline before work: git log --oneline -15 exited 0 and npm run typecheck exited 0.",
+            "Updated @llm-wiki-agent/server dependencies to @earendil-works/pi-agent-core ^0.79.4, @earendil-works/pi-coding-agent ^0.79.4, and direct @earendil-works/pi-ai ^0.79.4.",
+            "npm install --workspace=@llm-wiki-agent/server @earendil-works/pi-agent-core@^0.79.4 @earendil-works/pi-coding-agent@^0.79.4 @earendil-works/pi-ai@^0.79.4 exited 0.",
+            "npm run typecheck --workspace=@llm-wiki-agent/server exited 0.",
+            "npm run typecheck exited 0.",
+            "npm ls --workspace=@llm-wiki-agent/server @earendil-works/pi-agent-core @earendil-works/pi-coding-agent @earendil-works/pi-ai showed all three packages at 0.79.4.",
+            "git diff --check exited 0.",
+            "No user-global omp or global pi-agent files were modified; git diff is limited to package-lock.json, workbench/server/package.json, and this progress ledger."
+          ],
           "commit": null
         },
         {
@@ -441,6 +457,17 @@
         "Ran isolated Node probes in /tmp/llm-wiki-pi-probe-NO7eLR and /tmp/llm-wiki-earendil-probe-EIwMnx.",
         "Selected @earendil-works 0.79.4 target because it satisfies Node backend import/session/tool event requirements while @oh-my-pi 15.13.3 does not.",
         "Committed verified task 1.1 as a8de04545583665470c8e653e11fbf4652e8a8fb."
+      ]
+    },
+    {
+      "turn": "phase-1-task-1.2",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-1 task 1.2.",
+        "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+        "Ran npm install for @llm-wiki-agent/server to migrate @earendil-works/pi-agent-core, @earendil-works/pi-coding-agent, and direct @earendil-works/pi-ai to ^0.79.4.",
+        "No source import changes were needed because the service already used the @earendil-works package family and the 0.79.4 exports remain compatible.",
+        "Verified npm run typecheck --workspace=@llm-wiki-agent/server, npm run typecheck, npm ls for the three pi packages, and git diff --check."
       ]
     }
   ],
