@@ -494,8 +494,14 @@
         },
         {
           "check": "ToolHistorySummary defaults folded, groups tool types, and expands full detail",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "Added workbench/web/src/components/ToolHistorySummary.tsx with a folded-by-default summary button and explicit expanded detail rendering.",
+            "ToolHistorySummary groups completed tools into File, Command, Search, Skill, and Other groups using the shared tool formatter.",
+            "ToolHistorySummary limits folded key targets to 3 and expanded detail rows to 50, then shows the remaining count.",
+            "workbench/web/test/tool-history-summary.test.tsx covers folded grouping, no folded detail rows, expanded row limiting, remaining count, and the empty-state null render.",
+            "npm run test --workspace=@llm-wiki-agent/web exited 0 with ToolHistorySummary coverage included."
+          ]
         },
         {
           "check": "ChatPanel no longer renders long live .msg-tools streams during complex tasks",
@@ -506,7 +512,8 @@
           "check": "npm run typecheck exits 0",
           "status": "passed",
           "evidence": [
-            "npm run typecheck exited 0 after ToolStatusRunway implementation."
+            "npm run typecheck exited 0 after ToolStatusRunway implementation.",
+            "npm run typecheck exited 0 after ToolHistorySummary implementation."
           ]
         }
       ],
@@ -534,8 +541,19 @@
         {
           "id": "4.2",
           "title": "Implement ToolHistorySummary folded detail component",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-4 task 4.2.",
+            "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+            "Added ToolHistorySummary component with folded summary, grouped tool counts, folded target chips, expandable detail rows, and a hard expanded row limit.",
+            "Added CSS for compact folded display, constrained chips, bounded detail rows, and button styling that preserves surrounding message layout.",
+            "Updated the web test script to include .tsx tests.",
+            "Verified node --import tsx --test workbench/web/test/tool-history-summary.test.tsx exited 0.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web exited 0.",
+            "Verified npm run typecheck --workspace=@llm-wiki-agent/web exited 0.",
+            "Verified npm run typecheck exited 0.",
+            "Verified git diff --check exited 0."
+          ],
           "commit": null
         },
         {
@@ -737,6 +755,18 @@
         "Verified npm run test --workspace=@llm-wiki-agent/web -- tool-status-runway.test.ts, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, and git diff --check all exited 0.",
         "Committed verified task 4.1 as ee27cc97be839efe0e400f98860d0b6d65d10e67.",
         "Advanced current task pointer to phase-4 task 4.2 after recording the 4.1 commit hash."
+      ]
+    },
+    {
+      "turn": "phase-4-task-4.2",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-4 task 4.2.",
+        "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+        "Added ToolHistorySummary with folded grouped counts, capped folded targets, expandable capped detail rows, and remaining-count display.",
+        "Added ToolHistorySummary tests and enabled .tsx test discovery in the web test script.",
+        "Verified node --import tsx --test workbench/web/test/tool-history-summary.test.tsx, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, and git diff --check all exited 0.",
+        "Task 4.2 is ready to commit; commit hash will be recorded after the verified task commit is created."
       ]
     }
   ],
