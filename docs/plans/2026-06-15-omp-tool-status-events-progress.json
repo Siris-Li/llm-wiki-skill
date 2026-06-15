@@ -150,7 +150,7 @@
 							"Isolated @oh-my-pi/pi-coding-agent@15.13.3 probe failed under Node 22, preventing direct @oh-my-pi target selection for 1.2.",
 							"Isolated @earendil-works/pi-coding-agent@0.79.4 probe exited 0 and emitted tool_execution_start/update/end from a minimal createAgentSession run."
 						],
-						"commit": null
+						"commit": "a8de04545583665470c8e653e11fbf4652e8a8fb"
 					},
         {
           "id": "1.2",
@@ -439,7 +439,8 @@
         "Confirmed current branch codex/feat-omp-tool-status-events and ignored unrelated untracked .superpowers/.",
         "Ran npm metadata checks for current @earendil-works 0.75.5 lockfile state, latest @earendil-works 0.79.4, global omp 15.5.2, and @oh-my-pi 15.13.3.",
         "Ran isolated Node probes in /tmp/llm-wiki-pi-probe-NO7eLR and /tmp/llm-wiki-earendil-probe-EIwMnx.",
-        "Selected @earendil-works 0.79.4 target because it satisfies Node backend import/session/tool event requirements while @oh-my-pi 15.13.3 does not."
+        "Selected @earendil-works 0.79.4 target because it satisfies Node backend import/session/tool event requirements while @oh-my-pi 15.13.3 does not.",
+        "Committed verified task 1.1 as a8de04545583665470c8e653e11fbf4652e8a8fb."
       ]
     }
   ],
