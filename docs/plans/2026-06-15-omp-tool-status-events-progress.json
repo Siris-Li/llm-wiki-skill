@@ -473,17 +473,24 @@
     {
       "id": "phase-4",
       "goal": "Render OMP-style live runway and folded history summary",
-      "status": "pending",
+      "status": "in_progress",
       "acceptance": [
         {
           "check": "ToolStatusRunway has readable running, done, failed, and cancelled states",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "Added workbench/web/src/components/ToolStatusRunway.tsx with running, done, failed, and cancelled state classes and labels.",
+            "Added workbench/web/test/tool-status-runway.test.ts rendering running, done, failed, and cancelled states with React server rendering."
+          ]
         },
         {
           "check": "Visual component respects concrete limits: 3 folded targets, 50 expanded rows, 80-150ms live update cadence, 390px no horizontal scroll, readable reduced-motion mode",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "ToolStatusRunway exports TOOL_RUNWAY_TARGET_LIMIT=3, TOOL_RUNWAY_DETAIL_LIMIT=50, and TOOL_RUNWAY_UPDATE_CADENCE_MS=100; tool-status-runway.test.ts asserts these limits.",
+            "ToolStatusRunway CSS uses min-width:0, max-width:100%, overflow:hidden, text-overflow:ellipsis, and nowrap targets/chips to avoid horizontal overflow on narrow layouts.",
+            "ToolStatusRunway CSS animates the running pulse and disables that animation under prefers-reduced-motion: reduce while keeping state colors and labels."
+          ]
         },
         {
           "check": "ToolHistorySummary defaults folded, groups tool types, and expands full detail",
@@ -497,16 +504,31 @@
         },
         {
           "check": "npm run typecheck exits 0",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "npm run typecheck exited 0 after ToolStatusRunway implementation."
+          ]
         }
       ],
       "tasks": [
         {
           "id": "4.1",
           "title": "Implement ToolStatusRunway visual component",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-4 task 4.1.",
+            "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+            "Added ToolStatusRunway component for running, done, failed, and cancelled tool states with compact target rendering and limited summary chips.",
+            "Replaced ChatPanel's temporary tool status preview with ToolStatusRunway for messages that have ToolStatusState.",
+            "Added ToolStatusRunway CSS for running pulse, distinct done/failed/cancelled colors, constrained width, ellipsis targets, and reduced-motion behavior.",
+            "Added tool-status-runway.test.ts covering running target truncation, done/failed/cancelled classes, target/detail limits, and 100ms update cadence.",
+            "Watched npm run test --workspace=@llm-wiki-agent/web -- tool-status-runway.test.ts fail before implementation because ToolStatusRunway did not exist.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web -- tool-status-runway.test.ts exited 0 after implementation.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web exited 0.",
+            "Verified npm run typecheck --workspace=@llm-wiki-agent/web exited 0.",
+            "Verified npm run typecheck exited 0.",
+            "Verified git diff --check exited 0."
+          ],
           "commit": null
         },
         {
@@ -702,6 +724,17 @@
         "Verified npm run test --workspace=@llm-wiki-agent/web -- tool-status-model.test.ts, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, git diff --check, and a headless Chrome render all passed.",
         "Committed verified task 3.3 as 531e1e68b809406fbdf21d32e9a6d5907eb18fde.",
         "All phase-3 acceptance checks now pass, so the progress pointer advanced to phase-4 task 4.1."
+      ]
+    },
+    {
+      "turn": "phase-4-task-4.1",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-4 task 4.1.",
+        "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+        "Added ToolStatusRunway, connected ChatPanel's live tool status branch to it, and added CSS for running/done/failed/cancelled states, truncation, and reduced motion.",
+        "Added ToolStatusRunway render tests for running, done, failed, cancelled, concrete limits, and 100ms cadence.",
+        "Verified npm run test --workspace=@llm-wiki-agent/web -- tool-status-runway.test.ts, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, and git diff --check all exited 0."
       ]
     }
   ],

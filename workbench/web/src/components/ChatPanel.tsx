@@ -5,6 +5,7 @@ import { CommandMenu } from "@/components/CommandMenu";
 import { ExportButtons } from "@/components/ExportButtons";
 import { MarkdownView } from "@/components/MarkdownView";
 import { RefMenu } from "@/components/RefMenu";
+import { ToolStatusRunway } from "@/components/ToolStatusRunway";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
 	buildExportPrompt,
@@ -20,7 +21,6 @@ import {
 	type ToolStatusContractEvent,
 	type UIMessage,
 } from "@/lib/api";
-import { formatToolStatusItem } from "@/lib/tool-status-format";
 import {
 	cancelActiveToolStatus,
 	createToolStatusState,
@@ -756,7 +756,7 @@ function MessageBubble({
 			<div className="msg-body">
 				<div className="msg-role">{isUser ? "你" : "assistant"}</div>
 				{message.toolStatus ? (
-					<ToolStatusPreview state={message.toolStatus} />
+					<ToolStatusRunway state={message.toolStatus} />
 				) : message.tools.length > 0 && (
 					<div className="msg-tools">
 						{message.tools.map((t, i) => (
@@ -778,77 +778,6 @@ function MessageBubble({
 			</div>
 		</div>
 	);
-}
-
-function ToolStatusPreview({ state }: { state: ToolStatusState }) {
-	const active = state.active.at(-1);
-	const completed = state.summary.items.length > 0 ? state.summary.items : state.completed;
-	const activeLabel = active
-		? formatToolStatusItem({
-				toolName: active.toolName,
-				action: active.action,
-				target: active.target,
-				args: active.args,
-				detail: active.detail,
-			})
-		: null;
-	const completedCount = Math.max(
-		completed.length + state.summary.overflowCount,
-		state.completed.length + state.completedOverflowCount,
-	);
-	const failedCount = state.completed.filter((item) => item.status === "failed").length;
-	const cancelledCount = state.completed.filter((item) => item.status === "cancelled").length;
-	const summaryTargets = completed
-		.slice(0, 3)
-		.map((item) => item.target)
-		.filter(Boolean);
-	return (
-		<div className="msg-tools msg-tools-status">
-			{activeLabel && (
-				<div className="msg-tool">
-					<span className="msg-tool-dot msg-tool-running" />
-					<span className="truncate">
-						{activeLabel.action} {activeLabel.target}
-						{state.active.length > 1 ? `，另有 ${state.active.length - 1} 项运行中` : ""}
-					</span>
-				</div>
-			)}
-			{!activeLabel && state.cancelReason && (
-				<div className="msg-tool">
-					<span className="msg-tool-dot msg-tool-cancelled" />
-					<span>{state.cancelReason}</span>
-				</div>
-			)}
-			{state.error && (
-				<div className="msg-tool">
-					<span className="msg-tool-dot msg-tool-failed" />
-					<span className="truncate">{state.error}</span>
-				</div>
-			)}
-			{completedCount > 0 && (
-				<div className="msg-tool">
-					<span className={cn("msg-tool-dot", failedCount ? "msg-tool-failed" : "msg-tool-done")} />
-					<span className="truncate">
-						{toolSummaryLabel(completedCount, failedCount, cancelledCount, state.completedOverflowLabel ?? state.summary.overflowLabel)}
-						{summaryTargets.length > 0 ? `：${summaryTargets.join("、")}` : ""}
-					</span>
-				</div>
-			)}
-		</div>
-	);
-}
-
-function toolSummaryLabel(
-	completedCount: number,
-	failedCount: number,
-	cancelledCount: number,
-	overflowLabel: string | null,
-): string {
-	const parts = [`工具摘要 ${completedCount} 项`];
-	if (failedCount > 0) parts.push(`失败 ${failedCount}`);
-	if (cancelledCount > 0) parts.push(`取消 ${cancelledCount}`);
-	if (overflowLabel) parts.push(overflowLabel);
-	return parts.join("，");
 }
 
 const TOOL_STATUS_EVENT_NAMES: Set<ToolStatusContractEvent["type"]> = new Set([
