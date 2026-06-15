@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { buildToolStatusContractFixture } from "../../server/src/tool-status-events";
 import {
+	cancelActiveToolStatus,
 	createToolStatusState,
 	flushToolStatusUpdates,
 	reduceToolStatusEvent,
@@ -196,6 +197,31 @@ describe("tool status model", () => {
 		);
 		assert.equal(state.summary.overflowCount, 3);
 		assert.equal(state.summary.overflowLabel, "还有 3 项");
+	});
+
+	it("locally cancels active tools without waiting for backend abort confirmation", () => {
+		const running = reduceToolStatusEvents(
+			createToolStatusState(runId, messageId),
+			[
+				start("read-1", "read", 1, { path: "a.md" }),
+				start("bash-1", "bash", 2, { command: "npm test" }),
+			],
+			{ nowMs: 1_000 },
+		);
+
+		const cancelled = cancelActiveToolStatus(running, "用户已停止");
+
+		assert.equal(cancelled.active.length, 0);
+		assert.equal(cancelled.isDone, true);
+		assert.equal(cancelled.cancelReason, "用户已停止");
+		assert.deepEqual(
+			cancelled.completed.map((item) => [item.toolCallId, item.status, item.summary]),
+			[
+				["read-1", "cancelled", "用户已停止"],
+				["bash-1", "cancelled", "用户已停止"],
+			],
+		);
+		assert.equal(cancelled.summary.items.length, 2);
 	});
 });
 

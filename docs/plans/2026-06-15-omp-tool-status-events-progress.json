@@ -376,29 +376,37 @@
         },
         {
           "check": "Streaming UI exposes a stop action and clears or cancels the live runway instead of leaving a stale running state",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "ChatPanel now switches the streaming send button to a stop action that calls the active AbortController.",
+            "stopStreaming immediately applies cancelActiveToolStatus to the current assistant message, clearing active tools into cancelled completed items without waiting for backend abort confirmation.",
+            "ChatPanel now consumes assistant_text_delta, tool_status_start/update/end/summary, assistant_done, assistant_cancelled, and assistant_error contract events into the ToolStatusState model instead of appending old live tool_start/tool_end rows.",
+            "Headless Chrome rendered http://localhost:5180/ and produced /tmp/llm-wiki-omp-phase-3-3.png; DOM contained chat-screen, chat-textarea, and send controls, and dev server ports were clean after shutdown."
+          ]
         },
         {
           "check": "npm run test --workspace=@llm-wiki-agent/web exits 0",
           "status": "passed",
           "evidence": [
             "npm run test --workspace=@llm-wiki-agent/web exited 0 with 16 tests, 8 suites, 0 failures.",
-            "After adding tool-status-format.test.ts, npm run test --workspace=@llm-wiki-agent/web exited 0 with 21 tests, 9 suites, 0 failures."
+            "After adding tool-status-format.test.ts, npm run test --workspace=@llm-wiki-agent/web exited 0 with 21 tests, 9 suites, 0 failures.",
+            "After ChatPanel stream integration and local cancellation test, npm run test --workspace=@llm-wiki-agent/web exited 0 with 22 tests, 9 suites, 0 failures."
           ]
         },
         {
           "check": "npm run typecheck --workspace=@llm-wiki-agent/web exits 0",
           "status": "passed",
           "evidence": [
-            "npm run typecheck --workspace=@llm-wiki-agent/web exited 0 after rebuilding @llm-wiki/graph-engine."
+            "npm run typecheck --workspace=@llm-wiki-agent/web exited 0 after rebuilding @llm-wiki/graph-engine.",
+            "npm run typecheck --workspace=@llm-wiki-agent/web exited 0 after ChatPanel stream integration."
           ]
         },
         {
           "check": "npm run typecheck exits 0",
           "status": "passed",
           "evidence": [
-            "npm run typecheck exited 0 when rerun sequentially after web test and web typecheck verification."
+            "npm run typecheck exited 0 when rerun sequentially after web test and web typecheck verification.",
+            "npm run typecheck exited 0 after ChatPanel stream integration."
           ]
         }
       ],
@@ -443,8 +451,21 @@
         {
           "id": "3.3",
           "title": "Reconnect ChatPanel stream handling to Tool Status state",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-3 task 3.3.",
+            "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+            "Updated ChatPanel to consume stable assistant_text_delta, tool_status_start/update/end/summary, assistant_done, assistant_cancelled, and assistant_error events into ToolStatusState.",
+            "Stopped using old live tool_start/tool_end and knowledge_search_* events for running tool display, so current assistant replies render one active tool line plus a concise summary instead of a long .msg-tool stream.",
+            "Added a visible stop action during streaming that calls AbortController.abort and immediately applies local cancelled tool status to the current assistant message.",
+            "Added cancelActiveToolStatus and a reducer test proving active tools locally become cancelled completed items without waiting for backend abort confirmation.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web -- tool-status-model.test.ts exited 0 after adding the cancellation helper.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web exited 0.",
+            "Verified npm run typecheck --workspace=@llm-wiki-agent/web exited 0.",
+            "Verified npm run typecheck exited 0.",
+            "Verified git diff --check exited 0.",
+            "Started npm run dev; curl confirmed backend health and frontend HTTP 200; headless Chrome rendered http://localhost:5180/ to /tmp/llm-wiki-omp-phase-3-3.png; stopped dev server and confirmed ports 5180 and 8787 had no listeners."
+          ],
           "commit": null
         }
       ]
@@ -668,6 +689,17 @@
         "Verified npm run test --workspace=@llm-wiki-agent/web -- tool-status-format.test.ts, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, and git diff --check all exited 0.",
         "Committed verified task 3.2 as 342ccb5799b57ce6359ad47050d1682e473c1485.",
         "Advanced current task pointer to phase-3 task 3.3 after recording the 3.2 commit hash."
+      ]
+    },
+    {
+      "turn": "phase-3-task-3.3",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-3 task 3.3.",
+        "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+        "Reconnected ChatPanel to stable tool status events, added local stop/cancel cleanup, and stopped appending old live tool rows.",
+        "Added reducer coverage for local cancellation without backend abort confirmation.",
+        "Verified npm run test --workspace=@llm-wiki-agent/web -- tool-status-model.test.ts, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, git diff --check, and a headless Chrome render all passed."
       ]
     }
   ],

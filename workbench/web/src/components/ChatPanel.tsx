@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Files, Monitor, Moon, Send, Settings, Sun, X } from "lucide-react";
+import { Files, Monitor, Moon, Send, Settings, Square, Sun, X } from "lucide-react";
 
 import { CommandMenu } from "@/components/CommandMenu";
 import { ExportButtons } from "@/components/ExportButtons";
@@ -17,8 +17,17 @@ import {
 	type ModelInfo,
 	type PageRef,
 	streamPrompt,
+	type ToolStatusContractEvent,
 	type UIMessage,
 } from "@/lib/api";
+import { formatToolStatusItem } from "@/lib/tool-status-format";
+import {
+	cancelActiveToolStatus,
+	createToolStatusState,
+	flushToolStatusUpdates,
+	reduceToolStatusEvent,
+	type ToolStatusState,
+} from "@/lib/tool-status-model";
 import { cn } from "@/lib/utils";
 import { extractWikiPageRefs } from "@/lib/wiki-links";
 
@@ -29,6 +38,7 @@ interface Message {
 	role: "user" | "assistant";
 	content: string;
 	tools: ToolMark[];
+	toolStatus?: ToolStatusState;
 }
 
 function newId() {
@@ -127,6 +137,8 @@ export function ChatPanel({
 	});
 	const [refs, setRefs] = useState<PageRef[]>([]);
 	const abortRef = useRef<AbortController | null>(null);
+	const activeAssistantIdRef = useRef<string | null>(null);
+	const toolFlushTimersRef = useRef<Record<string, number>>({});
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const consumedPendingPromptRef = useRef<string | null>(null);
 
@@ -153,6 +165,12 @@ export function ChatPanel({
 		window.addEventListener("llm-wiki-agent:commands-changed", reload);
 		return () => window.removeEventListener("llm-wiki-agent:commands-changed", reload);
 	}, [currentKnowledgeBaseName]);
+
+	useEffect(() => {
+		return () => {
+			for (const timer of Object.values(toolFlushTimersRef.current)) window.clearTimeout(timer);
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!refMenu.open || !currentKnowledgeBasePath) {
@@ -272,6 +290,54 @@ export function ChatPanel({
 		startExport(kind);
 	};
 
+	const scheduleToolStatusFlush = (assistantId: string, delayMs: number) => {
+		const existingTimer = toolFlushTimersRef.current[assistantId];
+		if (existingTimer) window.clearTimeout(existingTimer);
+		toolFlushTimersRef.current[assistantId] = window.setTimeout(() => {
+			delete toolFlushTimersRef.current[assistantId];
+			setMessages((prev) =>
+				prev.map((message) => {
+					if (message.id !== assistantId || !message.toolStatus) return message;
+					return { ...message, toolStatus: flushToolStatusUpdates(message.toolStatus, Date.now()) };
+				}),
+			);
+		}, Math.max(0, delayMs));
+	};
+
+	const applyToolStatusEvent = (assistantId: string, payload: ToolStatusContractEvent) => {
+		const nowMs = Date.now();
+		let flushDelay: number | null = null;
+		setMessages((prev) =>
+			prev.map((message) => {
+				if (message.id !== assistantId) return message;
+				const currentState =
+					message.toolStatus ?? createToolStatusState(payload.runId, payload.messageId);
+				const nextState = reduceToolStatusEvent(currentState, payload, { nowMs });
+				if (nextState.pendingUpdateCount > 0 && Number.isFinite(nextState.nextUpdateFlushAt)) {
+					flushDelay = nextState.nextUpdateFlushAt - nowMs;
+				}
+				return { ...message, tools: [], toolStatus: nextState };
+			}),
+		);
+		if (flushDelay !== null) scheduleToolStatusFlush(assistantId, flushDelay);
+	};
+
+	const cancelCurrentToolStatus = (assistantId: string, reason = "已停止") => {
+		setMessages((prev) =>
+			prev.map((message) => {
+				if (message.id !== assistantId || !message.toolStatus) return message;
+				return { ...message, tools: [], toolStatus: cancelActiveToolStatus(message.toolStatus, reason) };
+			}),
+		);
+	};
+
+	const stopStreaming = () => {
+		const assistantId = activeAssistantIdRef.current;
+		if (assistantId) cancelCurrentToolStatus(assistantId, "用户已停止");
+		abortRef.current?.abort();
+		setStatus("idle");
+	};
+
 	const sendPrompt = async (overrideText?: string, displayText?: string) => {
 		const text = (overrideText ?? input).trim();
 		if (!text || status === "streaming") return;
@@ -297,6 +363,7 @@ export function ChatPanel({
 		const assistantMsg: Message = { id: assistantId, role: "assistant", content: "", tools: [] };
 		setMessages((prev) => [...prev, userMsg, assistantMsg]);
 		setStatus("streaming");
+		activeAssistantIdRef.current = assistantId;
 
 		const controller = new AbortController();
 		abortRef.current = controller;
@@ -304,66 +371,40 @@ export function ChatPanel({
 		try {
 			const stream = await streamPrompt(outgoingText, controller.signal);
 			for await (const { event, data } of stream) {
-				if (event === "text_delta") {
+				if (event === "assistant_text_delta") {
+					const payload = parseToolStatusEvent(event, data);
+					if (payload?.type === "assistant_text_delta") {
+						setMessages((prev) =>
+							prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + payload.delta } : m)),
+						);
+					}
+				} else if (isToolStatusEventName(event)) {
+					const payload = parseToolStatusEvent(event, data);
+					if (!payload) continue;
+					applyToolStatusEvent(assistantId, payload);
+					if (payload.type === "assistant_done") {
+						setStatus("idle");
+						onMessageSent?.();
+					} else if (payload.type === "assistant_cancelled") {
+						setStatus("idle");
+					} else if (payload.type === "assistant_error") {
+						setErrorMsg(payload.error);
+						setStatus("error");
+					}
+				} else if (event === "text_delta") {
 					setMessages((prev) =>
 						prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + data } : m)),
 					);
 				} else if (event === "knowledge_search_start") {
-					setMessages((prev) =>
-						prev.map((m) =>
-							m.id === assistantId
-								? { ...m, tools: [...m.tools, { name: "检索当前知识库", status: "running" }] }
-								: m,
-						),
-					);
+					continue;
 				} else if (event === "knowledge_search_done" || event === "knowledge_search_empty") {
-					const payload = JSON.parse(data) as { count: number };
-					const label =
-						event === "knowledge_search_empty"
-							? "当前知识库未找到相关页面"
-							: `已检索到 ${payload.count} 个相关页面`;
-					setMessages((prev) =>
-						prev.map((m) => {
-							if (m.id !== assistantId) return m;
-							const tools = m.tools.filter((tool) => tool.name !== "检索当前知识库");
-							return { ...m, tools: [...tools, { name: label, status: "done" }] };
-						}),
-					);
+					continue;
 				} else if (event === "knowledge_search_error") {
-					setMessages((prev) =>
-						prev.map((m) => {
-							if (m.id !== assistantId) return m;
-							const tools = m.tools.filter((tool) => tool.name !== "检索当前知识库");
-							return {
-								...m,
-								tools: [...tools, { name: "知识库检索失败，已按普通对话处理", status: "done" }],
-							};
-						}),
-					);
+					continue;
 				} else if (event === "tool_start") {
-					const payload = JSON.parse(data) as { toolName: string };
-					setMessages((prev) =>
-						prev.map((m) =>
-							m.id === assistantId
-								? { ...m, tools: [...m.tools, { name: payload.toolName, status: "running" }] }
-								: m,
-						),
-					);
+					continue;
 				} else if (event === "tool_end") {
-					const payload = JSON.parse(data) as { toolName: string };
-					setMessages((prev) =>
-						prev.map((m) => {
-							if (m.id !== assistantId) return m;
-							const tools = [...m.tools];
-							for (let i = tools.length - 1; i >= 0; i--) {
-								if (tools[i].name === payload.toolName && tools[i].status === "running") {
-									tools[i] = { ...tools[i], status: "done" };
-									break;
-								}
-							}
-							return { ...m, tools };
-						}),
-					);
+					continue;
 				} else if (event === "done") {
 					setStatus("idle");
 					onMessageSent?.();
@@ -381,10 +422,12 @@ export function ChatPanel({
 				setStatus("idle");
 				return;
 			}
-			setErrorMsg(err instanceof Error ? err.message : String(err));
+			const message = err instanceof Error ? err.message : String(err);
+			setErrorMsg(message.includes("409") ? "当前对话还在生成中，请停止或稍后再试。" : message);
 			setStatus("error");
 		} finally {
 			abortRef.current = null;
+			if (activeAssistantIdRef.current === assistantId) activeAssistantIdRef.current = null;
 		}
 	};
 
@@ -677,12 +720,15 @@ export function ChatPanel({
 					</span>
 					<button
 						type="button"
-						className="send-btn"
-						onClick={() => void sendPrompt()}
-						disabled={status === "streaming" || !input.trim() || !currentKnowledgeBaseName}
+						className={cn("send-btn", status === "streaming" && "stop-btn")}
+						onClick={() => {
+							if (status === "streaming") stopStreaming();
+							else void sendPrompt();
+						}}
+						disabled={status !== "streaming" && (!input.trim() || !currentKnowledgeBaseName)}
 					>
-						<Send className="size-4" />
-						{status === "streaming" ? "等待中" : "发送"}
+						{status === "streaming" ? <Square className="size-4" /> : <Send className="size-4" />}
+						{status === "streaming" ? "停止" : "发送"}
 					</button>
 				</div>
 			</div>
@@ -709,7 +755,9 @@ function MessageBubble({
 			</div>
 			<div className="msg-body">
 				<div className="msg-role">{isUser ? "你" : "assistant"}</div>
-				{message.tools.length > 0 && (
+				{message.toolStatus ? (
+					<ToolStatusPreview state={message.toolStatus} />
+				) : message.tools.length > 0 && (
 					<div className="msg-tools">
 						{message.tools.map((t, i) => (
 							<div key={i} className="msg-tool">
@@ -730,6 +778,100 @@ function MessageBubble({
 			</div>
 		</div>
 	);
+}
+
+function ToolStatusPreview({ state }: { state: ToolStatusState }) {
+	const active = state.active.at(-1);
+	const completed = state.summary.items.length > 0 ? state.summary.items : state.completed;
+	const activeLabel = active
+		? formatToolStatusItem({
+				toolName: active.toolName,
+				action: active.action,
+				target: active.target,
+				args: active.args,
+				detail: active.detail,
+			})
+		: null;
+	const completedCount = Math.max(
+		completed.length + state.summary.overflowCount,
+		state.completed.length + state.completedOverflowCount,
+	);
+	const failedCount = state.completed.filter((item) => item.status === "failed").length;
+	const cancelledCount = state.completed.filter((item) => item.status === "cancelled").length;
+	const summaryTargets = completed
+		.slice(0, 3)
+		.map((item) => item.target)
+		.filter(Boolean);
+	return (
+		<div className="msg-tools msg-tools-status">
+			{activeLabel && (
+				<div className="msg-tool">
+					<span className="msg-tool-dot msg-tool-running" />
+					<span className="truncate">
+						{activeLabel.action} {activeLabel.target}
+						{state.active.length > 1 ? `，另有 ${state.active.length - 1} 项运行中` : ""}
+					</span>
+				</div>
+			)}
+			{!activeLabel && state.cancelReason && (
+				<div className="msg-tool">
+					<span className="msg-tool-dot msg-tool-cancelled" />
+					<span>{state.cancelReason}</span>
+				</div>
+			)}
+			{state.error && (
+				<div className="msg-tool">
+					<span className="msg-tool-dot msg-tool-failed" />
+					<span className="truncate">{state.error}</span>
+				</div>
+			)}
+			{completedCount > 0 && (
+				<div className="msg-tool">
+					<span className={cn("msg-tool-dot", failedCount ? "msg-tool-failed" : "msg-tool-done")} />
+					<span className="truncate">
+						{toolSummaryLabel(completedCount, failedCount, cancelledCount, state.completedOverflowLabel ?? state.summary.overflowLabel)}
+						{summaryTargets.length > 0 ? `：${summaryTargets.join("、")}` : ""}
+					</span>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function toolSummaryLabel(
+	completedCount: number,
+	failedCount: number,
+	cancelledCount: number,
+	overflowLabel: string | null,
+): string {
+	const parts = [`工具摘要 ${completedCount} 项`];
+	if (failedCount > 0) parts.push(`失败 ${failedCount}`);
+	if (cancelledCount > 0) parts.push(`取消 ${cancelledCount}`);
+	if (overflowLabel) parts.push(overflowLabel);
+	return parts.join("，");
+}
+
+const TOOL_STATUS_EVENT_NAMES: Set<ToolStatusContractEvent["type"]> = new Set([
+	"tool_status_start",
+	"tool_status_update",
+	"tool_status_end",
+	"tool_status_summary",
+	"assistant_done",
+	"assistant_cancelled",
+	"assistant_error",
+]);
+
+function isToolStatusEventName(event: string): event is ToolStatusContractEvent["type"] {
+	return TOOL_STATUS_EVENT_NAMES.has(event as ToolStatusContractEvent["type"]);
+}
+
+function parseToolStatusEvent(event: string, data: string): ToolStatusContractEvent | null {
+	try {
+		const payload = JSON.parse(data) as ToolStatusContractEvent;
+		return payload.type === event ? payload : null;
+	} catch {
+		return null;
+	}
 }
 
 function parseDroppedPath(dataTransfer: DataTransfer): string | null {

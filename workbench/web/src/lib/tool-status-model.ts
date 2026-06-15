@@ -174,6 +174,52 @@ export function flushToolStatusUpdates(state: ToolStatusState, nowMs: number): T
 	};
 }
 
+export function cancelActiveToolStatus(state: ToolStatusState, reason = "已停止"): ToolStatusState {
+	if (state.active.length === 0 && state.pendingUpdateCount === 0) {
+		return { ...state, isDone: true, cancelReason: reason };
+	}
+	const cancelledItems: ToolStatusCompletedItem[] = state.active.map((item) => ({
+		toolCallId: item.toolCallId,
+		toolName: item.toolName,
+		action: item.action,
+		target: item.target,
+		status: "cancelled",
+		args: item.args,
+		summary: reason,
+		error: null,
+		durationMs: 0,
+		lastSeq: item.lastSeq,
+	}));
+	const nextState = capCompleted({
+		...state,
+		active: [],
+		completed: [...state.completed, ...cancelledItems],
+		pendingUpdates: {},
+		pendingUpdateCount: 0,
+		isDone: true,
+		cancelReason: reason,
+	});
+	const summaryItems = nextState.completed.map((item) => ({
+		toolCallId: item.toolCallId,
+		toolName: item.toolName,
+		action: item.action,
+		target: item.target,
+		status: item.status,
+		summary: item.summary,
+	}));
+	const cappedItems = summaryItems.slice(0, nextState.maxSummaryItems);
+	const overflowCount = Math.max(0, summaryItems.length - cappedItems.length);
+	return {
+		...nextState,
+		summary: {
+			items: cappedItems,
+			remainingRunningCount: 0,
+			overflowCount,
+			overflowLabel: makeOverflowLabel(overflowCount),
+		},
+	};
+}
+
 function reduceStart(state: ToolStatusState, event: ToolStatusStartEvent, nowMs: number): ToolStatusState {
 	const active = withoutTool(state.active, event.toolCallId);
 	const nextItem: ToolStatusActiveItem = {

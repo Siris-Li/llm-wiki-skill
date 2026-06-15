@@ -1055,6 +1055,14 @@
     background: var(--app-success);
   }
 
+  .msg-tool-failed {
+    background: var(--app-destructive);
+  }
+
+  .msg-tool-cancelled {
+    background: var(--app-muted);
+  }
+
   .chat-input-area {
     padding: 12px 16px 14px;
     border-top: 1px solid var(--app-border);
@@ -1199,6 +1207,10 @@
   .send-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
+  }
+
+  .stop-btn {
+    background: var(--app-destructive);
   }
 
   .popup-menu {
