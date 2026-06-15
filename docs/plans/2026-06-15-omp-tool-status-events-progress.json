@@ -1,0 +1,308 @@
+{
+  "plan": "docs/plans/2026-06-15-omp-tool-status-events-phased-plan.md",
+  "status": {
+    "overall": "pending",
+    "phase": "phase-1",
+    "task": "1.1",
+    "next_allowed_action": "Implement the current task; after verified completion, advance to the next task or phase automatically"
+  },
+  "execution_rules": {
+    "branch": "codex/feat-omp-tool-status-events",
+    "smoke_check": "npm run typecheck",
+    "commit_each_verified_task": true,
+    "no_commit_on_failed_verification": true,
+    "never_push_merge_or_amend": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "only_flip_status_fields": true
+  },
+  "decision_log": [
+    {
+      "decision": "Use L-level phased plan",
+      "reason": "The work spans project dependency migration, backend event protocol, frontend state model, UI components, browser QA, and docs.",
+      "source": "spec-to-goal-plan sizing step",
+      "status": "recorded"
+    },
+    {
+      "decision": "Upgrade project-internal pi-agent dependency instead of only wrapping old start/end events",
+      "reason": "The user explicitly requested alignment with newer omp event behavior and rejected MVP thinking.",
+      "source": "docs/spark/2026-06-15-omp-tool-status-events-design.md",
+      "status": "recorded"
+    },
+    {
+      "decision": "Place the live tool runway inside the current assistant reply before body text",
+      "reason": "The user selected visual direction A.",
+      "source": "visual companion discussion",
+      "status": "recorded"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "goal": "Migrate and verify project-internal pi-agent dependency capability",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Project dependency target and package-name decision recorded in decision_log",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm install exits 0 after dependency migration",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm run typecheck --workspace=@llm-wiki-agent/server exits 0",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm run typecheck exits 0",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Browser loads http://localhost:5180/ and a basic prompt receives an assistant reply",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "1.1",
+          "title": "Dependency and API reconnaissance",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "1.2",
+          "title": "Migrate project dependency and imports",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "1.3",
+          "title": "Backend and browser smoke verification",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "goal": "Expose stable backend tool status events",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Stable tool status adapter covers start, update, end, failure, missing args, and common tool formatting",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "node --import tsx --test workbench/server/src/tool-status-events.test.ts exits 0",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm run typecheck --workspace=@llm-wiki-agent/server exits 0",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm run typecheck exits 0",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "2.1",
+          "title": "Build Tool Status event adapter",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "2.2",
+          "title": "Connect /api/prompt SSE to stable tool status events",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "2.3",
+          "title": "Preserve history display through generated summaries",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "goal": "Create frontend tool status model and stream integration",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Tool status reducer tests cover switching, missing args, failed/cancelled tools, parallel tools, and truncation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm run test --workspace=@llm-wiki-agent/web exits 0",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm run typecheck --workspace=@llm-wiki-agent/web exits 0",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm run typecheck exits 0",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "3.1",
+          "title": "Define frontend Tool Status types and reducer",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "3.2",
+          "title": "Format user-readable tool actions and targets",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "3.3",
+          "title": "Reconnect ChatPanel stream handling to Tool Status state",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "goal": "Render OMP-style live runway and folded history summary",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "ToolStatusRunway has readable running, done, failed, and cancelled states",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "ToolHistorySummary defaults folded, groups tool types, and expands full detail",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "ChatPanel no longer renders long live .msg-tools streams during complex tasks",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm run typecheck exits 0",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "4.1",
+          "title": "Implement ToolStatusRunway visual component",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "4.2",
+          "title": "Implement ToolHistorySummary folded detail component",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "4.3",
+          "title": "Replace old tool list rendering in assistant messages",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "goal": "Verify end-to-end experience and update documentation",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Browser QA at 1440px, 768px, and 390px proves one live tool runway, folded summary, no overflow, and expandable details",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm run typecheck exits 0",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "npm run test --workspace=@llm-wiki-agent/web exits 0",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Server tests for changed surfaces exit 0 or documented environment-only failure with changed tests passing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "CHANGELOG.md and README.md updated for the shipped behavior",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "git diff --check exits 0",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "5.1",
+          "title": "Run real browser QA on a multi-tool task",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "5.2",
+          "title": "Run automated regression checks",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "5.3",
+          "title": "Update user-facing documentation and final risk record",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    }
+  ],
+  "turn_log": [],
+  "residual_risk": []
+}
