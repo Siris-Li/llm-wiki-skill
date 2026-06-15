@@ -639,13 +639,19 @@
         },
         {
           "check": "CHANGELOG.md and README.md updated for the shipped behavior",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "CHANGELOG.md now has a top v3.6.6 (2026-06-15) entry describing the omp-style dynamic tool status, folded history summary, and stop/cancel behavior.",
+            "README.md version badge was updated to v3.6.6 and the core highlights plus full feature list mention workbench dynamic tool status and folded summaries.",
+            "workbench/PRODUCT.md was updated because this changed user-visible workbench chat behavior: section 5.4 now records the omp-style tool state principle, section 5.5 references dynamic tool state instead of generic tool-call status, and the product document change log has a v18 entry."
+          ]
         },
         {
           "check": "git diff --check exits 0",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "git diff --check exited 0 after README.md, CHANGELOG.md, and workbench/PRODUCT.md updates."
+          ]
         }
       ],
       "tasks": [
@@ -689,8 +695,18 @@
         {
           "id": "5.3",
           "title": "Update user-facing documentation and final risk record",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-5 task 5.3.",
+            "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+            "Updated CHANGELOG.md with v3.6.6 for dynamic tool status, folded summaries, and cancellation behavior.",
+            "Updated README.md version badge, core highlights, and full feature list for workbench omp-style tool status and folded summaries.",
+            "Updated workbench/PRODUCT.md because the workbench chat behavior changed; section 5.4 and 5.5 now record the dynamic tool status principle and the product change log has a v18 entry.",
+            "Verified rg found the new dynamic tool status documentation in README.md, CHANGELOG.md, and workbench/PRODUCT.md.",
+            "Verified git diff --check exited 0.",
+            "Verified npm run typecheck exited 0.",
+            "Residual risk: no new blocking risk found; README.en.md remains unchanged because the plan explicitly required README.md."
+          ],
           "commit": null
         }
       ]
@@ -873,7 +889,24 @@
         "Committed verified task 5.2 as 7ef8377207e7ac6de131c10440ceb68c7367624d.",
         "Advanced current task pointer to phase-5 task 5.3 after recording the 5.2 commit hash."
       ]
+    },
+    {
+      "turn": "phase-5-task-5.3",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-5 task 5.3.",
+        "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
+        "Updated CHANGELOG.md, README.md, and workbench/PRODUCT.md for the shipped workbench dynamic tool status behavior.",
+        "Verified documentation text with rg, git diff --check, and npm run typecheck; all exited 0.",
+        "Task 5.3 is ready to commit; commit hash and final overall status will be recorded after the verified task commit is created."
+      ]
     }
   ],
-  "residual_risk": []
+  "residual_risk": [
+    {
+      "risk": "README.en.md still shows the older version badge and does not mention this workbench behavior.",
+      "status": "accepted",
+      "reason": "The execution plan and repository rule for this task explicitly required README.md, CHANGELOG.md, and PRODUCT.md; English README synchronization is outside the current work unit."
+    }
+  ]
 }
