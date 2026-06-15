@@ -3,8 +3,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-3",
-    "task": "3.1",
-    "next_allowed_action": "Implement phase-3 task 3.1 after verified phase-2 completion"
+    "task": "3.2",
+    "next_allowed_action": "Implement phase-3 task 3.2 after recording the 3.1 commit hash"
   },
   "execution_rules": {
     "branch": "codex/feat-omp-tool-status-events",
@@ -419,7 +419,7 @@
             "Verified npm run typecheck exited 0 when rerun sequentially.",
             "Verified git diff --check exited 0."
           ],
-          "commit": null
+          "commit": "5fea9c2e0d79614d8e84bde8632c30f68b6dd0b5"
         },
         {
           "id": "3.2",
@@ -640,7 +640,9 @@
         "Ran git log --oneline -15 and npm run typecheck before new work; both exited 0.",
         "Added frontend Tool Status event types and reducer state for active tools, completed tools, failures, summaries, ignored events, coalesced updates, and capped histories.",
         "Added reducer tests that reuse the backend contract fixture and cover switching, missing args, failed/cancelled tools, parallel tools, run/message ownership, duplicate/late events, coalescing, and truncation.",
-        "Verified npm run test --workspace=@llm-wiki-agent/web -- tool-status-model.test.ts, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, and git diff --check all exited 0."
+        "Verified npm run test --workspace=@llm-wiki-agent/web -- tool-status-model.test.ts, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, and git diff --check all exited 0.",
+        "Committed verified task 3.1 as 5fea9c2e0d79614d8e84bde8632c30f68b6dd0b5.",
+        "Advanced current task pointer to phase-3 task 3.2 after recording the 3.1 commit hash."
       ]
     }
   ],
