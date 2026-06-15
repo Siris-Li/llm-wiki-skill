@@ -3,8 +3,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-5",
-    "task": "5.1",
-    "next_allowed_action": "Implement phase-5 task 5.1 after recording the 4.3 commit hash and phase-4 completion"
+    "task": "5.2",
+    "next_allowed_action": "Implement phase-5 task 5.2 after recording the 5.1 commit hash"
   },
   "execution_rules": {
     "branch": "codex/feat-omp-tool-status-events",
@@ -659,7 +659,7 @@
             "Verified git diff --check exited 0.",
             "Stopped npm run dev and confirmed ports 5180 and 8787 had no listeners."
           ],
-          "commit": null
+          "commit": "8258b2a6f54770f8960313ebb55a8fd10a6c8cf2"
         },
         {
           "id": "5.2",
@@ -840,7 +840,8 @@
         "Verified exactly one live runway while running, folded summary after completion, expandable grouped details, cancellation runway after stop, no writes after abort, and no horizontal overflow at 1440px, 768px, or 390px.",
         "Fixed the stop-state visual so cancelled or failed current messages keep showing ToolStatusRunway instead of immediately becoming folded history.",
         "Verified node --import tsx --test workbench/web/test/chat-panel-tool-status.test.tsx, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck, and git diff --check all exited 0.",
-        "Task 5.1 is ready to commit; commit hash will be recorded after the verified task commit is created."
+        "Committed verified task 5.1 as 8258b2a6f54770f8960313ebb55a8fd10a6c8cf2.",
+        "Advanced current task pointer to phase-5 task 5.2 after recording the 5.1 commit hash."
       ]
     }
   ],
