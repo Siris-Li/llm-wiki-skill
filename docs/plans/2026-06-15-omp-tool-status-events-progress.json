@@ -3,8 +3,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-4",
-    "task": "4.2",
-    "next_allowed_action": "Implement phase-4 task 4.2 after recording the 4.1 commit hash"
+    "task": "4.3",
+    "next_allowed_action": "Implement phase-4 task 4.3 after recording the 4.2 commit hash"
   },
   "execution_rules": {
     "branch": "codex/feat-omp-tool-status-events",
@@ -554,7 +554,7 @@
             "Verified npm run typecheck exited 0.",
             "Verified git diff --check exited 0."
           ],
-          "commit": null
+          "commit": "aa44ea99533b4b21f7acc0d9be376e07becf2824"
         },
         {
           "id": "4.3",
@@ -766,7 +766,8 @@
         "Added ToolHistorySummary with folded grouped counts, capped folded targets, expandable capped detail rows, and remaining-count display.",
         "Added ToolHistorySummary tests and enabled .tsx test discovery in the web test script.",
         "Verified node --import tsx --test workbench/web/test/tool-history-summary.test.tsx, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run typecheck, and git diff --check all exited 0.",
-        "Task 4.2 is ready to commit; commit hash will be recorded after the verified task commit is created."
+        "Committed verified task 4.2 as aa44ea99533b4b21f7acc0d9be376e07becf2824.",
+        "Advanced current task pointer to phase-4 task 4.3 after recording the 4.2 commit hash."
       ]
     }
   ],
