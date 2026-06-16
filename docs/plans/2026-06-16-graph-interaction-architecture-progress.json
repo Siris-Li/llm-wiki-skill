@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-7",
-    "task": "7.2",
-    "next_allowed_action": "Execute phase-7 task 7.2: sync product and design records with the shipped graph interaction boundaries. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
+    "task": "7.3",
+    "next_allowed_action": "Execute phase-7 task 7.3: run final regression checks, browser/offline verification, record graph size coverage and residual risk, then mark the plan completed only after verification passes."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -775,8 +775,14 @@
         },
         {
           "check": "Design/product docs match the shipped boundaries",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "docs/spark/2026-06-16-graph-interaction-geometry-design.md now has a First Slice Status section recording the shipped boundaries: Geometry/camera, Gestures, Runtime State, Overlays, Simulation Bridge, Community Wash cap, and dual-host verification.",
+            "The design document explicitly gates spatial index, Canvas/WebGL, density policy cleanup, and minimap drag navigation as follow-up work that is not part of this delivery.",
+            "workbench/PRODUCT.md now records phase 4.7 as a product/stage result only: consistent zoom, drag, click, hover, community wash, minimap boundaries, and dual-host behavior.",
+            "workbench/PRODUCT.md does not describe implementation modules or code paths for phase 4.7; it records product behavior, non-goals, and relation to ADR-21/ADR-22.",
+            "git diff --check exited 0 for the documentation sync."
+          ]
         },
         {
           "check": "Full verification suite and browser/offline checks are recorded",
@@ -811,9 +817,19 @@
         {
           "id": "7.2",
           "title": "Sync product and design records",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-7 task 7.2.",
+            "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before continuing; graph-engine tests exited 0 with 49 suites and 198 tests passing.",
+            "Added First Slice Status to docs/spark/2026-06-16-graph-interaction-geometry-design.md, matching the execution plan's shipped boundary: Geometry/camera, Gestures, Runtime State, Overlays, Simulation Bridge, Community Wash cap, and dual-host verification.",
+            "Recorded explicit follow-up trigger gates in the design document for spatial index, Canvas/WebGL, density policy cleanup, and minimap drag navigation.",
+            "Added workbench/PRODUCT.md phase 4.7 as product-level status, describing the user-facing result without implementation details.",
+            "Added workbench/PRODUCT.md phase 4.7 progress status and changelog entry so future readers can recover context from the product document.",
+            "Verified git diff --check exited 0.",
+            "Committed verified task 7.2 as 82ffcb906d44d3f738d1fb21d4638cd4dd5d92b8.",
+            "Advanced current task pointer to phase-7 task 7.3; phase-7 remains pending because final regression and residual risk recording still need the planned task."
+          ],
+          "commit": "82ffcb906d44d3f738d1fb21d4638cd4dd5d92b8"
         },
         {
           "id": "7.3",
@@ -1057,6 +1073,19 @@
         "Verified targeted render tests, full graph-engine test/typecheck/build, and git diff --check all exited 0.",
         "Committed verified task 7.1 as c188b8763f57164cecaeb704ad6f48c401c2328c.",
         "Advanced current task pointer to phase-7 task 7.2; phase-7 remains pending because docs sync and final verification still need planned tasks."
+      ]
+    },
+    {
+      "turn": "phase-7-task-7.2",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-7 task 7.2.",
+        "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before continuing; graph-engine tests exited 0 with 49 suites and 198 tests passing.",
+        "Synced the design document with the shipped first-slice boundaries and explicit follow-up trigger gates.",
+        "Synced workbench/PRODUCT.md with product-level phase 4.7 status and changelog entry, without implementation details.",
+        "Verified git diff --check exited 0.",
+        "Committed verified task 7.2 as 82ffcb906d44d3f738d1fb21d4638cd4dd5d92b8.",
+        "Advanced current task pointer to phase-7 task 7.3; phase-7 remains pending because final regression and residual risk recording still need planned tasks."
       ]
     }
   ]
