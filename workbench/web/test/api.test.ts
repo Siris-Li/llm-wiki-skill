@@ -54,7 +54,7 @@ describe("graph API helpers", () => {
 			["GET", "GET", "POST", "PUT"],
 		);
 		assert.deepEqual(JSON.parse(String(requests[3]?.body)), {
-			version: 1,
+			version: 2,
 			pins: { "wiki/a.md": { x: 1, y: 2 } },
 		});
 	});

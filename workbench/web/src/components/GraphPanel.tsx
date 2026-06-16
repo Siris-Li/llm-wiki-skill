@@ -63,6 +63,7 @@ export function GraphPanel({
 }: Props) {
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const engineRef = useRef<GraphEngine | null>(null);
+	const engineKbPathRef = useRef<string | null>(null);
 	const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const resetNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const activeKbPathRef = useRef<string | null>(currentKnowledgeBasePath);
@@ -77,6 +78,7 @@ export function GraphPanel({
 	const devGraphTestRef = useRef("");
 	const animationTokenRef = useRef(0);
 	const [data, setData] = useState<GraphData | null>(null);
+	const [dataKnowledgeBasePath, setDataKnowledgeBasePath] = useState<string | null>(currentKnowledgeBasePath);
 	const [resetNotice, setResetNotice] = useState<ResetNotice | null>(null);
 	const [status, setStatus] = useState<GraphStatus>("idle");
 	const [error, setError] = useState<string | null>(null);
@@ -84,11 +86,16 @@ export function GraphPanel({
 	const [animationState, setAnimationState] = useState<"idle" | "playing" | "queued">("idle");
 	const [pendingAnimation, setPendingAnimation] = useState<PendingAnimation | null>(null);
 	const [animationReadyToken, setAnimationReadyToken] = useState(0);
+	const lastDragStateRef = useRef(false);
 
 	const graphTheme: ThemeId = theme === "dark" ? "mo-ye" : "shan-shui";
 
 	useLayoutEffect(() => {
 		activeKbPathRef.current = currentKnowledgeBasePath;
+		layoutPinsRef.current = {};
+		lastDragStateRef.current = false;
+		setData(null);
+		setDataKnowledgeBasePath(currentKnowledgeBasePath);
 	}, [currentKnowledgeBasePath]);
 
 	useLayoutEffect(() => {
@@ -111,11 +118,28 @@ export function GraphPanel({
 		layoutPinsRef.current = pins;
 	}, []);
 
+	const runWhenDragIdle = useCallback((operation: () => void): () => void => {
+		let cancelled = false;
+		const run = () => {
+			if (cancelled) return;
+			if (lastDragStateRef.current || engineRef.current?.isDragging()) {
+				window.setTimeout(run, 40);
+				return;
+			}
+			operation();
+		};
+		run();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	const loadGraph = useCallback(async () => {
 		const requestId = ++loadRequestRef.current;
 		const kbPath = currentKnowledgeBasePath;
 		if (!kbPath) {
 			setData(null);
+			setDataKnowledgeBasePath(null);
 			onGraphDataChangeRef.current?.(null);
 			applyLayoutPins({});
 			onSelectionChangeRef.current?.(null);
@@ -128,9 +152,11 @@ export function GraphPanel({
 		try {
 			const [result, layout] = await Promise.all([getGraphData(kbPath), getGraphLayout(kbPath)]);
 			if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return false;
-			applyLayoutPins(layout.layout.pins);
+			const nextPins = { ...layout.layout.pins, ...layoutPinsRef.current };
+			applyLayoutPins(nextPins);
 			if (result.needsBuild) {
 				setData(null);
+				setDataKnowledgeBasePath(kbPath);
 				onGraphDataChangeRef.current?.(null);
 				onSelectionChangeRef.current?.(null);
 				setStatus("building");
@@ -140,6 +166,8 @@ export function GraphPanel({
 				return true;
 			}
 			setData(result.data);
+			setDataKnowledgeBasePath(kbPath);
+			if (engineKbPathRef.current === kbPath) engineRef.current?.setData(result.data, nextPins);
 			onGraphDataChangeRef.current?.(result.data);
 			onSelectionChangeRef.current?.(null);
 			setStatus("ready");
@@ -148,6 +176,7 @@ export function GraphPanel({
 		} catch (err) {
 			if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return false;
 			setData(null);
+			setDataKnowledgeBasePath(kbPath);
 			onGraphDataChangeRef.current?.(null);
 			applyLayoutPins({});
 			onSelectionChangeRef.current?.(null);
@@ -165,6 +194,9 @@ export function GraphPanel({
 		return () => {
 			if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current);
 			if (resetNoticeTimerRef.current) window.clearTimeout(resetNoticeTimerRef.current);
+			engineRef.current?.destroy();
+			engineRef.current = null;
+			engineKbPathRef.current = null;
 		};
 	}, []);
 
@@ -266,13 +298,18 @@ export function GraphPanel({
 	}, [playDiff, status]);
 
 	useEffect(() => {
-		if (!hostRef.current || !data) {
+		if (!hostRef.current || !data || dataKnowledgeBasePath !== currentKnowledgeBasePath) {
 			engineRef.current?.destroy();
 			engineRef.current = null;
+			engineKbPathRef.current = null;
+			return;
+		}
+		if (engineRef.current && engineKbPathRef.current === currentKnowledgeBasePath) {
+			engineRef.current.setData(data, layoutPinsRef.current);
 			return;
 		}
 		engineRef.current?.destroy();
-		engineRef.current = createGraphEngine(hostRef.current, {
+		const engine = createGraphEngine(hostRef.current, {
 			data,
 			pins: layoutPinsRef.current,
 			theme: graphThemeRef.current,
@@ -283,6 +320,7 @@ export function GraphPanel({
 				onAsk: (nextSelection) => onSelectionChangeRef.current?.(nextSelection),
 				persistPins,
 				onDragStateChange: (dragging) => {
+					lastDragStateRef.current = dragging;
 					const decision = diffQueueRef.current.setDragging(dragging);
 					if (!dragging && decision.action === "consume" && decision.diff) {
 						void playDiff(decision.diff);
@@ -290,11 +328,9 @@ export function GraphPanel({
 				},
 			},
 		});
-		return () => {
-			engineRef.current?.destroy();
-			engineRef.current = null;
-		};
-	}, [data, persistPins, playDiff]);
+		engineRef.current = engine;
+		engineKbPathRef.current = currentKnowledgeBasePath;
+	}, [currentKnowledgeBasePath, data, dataKnowledgeBasePath, persistPins, playDiff]);
 
 	useEffect(() => {
 		engineRef.current?.setTheme(graphTheme);
@@ -347,19 +383,23 @@ export function GraphPanel({
 			token,
 			diff: pendingDiff,
 		});
-		void loadGraph().then((loaded) => {
-			if (!loaded) return;
-			setAnimationReadyToken(token);
-			onDiffConsumed?.();
+		return runWhenDragIdle(() => {
+			void loadGraph().then((loaded) => {
+				if (!loaded) return;
+				setAnimationReadyToken(token);
+				onDiffConsumed?.();
+			});
 		});
-	}, [loadGraph, onDiffConsumed, pendingDiff, refreshToken]);
+	}, [loadGraph, onDiffConsumed, pendingDiff, refreshToken, runWhenDragIdle]);
 
 	useEffect(() => {
 		if (pendingDiff) return;
 		if (lastRefreshTokenRef.current === refreshToken) return;
 		lastRefreshTokenRef.current = refreshToken;
-		void loadGraph();
-	}, [loadGraph, pendingDiff, refreshToken]);
+		return runWhenDragIdle(() => {
+			void loadGraph();
+		});
+	}, [loadGraph, pendingDiff, refreshToken, runWhenDragIdle]);
 
 	useEffect(() => {
 		if (!focusPath || !engineRef.current || status !== "ready") return;

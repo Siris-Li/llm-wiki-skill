@@ -45,6 +45,27 @@ describe("GraphDiffQueue", () => {
     assert.deepEqual(released.diff?.addedNodes, ["n1"]);
   });
 
+  it("does not replay a refresh diff until both drag and animation are idle", () => {
+    const queue = new GraphDiffQueue({ visible: true });
+
+    const first = queue.push(diff({ addedNodes: ["already-playing"] }));
+    assert.equal(first.action, "consume");
+    assert.equal(first.snapshot.isAnimating, true);
+
+    queue.setDragging(true);
+    const queued = queue.push(diff({ addedNodes: ["fresh"] }));
+    assert.equal(queued.action, "queue");
+    assert.equal(queued.reason, "dragging");
+
+    const released = queue.setDragging(false);
+    assert.equal(released.action, "queue");
+    assert.equal(released.snapshot.pending?.addedNodes.includes("fresh"), true);
+
+    const finished = queue.finishAnimation();
+    assert.equal(finished.action, "consume");
+    assert.deepEqual(finished.diff?.addedNodes, ["fresh"]);
+  });
+
   it("folds multiple pending diffs into one net replay", () => {
     const queue = new GraphDiffQueue({ visible: false });
 

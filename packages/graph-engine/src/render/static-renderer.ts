@@ -96,6 +96,7 @@ export interface StaticGraphRenderer {
   render(next?: Partial<StaticRendererOptions> & { selectedNodeId?: string | null; selection?: SelectionInput | null }): void;
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
+  setData(data: GraphData, pins?: PinMap): void;
   setTheme(theme: ThemeId): void;
   setPins(pins: PinMap): void;
   focusNode(pathOrId: WikiPath): void;
@@ -319,6 +320,10 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     isDragging(): boolean {
       return runtimeState.snapshot().activeGesture?.kind === "node-drag";
     },
+    setData(nextData: GraphData, nextPins?: PinMap): void {
+      clearTransientInteractionForDataRefresh();
+      render({ data: nextData, pins: nextPins ?? runtimeState.snapshot().pins });
+    },
     setTheme(nextTheme: ThemeId): void {
       render({ theme: nextTheme });
     },
@@ -406,6 +411,23 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     delete root.dataset.focus;
     options.onSelectionClear?.();
     render();
+  }
+
+  function clearTransientInteractionForDataRefresh(): void {
+    searchFocusedNodeId = null;
+    if (previewTimer) {
+      clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    for (const node of dom.nodeElements.values()) node.classList.remove("is-dragging");
+    delete root.dataset.dragging;
+    delete root.dataset.viewportDragging;
+    delete root.dataset.focus;
+    simulation?.endDrag();
+    gestureMachine.escape();
+    runtimeState.clearInteraction();
+    options.onDragStateChange?.(false);
+    options.onSelectionClear?.();
   }
 
   function hasInteractionState(): boolean {

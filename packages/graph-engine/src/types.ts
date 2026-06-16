@@ -302,6 +302,7 @@ export interface GraphEngineOptions {
 export interface GraphEngine {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
+  setData(data: GraphData, pins?: PinMap): void;
   focusNode(path: WikiPath): void;
   focusCommunity(id: CommunityId): Selection;
   setTypeFilters(filters: GraphTypeFilters): void;

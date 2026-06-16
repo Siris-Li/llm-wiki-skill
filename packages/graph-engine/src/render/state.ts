@@ -191,7 +191,8 @@ function clonePins(pins: PinMap): PinMap {
     key,
     {
       x: finiteNumber(position.x, 0),
-      y: finiteNumber(position.y, 0)
+      y: finiteNumber(position.y, 0),
+      ...(position.coordinateSpace ? { coordinateSpace: position.coordinateSpace } : {})
     }
   ]));
 }

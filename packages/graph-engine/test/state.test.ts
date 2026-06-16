@@ -107,7 +107,7 @@ describe("GraphRuntimeState", () => {
   it("returns cloned snapshots so callers cannot mutate hidden state", () => {
     const state = createGraphRuntimeState({
       positions: { a: { x: 100, y: 200 } },
-      pins: { "wiki/a.md": { x: 100, y: 200 } },
+      pins: { "wiki/a.md": { x: 100, y: 200, coordinateSpace: "world" } },
       selection: { kind: "nodes", ids: ["a"] },
       activeGesture: {
         kind: "node-drag",
@@ -128,7 +128,7 @@ describe("GraphRuntimeState", () => {
     if (snapshot.activeGesture?.kind === "node-drag") snapshot.activeGesture.startWorldPoint.x = 999;
 
     assert.deepEqual(state.snapshot().positions, { a: { x: 100, y: 200 } });
-    assert.deepEqual(state.snapshot().pins, { "wiki/a.md": { x: 100, y: 200 } });
+    assert.deepEqual(state.snapshot().pins, { "wiki/a.md": { x: 100, y: 200, coordinateSpace: "world" } });
     assert.deepEqual(state.snapshot().selection, { kind: "nodes", ids: ["a"] });
     assert.equal(state.snapshot().selectionSurface, "selection-panel");
     assert.deepEqual(state.snapshot().activeGesture, {
@@ -165,6 +165,25 @@ describe("GraphRuntimeState", () => {
       selectionSurface: null,
       focus: null,
       activeGesture: null
+    });
+  });
+
+  it("preserves pin coordinate space markers across runtime snapshots", () => {
+    const state = createGraphRuntimeState({
+      pins: {
+        "wiki/world.md": { x: 8, y: -12, coordinateSpace: "world" },
+        "wiki/legacy.md": { x: 80, y: 50, coordinateSpace: "legacy-percent" }
+      }
+    });
+
+    state.setPins({
+      "wiki/world.md": { x: 9, y: -13, coordinateSpace: "world" },
+      "wiki/old.md": { x: 75, y: 40 }
+    });
+
+    assert.deepEqual(state.snapshot().pins, {
+      "wiki/world.md": { x: 9, y: -13, coordinateSpace: "world" },
+      "wiki/old.md": { x: 75, y: 40 }
     });
   });
 });

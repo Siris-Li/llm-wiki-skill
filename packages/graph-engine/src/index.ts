@@ -26,11 +26,12 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
   }
 
   let currentTheme: ThemeId = options.theme;
+  let currentData = options.data;
   let destroyed = false;
   const canAsk = Boolean(options.capabilities?.onAsk);
   const canSelect = Boolean(options.capabilities?.onSelectionChange || options.capabilities?.onAsk);
   const resolveForHostCapabilities = (input: SelectionInput): Selection =>
-    resolveSelectionForCapabilities(options.data, input, { canAsk });
+    resolveSelectionForCapabilities(currentData, input, { canAsk });
   const renderer = createStaticGraphRenderer(container, {
     data: options.data,
     pins: options.pins || {},
@@ -63,6 +64,12 @@ export function createGraphEngine(container: HTMLElement, options: GraphEngineOp
     isDragging(): boolean {
       assertActive();
       return renderer.isDragging();
+    },
+
+    setData(data, pins): void {
+      assertActive();
+      currentData = data;
+      renderer.setData(data, pins);
     },
 
     focusNode(path: string): void {
