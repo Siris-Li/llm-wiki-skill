@@ -44,7 +44,7 @@ import {
 import { createGraphRuntimeState, type GraphRuntimeStateSnapshot } from "./state";
 import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 import { buildHoverPreview, type GraphHoverPreview } from "./preview";
-import { rootClientPointToScreenPoint, worldDeltaToLayerDelta, type GraphWorldPoint } from "./geometry";
+import { GRAPH_WORLD_SIZE, rootClientPointToScreenPoint, worldDeltaToLayerDelta, type GraphWorldPoint } from "./geometry";
 import { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
 import { cancelGraphNodeDrag, commitGraphNodeDrag, type GraphNodeDragSession } from "./node-drag-lifecycle";
 import { graphEdgeHoverAnchor, graphNodeHoverAnchor, resolveGraphHoverPreviewPosition } from "./overlays";
@@ -105,8 +105,6 @@ export interface StaticGraphRenderer {
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const WORLD_WIDTH = 1000;
-const WORLD_HEIGHT = 680;
 
 interface PaintedGraphDom {
   contentLayer: HTMLElement | null;
@@ -1076,8 +1074,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function viewportSize(): { width: number; height: number } {
     const rect = root.getBoundingClientRect();
     return {
-      width: Math.max(1, rect.width || WORLD_WIDTH),
-      height: Math.max(1, rect.height || WORLD_HEIGHT)
+      width: Math.max(1, rect.width || GRAPH_WORLD_SIZE.width),
+      height: Math.max(1, rect.height || GRAPH_WORLD_SIZE.height)
     };
   }
 
@@ -1172,8 +1170,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const neighbor = neighborId ? graph.nodes.find((item) => item.id === neighborId) : null;
     if (neighbor) return neighbor.point;
     return {
-      x: node.point.x < WORLD_WIDTH / 2 ? -80 : WORLD_WIDTH + 80,
-      y: clamp(node.point.y, 80, WORLD_HEIGHT - 80)
+      x: node.point.x < GRAPH_WORLD_SIZE.width / 2 ? -80 : GRAPH_WORLD_SIZE.width + 80,
+      y: clamp(node.point.y, 80, GRAPH_WORLD_SIZE.height - 80)
     };
   }
 

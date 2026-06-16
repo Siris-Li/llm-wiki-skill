@@ -10,6 +10,7 @@ import {
 import { wikiPathForGraphNode } from "../graph-node";
 import { getCommunityColor } from "../themes";
 import { computeCommunityWash } from "./community-wash";
+import { GRAPH_WORLD_SIZE } from "./geometry";
 
 export type DensityMode = "card" | "compact-card" | "point-plus-focus" | "overview";
 export type NodeDisplayMode = "card" | "compact-card" | "point" | "overview";
@@ -144,8 +145,6 @@ export interface RenderPathCache {
   clear(): void;
 }
 
-const WORLD_WIDTH = 1000;
-const WORLD_HEIGHT = 680;
 const MINIMAP_PATH = "M8 40 C34 20 54 36 76 22 C98 8 118 24 150 12";
 
 export function createRenderPathCache(): RenderPathCache {
@@ -447,33 +446,33 @@ function renderPointForNode(node: AtlasNode, positions?: RenderPositionMap): Ren
   const position = positions?.[node.id];
   if (position) {
     return {
-      x: clamp(position.x, 0, WORLD_WIDTH),
-      y: clamp(position.y, 0, WORLD_HEIGHT)
+      x: clamp(position.x, 0, GRAPH_WORLD_SIZE.width),
+      y: clamp(position.y, 0, GRAPH_WORLD_SIZE.height)
     };
   }
   return atlasNodePoint(node) as RenderPosition;
 }
 
 function pointToPercentX(value: number): number {
-  return round(clamp(value, 0, WORLD_WIDTH) / WORLD_WIDTH * 100);
+  return round(clamp(value, 0, GRAPH_WORLD_SIZE.width) / GRAPH_WORLD_SIZE.width * 100);
 }
 
 function pointToPercentY(value: number): number {
-  return round(clamp(value, 0, WORLD_HEIGHT) / WORLD_HEIGHT * 100);
+  return round(clamp(value, 0, GRAPH_WORLD_SIZE.height) / GRAPH_WORLD_SIZE.height * 100);
 }
 
 function edgeCurveOffset(sourcePoint: RenderPosition, targetPoint: RenderPosition, edge: { weight?: number }): number {
-  const sourceYPercent = sourcePoint.y / WORLD_HEIGHT * 100;
-  const targetYPercent = targetPoint.y / WORLD_HEIGHT * 100;
+  const sourceYPercent = sourcePoint.y / GRAPH_WORLD_SIZE.height * 100;
+  const targetYPercent = targetPoint.y / GRAPH_WORLD_SIZE.height * 100;
   return Math.max(-76, Math.min(76, (sourceYPercent - targetYPercent) * 1.8 + (clampWeight(edge.weight) - 0.5) * 24));
 }
 
 function normalizePinnedX(value: number): number {
-  return value > 100 ? clamp(value / WORLD_WIDTH * 100, 0, 100) : clamp(value, 0, 100);
+  return value > 100 ? clamp(value / GRAPH_WORLD_SIZE.width * 100, 0, 100) : clamp(value, 0, 100);
 }
 
 function normalizePinnedY(value: number): number {
-  return value > 100 ? clamp(value / WORLD_HEIGHT * 100, 0, 100) : clamp(value, 0, 100);
+  return value > 100 ? clamp(value / GRAPH_WORLD_SIZE.height * 100, 0, 100) : clamp(value, 0, 100);
 }
 
 function resolveSelectedNodeIds(

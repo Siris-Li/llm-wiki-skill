@@ -1,3 +1,5 @@
+import { GRAPH_WORLD_SIZE } from "./geometry";
+
 export interface CommunityWashPoint {
   x: number;
   y: number;
@@ -36,14 +38,12 @@ interface CommunityWashCore {
   outliers: CommunityWashPoint[];
 }
 
-const WORLD_WIDTH = 1000;
-const WORLD_HEIGHT = 680;
 const DEFAULT_MIN_RADIUS_X = 54;
 const DEFAULT_MIN_RADIUS_Y = 36;
 const DEFAULT_PADDING_X = 46;
 const DEFAULT_PADDING_Y = 34;
-export const DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X = WORLD_WIDTH * 0.19;
-export const DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y = round(WORLD_HEIGHT * 0.21);
+export const DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X = GRAPH_WORLD_SIZE.width * 0.19;
+export const DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y = round(GRAPH_WORLD_SIZE.height * 0.21);
 
 export function computeCommunityWash(nodes: CommunityWashNodeLike[], options: CommunityWashOptions = {}): CommunityWash | null {
   if (!nodes.length) return null;
