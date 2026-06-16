@@ -43,7 +43,6 @@ import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 import { buildHoverPreview } from "./preview";
 import {
   defaultGraphViewportSize,
-  rootClientPointToScreenPoint,
   sideExitWorldAnchor,
   worldPointDeltaToLayerDelta,
   type GraphWorldPoint
@@ -732,11 +731,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     return new GraphGestureController(root, {
       stateMachine: gestureMachine,
       targetFromEventTarget: graphGestureTarget,
-      pointerEventFromPointerEvent: graphPointerEvent,
-      onWheelZoom: (event) => {
+      onWheelZoom: (event, _decision, screenPoint) => {
         event.preventDefault();
         setViewportAnimating(false);
-        const screenPoint = graphScreenPointFromPointerEvent(event);
         viewportCommitter.schedule(viewportAfterWheelZoom(
           runtimeState.snapshot().viewport,
           { deltaY: event.deltaY, deltaMode: event.deltaMode },
@@ -766,13 +763,13 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
           if (intent.nodeId) handleNodeClick(intent.nodeId, intent.additive);
           break;
         case "node-drag-start":
-          if (intent.nodeId && event) handleNodeDragStart(intent.nodeId, event);
+          if (intent.nodeId) handleNodeDragStart(intent.nodeId, intent.screenPoint);
           break;
         case "node-drag-move":
-          if (intent.nodeId && event) handleNodeDragMove(intent.nodeId, event);
+          if (intent.nodeId) handleNodeDragMove(intent.nodeId, intent.pointerId, intent.screenPoint);
           break;
         case "node-drag-end":
-          if (intent.nodeId && event) handleNodeDragEnd(intent.nodeId, event);
+          if (intent.nodeId) handleNodeDragEnd(intent.nodeId, intent.pointerId, intent.screenPoint);
           break;
         case "node-drag-cancel":
           if (intent.nodeId) handleNodeDragCancel(intent.nodeId, intent.pointerId);
@@ -819,40 +816,33 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     dom.nodeElements.get(id)?.focus({ preventScroll: true });
   }
 
-  function handleNodeDragStart(id: NodeId, event: PointerEvent): void {
+  function handleNodeDragStart(id: NodeId, screenPoint: { x: number; y: number }): void {
     if (!simulation) {
       runtimeState.setActiveGesture(null);
       return;
     }
-    const grabOffset = nodeDragGrabOffset(id, event.pointerId);
+    const active = runtimeState.snapshot().activeGesture;
+    if (active?.kind !== "node-drag" || active.nodeId !== id) return;
+    const grabOffset = active.grabOffset;
     dom.nodeElements.get(id)?.classList.add("is-dragging");
-    runtimeState.setActiveGesture({
-      kind: "node-drag",
-      pointerId: event.pointerId,
-      nodeId: id,
-      grabOffset,
-      startWorldPoint: nodeDragSession(id, event.pointerId).startWorldPoint,
-      wasPinned: nodeDragSession(id, event.pointerId).wasPinned,
-      locked: true
-    });
     simulation.beginDrag(id);
-    simulation.dragTo(id, nodeDragTargetFromPointer(event, grabOffset));
+    simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, grabOffset));
     root.dataset.dragging = id;
     options.onDragActiveChange?.(true);
   }
 
-  function handleNodeDragMove(id: NodeId, event: PointerEvent): void {
-    if (!simulation || !isRuntimeNodeDrag(id, event.pointerId, true)) return;
-    simulation.dragTo(id, nodeDragTargetFromPointer(event, nodeDragGrabOffset(id, event.pointerId)));
+  function handleNodeDragMove(id: NodeId, pointerId: number, screenPoint: { x: number; y: number }): void {
+    if (!simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
+    simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId)));
   }
 
-  function handleNodeDragEnd(id: NodeId, event: PointerEvent): void {
-    if (!simulation || !isRuntimeNodeDrag(id, event.pointerId, true)) return;
+  function handleNodeDragEnd(id: NodeId, pointerId: number, screenPoint: { x: number; y: number }): void {
+    if (!simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
     const result = commitGraphNodeDrag({
       nodeId: id,
       simulation,
       pinState,
-      finalWorldPoint: nodeDragTargetFromPointer(event, nodeDragGrabOffset(id, event.pointerId))
+      finalWorldPoint: nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId))
     });
     runtimeState.setPins(result.pins);
     applyMotionFrame(result.positions);
@@ -923,21 +913,6 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       lastScreenPoint: active.lastScreenPoint,
       locked: active.locked
     };
-  }
-
-  function graphPointerEvent(event: PointerEvent) {
-    return {
-      pointerId: event.pointerId,
-      screenPoint: graphScreenPointFromPointerEvent(event),
-      shiftKey: event.shiftKey
-    };
-  }
-
-  function graphScreenPointFromPointerEvent(event: MouseEvent): { x: number; y: number } {
-    return rootClientPointToScreenPoint(
-      { x: event.clientX, y: event.clientY },
-      root.getBoundingClientRect()
-    );
   }
 
   function graphGestureTarget(target: EventTarget | null): GraphGestureTargetLike | null {
@@ -1027,9 +1002,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     return locked === undefined ? true : active.locked === locked;
   }
 
-  function nodeDragTargetFromPointer(event: PointerEvent, grabOffset: GraphWorldPoint): GraphWorldPoint {
+  function nodeDragTargetFromScreenPoint(screenPoint: { x: number; y: number }, grabOffset: GraphWorldPoint): GraphWorldPoint {
     return resolveGraphNodeDragTarget({
-      pointerScreenPoint: graphScreenPointFromPointerEvent(event),
+      pointerScreenPoint: screenPoint,
       viewport: runtimeState.snapshot().viewport,
       viewportSize: viewportSize(),
       worldBounds: graph.worldBounds,

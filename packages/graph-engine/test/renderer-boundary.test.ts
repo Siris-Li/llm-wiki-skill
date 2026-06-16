@@ -121,6 +121,15 @@ describe("renderer and facade boundary contract", () => {
     assert.deepEqual(violations, []);
   });
 
+  it("keeps browser pointer coordinate normalization inside GraphGestures", async () => {
+    const rendererText = await readFile(join(SRC, "render/static-renderer.ts"), "utf8");
+    const gestureText = await readFile(join(SRC, "render/gestures.ts"), "utf8");
+
+    assert.equal(/\brootClientPointToScreenPoint\b/.test(rendererText), false);
+    assert.equal(/\bclient[XY]\b/.test(rendererText), false);
+    assert.equal(/\brootClientPointToScreenPoint\b/.test(gestureText), true);
+  });
+
   it("proves drawing modules do not attach global graph gesture listeners at runtime", () => {
     const ownerDocument = new FakeDocument();
 

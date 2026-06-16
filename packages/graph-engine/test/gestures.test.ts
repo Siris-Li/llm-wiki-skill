@@ -320,7 +320,6 @@ describe("graph gesture controller", () => {
     const activeSnapshots: unknown[] = [];
     const controller = new GraphGestureController(root as unknown as HTMLElement, {
       targetFromEventTarget: (target) => target as GraphGestureTargetLike | null,
-      pointerEventFromPointerEvent: (event) => pointer(event.pointerId, event.clientX, event.clientY, { shiftKey: event.shiftKey }),
       onWheelZoom: (event, decision) => {
         event.preventDefault();
         zoomed.push({ target: decision.target.kind, deltaY: event.deltaY });
@@ -366,7 +365,6 @@ describe("graph gesture controller", () => {
     const zoomed: Array<{ target: string; ctrlKey: boolean; metaKey: boolean }> = [];
     const controller = new GraphGestureController(root as unknown as HTMLElement, {
       targetFromEventTarget: (target) => target as GraphGestureTargetLike | null,
-      pointerEventFromPointerEvent: (event) => pointer(event.pointerId, event.clientX, event.clientY, { shiftKey: event.shiftKey }),
       onWheelZoom: (event, decision) => {
         event.preventDefault();
         zoomed.push({ target: decision.target.kind, ctrlKey: event.ctrlKey, metaKey: event.metaKey });
@@ -399,7 +397,6 @@ describe("graph gesture controller", () => {
     const intents: GraphGestureIntent[] = [];
     const controller = new GraphGestureController(root as unknown as HTMLElement, {
       targetFromEventTarget: (target) => target as GraphGestureTargetLike | null,
-      pointerEventFromPointerEvent: (event) => pointer(event.pointerId, event.clientX, event.clientY, { shiftKey: event.shiftKey }),
       onWheelZoom: () => {},
       onGestureIntents: (nextIntents) => {
         intents.push(...nextIntents);
@@ -433,7 +430,6 @@ describe("graph gesture controller", () => {
     const intents: GraphGestureIntent[] = [];
     const controller = new GraphGestureController(root as unknown as HTMLElement, {
       targetFromEventTarget: (target) => target as GraphGestureTargetLike | null,
-      pointerEventFromPointerEvent: (event) => pointer(event.pointerId, event.clientX, event.clientY, { shiftKey: event.shiftKey }),
       onWheelZoom: () => {},
       onGestureIntents: (nextIntents) => {
         intents.push(...nextIntents);
@@ -535,6 +531,10 @@ class FakeGestureRoot {
 
   releasePointerCapture(pointerId: number): void {
     this.pointerCaptures.delete(pointerId);
+  }
+
+  getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
+    return { left: 0, top: 0, width: 800, height: 600 };
   }
 }
 

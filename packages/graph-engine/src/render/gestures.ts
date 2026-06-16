@@ -1,5 +1,6 @@
 import type { CommunityId, NodeId } from "../types";
 import type { GraphSpatialHitTarget } from "../layout";
+import { rootClientPointToScreenPoint } from "./geometry";
 
 export type GraphGestureTargetKind =
   | "graph-blank"
@@ -90,8 +91,7 @@ export interface GraphGestureStateMachineOptions {
 export interface GraphGestureControllerOptions {
   stateMachine?: GraphGestureStateMachine;
   targetFromEventTarget?: (target: EventTarget | null) => GraphGestureTargetLike | null;
-  pointerEventFromPointerEvent: (event: PointerEvent) => GraphPointerEventLike;
-  onWheelZoom: (event: WheelEvent, decision: Extract<GraphWheelTargetDecision, { intent: "zoom" }>) => void;
+  onWheelZoom: (event: WheelEvent, decision: Extract<GraphWheelTargetDecision, { intent: "zoom" }>, screenPoint: { x: number; y: number }) => void;
   onPointerDown?: (event: PointerEvent, decision: Exclude<GraphPointerDownTargetDecision, { intent: "blocked" }>) => void;
   onGestureIntents: (intents: GraphGestureIntent[], event: PointerEvent | null) => void;
   onActiveStateChange?: (active: GraphGestureActiveState) => void;
@@ -451,7 +451,7 @@ export class GraphGestureController {
   private readonly handleWheel = (event: WheelEvent): void => {
     const decision = classifyGraphWheelTarget(this.eventTarget(event.target), event);
     if (decision.intent !== "zoom") return;
-    this.options.onWheelZoom(event, decision);
+    this.options.onWheelZoom(event, decision, this.screenPointFromMouseEvent(event));
   };
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
@@ -460,19 +460,19 @@ export class GraphGestureController {
     if (decision.intent === "blocked") return;
     event.preventDefault();
     this.options.onPointerDown?.(event, decision);
-    this.stateMachine.pointerDown(decision, this.options.pointerEventFromPointerEvent(event));
+    this.stateMachine.pointerDown(decision, this.pointerEventFromPointerEvent(event));
     this.emitActiveState();
     this.root.setPointerCapture(event.pointerId);
   };
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
     if (this.stateMachine.snapshot()) event.preventDefault();
-    this.applyIntents(this.stateMachine.pointerMove(this.options.pointerEventFromPointerEvent(event)), event);
+    this.applyIntents(this.stateMachine.pointerMove(this.pointerEventFromPointerEvent(event)), event);
   };
 
   private readonly handlePointerUp = (event: PointerEvent): void => {
     if (this.stateMachine.snapshot()) event.preventDefault();
-    this.applyIntents(this.stateMachine.pointerUp(this.options.pointerEventFromPointerEvent(event)), event);
+    this.applyIntents(this.stateMachine.pointerUp(this.pointerEventFromPointerEvent(event)), event);
     if (this.root.hasPointerCapture(event.pointerId)) this.root.releasePointerCapture(event.pointerId);
   };
 
@@ -505,6 +505,21 @@ export class GraphGestureController {
 
   private eventTarget(target: EventTarget | null): GraphGestureTargetLike | null {
     return this.options.targetFromEventTarget ? this.options.targetFromEventTarget(target) : target as GraphGestureTargetLike | null;
+  }
+
+  private pointerEventFromPointerEvent(event: PointerEvent): GraphPointerEventLike {
+    return {
+      pointerId: event.pointerId,
+      screenPoint: this.screenPointFromMouseEvent(event),
+      shiftKey: event.shiftKey
+    };
+  }
+
+  private screenPointFromMouseEvent(event: MouseEvent): { x: number; y: number } {
+    return rootClientPointToScreenPoint(
+      { x: event.clientX, y: event.clientY },
+      this.root.getBoundingClientRect()
+    );
   }
 }
 
