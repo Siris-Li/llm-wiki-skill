@@ -828,9 +828,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     simulation.dragTo(id, nodeDragTargetFromPointer(event, nodeDragGrabOffset(id, event.pointerId)));
   }
 
-  function handleNodeDragEnd(id: NodeId, _event: PointerEvent): void {
+  function handleNodeDragEnd(id: NodeId, event: PointerEvent): void {
     if (!simulation || root.dataset.dragging !== id) return;
-    const result = commitGraphNodeDrag({ nodeId: id, simulation, pinState });
+    const result = commitGraphNodeDrag({
+      nodeId: id,
+      simulation,
+      pinState,
+      finalWorldPoint: nodeDragTargetFromPointer(event, nodeDragGrabOffset(id, event.pointerId))
+    });
     pins = result.pins;
     runtimeState.setPins(pins);
     applyMotionFrame(result.positions);

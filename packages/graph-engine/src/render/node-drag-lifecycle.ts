@@ -13,6 +13,7 @@ export interface CommitGraphNodeDragInput {
   nodeId: NodeId;
   simulation: LiveGraphSimulation;
   pinState: PinState;
+  finalWorldPoint?: PinPosition | null;
 }
 
 export interface CancelGraphNodeDragInput {
@@ -41,6 +42,7 @@ export interface CancelledGraphNodeDrag {
 }
 
 export function commitGraphNodeDrag(input: CommitGraphNodeDragInput): CommittedGraphNodeDrag {
+  if (input.finalWorldPoint) input.simulation.dragTo(input.nodeId, normalizePosition(input.finalWorldPoint));
   const snapshot = input.simulation.endDrag({ keepFixed: true });
   const pinPosition = requirePosition(snapshot.positions, input.nodeId);
   const pinSnapshot = input.pinState.pin(input.nodeId, pinPosition);

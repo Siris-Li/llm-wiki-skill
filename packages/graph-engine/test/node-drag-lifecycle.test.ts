@@ -27,6 +27,30 @@ describe("graph node drag lifecycle", () => {
     simulation.destroy();
   });
 
+  it("commits a fast release by applying the final pointer target before pinning", () => {
+    const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
+    const simulation = createLiveGraphSimulation(graph);
+    const pinState = new PinState(graph);
+
+    simulation.beginDrag("drag");
+    simulation.dragTo("drag", { x: 460, y: 300 });
+
+    const result = commitGraphNodeDrag({
+      nodeId: "drag",
+      simulation,
+      pinState,
+      finalWorldPoint: { x: 620, y: 410 }
+    });
+
+    assert.deepEqual(result.pinPosition, { x: 620, y: 410 });
+    assert.deepEqual(result.pins, {
+      "wiki/drag.md": { x: 620, y: 410 }
+    });
+    assert.equal(simulation.nodes.find((node) => node.id === "drag")?.fx, 620);
+    assert.equal(simulation.nodes.find((node) => node.id === "drag")?.fy, 410);
+    simulation.destroy();
+  });
+
   it("cancels an unpinned drag by restoring the start position without writing a pin", () => {
     const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
     const simulation = createLiveGraphSimulation(graph);

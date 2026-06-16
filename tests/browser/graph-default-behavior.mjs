@@ -34,6 +34,7 @@ try {
   const blankShortcutWheel = await assertShortcutWheelZoomsGraph(page, await findBlankPoint(page), "blank graph", { metaKey: true });
   const searchWheel = await assertShortcutWheelDoesNotZoomGraph(page, ".graph-search-input", "search input", { ctrlKey: true });
   const blankDrag = await assertBlankDragDoesNotSelectText(page);
+  const fastReleaseDrag = await assertFastReleasePinsFinalPointerPosition(page);
 
   console.log(JSON.stringify({
     html,
@@ -43,7 +44,8 @@ try {
       blank: blankShortcutWheel,
       searchInput: searchWheel
     },
-    blankDrag
+    blankDrag,
+    fastReleaseDrag
   }, null, 2));
 } finally {
   await browser.close();
@@ -119,6 +121,65 @@ async function assertBlankDragDoesNotSelectText(page) {
   assert.equal(state.viewportDragging, "", "blank graph drag should not leave viewport dragging active");
   assert.equal(state.dragging, "", "blank graph drag should not leave node dragging active");
   return { start: roundedPoint(point), state };
+}
+
+async function assertFastReleasePinsFinalPointerPosition(page) {
+  await page.reload();
+  await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+  await page.waitForSelector("[data-viewport-layer='true']");
+  await page.waitForSelector(".node");
+
+  const before = await page.locator(".node").first().evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      id: node.dataset.id || "",
+      center: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+      pinned: node.dataset.pinned || ""
+    };
+  });
+  assert.notEqual(before.id, "", "fast-release drag should have a node target");
+
+  const intermediate = { x: before.center.x + 18, y: before.center.y + 4 };
+  const release = { x: before.center.x + 280, y: before.center.y + 12 };
+  await dispatchPointer(page, `.node[data-id="${cssString(before.id)}"]`, "pointerdown", before.center, {
+    pointerId: 77,
+    button: 0,
+    buttons: 1
+  });
+  await dispatchPointer(page, "[data-llm-wiki-graph-root='true']", "pointermove", intermediate, {
+    pointerId: 77,
+    button: 0,
+    buttons: 1
+  });
+  await dispatchPointer(page, "[data-llm-wiki-graph-root='true']", "pointerup", release, {
+    pointerId: 77,
+    button: 0,
+    buttons: 0
+  });
+
+  await page.waitForSelector(`.node[data-id="${cssString(before.id)}"][data-pinned="true"]`);
+  await page.waitForTimeout(120);
+
+  const after = await page.locator(`.node[data-id="${cssString(before.id)}"]`).evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      center: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+      pinned: node.dataset.pinned || ""
+    };
+  });
+  assert.ok(
+    after.center.x > before.center.x + 190,
+    `fast-release drag should commit close to the release point, not the last move point: ${JSON.stringify({ before, intermediate, release, after })}`
+  );
+  assert.equal(after.pinned, "true", "fast-release drag should still pin the node");
+  return {
+    id: before.id,
+    before: roundedPoint(before.center),
+    intermediate: roundedPoint(intermediate),
+    release: roundedPoint(release),
+    after: roundedPoint(after.center),
+    pinned: after.pinned
+  };
 }
 
 async function layerTransform(page) {
@@ -235,6 +296,29 @@ async function dispatchWheelOnSelector(page, selector, options) {
   }, { selector, options });
 }
 
+async function dispatchPointer(page, selector, type, point, options) {
+  return page.evaluate(({ selector, type, point, options }) => {
+    const target = document.querySelector(selector);
+    if (!target) throw new Error(`Missing selector ${selector}`);
+    const event = new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: options.pointerId,
+      pointerType: "mouse",
+      clientX: point.x,
+      clientY: point.y,
+      button: options.button,
+      buttons: options.buttons,
+      isPrimary: true
+    });
+    const dispatchResult = target.dispatchEvent(event);
+    return {
+      cancelled: !dispatchResult,
+      defaultPrevented: event.defaultPrevented
+    };
+  }, { selector, type, point, options });
+}
+
 async function resetSelection(page) {
   await page.evaluate(() => window.getSelection()?.removeAllRanges());
 }
@@ -244,4 +328,8 @@ function roundedPoint(point) {
     x: Math.round(point.x * 1000) / 1000,
     y: Math.round(point.y * 1000) / 1000
   };
+}
+
+function cssString(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
 }
