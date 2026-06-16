@@ -4,7 +4,7 @@
     "overall": "pending",
     "phase": "phase-0",
     "task": "0.2",
-    "next_allowed_action": "Run the baseline smoke check, then write the graph interaction risk audit for task 0.2."
+    "next_allowed_action": "Record the task 0.2 commit hash, then run the baseline smoke check and map existing/missing test coverage for task 0.3."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -152,7 +152,7 @@
               "status": "passed"
             }
           ],
-          "commit": null
+          "commit": "7a996d9"
         },
         {
           "id": "0.3",
@@ -624,6 +624,15 @@
         "docs/graph/2026-06-16-interaction-risk-audit.md",
         "npm run test --workspace=@llm-wiki/graph-engine passed: 198 tests, 0 failed",
         "risk label coverage checked with rg"
+      ]
+    },
+    {
+      "timestamp": "2026-06-16T14:08:00.000Z",
+      "phase": "phase-0",
+      "task": "0.2",
+      "action": "Recorded graph interaction risk audit commit hash",
+      "evidence": [
+        "commit: 7a996d9 docs: audit graph interaction risks"
       ]
     }
   ]
