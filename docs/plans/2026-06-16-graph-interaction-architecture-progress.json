@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-0",
-    "task": "0.1",
-    "next_allowed_action": "Execute the current task; after verified completion, update status/evidence/log fields, commit, record the hash, and advance automatically"
+    "task": "0.2",
+    "next_allowed_action": "Execute phase-0 task 0.2: record pure regression probe shape and commit only passing helpers. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -45,18 +45,27 @@
       "acceptance": [
         {
           "check": "Known interaction regressions are recorded with trigger, current behavior, expected behavior, and target phase",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "Recorded five regressions in task 0.1 verification: community wash wheel, node wheel, drag jump under zoom/pan, node movement constrained by mixed clamp/input handling, and hover/edge preview drift.",
+            "Each regression includes current trigger/cause, expected target behavior, and target phase in the execution plan: phases 3, 4, and 5."
+          ]
         },
         {
           "check": "Current branch is confirmed clean and does not contain old temporary bugfix commits",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "git log --oneline -15 exited 0 on codex/graph-interaction-architecture and showed no old temporary graph bugfix commits from codex/fix-graph-community-wheel-zoom.",
+            "Old bugfix branch checked separately at 3312e08027b0f35be0073bddd44443ee8ab53c21 with merge-base 1e1248025206925b3367372928fc1ebc113d3960."
+          ]
         },
         {
           "check": "Public graph-engine API baseline and old bugfix comparison are recorded",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "Public graph-engine API baseline recorded for createGraphEngine, GraphEngineOptions, GraphEngineCapabilities, GraphEngine methods, StaticGraphRenderer methods, workbench host usage, and offline HTML usage.",
+            "Old bugfix branch comparison recorded as a renderer-level patch that must not be copied directly into this architecture branch."
+          ]
         },
         {
           "check": "Workbench and offline HTML baseline behavior is recorded",
@@ -68,8 +77,24 @@
         {
           "id": "0.1",
           "title": "Record interaction regression, API, and old bugfix baseline",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "git log --oneline -15 exited 0 on codex/graph-interaction-architecture; head was d88c2bb docs: add graph interaction execution plan and the visible top commits are design/plan records, not old temporary graph bugfix commits.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 before baseline recording: 41 suites, 150 tests, 150 pass, 0 fail.",
+            "Old branch codex/fix-graph-community-wheel-zoom exists at 3312e08027b0f35be0073bddd44443ee8ab53c21; merge-base with this branch is 1e1248025206925b3367372928fc1ebc113d3960.",
+            "Old branch recent commits include e1cf785 fix(graph): allow wheel zoom over community washes, daaa974 fix(graph): allow wheel zoom over nodes, and 80e9e14 fix(graph): keep dragged nodes under cursor; these fixes are not present in the current branch log.",
+            "git diff codex/graph-interaction-architecture..codex/fix-graph-community-wheel-zoom -- packages/graph-engine/src/render/static-renderer.ts packages/graph-engine/test/viewport.test.ts showed a renderer-level patch: 2 files changed, 112 insertions, 14 deletions; it added screenPointToRendererPoint, rendererPointDeltaToLayerDelta, node drag offset handling, and viewport tests. This plan must not copy that local patch directly because it keeps interaction math in the renderer instead of the planned Geometry/Gesture/Runtime State path.",
+            "Public API baseline recorded: packages/graph-engine/src/index.ts exports createGraphEngine(container, options); GraphEngine in packages/graph-engine/src/types.ts exposes applyDiff, isDragging, focusNode, focusCommunity, setTypeFilters, resetView, select, clearSelection, clearInteraction, setTheme, setPins, resetLayout, and destroy.",
+            "GraphEngineOptions baseline recorded at packages/graph-engine/src/types.ts: data, optional pins, theme, optional focus, optional typeFilters, optional toolbarContainer, and optional capabilities. GraphEngineCapabilities baseline recorded: persistPins, onAsk, onOpenPage, onSelectionChange, onSelectionClear, and onDragStateChange.",
+            "StaticGraphRenderer baseline recorded at packages/graph-engine/src/render/static-renderer.ts: render, applyDiff, isDragging, setTheme, setPins, focusNode, focusCommunity, setTypeFilters, resetView, select, clearSelection, clearInteraction, resetLayout, destroy.",
+            "Workbench host baseline recorded: workbench/web/src/components/GraphPanel.tsx calls createGraphEngine(hostRef.current, { data, pins, theme, capabilities: { onOpenPage, onSelectionChange, onSelectionClear, onAsk, persistPins, onDragStateChange } }).",
+            "Offline HTML baseline recorded: scripts/build-graph-html.sh checks window.LlmWikiGraphEngine.createGraphEngine and calls createGraphEngine(root, { data: graphData, pins, theme, toolbarContainer, capabilities: { persistPins } }).",
+            "Regression baseline recorded: wheel over community wash and wheel over node are blocked because the root wheel handler returns unless isBlankViewportTarget(event.target), and isBlankViewportTarget excludes .node and .community-wash.",
+            "Regression baseline recorded: drag under zoom/pan uses eventToGraphPoint(root, event), which converts root-relative client coordinates directly into WORLD_WIDTH/WORLD_HEIGHT and clamps to 0..1000 / 0..680, ignoring viewport pan/zoom and grab offset.",
+            "Regression baseline recorded: LiveGraphSimulation.dragTo also clamps drag target to 0..1000 / 0..680, so node movement cannot exceed the canonical world extent and constraints are currently mixed with drag input handling.",
+            "Regression baseline recorded: hover preview and edge preview use rootRect.width * node.x / 100 and rootRect.height * node.y / 100 instead of projected screen anchors, so they drift after viewport transforms or drawer resize.",
+            "Regression baseline recorded: community wash is a clickable SVG ellipse that stops click propagation; render/model.ts already has core-point wash logic that avoids chasing one far outlier, and later phases must preserve the visual-region-not-fence rule while adding bounded response evidence."
+          ],
           "commit": null
         },
         {
@@ -381,5 +406,17 @@
     }
   ],
   "residual_risk": [],
-  "turn_log": []
+  "turn_log": [
+    {
+      "turn": "phase-0-task-0.1",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-0 task 0.1.",
+        "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before changing progress; both exited 0, with graph-engine reporting 150 passing tests.",
+        "Compared old branch codex/fix-graph-community-wheel-zoom and recorded why this architecture branch will not bring those renderer-level patches forward directly.",
+        "Recorded public API, workbench usage, offline HTML usage, and current root-cause baselines for the known graph interaction regressions.",
+        "Advanced current task pointer to phase-0 task 0.2; phase-0 remains pending because 0.2 and 0.3 are not complete."
+      ]
+    }
+  ]
 }
