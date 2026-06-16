@@ -8,6 +8,7 @@ export * from "./sim";
 export * from "./themes";
 export * from "./diff";
 export * from "./anim";
+export * from "./architecture";
 export { createGraphFacade } from "./facade";
 
 import type { GraphEngine, GraphEngineOptions } from "./types";
