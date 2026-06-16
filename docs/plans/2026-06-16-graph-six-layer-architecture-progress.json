@@ -1,10 +1,10 @@
 {
   "plan": "docs/plans/2026-06-16-graph-six-layer-architecture-phased-plan.md",
   "status": {
-    "overall": "pending",
+    "overall": "completed",
     "phase": "phase-7",
     "task": "7.4",
-    "next_allowed_action": "Mark plan complete and record residual risk."
+    "next_allowed_action": "No further action required for this goal-plan."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -1506,7 +1506,7 @@
     {
       "id": "phase-7",
       "goal": "Remove old interaction paths and complete dual-target final verification.",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
         {
           "check": "Full verification command set exits 0.",
@@ -1552,8 +1552,12 @@
         },
         {
           "check": "Progress file records completed overall status and residual risk.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "overall status is completed.",
+            "phase-7 status is completed.",
+            "residual_risk records follow-up guardrails rather than unresolved blocking bugs."
+          ]
         }
       ],
       "tasks": [
@@ -1704,14 +1708,36 @@
         {
           "id": "7.4",
           "title": "Mark plan complete and record residual risk",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "node -e \"const p=JSON.parse(require('fs').readFileSync('docs/plans/2026-06-16-graph-six-layer-architecture-progress.json','utf8')); console.log(p.status.overall, p.status.phase, p.status.task)\"",
+              "result": "completed phase-7 7.4",
+              "status": "passed"
+            },
+            {
+              "command": "git status --short --branch",
+              "result": "branch codex/graph-six-layer-architecture with only the progress file modified before this progress commit",
+              "status": "passed"
+            }
+          ],
           "commit": null
         }
       ]
     }
   ],
-  "residual_risk": [],
+  "residual_risk": [
+    {
+      "risk": "Future graph interaction features could accidentally bypass GraphGestures, GraphViewport, or SpatialIndex.",
+      "mitigation": "renderer-boundary.test.ts and spatial-index.test.ts now guard the ownership boundaries; new features should extend those modules rather than reintroduce renderer-local event or coordinate logic.",
+      "status": "non-blocking"
+    },
+    {
+      "risk": "The workbench production bundle still reports the existing Vite large chunk warning.",
+      "mitigation": "The warning does not block this graph architecture goal and existed as a bundle-size concern rather than an interaction correctness failure.",
+      "status": "non-blocking"
+    }
+  ],
   "turn_log": [
     {
       "timestamp": "2026-06-16T13:31:18.728Z",
