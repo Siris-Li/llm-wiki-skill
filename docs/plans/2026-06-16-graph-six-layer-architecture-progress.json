@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-6",
-    "task": "6.2",
-    "next_allowed_action": "Let dragged or pinned outliers influence community wash within caps without changing membership."
+    "task": "6.3",
+    "next_allowed_action": "Use SpatialIndex to preserve node, community wash, and blank hit priority."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -1399,9 +1399,30 @@
         {
           "id": "6.2",
           "title": "Apply bounded outlier influence without membership mutation",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "node --import tsx --test packages/graph-engine/test/render-model.test.ts packages/graph-engine/test/community-wash.test.ts",
+              "result": "28 tests passed, 0 failed; corrected the fixture to drag a core member so wash movement is observable while membership remains stable.",
+              "status": "passed"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "250 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "result": "tsc -p tsconfig.json --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "No whitespace errors",
+              "status": "passed"
+            }
+          ],
+          "commit": "a9cea24"
         },
         {
           "id": "6.3",
