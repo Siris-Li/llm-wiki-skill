@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-7",
-    "task": "7.1",
-    "next_allowed_action": "Delete old renderer-owned interaction, coordinate, hit-test, and hidden-state paths."
+    "task": "7.2",
+    "next_allowed_action": "Refresh browser regression evidence for desktop, narrow, and offline fixtures."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -1515,13 +1515,21 @@
         },
         {
           "check": "static-renderer.ts no longer owns raw graph interaction, coordinate conversion, or graph hit testing.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "! rg -n \"root\\.addEventListener\\(\\\"(wheel|pointerdown|pointermove|pointerup|pointercancel|lostpointercapture|dblclick)\" packages/graph-engine/src/render/static-renderer.ts exited 0.",
+            "packages/graph-engine/src/render/static-renderer.ts no longer imports or calls rootClientPointToScreenPoint and contains no clientX/clientY browser pointer coordinate normalization.",
+            "packages/graph-engine/src/render/gestures.ts now normalizes browser pointer coordinates before emitting graph gesture intents."
+          ]
         },
         {
           "check": "Runtime contract tests prove old responsibilities did not move to a new renderer file under another name.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "packages/graph-engine/test/renderer-boundary.test.ts keeps root graph wheel/pointer bindings inside GraphGestures.",
+            "packages/graph-engine/test/renderer-boundary.test.ts keeps browser pointer coordinate normalization inside GraphGestures.",
+            "node --import tsx --test packages/graph-engine/test/renderer-boundary.test.ts packages/graph-engine/test/gestures.test.ts packages/graph-engine/test/simulation-bridge.test.ts -> 29 tests passed, 0 failed."
+          ]
         },
         {
           "check": "Workbench and offline browser evidence artifacts are recorded.",
@@ -1538,9 +1546,50 @@
         {
           "id": "7.1",
           "title": "Delete old renderer-owned interaction, coordinate, hit-test, and hidden-state paths",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "node --import tsx --test packages/graph-engine/test/renderer-boundary.test.ts packages/graph-engine/test/gestures.test.ts packages/graph-engine/test/simulation-bridge.test.ts",
+              "result": "29 tests passed, 0 failed; includes renderer boundary, gesture controller, and drag bridge coverage.",
+              "status": "passed"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "252 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "result": "tsc -p tsconfig.json --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "npm run build --workspace=@llm-wiki/graph-engine",
+              "result": "vite build and declaration emit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "result": "PASS: graph workbench interaction regression",
+              "status": "passed"
+            },
+            {
+              "command": "! rg -n \"root\\.addEventListener\\(\\\"(wheel|pointerdown|pointermove|pointerup|pointercancel|lostpointercapture|dblclick)\" packages/graph-engine/src/render/static-renderer.ts",
+              "result": "No root graph event bindings remain in static-renderer.ts",
+              "status": "passed"
+            },
+            {
+              "command": "rg -n \"screenPointToWorldPoint|worldPointToScreenPoint|rootClientPointToScreenPoint|classifyGraphWheelTarget|classifyGraphPointerDownTarget|SpatialIndex\" packages/graph-engine/src",
+              "result": "Coordinate conversion and gesture classification are owned by geometry, viewport, simulation bridge, overlays, gestures, and layout SpatialIndex; static-renderer.ts no longer owns browser pointer coordinate normalization.",
+              "status": "passed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "No whitespace errors",
+              "status": "passed"
+            }
+          ],
+          "commit": "e29378e"
         },
         {
           "id": "7.2",
