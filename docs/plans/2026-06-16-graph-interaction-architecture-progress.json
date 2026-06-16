@@ -137,7 +137,7 @@
             "Offline browser evidence JSON: /tmp/llm-wiki-graph-offline-baseline.json. Screenshot: /tmp/llm-wiki-graph-offline-baseline.png. blank wheel changed transform=true, node wheel changed transform=true, hover opened=true, drag wrote localStorage pin=true, click opened built-in reader=true.",
             "Temporary frontend on 127.0.0.1:5181 was stopped and lsof confirmed no listener remained on port 5181. The existing 5180/8787 services were not stopped."
           ],
-          "commit": null
+          "commit": "5e336d8ae4e1e748ab74727845011701856dd28d"
         }
       ]
     },
@@ -468,7 +468,8 @@
         "Recorded real workbench browser baseline from temporary frontend port 5181 against active AI学习知识库 on backend 8787.",
         "Recorded offline HTML baseline from a temporary graph-interactive-basic copy and verified the generated knowledge-graph.html in Chrome.",
         "Stopped the temporary 5181 dev server and confirmed no listener remained; existing 5180 and 8787 services were left untouched.",
-        "All phase-0 acceptance checks now pass, so phase-0 was marked completed and the progress pointer advanced to phase-1 task 1.1."
+        "All phase-0 acceptance checks now pass, so phase-0 was marked completed and the progress pointer advanced to phase-1 task 1.1.",
+        "Committed verified task 0.3 as 5e336d8ae4e1e748ab74727845011701856dd28d."
       ]
     }
   ]
