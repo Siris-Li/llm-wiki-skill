@@ -41,7 +41,7 @@ describe("GraphSpatialIndex", () => {
   it("keeps node priority above edge and community overlap", () => {
     const index = createGraphSpatialIndex({
       nodes: [
-        { id: "node", point: { x: 200, y: 200 }, hitBounds: { x: 180, y: 180, width: 40, height: 40 } },
+        { id: "node", point: { x: 200, y: 200 }, hitBounds: { x: 190, y: 190, width: 20, height: 20 } },
         { id: "left", point: { x: 120, y: 200 }, hitBounds: { x: 110, y: 190, width: 20, height: 20 } },
         { id: "right", point: { x: 280, y: 200 }, hitBounds: { x: 270, y: 190, width: 20, height: 20 } }
       ],
@@ -63,6 +63,23 @@ describe("GraphSpatialIndex", () => {
     });
 
     assert.deepEqual(index.hitTest({ x: 200, y: 188 }), { kind: "edge", id: "left-right" });
+  });
+
+  it("orders node, edge, community wash, and blank hits through one spatial path", () => {
+    const index = createGraphSpatialIndex({
+      nodes: [
+        { id: "node", point: { x: 200, y: 200 }, hitBounds: { x: 190, y: 190, width: 20, height: 20 } },
+        { id: "left", point: { x: 120, y: 200 }, hitBounds: { x: 110, y: 190, width: 20, height: 20 } },
+        { id: "right", point: { x: 280, y: 200 }, hitBounds: { x: 270, y: 190, width: 20, height: 20 } }
+      ],
+      edges: [{ id: "left-right", source: "left", target: "right", curveOffset: 0 }],
+      communities: [{ id: "community", wash: { cx: 200, cy: 200, rx: 120, ry: 80 } }]
+    });
+
+    assert.deepEqual(index.hitTest({ x: 200, y: 200 }), { kind: "node", id: "node" });
+    assert.deepEqual(index.hitTest({ x: 200, y: 188 }), { kind: "edge", id: "left-right" });
+    assert.deepEqual(index.hitTest({ x: 200, y: 250 }), { kind: "community-wash", id: "community" });
+    assert.deepEqual(index.hitTest({ x: 200, y: 330 }), { kind: "graph-blank" });
   });
 
   it("returns blank when no graph object owns the point", () => {
