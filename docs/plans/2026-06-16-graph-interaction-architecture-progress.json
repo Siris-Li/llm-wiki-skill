@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-6",
-    "task": "6.2",
-    "next_allowed_action": "Execute phase-6 task 6.2: run workbench browser verification. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
+    "task": "6.3",
+    "next_allowed_action": "Execute phase-6 task 6.3: run offline HTML verification. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -661,16 +661,23 @@
         },
         {
           "check": "Workbench build and public API compatibility checks pass",
-          "status": "pending",
+          "status": "completed",
           "evidence": [
             "Task 6.1 confirmed current GraphPanel usage still compiles against createGraphEngine and GraphEngine public methods without adding host-side coordinate APIs.",
-            "npm run typecheck --workspace=@llm-wiki-agent/web and npm run build --workspace=@llm-wiki-agent/web both exited 0 in task 6.1."
+            "npm run typecheck --workspace=@llm-wiki-agent/web and npm run build --workspace=@llm-wiki-agent/web both exited 0 in task 6.1.",
+            "Task 6.2 reran npm run test --workspace=@llm-wiki/graph-engine, npm run typecheck --workspace=@llm-wiki/graph-engine, npm run build --workspace=@llm-wiki/graph-engine, npm run test --workspace=@llm-wiki-agent/web, npm run typecheck --workspace=@llm-wiki-agent/web, npm run build --workspace=@llm-wiki-agent/web, and git diff --check; all exited 0."
           ]
         },
         {
           "check": "Workbench browser verification passes for zoom, drag, hover, drawer, community focus, pan, minimap, and reset",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "Added tests/graph-workbench-interactions.regression-1.sh to start an isolated workbench server on 18787 and web app on 15180 with a temporary HOME and knowledge base, avoiding the user's existing 8787/5180 services.",
+            "Added tests/browser/graph-workbench-interactions.mjs to verify wheel zoom over blank canvas, nodes, community washes, and edges; wheel blocking over search, toolbar, legend, minimap, and right drawer; node hover before/after zoom and with drawer open; drawer resize; node drag beyond the initial community wash; blank pan; minimap update; reset; and narrow viewport behavior.",
+            "Fixed a real root cause found during browser verification: the graph root can be scrolled by browser automation/focus behavior, which offsets hover and graph-local coordinates outside the camera contract. The renderer now resets native root scroll so the graph camera remains the only movement authority.",
+            "Verified bash tests/graph-workbench-interactions.regression-1.sh exited 0. Browser evidence showed hover stayed anchored after zoom, node A dragged outside the initial community wash with pointer distance under 1px, the wash response stayed capped, and graph root scroll reset from an attempted nonzero scroll back to 0.",
+            "Verified node --check tests/browser/graph-workbench-interactions.mjs, bash -n tests/graph-workbench-interactions.regression-1.sh, and git diff --check all exited 0."
+          ]
         },
         {
           "check": "Offline HTML fixture verification passes against built IIFE",
@@ -701,9 +708,25 @@
         {
           "id": "6.2",
           "title": "Run workbench browser verification",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-6 task 6.2.",
+            "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before continuing; graph-engine tests exited 0.",
+            "Created an isolated workbench browser regression that uses temporary HOME data, a temporary knowledge base, backend port 18787, frontend port 15180, and LLM_WIKI_AGENT_API_ORIGIN so it does not touch the user's existing 8787/5180 services.",
+            "Browser verification covers the full workbench graph interaction chain: zoom over blank/node/community wash/edge, blocked wheel targets, hover before/after zoom and with drawer open, drawer resize, community selection, drag outside the initial community wash, blank pan, minimap update, reset, and narrow viewport behavior.",
+            "Debugged a hover overflow failure to native scroll on the graph root, not a coordinate projection failure; fixed the renderer so graph root scroll is reset and camera transform remains the single movement authority.",
+            "Verified bash tests/graph-workbench-interactions.regression-1.sh exited 0 after the fix. Evidence included rootScroll before={left:0,top:0}, after={left:0,top:0}; hover offsets stayed stable after zoom; dragging A outside the wash pinned the node and left dragging state empty; minimap stayed finite.",
+            "Verified npm run test --workspace=@llm-wiki/graph-engine exited 0: 49 suites, 198 tests passed.",
+            "Verified npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "Verified npm run build --workspace=@llm-wiki/graph-engine exited 0.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web exited 0: 12 suites, 29 tests passed.",
+            "Verified npm run typecheck --workspace=@llm-wiki-agent/web exited 0.",
+            "Verified npm run build --workspace=@llm-wiki-agent/web exited 0; Vite emitted only the existing large chunk warning.",
+            "Verified node --check tests/browser/graph-workbench-interactions.mjs, bash -n tests/graph-workbench-interactions.regression-1.sh, and git diff --check exited 0.",
+            "Committed verified task 6.2 as da8e39c352c03e6be435e88d04b4959c8ae8e1a0.",
+            "Advanced current task pointer to phase-6 task 6.3; phase-6 remains pending because offline HTML verification still needs the planned task."
+          ],
+          "commit": "da8e39c352c03e6be435e88d04b4959c8ae8e1a0"
         },
         {
           "id": "6.3",
@@ -955,6 +978,19 @@
         "Verified workbench test, typecheck, and build all exited 0; build only emitted the existing large chunk warning.",
         "No business code changes were needed for task 6.1.",
         "Advanced current task pointer to phase-6 task 6.2; phase-6 remains pending because browser and offline HTML verification still need planned tasks."
+      ]
+    },
+    {
+      "turn": "phase-6-task-6.2",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-6 task 6.2.",
+        "Added isolated workbench browser regression coverage for wheel, drag, hover, drawer, community focus, pan, minimap, reset, root native scroll, and narrow viewport behavior.",
+        "Fixed the root cause found during browser verification by keeping native graph-root scroll at zero so all movement remains controlled by the graph camera.",
+        "Verified the new workbench browser regression exited 0 on isolated ports 18787/15180 with a temporary HOME and knowledge base.",
+        "Verified graph-engine test/typecheck/build, workbench test/typecheck/build, script syntax checks, and git diff --check all exited 0; workbench build only emitted the existing large chunk warning.",
+        "Committed verified task 6.2 as da8e39c352c03e6be435e88d04b4959c8ae8e1a0.",
+        "Advanced current task pointer to phase-6 task 6.3; phase-6 remains pending because offline HTML verification still needs the planned task."
       ]
     }
   ]
