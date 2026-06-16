@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-06-16-graph-interaction-architecture-phased-plan.md",
   "status": {
     "overall": "pending",
-    "phase": "phase-3",
-    "task": "3.3",
-    "next_allowed_action": "Execute phase-3 task 3.3: wire renderer shell through the gesture module. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
+    "phase": "phase-4",
+    "task": "4.1",
+    "next_allowed_action": "Execute phase-4 task 4.1: route node drag through geometry and simulation bridge. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -339,7 +339,7 @@
     {
       "id": "phase-3",
       "goal": "Centralize gesture and hit target classification",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
         {
           "check": "Wheel, pointer, click, drag, community, minimap, and UI blocker classification has one tested path",
@@ -357,8 +357,20 @@
         },
         {
           "check": "Renderer delegates gesture interpretation instead of owning scattered target rules",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "packages/graph-engine/src/render/static-renderer.ts now routes wheel and pointerdown through classifyGraphWheelTarget/classifyGraphPointerDownTarget, then routes pointer sequences through GraphGestureStateMachine intents.",
+            "Removed old renderer-level isBlankViewportTarget and node-local bindDragHandlers pointer sequence logic, so blank pan, node click/drag, community click, pointercancel, lostpointercapture, and Escape now share the gesture module path.",
+            "Community wash SVG ellipses no longer own direct click listeners; root gesture intents decide whether a wash interaction is a community click or a cancelled movement.",
+            "Node button click handling is retained only for keyboard activation; pointer click/drag is handled by gesture intents.",
+            "Renderer still uses the existing eventToGraphPoint drag projection in task 3.3; phase 4 will replace drag input with Geometry and a preserved grab offset.",
+            "Headless Chrome CDP verification against http://localhost:5180/ with 88 nodes, 9 community washes, and 217 edges showed wheel over blank, node, community wash, and edge changed the graph transform, while wheel over a graph toolbar button did not change the graph transform.",
+            "Headless Chrome CDP verification also showed a node pointer click selected a node after routing through the gesture path.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 after task 3.3 work: 45 suites, 183 tests, 183 pass, 0 fail.",
+            "npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated both engine.esm.js and engine.iife.js.",
+            "git diff --check exited 0."
+          ]
         }
       ],
       "tasks": [
@@ -410,9 +422,27 @@
         {
           "id": "3.3",
           "title": "Wire renderer shell through the gesture module",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-3 task 3.3.",
+            "git log --oneline -15 exited 0 before task 3.3 work; branch head was 794c16d docs: record gesture state machine commit.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 before task 3.3 work: 45 suites, 183 tests, 183 pass, 0 fail.",
+            "static-renderer.ts now owns one GraphGestureStateMachine and converts root wheel/pointer events into gesture classifier decisions and graph gesture intents.",
+            "Wheel target handling now calls classifyGraphWheelTarget, allowing zoom over blank, node, community wash, and edge while leaving UI blockers unhandled by graph zoom.",
+            "Pointer handling now calls classifyGraphPointerDownTarget and GraphGestureStateMachine for node click/drag, community click/cancel, blank click/pan, pointercancel, lostpointercapture, and Escape cleanup.",
+            "Removed old isBlankViewportTarget and node-local pointer drag handling; node buttons retain click handling only for keyboard activation.",
+            "Community wash ellipses no longer attach direct click listeners; community selection is handled by community-click intents from the shared gesture path.",
+            "Task 3.3 intentionally preserved existing drag projection via eventToGraphPoint so phase 4 can replace drag coordinate math in one planned step.",
+            "npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0: 45 suites, 183 tests, 183 pass, 0 fail.",
+            "npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated both engine.esm.js and engine.iife.js.",
+            "git diff --check exited 0.",
+            "Headless Chrome CDP verification used an isolated profile on port 9223 and existing http://localhost:5180/: blank wheel matrix changed from matrix(1, 0, 0, 1, 0, 0) to matrix(1.958, 0, 0, 1.958, -76.652, -76.652).",
+            "Headless Chrome CDP verification: node wheel, community wash wheel, and edge wheel each changed the graph transform; toolbar wheel left the transform unchanged.",
+            "Headless Chrome CDP verification: node pointer click selected a node through the gesture path. Temporary headless Chrome session and /tmp profile were cleaned up.",
+            "All phase-3 acceptance checks now pass, so phase-3 was marked completed and the progress pointer advanced to phase-4 task 4.1."
+          ],
+          "commit": "267f17f1ca9277309fa6b75d0f9e318319308d19"
         }
       ]
     },
@@ -692,6 +722,18 @@
         "Recorded decision that community wash movement above threshold cancels community click and does not auto-pan yet; task 3.3 will wire renderer behavior through gesture intents.",
         "Committed verified task 3.2 as 990d488f93c57b6384e1ea405fd597ae4ee7f631.",
         "Advanced current task pointer to phase-3 task 3.3; phase-3 remains pending because renderer shell wiring is not complete."
+      ]
+    },
+    {
+      "turn": "phase-3-task-3.3",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-3 task 3.3.",
+        "Routed static renderer wheel and pointer events through the shared gesture classifier and GraphGestureStateMachine.",
+        "Removed renderer-local isBlankViewportTarget and node-local pointer drag sequencing; preserved keyboard node activation.",
+        "Verified graph-engine typecheck, full graph-engine test suite, graph-engine build, git diff --check, and headless Chrome CDP browser interaction checks all passed.",
+        "Committed verified task 3.3 as 267f17f1ca9277309fa6b75d0f9e318319308d19.",
+        "All phase-3 acceptance checks now pass, so phase-3 was marked completed and the progress pointer advanced to phase-4 task 4.1."
       ]
     }
   ]
