@@ -1,9 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRenderableGraph } from "../src/render";
-import { createLiveGraphSimulation, pinsToPositions, PinState } from "../src/sim";
-import type { GraphData } from "../src/types";
+import { buildRenderableGraph, screenPointToWorldPoint, worldPointToScreenPoint } from "../src/render";
+import {
+  constrainDragTargetToLayoutBounds,
+  createLiveGraphSimulation,
+  pinsToPositions,
+  PinState
+} from "../src/sim";
+import type { GraphData, PinMap } from "../src/types";
 
 describe("LiveGraphSimulation", () => {
   it("starts from cold-start graph coordinates and pinned positions", () => {
@@ -51,6 +56,22 @@ describe("LiveGraphSimulation", () => {
     assert.equal(settled.alpha, 0);
     simulation.destroy();
   });
+
+  it("keeps drag bounds as an explicit layout constraint outside projection helpers", () => {
+    assert.deepEqual(
+      constrainDragTargetToLayoutBounds({ x: -120, y: 940 }, { fallback: { x: 200, y: 340 } }),
+      { x: 0, y: 680 }
+    );
+
+    const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
+    const simulation = createLiveGraphSimulation(graph);
+    simulation.beginDrag("drag");
+    const dragged = simulation.dragTo("drag", { x: 1200, y: -250 });
+
+    assert.equal(dragged.fx, 1000);
+    assert.equal(dragged.fy, 0);
+    simulation.destroy();
+  });
 });
 
 describe("PinState", () => {
@@ -86,6 +107,31 @@ describe("PinState", () => {
     });
     assert.deepEqual(pinsToPositions(graph, state.pins), {
       near: { x: 130, y: 245.7 }
+    });
+  });
+
+  it("keeps wiki-relative pin format readable and separate from projection math", () => {
+    const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
+    const pins: PinMap = {
+      "wiki/drag.md": { x: -42.5, y: 812.75 },
+      "wiki/near.md": { x: Number.NaN, y: 245.7 }
+    };
+    const beforeProjection = structuredClone(pins);
+
+    const projected = worldPointToScreenPoint(pins["wiki/drag.md"], { x: -180, y: 64, scale: 1.25 }, { width: 1170, height: 856 });
+    const roundTrip = screenPointToWorldPoint(projected, { x: -180, y: 64, scale: 1.25 }, { width: 1170, height: 856 });
+    const state = new PinState(graph, pins).snapshot();
+
+    assert.deepEqual(pins, beforeProjection, "projection helpers must not rewrite the host pin map");
+    assert.ok(roundTrip.x < 0, "projection round trip should preserve an out-of-world finite pin x");
+    assert.ok(roundTrip.y > 680, "projection round trip should preserve an out-of-world finite pin y");
+    assert.deepEqual(state.pins, {
+      "wiki/drag.md": { x: -42.5, y: 812.75 },
+      "wiki/near.md": { x: 0, y: 245.7 }
+    });
+    assert.deepEqual(pinsToPositions(graph, state.pins), {
+      drag: { x: -42.5, y: 812.75 },
+      near: { x: 0, y: 245.7 }
     });
   });
 });

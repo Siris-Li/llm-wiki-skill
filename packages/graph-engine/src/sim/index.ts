@@ -48,6 +48,20 @@ export interface DragEndOptions {
   keepFixed?: boolean;
 }
 
+export interface GraphLayoutBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+export const DEFAULT_GRAPH_LAYOUT_BOUNDS: GraphLayoutBounds = {
+  minX: 0,
+  minY: 0,
+  maxX: 1000,
+  maxY: 680
+};
+
 export class LiveGraphSimulation {
   readonly nodes: LiveSimulationNode[];
 
@@ -154,8 +168,11 @@ export class LiveGraphSimulation {
   dragTo(id: NodeId, position: { x: number; y: number }): LiveSimulationNode {
     this.assertActive();
     const node = this.requireNode(id);
-    node.fx = clampNumber(position.x, node.baseX, 0, 1000);
-    node.fy = clampNumber(position.y, node.baseY, 0, 680);
+    const bounded = constrainDragTargetToLayoutBounds(position, {
+      fallback: { x: node.baseX, y: node.baseY }
+    });
+    node.fx = bounded.x;
+    node.fy = bounded.y;
     return node;
   }
 
@@ -249,6 +266,24 @@ export function createLiveGraphSimulation(graph: RenderableGraph, options?: Live
   return new LiveGraphSimulation(graph, options);
 }
 
+export function constrainDragTargetToLayoutBounds(
+  position: { x: number; y: number },
+  options: {
+    bounds?: GraphLayoutBounds;
+    fallback?: { x: number; y: number };
+  } = {}
+): { x: number; y: number } {
+  const bounds = normalizeLayoutBounds(options.bounds);
+  const fallback = options.fallback || {
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  };
+  return {
+    x: clampNumber(position.x, fallback.x, bounds.minX, bounds.maxX),
+    y: clampNumber(position.y, fallback.y, bounds.minY, bounds.maxY)
+  };
+}
+
 function toSimulationNode(node: RenderableNode): LiveSimulationNode {
   return {
     id: node.id,
@@ -280,6 +315,14 @@ function linkStrength(link: LiveSimulationLink): number {
 
 function nodeRadius(node: LiveSimulationNode): number {
   return Math.max(14, Math.min(58, 24 + Math.abs(node.baseX - 500) / 44));
+}
+
+function normalizeLayoutBounds(bounds: GraphLayoutBounds = DEFAULT_GRAPH_LAYOUT_BOUNDS): GraphLayoutBounds {
+  const minX = finiteNumber(bounds.minX, DEFAULT_GRAPH_LAYOUT_BOUNDS.minX);
+  const minY = finiteNumber(bounds.minY, DEFAULT_GRAPH_LAYOUT_BOUNDS.minY);
+  const maxX = Math.max(minX, finiteNumber(bounds.maxX, DEFAULT_GRAPH_LAYOUT_BOUNDS.maxX));
+  const maxY = Math.max(minY, finiteNumber(bounds.maxY, DEFAULT_GRAPH_LAYOUT_BOUNDS.maxY));
+  return { minX, minY, maxX, maxY };
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
