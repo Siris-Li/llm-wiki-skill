@@ -213,7 +213,7 @@
             "npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated both engine.esm.js and engine.iife.js.",
             "git diff --check exited 0."
           ],
-          "commit": null
+          "commit": "42681a32fdcf674e1d257ed327e309e5741de588"
         },
         {
           "id": "1.3",
@@ -532,6 +532,7 @@
         "Kept public viewport helper exports compatible and did not change node drag, click, wheel target, hover, or community interaction wiring in this task.",
         "Added viewport tests for pointer-anchored wheel zoom and minimap projection through Geometry.",
         "Verified viewport single-file test, full graph-engine test, graph-engine typecheck, graph-engine build, and git diff --check all exited 0.",
+        "Committed verified task 1.2 as 42681a32fdcf674e1d257ed327e309e5741de588.",
         "Advanced current task pointer to phase-1 task 1.3; phase-1 remains pending because pin/layout bounds compatibility is not complete."
       ]
     }
