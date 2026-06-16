@@ -1,20 +1,24 @@
-# Graph Interaction Geometry Design
+# Graph Interaction Architecture Design
 
 Date: 2026-06-16
 
 ## Summary
 
-The graph interaction bugs are not isolated pointer-handling mistakes. They come from one architectural gap: node placement, viewport transforms, pointer gestures, hover previews, community washes, and minimap state currently compute positions in different places with different assumptions.
+The graph interaction bugs are not isolated pointer-handling mistakes. They come from an architectural gap: node placement, viewport transforms, pointer gestures, hover previews, community washes, minimap state, and render state currently compute or own positions in different places with different assumptions.
 
-This design introduces a dedicated graph interaction geometry layer. The goal is to make every position-sensitive behavior use one shared model:
+External graph architecture research confirms that the current `@llm-wiki/graph-engine` foundation is directionally strong: it already has a viewport system, live simulation, pin persistence, community tracking, density modes, and diff handling. The issue is not that the renderer technology is wrong. The issue is that the graph front-end lacks clear boundaries between state, layout, camera/geometry, gestures, overlays, and rendering.
+
+This design upgrades the earlier "geometry layer" plan into a standard graph interaction architecture. The goal is to make every position-sensitive behavior use one shared model:
 
 - World position: where nodes, edges, and communities live in the graph model.
 - Viewport/camera: how the user is currently looking at that world through pan and zoom.
 - Screen position: where the user sees things and where the pointer is.
 - Projection: the only allowed way to convert between world, layer, minimap, and screen spaces.
 - Interaction rules: drag, wheel, pan, hover, and selection all use the same projection.
+- Graph state: one explicit owner for visual, layout, viewport, hover, selection, and gesture state.
+- Renderer boundary: drawing code paints a state, but does not interpret user gestures.
 
-The implementation should not be a full graph rewrite. It should carve out the coordinate and interaction responsibilities from `packages/graph-engine/src/render/static-renderer.ts` and make them explicit, testable modules.
+The implementation should not be an MVP patch and should not be a full renderer rewrite. It should keep DOM+SVG for now, preserve the public engine API, and carve the graph front-end into explicit, testable modules.
 
 ## Context
 
@@ -35,6 +39,16 @@ Recent fixes exposed the missing boundary:
 
 The common cause is not the community wash itself. The common cause is that interaction geometry is not centralized.
 
+External project research adds a second conclusion: geometry centralization is necessary, but not sufficient. Mature graph products and libraries repeatedly separate these concerns:
+
+- Layout computes graph positions and indexes.
+- Camera/geometry converts those positions to what the user sees.
+- Gestures translate DOM events into graph intentions.
+- Renderer draws the current graph state.
+- A facade coordinates state changes and host callbacks.
+
+The closest reference is Logseq's graph architecture: data, layout logic, rendering, interaction, and orchestration are separated enough that layout logic can be tested apart from the browser. Its Pixi.js/WebGL renderer is not the right fit for llm-wiki's current scale, but its layering and single gesture pipeline are the right ideas to borrow. Athens contributes the lesson that a clean event model is useful, while full event sourcing, Datascript, CRDT, or graph database infrastructure would be too heavy here. Graphify contributes the community-detection and pipeline lessons, but its static HTML and delegated vis.js interaction model are not enough for llm-wiki's live graph.
+
 ## Goals
 
 1. All graph interactions use one coordinate model.
@@ -44,8 +58,12 @@ The common cause is not the community wash itself. The common cause is that inte
 5. Hover previews follow the node's actual rendered position.
 6. Wheel zoom behavior is consistent over blank canvas, nodes, and community washes.
 7. Pointer panning, node dragging, node click, community click, and minimap interaction do not conflict.
-8. The renderer becomes a composition layer instead of the owner of coordinate math.
-9. The same engine behavior remains available to both the workbench graph and Skill/offline graph.
+8. Gesture interpretation is centralized instead of spread across renderer callbacks.
+9. Graph visual state is centralized instead of hidden across renderer closures and DOM datasets.
+10. The renderer becomes a drawing layer instead of the owner of coordinate math or interaction rules.
+11. Hit testing has an explicit path that can later use a spatial index.
+12. Zoom level and density decisions have one policy instead of scattered thresholds.
+13. The same engine behavior remains available to both the workbench graph and Skill/offline graph.
 
 ## Non-Goals
 
@@ -57,6 +75,9 @@ The common cause is not the community wash itself. The common cause is that inte
 - Do not add a new npm dependency.
 - Do not implement free-form lasso selection.
 - Do not change the knowledge-base pin storage format unless a compatibility shim proves necessary.
+- Do not introduce Neo4j, Datascript, CRDT, or full event sourcing for this graph UI refactor.
+- Do not migrate DOM+SVG to Canvas 2D until profiling proves the current renderer is the bottleneck.
+- Do not add a graph database or LLM-driven graph rebuild step as part of this interaction refactor.
 
 ## Design Principle
 
@@ -73,7 +94,50 @@ If a function cannot answer those questions, it should not own coordinate math.
 
 ## Proposed Architecture
 
-### 1. Viewport Module
+Use the standard graph interaction route from the research, adapted to llm-wiki's current strengths:
+
+```
+GraphData
+  -> GraphLayout
+  -> GraphViewport / Geometry
+  -> GraphRenderer / Overlays
+
+DOM events
+  -> GraphGestures
+  -> GraphIntent
+  -> GraphFacade
+  -> GraphState update
+  -> Layout / Viewport / Renderer updates
+```
+
+The public API should continue to look like one graph engine. Internally, each module has a narrow job and can be tested without loading the whole renderer.
+
+### 0. Graph State Module
+
+Owns the graph UI state that is currently spread across closures, DOM datasets, and renderer-local variables.
+
+Responsibilities:
+
+- Store current graph data and renderable graph.
+- Store layout positions and pin state.
+- Store current viewport/camera state.
+- Store hover, selected node, selected community, focus, and drawer-related visual state.
+- Store gesture state such as active drag session and gesture lock.
+- Expose a small subscription mechanism for renderer updates.
+
+Rules:
+
+- State is not business data. The host still owns the current knowledge base, current conversation, and page content.
+- State is not a new global store library. Use a small typed object and explicit update functions.
+- Renderer code reads state snapshots; it does not create hidden state islands.
+- Gestures produce intent; the facade decides how intent mutates state.
+
+Expected file direction:
+
+- New file: `packages/graph-engine/src/render/state.ts` or `packages/graph-engine/src/state/index.ts`.
+- Keep it local to graph-engine. Do not introduce Zustand, Redux, or another dependency.
+
+### 1. Viewport / Camera Module
 
 Owns the camera state.
 
@@ -133,7 +197,38 @@ Expected file direction:
 - New file: `packages/graph-engine/src/render/geometry.ts`.
 - Export through `packages/graph-engine/src/render/index.ts` only for tested public helpers.
 
-### 3. Gestures Module
+### 3. Layout / Spatial Index Module
+
+Owns layout outputs that are not directly about drawing.
+
+Responsibilities:
+
+- Keep the current static and live simulation layout behavior.
+- Produce or update node world positions.
+- Build a spatial index from current node and edge positions.
+- Provide hit-test candidates for nodes, edges, and community washes.
+- Provide zoom-level-aware culling or density recommendations when needed.
+- Compute drag influence weights if connected nodes should follow the dragged node.
+
+Rules:
+
+- Layout does not know DOM elements.
+- Layout does not know hover cards, drawers, or toolbar controls.
+- Spatial index stores graph-world positions and sizes, not screen guesses.
+- Hit testing can start simple, but it must have one owned path so the renderer does not keep inventing event target rules.
+
+Research references:
+
+- Logseq uses a simple grid spatial index for fast hit testing.
+- Graphify's community pipeline shows that deterministic community IDs and remapping matter, but llm-wiki's current Jaccard tracking is already strong and should be preserved.
+
+Expected file direction:
+
+- Keep `packages/graph-engine/src/sim/index.ts` for force simulation for now.
+- Add `packages/graph-engine/src/layout/spatial-index.ts` when the gesture extraction needs graph-owned hit testing.
+- Do not migrate the whole layout package until the interaction state boundary is stable.
+
+### 4. Gestures Module
 
 Owns interpretation of pointer and wheel events.
 
@@ -159,7 +254,31 @@ Expected file direction:
 - New file: `packages/graph-engine/src/render/gestures.ts`.
 - `static-renderer.ts` wires DOM elements to gesture handlers but does not implement gesture math.
 
-### 4. Overlays Module
+### 5. Renderer Module
+
+Owns DOM/SVG painting.
+
+Responsibilities:
+
+- Render nodes, edges, community washes, minimap, labels, and density states from graph state.
+- Apply viewport transforms from the camera module.
+- Update DOM incrementally where needed.
+- Delegate hover preview and floating UI placement to the overlays module.
+
+Rules:
+
+- Renderer does not decide whether a pointer event is a drag, click, or pan.
+- Renderer does not convert screen coordinates except through Geometry.
+- Renderer does not own hidden selection, hover, drag, or focus state.
+- Renderer remains DOM+SVG for this refactor.
+
+Expected file direction:
+
+- Keep `packages/graph-engine/src/render/static-renderer.ts` as the shell during migration.
+- Extract focused helpers only after state, geometry, and gestures have tests.
+- Do not switch to Canvas or WebGL in this phase.
+
+### 6. Overlays Module
 
 Owns floating UI placement and community visual shapes.
 
@@ -185,7 +304,7 @@ Expected file direction:
 - Move `positionHoverPreview`, `positionEdgeHoverPreview`, and community wash geometry helpers into focused helpers.
 - Keep visual styles in the renderer CSS for now.
 
-### 5. Simulation Bridge
+### 7. Simulation Bridge
 
 Owns the boundary between UI drag and force simulation.
 
@@ -210,6 +329,24 @@ Expected file direction:
 
 - Keep core force simulation in `packages/graph-engine/src/sim/index.ts`.
 - Add a render-side bridge near the renderer, likely `packages/graph-engine/src/render/simulation-bridge.ts`, only if extracting from `static-renderer.ts` materially improves clarity.
+
+### 8. Graph Facade
+
+Owns orchestration between host API, graph state, layout, viewport, gestures, renderer, and persistence.
+
+Responsibilities:
+
+- Preserve the current public `createGraphEngine` style API.
+- Register gesture intent handlers.
+- Decide how graph intents mutate state.
+- Call simulation, viewport, renderer, overlay, and host callbacks in the correct order.
+- Keep workbench and offline Skill output on the same engine behavior.
+
+Rules:
+
+- Facade is allowed to coordinate modules.
+- Other modules should not import across layers just to "reach" behavior.
+- Host callbacks receive semantic events such as open page, selection changed, pin persisted, and focus changed.
 
 ## Community Wash Behavior
 
@@ -297,22 +434,31 @@ This lets the wash feel alive without letting a single dragged node dominate the
 ## Data Flow
 
 1. Graph data enters `buildRenderableGraph`.
-2. Renderable graph exposes world positions for nodes, edges, and communities.
-3. Viewport stores the current camera.
+2. GraphState stores the current renderable graph, viewport, selection, hover, focus, pins, and gesture state.
+3. Layout and simulation expose world positions for nodes, edges, and communities.
 4. Geometry projects world positions to layer/screen/minimap positions.
-5. Renderer applies DOM styles from projected positions.
+5. Renderer applies DOM/SVG styles from state and projected positions.
 6. User input enters Gestures.
-7. Gestures use Geometry to interpret pointer locations.
-8. Node drag goes through Simulation Bridge.
-9. Motion frames update world positions for visible nodes.
-10. Overlays recompute hover and wash positions from current world positions and viewport.
-11. Drag end persists pins by wiki-relative path.
+7. Gestures classify the event target and emit an intent such as zoom, pan, drag node, hover node, click node, or click community.
+8. GraphFacade handles the intent and mutates GraphState.
+9. Node drag goes through Simulation Bridge using world-space targets.
+10. Motion frames update world positions for visible nodes and rebuild hit-test data as needed.
+11. Overlays recompute hover and wash positions from current world positions and viewport.
+12. Drag end persists pins by wiki-relative path.
 
 No component should infer a coordinate space from a raw number. The caller must know whether it is using world, layer, screen, or minimap coordinates.
+
+Renderer code should not directly decide graph intent. Gesture code should not directly mutate DOM. Layout code should not know UI controls. These boundaries are the core regression guard.
 
 ## Testing Strategy
 
 ### Unit Tests
+
+Graph State:
+
+- State updates are explicit and observable through one subscription path.
+- Hover, selection, focus, drag, viewport, and pins do not live in separate hidden stores.
+- Renderer receives a state snapshot and does not mutate graph state directly.
 
 Viewport:
 
@@ -320,6 +466,7 @@ Viewport:
 - Pan changes viewport translation without changing scale.
 - Fit/center functions preserve intended scale limits.
 - Resize keeps selected/focused anchor visually comfortable.
+- Zoom level transitions are deterministic for the same scale values.
 
 Geometry:
 
@@ -335,6 +482,15 @@ Gestures:
 - Wheel is blocked over controls.
 - Pointer target classification separates node drag, blank pan, community click, minimap control, and UI controls.
 - Click vs drag threshold prevents accidental drawer opens after drag.
+- Gesture lock prevents new drag/pan/zoom starts during transitions.
+- Gesture handlers emit intents and do not mutate DOM directly.
+
+Spatial Index:
+
+- Hit testing returns the expected node near a point.
+- Hit testing respects current world positions after drag.
+- Rebuilding the index after simulation movement updates results.
+- Large fixture hit testing stays below the chosen time budget.
 
 Overlays:
 
@@ -356,6 +512,13 @@ Simulation Bridge:
 - Grab offset is preserved.
 - End drag persists the final position.
 - Double-click unpins without changing community membership.
+
+Facade / Integration:
+
+- A wheel DOM event becomes a zoom intent, then a viewport state change, then a renderer update.
+- A node pointer sequence below the drag threshold becomes a node click and opens the drawer.
+- A node pointer sequence above the drag threshold becomes node drag and does not open the drawer.
+- A community click enters community focus without blocking wheel zoom.
 
 ### Browser Verification
 
@@ -390,14 +553,45 @@ It should also add tests for the two newly reported regressions:
 
 ## Implementation Notes
 
-The implementation should be phased to reduce risk while still being architectural:
+The implementation should be phased to reduce risk while still being architectural. Do not start by patching the currently visible drag or hover bugs in place.
 
-1. Introduce Geometry and move projection helpers into it.
-2. Update hover preview and edge preview to use Geometry.
-3. Update node drag to use unclamped screen-to-world projection plus explicit layout constraints.
-4. Extract gesture classification from `static-renderer.ts`.
-5. Move community wash computation toward bounded deformation.
-6. Add browser verification for the full interaction matrix.
+1. Establish graph state and geometry contracts.
+   - Define GraphState shape.
+   - Move projection helpers into Geometry.
+   - Remove silent coordinate clamping from projection paths.
+   - Add tests before changing behavior.
+
+2. Centralize gesture interpretation.
+   - Extract wheel, pointer, drag, click, community click, hover, and minimap target classification from `static-renderer.ts`.
+   - Make gesture handlers emit intents.
+   - Add jsdom tests for intent generation.
+
+3. Route existing behavior through facade/state.
+   - Keep public API stable.
+   - Preserve node click, drawer open, selection, focus, pin persistence, and reset behavior.
+   - Ensure workbench and offline graph use the same engine behavior.
+
+4. Fix overlays and drag through the new path.
+   - Hover and edge previews use projected screen positions.
+   - Node drag uses unclamped screen-to-world projection plus explicit layout constraints.
+   - Grab offset is preserved.
+
+5. Rework community wash as a soft visual region.
+   - Nodes can leave the current wash.
+   - Wash recomputes from current member positions.
+   - Normal movement stretches the wash.
+   - Extreme outliers are bounded through capped influence.
+
+6. Add spatial index and zoom-level policy.
+   - Add one hit-test path for nodes, edges, and community washes.
+   - Add zoom level thresholds for density and label behavior.
+   - Keep rendering technology unchanged.
+
+7. Split renderer only after behavior is under tests.
+   - Extract node, edge, community, minimap, overlay, and density helpers.
+   - Leave styling and markup stable unless the boundary requires movement.
+
+8. Add browser verification for the full interaction matrix.
 
 Each phase should have tests before behavior changes where practical. Avoid mixing visual restyling with this refactor.
 
@@ -405,14 +599,19 @@ Each phase should have tests before behavior changes where practical. Avoid mixi
 
 The refactor is complete when:
 
+- There is one explicit graph state owner for hover, selection, focus, viewport, pins, and drag state.
 - There is one documented path for world/screen/minimap coordinate conversion.
-- `static-renderer.ts` no longer owns ad hoc coordinate formulas for drag, hover, wheel, and minimap.
+- `static-renderer.ts` no longer owns ad hoc coordinate formulas for drag, hover, wheel, minimap, and community wash behavior.
+- Renderer code no longer directly interprets graph gestures.
+- Gesture code emits graph intents and does not directly mutate DOM.
 - Nodes can be dragged outside community washes.
 - Hover previews stay visually attached to nodes after pan, zoom, community focus, drag, and drawer open.
 - Wheel zoom works over blank graph, nodes, and community washes.
 - Community washes stretch within a bounded rule and do not become hard drag fences.
+- Hit testing has one graph-owned path, with spatial index support or a tested compatibility implementation.
+- Zoom level / density behavior has one policy source.
 - Existing node click, community click, Shift selection, blank pan, double-click reset, and unpin behaviors still work.
-- Unit tests cover projection, gesture target classification, hover positioning, drag bounds, and bounded wash deformation.
+- Unit tests cover graph state, projection, gesture intent classification, hover positioning, drag bounds, bounded wash deformation, and facade integration.
 - Browser verification passes on the workbench.
 
 ## Risks and Mitigations
@@ -424,13 +623,24 @@ Risk: Community wash deformation could make the visual design noisy.
 Mitigation: Cap expansion and preserve low opacity; test with outlier fixtures.
 
 Risk: `static-renderer.ts` extraction may become a broad refactor.
-Mitigation: Extract only position/gesture/overlay responsibilities. Leave rendering markup and CSS in place unless a direct boundary requires movement.
+Mitigation: Establish GraphState, Geometry, and Gestures first. Split renderer helpers only after behavior is under tests.
 
 Risk: Workbench and offline HTML diverge.
 Mitigation: Keep the behavior in `@llm-wiki/graph-engine` and verify through engine tests. Avoid workbench-only gesture logic.
 
+Risk: The refactor becomes a renderer rewrite.
+Mitigation: Keep DOM+SVG. Do not adopt Canvas, WebGL, Pixi.js, or a new rendering dependency in this phase.
+
+Risk: The state layer turns into a general app store.
+Mitigation: Keep GraphState graph-local. Host business state stays outside graph-engine.
+
 ## Decision
 
-Use the Graph Interaction Geometry approach.
+Use the standard Graph Interaction Architecture approach:
 
-This is intentionally more than a bug patch and less than a renderer rewrite. It fixes the architectural source of the current regression class: position-sensitive graph behavior must not be scattered across unrelated renderer functions.
+- Keep the current graph-engine strengths: DOM+SVG rendering, live d3 simulation, pin persistence, density modes, minimap, Jaccard community tracking, and shared workbench/offline behavior.
+- Add the missing front-end architecture: GraphState, Geometry, Gestures, Renderer boundaries, Overlays, Layout/SpatialIndex, Simulation Bridge, and GraphFacade.
+- Do not choose the conservative patch route; it cannot prevent the next interaction regression.
+- Do not choose the aggressive renderer rewrite route; WebGL/Canvas would add risk before the current scale demands it.
+
+This is intentionally more than a bug patch and less than a rendering-technology migration. It fixes the architectural source of the current regression class: position-sensitive graph behavior and graph gesture behavior must not be scattered across unrelated renderer functions.
