@@ -25,8 +25,7 @@ import {
   type RenderableNode,
   type RenderPositionMap
 } from "./model";
-import { graphNodeTypeLabel, wikiPathForGraphNode } from "../graph-node";
-import { buildCommunityLegend, type CommunityLegendRow } from "./legend";
+import { buildCommunityLegend } from "./legend";
 import {
   DEFAULT_RENDERER_VIEWPORT,
   applyRendererViewportTransform,
@@ -57,6 +56,8 @@ import { createGraphEdgeElement, type GraphEdgeElementHandlers } from "./edges";
 import { createCommunityWashElement } from "./community-washes";
 import { createGraphMinimap } from "./minimap";
 import { createEdgeHoverPreviewContent, createHoverPreviewContent } from "./hover-card";
+import { createCommunityLegend, createGraphToolbar, createSearchControl } from "./controls";
+import { renderOfflineReader, renderOfflineSelectionPanel } from "./offline-reader";
 import {
   GraphGestureController,
   GraphGestureStateMachine,
@@ -1216,122 +1217,37 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (!reader) return;
     const selected = graph.selectedNodeId ? graph.nodes.find((node) => node.id === graph.selectedNodeId) : null;
     const rawNode = selected ? data.nodes.find((node) => node.id === selected.id) : null;
-    reader.dataset.state = selected ? "open" : "closed";
-    reader.replaceChildren();
-    if (!selected || !rawNode) {
-      const empty = document.createElement("p");
-      empty.className = "graph-reader-empty";
-      empty.textContent = "选择一个节点查看内容";
-      reader.appendChild(empty);
-      return;
-    }
-
-    const header = document.createElement("div");
-    header.className = "graph-reader-header";
-    const title = document.createElement("div");
-    title.className = "graph-reader-title";
-    title.textContent = selected.label;
-    const readerNode = graphReaderNode(data, selected.id);
-    const meta = document.createElement("div");
-    meta.className = "graph-reader-meta";
-    for (const item of graphReaderMetaItems(readerNode)) {
-      const tag = document.createElement("span");
-      tag.textContent = item;
-      meta.appendChild(tag);
-    }
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "graph-reader-close";
-    close.setAttribute("aria-label", "关闭阅读面板");
-    close.textContent = "×";
-    close.addEventListener("click", () => clearInteractionState());
-    header.append(title, meta, close);
-
-    const body = document.createElement("div");
-    body.className = "graph-reader-body";
-    if (readerNode.type === "source" && readerNode.sourcePath) {
-      const sourceLink = document.createElement("a");
-      sourceLink.className = "graph-reader-source";
-      sourceLink.href = readerNode.sourcePath;
-      sourceLink.textContent = readerNode.sourcePath;
-      body.appendChild(sourceLink);
-    }
-    const content = String(rawNode.content || rawNode.summary || selected.label);
-    const rendered = renderMarkdown(content);
-    if (rendered) {
-      const article = document.createElement("article");
-      article.className = "graph-reader-markdown";
-      article.innerHTML = rendered;
-      body.appendChild(article);
-    } else {
-      const pre = document.createElement("pre");
-      pre.textContent = content;
-      body.appendChild(pre);
-    }
-    reader.append(header, body);
+    renderOfflineReader(ownerDocument, reader, {
+      selected: selected
+        ? {
+            id: selected.id,
+            label: selected.label,
+            type: selected.type,
+            content: rawNode?.content ? String(rawNode.content) : undefined,
+            summary: rawNode?.summary ? String(rawNode.summary) : undefined
+          }
+        : null,
+      rawNode: rawNode || null,
+      onClose: () => clearInteractionState()
+    });
   }
 
   function renderSelectionPanel(): void {
     const panel = dom.selectionElement;
     if (!panel) return;
     const selection = panelSelection();
-    panel.replaceChildren();
-    panel.dataset.state = selection ? "open" : "closed";
-    if (!selection) {
-      const empty = document.createElement("p");
-      empty.className = "graph-selection-empty";
-      empty.textContent = "Shift+点击 可选择多个节点";
-      panel.appendChild(empty);
-      return;
-    }
-
-    const resolved = resolveSelectionForCapabilities(data, selection, { canAsk: false });
-    const selectedNodes = resolved.nodeIds
+    const resolved = selection ? resolveSelectionForCapabilities(data, selection, { canAsk: false }) : null;
+    const selectedNodes = resolved
+      ? resolved.nodeIds
       .map((id) => data.nodes.find((node) => node.id === id))
-      .filter((node): node is GraphNode => Boolean(node));
-
-    const header = document.createElement("div");
-    header.className = "graph-selection-header";
-    const title = document.createElement("div");
-    title.className = "graph-selection-title";
-    title.textContent = offlineSelectionTitle(selection, selectedNodes.length);
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "graph-selection-close";
-    close.setAttribute("aria-label", "关闭选区面板");
-    close.textContent = "×";
-    close.addEventListener("click", () => clearInteractionState());
-    header.append(title, close);
-
-    const hint = document.createElement("div");
-    hint.className = "graph-selection-hint";
-    hint.textContent = "Shift+点击 增删节点";
-
-    const facts = document.createElement("div");
-    facts.className = "graph-selection-facts";
-    facts.append(
-      createSelectionFact("页面", resolved.facts.pageCount),
-      createSelectionFact("内部关联", resolved.facts.internalLinkCount),
-      createSelectionFact("社区", resolved.facts.communityCount),
-      createSelectionFact("孤立页", resolved.facts.isolatedCount)
-    );
-
-    const list = document.createElement("ol");
-    list.className = "graph-selection-pages";
-    for (const node of selectedNodes) {
-      const item = document.createElement("li");
-      item.className = "graph-selection-page";
-      const name = document.createElement("span");
-      name.className = "graph-selection-page-title";
-      name.textContent = node.label || node.id;
-      const path = document.createElement("span");
-      path.className = "graph-selection-page-path";
-      path.textContent = wikiPathForGraphNode(node);
-      item.append(name, path);
-      list.appendChild(item);
-    }
-
-    panel.append(header, hint, facts, list);
+      .filter((node): node is GraphNode => Boolean(node))
+      : [];
+    renderOfflineSelectionPanel(ownerDocument, panel, {
+      selection,
+      selectedNodes,
+      facts: resolved?.facts || null,
+      onClose: () => clearInteractionState()
+    });
   }
 
   function scheduleHoverPreview(id: NodeId): void {
@@ -1510,24 +1426,6 @@ function paint(
   return painted;
 }
 
-function createSelectionFact(label: string, value: number): HTMLElement {
-  const item = document.createElement("div");
-  item.className = "graph-selection-fact";
-  const number = document.createElement("strong");
-  number.textContent = String(value);
-  const text = document.createElement("span");
-  text.textContent = label;
-  item.append(number, text);
-  return item;
-}
-
-function offlineSelectionTitle(selection: SelectionInput, count: number): string {
-  if (selection.kind === "community") return `社区选区 · ${count} 页`;
-  if (selection.kind === "neighbors") return `相邻节点 · ${count} 页`;
-  if (selection.kind === "node") return "选中页面";
-  return `手动选区 · ${count} 页`;
-}
-
 function positionsFromRenderableGraph(graph: RenderableGraph): RenderPositionMap {
   return Object.fromEntries(graph.nodes.map((node) => [node.id, { x: node.point.x, y: node.point.y }]));
 }
@@ -1546,52 +1444,6 @@ function shiftSelection(id: NodeId, current: NodeId[]): SelectionInput {
   const ids = Array.from(selected);
   if (ids.length === 1) return { kind: "node", id: ids[0] };
   return { kind: "nodes", ids };
-}
-
-interface GraphReaderNode {
-  type: string;
-  typeLabel: string;
-  sourcePath: string;
-  date: string | null;
-  source: string | null;
-}
-
-function graphReaderNode(data: GraphData, id: NodeId): GraphReaderNode {
-  const node = data.nodes.find((item) => item.id === id);
-  if (!node) {
-    return {
-      type: "entity",
-      typeLabel: "实体",
-      sourcePath: id,
-      date: null,
-      source: null
-    };
-  }
-  const sourcePath = wikiPathForGraphNode(node);
-  return {
-    type: node.type,
-    typeLabel: graphNodeTypeLabel(node.type),
-    sourcePath,
-    date: dateForNode(node),
-    source: sourceForNode(node)
-  };
-}
-
-function dateForNode(node: GraphNode): string | null {
-  const value = node.date || node.updated_at || node.updatedAt || node.created_at || node.createdAt;
-  return value == null || value === "" ? null : String(value);
-}
-
-function sourceForNode(node: GraphNode): string | null {
-  const value = node.source_title || node.source_url || node.url || node.author || node.source_name;
-  return value == null || value === "" ? null : String(value);
-}
-
-function graphReaderMetaItems(node: GraphReaderNode): string[] {
-  const items = [node.typeLabel];
-  if (node.date) items.push(node.date);
-  if (node.source) items.push(node.source);
-  return items;
 }
 
 function isTextEditingElement(element: Element | null): boolean {
@@ -1641,259 +1493,6 @@ export function classifyGraphKeyboardIntent(input: GraphKeyboardIntentInput): Gr
   if (input.activeGesture) return "cancel-active-gesture";
   if (input.graphFocused && input.interactionActive) return "clear-interaction";
   return "blocked";
-}
-
-function createGraphToolbar(
-  ownerDocument: Document,
-  options: {
-    panelState: GraphToolbarPanelState;
-    typeFilters: GraphTypeFilters;
-    onPanelToggle: (panel: Exclude<GraphToolbarPanelState, "closed">) => void;
-    onTypeFilterToggle: (type: string, enabled: boolean) => void;
-    onReset: () => void;
-  }
-): { element: HTMLElement; panel: HTMLElement; filtersPanel: HTMLElement } {
-  const element = ownerDocument.createElement("nav");
-  element.className = "graph-toolbar";
-  element.dataset.panel = options.panelState;
-  element.setAttribute("aria-label", "图谱控制");
-  element.addEventListener("click", (event) => event.stopPropagation());
-
-  const actions = ownerDocument.createElement("div");
-  actions.className = "graph-toolbar-actions";
-  const filters = createToolbarButton(ownerDocument, "筛选", options.panelState === "filters");
-  filters.addEventListener("click", () => options.onPanelToggle("filters"));
-  const legend = createToolbarButton(ownerDocument, "图例", options.panelState === "legend");
-  legend.addEventListener("click", () => options.onPanelToggle("legend"));
-  const reset = createToolbarButton(ownerDocument, "回全图", false);
-  reset.addEventListener("click", options.onReset);
-  actions.append(filters, legend, reset);
-
-  const panel = ownerDocument.createElement("section");
-  panel.className = "graph-toolbar-panel";
-  panel.dataset.state = options.panelState;
-  const filtersPanel = ownerDocument.createElement("div");
-  filtersPanel.className = "graph-toolbar-section graph-toolbar-filters";
-  filtersPanel.appendChild(createTypeFilterGroup(ownerDocument, options.typeFilters, options.onTypeFilterToggle));
-
-  const legendPanel = ownerDocument.createElement("div");
-  legendPanel.className = "graph-toolbar-section graph-toolbar-legend";
-  const legendTitle = ownerDocument.createElement("div");
-  legendTitle.className = "graph-toolbar-section-title";
-  legendTitle.textContent = "边";
-  legendPanel.appendChild(legendTitle);
-  legendPanel.appendChild(createEdgeLegend(ownerDocument));
-
-  panel.append(filtersPanel, legendPanel);
-  element.append(actions, panel);
-  return { element, panel, filtersPanel };
-}
-
-function createEdgeLegend(ownerDocument: Document): HTMLElement {
-  const legend = ownerDocument.createElement("div");
-  legend.className = "graph-edge-legend";
-  const relations = ownerDocument.createElement("div");
-  relations.className = "graph-edge-legend-group";
-  relations.appendChild(createEdgeLegendHeading(ownerDocument, "关系类型"));
-  for (const item of [
-    { label: "实现 / 依赖 / 衍生", className: "relation-dependency" },
-    { label: "对比", className: "relation-contrast" },
-    { label: "矛盾", className: "relation-conflict" }
-  ]) {
-    relations.appendChild(createEdgeLegendRelation(ownerDocument, item.label, item.className));
-  }
-
-  const confidences = ownerDocument.createElement("div");
-  confidences.className = "graph-edge-legend-group";
-  confidences.appendChild(createEdgeLegendHeading(ownerDocument, "置信度"));
-  for (const item of [
-    { label: "原文", className: "confidence-extracted" },
-    { label: "推断", className: "confidence-inferred" },
-    { label: "待确认", className: "confidence-ambiguous" }
-  ]) {
-    confidences.appendChild(createEdgeLegendConfidence(ownerDocument, item.label, item.className));
-  }
-
-  legend.append(relations, confidences);
-  return legend;
-}
-
-function createEdgeLegendHeading(ownerDocument: Document, text: string): HTMLElement {
-  const heading = ownerDocument.createElement("div");
-  heading.className = "graph-edge-legend-heading";
-  heading.textContent = text;
-  return heading;
-}
-
-function createEdgeLegendRelation(ownerDocument: Document, label: string, className: string): HTMLElement {
-  const row = ownerDocument.createElement("div");
-  row.className = `graph-edge-legend-row graph-edge-legend-relation ${className}`;
-  const swatch = ownerDocument.createElement("span");
-  swatch.className = "graph-edge-legend-swatch";
-  const text = ownerDocument.createElement("span");
-  text.textContent = label;
-  row.append(swatch, text);
-  return row;
-}
-
-function createEdgeLegendConfidence(ownerDocument: Document, label: string, className: string): HTMLElement {
-  const row = ownerDocument.createElement("div");
-  row.className = `graph-edge-legend-row graph-edge-legend-confidence ${className}`;
-  const line = ownerDocument.createElement("span");
-  line.className = "graph-edge-legend-line";
-  const text = ownerDocument.createElement("span");
-  text.textContent = label;
-  row.append(line, text);
-  return row;
-}
-
-function createTypeFilterGroup(
-  ownerDocument: Document,
-  typeFilters: GraphTypeFilters,
-  onToggle: (type: string, enabled: boolean) => void
-): HTMLElement {
-  const group = ownerDocument.createElement("fieldset");
-  group.className = "graph-type-filter";
-  const title = ownerDocument.createElement("legend");
-  title.className = "graph-toolbar-section-title";
-  title.textContent = "类型筛选";
-  group.appendChild(title);
-
-  for (const type of orderedGraphNodeTypes(typeFilters)) {
-    const label = ownerDocument.createElement("label");
-    label.className = "graph-type-filter-option";
-    const input = ownerDocument.createElement("input");
-    input.type = "checkbox";
-    input.checked = typeFilters[type] !== false;
-    input.dataset.type = type;
-    input.addEventListener("change", () => onToggle(type, input.checked));
-    const text = ownerDocument.createElement("span");
-    text.textContent = graphNodeTypeLabel(type);
-    label.append(input, text);
-    group.appendChild(label);
-  }
-
-  return group;
-}
-
-function orderedGraphNodeTypes(typeFilters: GraphTypeFilters): string[] {
-  const preferred = ["entity", "topic", "source"];
-  const seen = new Set<string>();
-  const ordered: string[] = [];
-  for (const type of preferred) {
-    if (Object.hasOwn(typeFilters, type)) {
-      ordered.push(type);
-      seen.add(type);
-    }
-  }
-  for (const type of Object.keys(typeFilters).sort()) {
-    if (!seen.has(type)) ordered.push(type);
-  }
-  return ordered;
-}
-
-function createToolbarButton(ownerDocument: Document, label: string, active: boolean): HTMLButtonElement {
-  const button = ownerDocument.createElement("button");
-  button.type = "button";
-  button.className = "graph-toolbar-button";
-  button.dataset.active = active ? "true" : "false";
-  button.textContent = label;
-  return button;
-}
-
-function createCommunityLegend(
-  ownerDocument: Document,
-  options: {
-    rows: CommunityLegendRow[];
-    collapsed: boolean;
-    onToggle: () => void;
-    onHover: (id: string | null) => void;
-    onSelect: (id: string) => void;
-  }
-): { element: HTMLElement; rows: Map<string, HTMLButtonElement> } {
-  const element = ownerDocument.createElement("aside");
-  element.className = "community-legend";
-  element.dataset.state = options.collapsed ? "collapsed" : "open";
-  const header = ownerDocument.createElement("button");
-  header.type = "button";
-  header.className = "community-legend-toggle";
-  header.setAttribute("aria-expanded", options.collapsed ? "false" : "true");
-  header.textContent = options.collapsed ? "社区" : "社区";
-  header.addEventListener("click", (event) => {
-    event.stopPropagation();
-    options.onToggle();
-  });
-  element.appendChild(header);
-
-  const list = ownerDocument.createElement("div");
-  list.className = "community-legend-list";
-  const rowMap = new Map<string, HTMLButtonElement>();
-  for (const row of options.rows) {
-    const button = ownerDocument.createElement("button");
-    button.type = "button";
-    button.className = "community-legend-row";
-    button.dataset.communityId = row.id;
-    button.addEventListener("pointerenter", () => options.onHover(row.id));
-    button.addEventListener("pointerleave", () => options.onHover(null));
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      options.onSelect(row.id);
-    });
-    const swatch = ownerDocument.createElement("span");
-    swatch.className = "community-legend-swatch";
-    swatch.style.background = row.color;
-    const label = ownerDocument.createElement("span");
-    label.className = "community-legend-label";
-    label.textContent = row.label;
-    const count = ownerDocument.createElement("span");
-    count.className = "community-legend-count";
-    count.textContent = `${row.pageCount} 页`;
-    button.append(swatch, label, count);
-    list.appendChild(button);
-    rowMap.set(row.id, button);
-  }
-  element.appendChild(list);
-  return { element, rows: rowMap };
-}
-
-function createSearchControl(
-  ownerDocument: Document,
-  options: {
-    open: boolean;
-    query: string;
-    onOpen: () => void;
-    onQuery: (query: string) => void;
-    onNext: () => void;
-    onClose: () => void;
-  }
-): { element: HTMLElement; input: HTMLInputElement; status: HTMLElement } {
-  const element = ownerDocument.createElement("div");
-  element.className = "graph-search";
-  element.dataset.state = options.open ? "open" : "closed";
-  const input = ownerDocument.createElement("input");
-  input.type = "search";
-  input.className = "graph-search-input";
-  input.placeholder = "搜索图谱";
-  input.setAttribute("aria-label", "搜索图谱");
-  input.value = options.query;
-  input.addEventListener("focus", options.onOpen);
-  input.addEventListener("input", () => options.onQuery(input.value));
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      options.onNext();
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      options.onClose();
-    }
-  });
-  const status = ownerDocument.createElement("span");
-  status.className = "graph-search-status";
-  status.textContent = options.query ? "0 个结果" : "输入关键词";
-  element.append(input, status);
-  return { element, input, status };
 }
 
 function emptyPaintedDom(): PaintedGraphDom {
@@ -2946,14 +2545,4 @@ function prefersReducedMotion(doc: Document): boolean {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function renderMarkdown(markdown: string): string | null {
-  const runtime = globalThis as unknown as {
-    marked?: { parse?: (input: string, options?: Record<string, unknown>) => string };
-    DOMPurify?: { sanitize?: (input: string, options?: Record<string, unknown>) => string };
-  };
-  if (typeof runtime.marked?.parse !== "function" || typeof runtime.DOMPurify?.sanitize !== "function") return null;
-  const html = runtime.marked.parse(markdown, { breaks: false, gfm: true });
-  return runtime.DOMPurify.sanitize(html, { ADD_ATTR: ["target", "data-target", "tabindex"] });
 }
