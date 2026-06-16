@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-3",
-    "task": "3.2",
-    "next_allowed_action": "Run the baseline smoke check, then drive hover, selection, focus, drag, pins, and viewport from GraphState snapshots for task 3.2."
+    "task": "3.3",
+    "next_allowed_action": "Run the baseline smoke check, then make world size layout-bounds-driven instead of a hard 1000x680 interaction cage for task 3.3."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -532,8 +532,15 @@
         },
         {
           "check": "Hover, selection, focus, active drag, pins, and viewport have one GraphState-owned path.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "GraphRuntimeState snapshot now includes selectionSurface plus node-drag startWorldPoint and wasPinned, so reader selection, selection-panel selection, drag cancellation, and fast release use one state owner.",
+            "static-renderer.ts removed renderer-local pins, selectedNodeId, selection, manualNodeIds, focus, viewport, pending drag, and hover preview state as behavior sources; render, hover, selection, focus, drag, pins, and viewport now read/write GraphRuntimeState snapshots.",
+            "state.test.ts covers selectionSurface, drag startWorldPoint, wasPinned, cloned snapshots, and clearInteraction preserving viewport, positions, and pins.",
+            "graph-workbench-interactions regression covers zoom over graph targets, blocked UI targets, hover after zoom/drawer resize, community drag, pan/reset, and pinned drag behavior.",
+            "graph-offline-phase-6 regression covers offline zoom, hover after zoom, drag pointer distance, reader drawer, and pin persistence.",
+            "graph-default-behavior regression covers browser zoom prevention, blank drag selection prevention, pointercancel/lostpointercapture, fast release drag, and keyboard ownership."
+          ]
         },
         {
           "check": "Layout bounds, minimap, fit, SpatialIndex, and hover anchors support nodes outside the old 1000x680 world.",
@@ -603,9 +610,50 @@
         {
           "id": "3.2",
           "title": "Drive hover, selection, focus, drag, pins, and viewport from GraphState snapshots",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "224 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "result": "tsc -p tsconfig.json --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "npm run build --workspace=@llm-wiki/graph-engine",
+              "result": "vite build and declaration emit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "result": "PASS: graph workbench interaction regression",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-offline-phase-6.regression-1.sh",
+              "result": "PASS: phase 6 offline graph regression",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-default-behavior.regression-1.sh",
+              "result": "PASS: graph default behavior regression",
+              "status": "passed"
+            },
+            {
+              "command": "rg -n \"rootRect\\.width \\*|rootRect\\.height \\*|eventToGraphPoint|clientX.*WORLD|clientY.*WORLD\" packages/graph-engine/src/render/static-renderer.ts",
+              "result": "No matches",
+              "status": "passed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "No whitespace errors",
+              "status": "passed"
+            }
+          ],
+          "commit": "ad6b20c"
         },
         {
           "id": "3.3",
