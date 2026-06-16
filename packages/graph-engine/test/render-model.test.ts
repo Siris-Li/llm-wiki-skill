@@ -242,8 +242,46 @@ describe("buildRenderableGraph", () => {
 
     assert.ok(community?.wash);
     assert.equal(community.nodeCount, 5);
-    assert.ok(community.wash.cx < 320, `wash center should stay near the clustered members, got ${community.wash.cx}`);
-    assert.ok(community.wash.rx < 140, `wash radius should not stretch to the outlier, got ${community.wash.rx}`);
+    assert.ok(community.wash.cx > 300, `wash center should respond toward the outlier, got ${community.wash.cx}`);
+    assert.ok(community.wash.cx < 430, `wash center should stay near the clustered members, got ${community.wash.cx}`);
+    assert.equal(community.wash.rx, 190);
+    assert.equal(community.wash.ry, 142.8);
+  });
+
+  it("keeps community membership stable when a pinned member is outside the wash cap", () => {
+    const graph = buildRenderableGraph(outlierCommunityGraph(), {
+      theme: "shan-shui",
+      pins: {
+        "wiki/outlier.md": { x: 980, y: 650 }
+      }
+    });
+    const community = graph.communities.find((item) => item.id === "c1");
+    const outlier = graph.nodes.find((node) => node.id === "outlier");
+
+    assert.ok(community?.wash);
+    assert.ok(outlier);
+    assert.equal(outlier.community, "c1");
+    assert.equal(community.nodeCount, 5);
+    assert.equal(community.wash.rx, 190);
+    assert.equal(community.wash.ry, 142.8);
+    assert.ok(outlier.point.x > community.wash.cx + community.wash.rx, "pinned member may sit outside the capped visual wash");
+  });
+
+  it("preserves community focus after a member is dragged beyond the wash cap", () => {
+    const graph = buildRenderableGraph(outlierCommunityGraph(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      positions: {
+        outlier: { x: 980, y: 650 }
+      }
+    });
+    const community = graph.communities.find((item) => item.id === "c1");
+
+    assert.deepEqual(graph.nodes.map((node) => node.id).sort(), ["core-a", "core-b", "core-c", "core-d", "outlier"]);
+    assert.ok(community?.wash);
+    assert.equal(graph.focus?.id, "c1");
+    assert.equal(community.wash.rx, 190);
+    assert.equal(community.wash.ry, 142.8);
   });
 });
 

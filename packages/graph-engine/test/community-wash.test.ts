@@ -1,0 +1,56 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X,
+  DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y,
+  computeCommunityWash
+} from "../src/render/community-wash";
+
+function node(x: number, y: number) {
+  return { point: { x, y } };
+}
+
+describe("community wash geometry", () => {
+  it("keeps small communities visibly selectable", () => {
+    const wash = computeCommunityWash([node(240, 220), node(262, 236)]);
+
+    assert.ok(wash);
+    assert.equal(wash.rx, 57);
+    assert.equal(wash.ry, 42);
+    assert.equal(wash.opacity, 0.11);
+  });
+
+  it("responds to one dragged outlier without chasing it across the canvas", () => {
+    const wash = computeCommunityWash([
+      node(200, 240),
+      node(220, 256),
+      node(238, 230),
+      node(252, 248),
+      node(940, 610)
+    ]);
+
+    assert.ok(wash);
+    assert.equal(wash.rx, DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X);
+    assert.equal(wash.ry, DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y);
+    assert.ok(wash.cx > 300, `wash should move toward the outlier, got cx ${wash.cx}`);
+    assert.ok(wash.cx < 430, `wash should remain anchored near the core, got cx ${wash.cx}`);
+  });
+
+  it("caps response to outliers in multiple directions", () => {
+    const wash = computeCommunityWash([
+      node(440, 310),
+      node(462, 326),
+      node(482, 304),
+      node(506, 330),
+      node(80, 80),
+      node(950, 630)
+    ]);
+
+    assert.ok(wash);
+    assert.ok(wash.rx <= DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X, `rx should stay capped, got ${wash.rx}`);
+    assert.ok(wash.ry <= DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y, `ry should stay capped, got ${wash.ry}`);
+    assert.equal(wash.rx, DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X);
+    assert.equal(wash.ry, DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y);
+  });
+});
