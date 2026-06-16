@@ -60,8 +60,11 @@ export {
   GRAPH_OWNED_TARGET_KINDS,
   GraphGestureStateMachine,
   classifyGraphEventTarget,
+  classifyGraphPointerDownTargetFromGraphTarget,
   classifyGraphPointerDownTarget,
+  classifyGraphWheelTargetFromGraphTarget,
   classifyGraphWheelTarget,
+  graphSpatialHitToGestureTarget,
   graphGestureTargetOwnership,
   isGraphGestureBlockerTarget,
   isGraphOwnedGestureTarget

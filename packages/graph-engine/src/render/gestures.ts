@@ -1,4 +1,5 @@
 import type { CommunityId, NodeId } from "../types";
+import type { GraphSpatialHitTarget } from "../layout";
 
 export type GraphGestureTargetKind =
   | "graph-blank"
@@ -168,7 +169,10 @@ export function isGraphGestureBlockerTarget(target: GraphGestureTarget): target 
 }
 
 export function classifyGraphWheelTarget(target: GraphGestureTargetLike | null | undefined, event: GraphWheelEventLike = {}): GraphWheelTargetDecision {
-  const graphTarget = classifyGraphEventTarget(target);
+  return classifyGraphWheelTargetFromGraphTarget(classifyGraphEventTarget(target), event);
+}
+
+export function classifyGraphWheelTargetFromGraphTarget(graphTarget: GraphGestureTarget, event: GraphWheelEventLike = {}): GraphWheelTargetDecision {
   if (event.ctrlKey || event.metaKey) return { intent: "blocked", target: graphTarget };
   return isGraphOwnedGestureTarget(graphTarget)
     ? { intent: "zoom", target: graphTarget }
@@ -176,7 +180,26 @@ export function classifyGraphWheelTarget(target: GraphGestureTargetLike | null |
 }
 
 export function classifyGraphPointerDownTarget(target: GraphGestureTargetLike | null | undefined): GraphPointerDownTargetDecision {
-  const graphTarget = classifyGraphEventTarget(target);
+  return classifyGraphPointerDownTargetFromGraphTarget(classifyGraphEventTarget(target));
+}
+
+export function graphSpatialHitToGestureTarget(hit: GraphSpatialHitTarget | null | undefined): GraphGestureTarget {
+  if (!hit) return { kind: "unknown" };
+  switch (hit.kind) {
+    case "node":
+      return { kind: "node", id: hit.id };
+    case "edge":
+      return { kind: "edge", id: hit.id };
+    case "community-wash":
+      return { kind: "community-wash", id: hit.id };
+    case "graph-blank":
+      return { kind: "graph-blank" };
+    default:
+      return { kind: "unknown" };
+  }
+}
+
+export function classifyGraphPointerDownTargetFromGraphTarget(graphTarget: GraphGestureTarget): GraphPointerDownTargetDecision {
   switch (graphTarget.kind) {
     case "node":
       return { intent: "node-drag-candidate", target: graphTarget };
