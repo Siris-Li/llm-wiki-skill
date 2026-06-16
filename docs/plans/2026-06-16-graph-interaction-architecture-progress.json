@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-06-16-graph-interaction-architecture-phased-plan.md",
   "status": {
     "overall": "pending",
-    "phase": "phase-4",
-    "task": "4.2",
-    "next_allowed_action": "Execute phase-4 task 4.2: fix drag end, click, pointercancel, lostpointercapture, and pin persistence semantics. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
+    "phase": "phase-5",
+    "task": "5.1",
+    "next_allowed_action": "Execute phase-5 task 5.1: extract hover and edge preview positioning through projected screen anchors. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -449,7 +449,7 @@
     {
       "id": "phase-4",
       "goal": "Route node drag through geometry, runtime state, and simulation bridge",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
         {
           "check": "Node drag uses screen-to-world projection with preserved grab offset",
@@ -466,8 +466,18 @@
         },
         {
           "check": "Drag end, click, pointercancel, and lostpointercapture persist or discard pins correctly",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "Added packages/graph-engine/src/render/node-drag-lifecycle.ts to centralize node drag commit and cancel semantics.",
+            "Real drag end now commits the final simulation target to PinState and calls persistPins; low-movement click stays on the node-click path and does not write pins.",
+            "Pointercancel, lostpointercapture, and Escape node drag cancellation now restore the drag-start world position, keep an existing old pin fixed, and do not call persistPins.",
+            "LiveGraphSimulation.endDrag now supports an explicit restore state for cancelled drags, and simulation snapshots prefer current fixed drag targets so immediate release commits the actual dragged target.",
+            "Added node-drag-lifecycle tests for real drag commit, unpinned cancel without pin writes, and pinned cancel restoring the previous pin.",
+            "Extended gesture tests so node lostpointercapture emits node-drag-cancel, matching pointercancel behavior.",
+            "Headless Chrome CDP verification opened /tmp/llm-wiki-drag-lifecycle-dOyjPz/graph-interactive-basic/wiki/knowledge-graph.html: node click opened the reader and left graph-pins empty; real drag wrote one graph pin and marked the node pinned; pointercancel during drag left graph-pins empty, cleared dragging state, and returned node A within about 1.5px / 0.03px of the start center.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 after task 4.2: 47 suites, 189 tests, 189 pass, 0 fail.",
+            "npm run typecheck --workspace=@llm-wiki/graph-engine, npm run build --workspace=@llm-wiki/graph-engine, and git diff --check all exited 0."
+          ]
         }
       ],
       "tasks": [
@@ -496,9 +506,25 @@
         {
           "id": "4.2",
           "title": "Fix drag end, click, pointercancel, lostpointercapture, and pin persistence semantics",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-4 task 4.2.",
+            "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before changing code; both exited 0.",
+            "Added a node drag lifecycle helper that commits real drags to pins and cancels drags without writing pins.",
+            "Updated LiveGraphSimulation.endDrag with explicit cancelled-drag restore support, and updated simulation snapshots to prefer active fixed drag targets.",
+            "Updated static-renderer.ts to record each drag session start position and previous pinned state, then call commitGraphNodeDrag or cancelGraphNodeDrag instead of embedding pin semantics locally.",
+            "Added node-drag-lifecycle tests for real drag commit, unpinned cancel rollback without pin writes, and pinned cancel restoring the previous fixed pin.",
+            "Extended gesture tests so node lostpointercapture emits the same node-drag-cancel path as pointercancel.",
+            "Verified node --import tsx --test packages/graph-engine/test/gestures.test.ts packages/graph-engine/test/node-drag-lifecycle.test.ts packages/graph-engine/test/simulation-bridge.test.ts packages/graph-engine/test/sim.test.ts exited 0: 27 tests passed.",
+            "Verified npm run test --workspace=@llm-wiki/graph-engine exited 0: 47 suites, 189 tests, 189 pass, 0 fail.",
+            "Verified npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "Verified npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated both engine.esm.js and engine.iife.js.",
+            "Verified git diff --check exited 0.",
+            "Verified freshly generated offline HTML through headless Chrome CDP: click wrote 0 pins and opened reader; drag end wrote 1 pin and marked the node pinned; pointercancel wrote 0 pins, cleared dragging state, and restored node A within about 1.5px / 0.03px of its start center.",
+            "Committed verified task 4.2 as 7d458e542037bf615e9bd17fe19c1c658164bd9e.",
+            "All phase-4 acceptance checks now pass, so phase-4 was marked completed and the progress pointer advanced to phase-5 task 5.1."
+          ],
+          "commit": "7d458e542037bf615e9bd17fe19c1c658164bd9e"
         }
       ]
     },
@@ -771,6 +797,21 @@
         "Verified freshly generated offline HTML in headless Chrome after zooming to scale 3.2: node C drag pointer delta 72px/30px matched center delta 71.997px/30.003px.",
         "Committed verified task 4.1 as 0a0bdadf678a2c1704f59dbb56959863552f4196.",
         "Advanced current task pointer to phase-4 task 4.2; phase-4 remains pending because pin persistence and cancel/capture semantics still need the planned task."
+      ]
+    },
+    {
+      "turn": "phase-4-task-4.2",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-4 task 4.2.",
+        "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before changing code; both exited 0.",
+        "Centralized node drag commit/cancel behavior in node-drag-lifecycle.ts and routed renderer drag end/cancel through it.",
+        "Changed cancelled drags to restore the drag-start position, preserve old pins when present, and never call persistPins.",
+        "Updated simulation snapshots so immediate drag release commits the current fixed target rather than a stale node position.",
+        "Verified targeted lifecycle/gesture/simulation tests, full graph-engine tests, graph-engine typecheck, graph-engine build, git diff --check, and offline HTML browser checks all exited 0.",
+        "Offline browser check confirmed: click wrote 0 pins, real drag wrote 1 pin, pointercancel wrote 0 pins and cleared drag state.",
+        "Committed verified task 4.2 as 7d458e542037bf615e9bd17fe19c1c658164bd9e.",
+        "All phase-4 acceptance checks now pass, so phase-4 was marked completed and the progress pointer advanced to phase-5 task 5.1."
       ]
     }
   ]
