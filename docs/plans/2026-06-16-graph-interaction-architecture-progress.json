@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-1",
-    "task": "1.1",
-    "next_allowed_action": "Execute phase-1 task 1.1: create Geometry module with explicit coordinate spaces. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
+    "task": "1.2",
+    "next_allowed_action": "Execute phase-1 task 1.2: narrow Viewport to camera responsibilities. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -148,13 +148,18 @@
       "acceptance": [
         {
           "check": "Projection helpers are centralized and do not silently clamp drag targets",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "packages/graph-engine/src/render/geometry.ts now owns tested world/screen/layer/svg/minimap conversion helpers with explicit coordinate names.",
+            "geometry.test.ts proves screenPointToWorldPoint does not clamp off-root drag targets back into the 1000 x 680 world."
+          ]
         },
         {
           "check": "Viewport camera behavior remains compatible with existing tests",
           "status": "pending",
-          "evidence": []
+          "evidence": [
+            "Task 1.1 did not change viewport.ts behavior, but full graph-engine tests and graph-engine build passed after exporting Geometry. Final completion remains with task 1.2, which narrows viewport responsibilities."
+          ]
         },
         {
           "check": "Pin format compatibility is documented and tested",
@@ -166,8 +171,21 @@
         {
           "id": "1.1",
           "title": "Create Geometry module with explicit coordinate spaces",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-1 task 1.1.",
+            "git log --oneline -15 exited 0 before task 1.1 work; branch head was 31140da docs: record graph browser baseline commit.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 before task 1.1 work: graph-engine baseline was 41 suites and 150 passing tests before geometry was added; after task 1.1 it became 42 suites and 160 passing tests.",
+            "Created packages/graph-engine/src/render/geometry.ts with explicit coordinate space types: GraphClientPoint, GraphScreenPoint, GraphLayerPoint, GraphWorldPoint, GraphSvgPoint, GraphMinimapPoint, GraphWorldRect, and GraphMinimapViewBox.",
+            "Geometry helpers added and exported through packages/graph-engine/src/render/index.ts: rootClientPointToScreenPoint, rendererPointToScreenPoint, worldPointToLayerPoint, layerPointToWorldPoint, worldPointToScreenPoint, screenPointToWorldPoint, worldDeltaToLayerDelta, layerDeltaToWorldDelta, worldPointToSvgPoint, svgPointToWorldPoint, worldPointToMinimapPoint, minimapPointToWorldPoint, visibleWorldRectForViewport, and visibleWorldRectToMinimapRect.",
+            "Projection functions do not silently clamp screenPointToWorldPoint or layerPointToWorldPoint; a pointer outside the root can produce a world point outside the 1000 x 680 world for later drag handling.",
+            "Added packages/graph-engine/test/geometry.test.ts with 10 tests covering world/screen round trips at scale 0.5, 1, and 2.25; pan/zoom projection; root client to screen point conversion; no silent drag clamp; drawer-style resize layer round trip; world/layer deltas; explicit svg/world naming; and minimap mapping.",
+            "node --import tsx --test packages/graph-engine/test/geometry.test.ts exited 0: 10 tests passed.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 after task 1.1 work: 42 suites, 160 tests, 160 pass, 0 fail.",
+            "npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated both engine.esm.js and engine.iife.js.",
+            "git diff --check exited 0."
+          ],
           "commit": null
         },
         {
@@ -470,6 +488,17 @@
         "Stopped the temporary 5181 dev server and confirmed no listener remained; existing 5180 and 8787 services were left untouched.",
         "All phase-0 acceptance checks now pass, so phase-0 was marked completed and the progress pointer advanced to phase-1 task 1.1.",
         "Committed verified task 0.3 as 5e336d8ae4e1e748ab74727845011701856dd28d."
+      ]
+    },
+    {
+      "turn": "phase-1-task-1.1",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-1 task 1.1.",
+        "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before changing code; both exited 0.",
+        "Added Geometry module and tests for explicit coordinate spaces, inverse projection, no silent drag clamp, drawer resize layer conversion, deltas, svg naming, and minimap mapping.",
+        "Verified geometry single-file test, full graph-engine test, graph-engine typecheck, graph-engine build, and git diff --check all exited 0.",
+        "Advanced current task pointer to phase-1 task 1.2; phase-1 remains pending because viewport narrowing and pin/layout bounds compatibility are not complete."
       ]
     }
   ]

@@ -43,6 +43,35 @@ export type { GraphSearchFocus, GraphSearchNodeState, GraphSearchNodeView, Graph
 export { buildHoverPreview, firstUsefulParagraph, previewSummary } from "./preview";
 export type { GraphHoverPreview } from "./preview";
 export {
+  GRAPH_MINIMAP_VIEWBOX,
+  GRAPH_WORLD_SIZE,
+  layerDeltaToWorldDelta,
+  layerPointToWorldPoint,
+  minimapPointToWorldPoint,
+  rendererPointToScreenPoint,
+  rootClientPointToScreenPoint,
+  screenPointToWorldPoint,
+  svgPointToWorldPoint,
+  visibleWorldRectForViewport,
+  visibleWorldRectToMinimapRect,
+  worldDeltaToLayerDelta,
+  worldPointToLayerPoint,
+  worldPointToMinimapPoint,
+  worldPointToScreenPoint,
+  worldPointToSvgPoint
+} from "./geometry";
+export type {
+  GraphClientPoint,
+  GraphDomRectLike,
+  GraphLayerPoint,
+  GraphMinimapPoint,
+  GraphMinimapViewBox,
+  GraphScreenPoint,
+  GraphSvgPoint,
+  GraphWorldPoint,
+  GraphWorldRect
+} from "./geometry";
+export {
   DEFAULT_RENDERER_VIEWPORT,
   applyRendererViewportTransform,
   centerRendererViewportOnPoint,
