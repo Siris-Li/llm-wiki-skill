@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-7",
-    "task": "7.2",
-    "next_allowed_action": "Refresh browser regression evidence for desktop, narrow, and offline fixtures."
+    "task": "7.3",
+    "next_allowed_action": "Run final verification command set."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -1533,8 +1533,12 @@
         },
         {
           "check": "Workbench and offline browser evidence artifacts are recorded.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "bash tests/graph-community-wash-interactions.regression-1.sh -> PASS: graph community wash interaction regression; records wash wheel zoom, community click, threshold movement, and drag evidence.",
+            "bash tests/graph-workbench-interactions.regression-1.sh -> PASS: graph workbench interaction regression; records desktop and narrow wheel targets, blocked controls, hover, drawer, drag, root scroll, pan, and reset evidence.",
+            "bash tests/graph-offline-phase-6.regression-1.sh -> PASS: phase 6 offline graph regression; records basic, dense, and multicomm offline fixture evidence."
+          ]
         },
         {
           "check": "Progress file records completed overall status and residual risk.",
@@ -1594,8 +1598,29 @@
         {
           "id": "7.2",
           "title": "Refresh browser regression evidence for desktop, narrow, and offline fixtures",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "252 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-community-wash-interactions.regression-1.sh",
+              "result": "PASS: graph community wash interaction regression",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "result": "PASS: graph workbench interaction regression; includes desktop and narrow viewport evidence.",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-offline-phase-6.regression-1.sh",
+              "result": "PASS: phase 6 offline graph regression; includes basic, dense, and multicomm fixture evidence.",
+              "status": "passed"
+            }
+          ],
           "commit": null
         },
         {
