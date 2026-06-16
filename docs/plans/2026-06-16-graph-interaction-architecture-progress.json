@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-6",
-    "task": "6.1",
-    "next_allowed_action": "Execute phase-6 task 6.1: integrate workbench host without duplicating graph rules. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
+    "task": "6.2",
+    "next_allowed_action": "Execute phase-6 task 6.2: run workbench browser verification. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -648,13 +648,24 @@
       "acceptance": [
         {
           "check": "Workbench host does not duplicate graph coordinate logic",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "Reviewed workbench/web/src/components/GraphPanel.tsx and confirmed createGraphEngine receives data, pins, theme, and semantic callbacks only: onOpenPage, onSelectionChange, onSelectionClear, onAsk, persistPins, and onDragStateChange.",
+            "Searched workbench/web/src and workbench/web/test for graph interaction coordinate terms; graph-specific clientX/clientY handling is limited to RightDrawer resizing, not GraphPanel or graph gestures.",
+            "GraphPanel keeps graph refresh and pending diff handling at the host level through GraphDiffQueue and onDragStateChange, while wheel, pointer, hover, viewport, minimap, drag, and community wash rules remain in @llm-wiki/graph-engine.",
+            "GraphPanel refresh paths reload graph data and layout pins, pass pins into the engine, and defer drag safety to engine isDragging/onDragStateChange rather than host-side coordinate math.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web exited 0: 12 suites, 29 tests passed.",
+            "Verified npm run typecheck --workspace=@llm-wiki-agent/web exited 0 after rebuilding graph-engine.",
+            "Verified npm run build --workspace=@llm-wiki-agent/web exited 0 after rebuilding graph-engine; Vite emitted only the existing large chunk warning."
+          ]
         },
         {
           "check": "Workbench build and public API compatibility checks pass",
           "status": "pending",
-          "evidence": []
+          "evidence": [
+            "Task 6.1 confirmed current GraphPanel usage still compiles against createGraphEngine and GraphEngine public methods without adding host-side coordinate APIs.",
+            "npm run typecheck --workspace=@llm-wiki-agent/web and npm run build --workspace=@llm-wiki-agent/web both exited 0 in task 6.1."
+          ]
         },
         {
           "check": "Workbench browser verification passes for zoom, drag, hover, drawer, community focus, pan, minimap, and reset",
@@ -671,8 +682,20 @@
         {
           "id": "6.1",
           "title": "Integrate workbench host without duplicating graph rules",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-6 task 6.1.",
+            "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before continuing; graph-engine tests exited 0.",
+            "Reviewed workbench/AGENTS.md and workbench/PRODUCT.md to confirm the workbench boundary: host handles UI shell and semantic callbacks, shared graph-engine owns graph interaction rules.",
+            "Reviewed workbench/web/src/components/GraphPanel.tsx and confirmed it does not calculate graph pointer coordinates, viewport transforms, hover positions, node drag targets, community wash bounds, or minimap geometry.",
+            "Confirmed GraphPanel uses GraphDiffQueue plus engine onDragStateChange for refresh/diff safety instead of host-side drag coordinate handling.",
+            "Searched workbench/web/src and workbench/web/test for graph coordinate and pointer terms; only RightDrawer uses clientX for drawer resizing, outside graph interaction logic.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web exited 0: 12 suites, 29 tests passed.",
+            "Verified npm run typecheck --workspace=@llm-wiki-agent/web exited 0 after rebuilding graph-engine.",
+            "Verified npm run build --workspace=@llm-wiki-agent/web exited 0 after rebuilding graph-engine; Vite emitted only the existing large chunk warning.",
+            "No business code changes were needed for task 6.1 because the host already respects the new graph-engine boundary.",
+            "Advanced current task pointer to phase-6 task 6.2; phase-6 remains pending because workbench browser verification and offline HTML verification still need the planned tasks."
+          ],
           "commit": null
         },
         {
@@ -920,6 +943,18 @@
         "Supplemental browser evidence: dragging A beyond the initial t1 wash pinned it at center x about 846.99px, reset returned A/B/C, refocusing t1 returned A/B with A still in community t1, and minimap viewport stayed valid throughout.",
         "Committed verified task 5.3 as 4e281d77d389c5b95c09290ed779636ba54f353e.",
         "All phase-5 acceptance checks now pass, so phase-5 was marked completed and the progress pointer advanced to phase-6 task 6.1."
+      ]
+    },
+    {
+      "turn": "phase-6-task-6.1",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-6 task 6.1.",
+        "Reviewed GraphPanel and confirmed workbench host keeps semantic callbacks only and does not duplicate graph coordinate, gesture, hover, viewport, minimap, or community wash rules.",
+        "Confirmed refresh/diff safety is mediated by GraphDiffQueue and engine drag state instead of host-side pointer math.",
+        "Verified workbench test, typecheck, and build all exited 0; build only emitted the existing large chunk warning.",
+        "No business code changes were needed for task 6.1.",
+        "Advanced current task pointer to phase-6 task 6.2; phase-6 remains pending because browser and offline HTML verification still need planned tasks."
       ]
     }
   ]
