@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-2",
-    "task": "2.4",
-    "next_allowed_action": "Run the baseline smoke check, then limit keyboard ownership to graph focus and active gestures for task 2.4."
+    "task": "2.5",
+    "next_allowed_action": "Run the baseline smoke check, then cover cancellation and blocker boundaries in tests and browser scripts for task 2.5."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -436,9 +436,35 @@
         {
           "id": "2.4",
           "title": "Limit keyboard ownership to graph focus and active gestures",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "node --import tsx --test packages/graph-engine/test/keyboard.test.ts",
+              "result": "5 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "220 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "result": "tsc -p tsconfig.json --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "npm run build --workspace=@llm-wiki/graph-engine",
+              "result": "vite build and declaration emit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-default-behavior.regression-1.sh",
+              "result": "PASS: graph default behavior regression; evidence confirmed graph search shortcut is ignored outside graph focus and handled only when graph is focused.",
+              "status": "passed"
+            }
+          ],
+          "commit": "58e0f7c"
         },
         {
           "id": "2.5",
