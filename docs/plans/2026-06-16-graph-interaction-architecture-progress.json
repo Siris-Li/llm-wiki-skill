@@ -1,10 +1,10 @@
 {
   "plan": "docs/plans/2026-06-16-graph-interaction-architecture-phased-plan.md",
   "status": {
-    "overall": "pending",
+    "overall": "completed",
     "phase": "phase-7",
-    "task": "7.3",
-    "next_allowed_action": "Execute phase-7 task 7.3: run final regression checks, browser/offline verification, record graph size coverage and residual risk, then mark the plan completed only after verification passes."
+    "task": "complete",
+    "next_allowed_action": "Plan complete. Do not push, merge, or amend from this session unless the user explicitly asks."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -759,7 +759,7 @@
     {
       "id": "phase-7",
       "goal": "Close old logic, sync docs, and record final verification",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
         {
           "check": "Old scattered drag, hover, wheel, minimap, and community wash formulas are removed or isolated behind named tested adapters",
@@ -786,8 +786,20 @@
         },
         {
           "check": "Full verification suite and browser/offline checks are recorded",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0: 49 suites, 198 tests passed.",
+            "npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated engine.esm.js and engine.iife.js.",
+            "npm run test --workspace=@llm-wiki-agent/web exited 0: 12 suites, 29 tests passed.",
+            "npm run typecheck --workspace=@llm-wiki-agent/web exited 0.",
+            "npm run build --workspace=@llm-wiki-agent/web exited 0; it emitted the existing large chunk warning but completed successfully.",
+            "bash tests/graph-workbench-interactions.regression-1.sh exited 0 on isolated ports and temporary HOME. It verified desktop and narrow viewport graph behavior: wheel zoom over blank/node/community/edge, blocked wheel over controls/drawer/minimap, hover anchoring after zoom/drawer resize, node drag outside community wash, pin persistence, pan/minimap/reset, and root scroll reset.",
+            "bash tests/graph-offline-phase-6.regression-1.sh exited 0. It built generated offline HTML for basic, dense, and multicomm fixtures and verified wheel zoom, hover after zoom, node drag, pin persistence, built-in reader, theme toggle, no React drawer dependency, and generated single-file IIFE output.",
+            "Offline dense fixture graph size coverage: 200 nodes, 231 edges, 8 communities.",
+            "Supplemental real-library offline smoke check used /Users/kangjiaqi/Documents/AI学习知识库/wiki/graph-data.json copied into a temporary directory. It rendered 88 nodes, 217 edges, 9 communities, verified no React drawer dependency, verified wheel zoom over blank/node/community wash/edge, and verified hover preview opened near the node anchor. Persistent artifacts: /var/folders/5f/hq4t401j741g652glng_xbww0000gn/T//llm-wiki-real-graph-artifacts.UxGRVQ/real-library-graph-smoke.json and real-library-graph-smoke.png.",
+            "git diff --check exited 0."
+          ]
         }
       ],
       "tasks": [
@@ -834,14 +846,43 @@
         {
           "id": "7.3",
           "title": "Run final regression checks and record residual risk",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-7 task 7.3.",
+            "Ran git status --short --branch, git log --oneline -15, jq '.status' docs/plans/2026-06-16-graph-interaction-architecture-progress.json, and npm run test --workspace=@llm-wiki/graph-engine before continuing. The branch was codex/graph-interaction-architecture and graph-engine tests passed with 49 suites and 198 tests.",
+            "Verified npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "Verified npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated engine.esm.js and engine.iife.js.",
+            "Verified npm run test --workspace=@llm-wiki-agent/web exited 0: 12 suites, 29 tests passed.",
+            "Verified npm run typecheck --workspace=@llm-wiki-agent/web exited 0.",
+            "Verified npm run build --workspace=@llm-wiki-agent/web exited 0; it emitted the existing large chunk warning but completed successfully.",
+            "Verified git diff --check exited 0 before browser checks.",
+            "Verified bash tests/graph-workbench-interactions.regression-1.sh exited 0 on isolated temporary services. The regression covered desktop and narrow viewport graph behavior, wheel zoom target rules, blocked UI target rules, hover anchoring, drawer resize, node drag outside community wash, pan/minimap/reset, root scroll reset, and no dependency on the user's existing 5180/8787 services.",
+            "Verified bash tests/graph-offline-phase-6.regression-1.sh exited 0. The regression covered generated offline HTML for graph-interactive-basic, graph-interactive-dense, and graph-interactive-multicomm, including offline wheel, hover, drag, pin persistence, built-in reader, theme toggle, no React drawer dependency, and single-file IIFE output.",
+            "Recorded fixture graph size coverage: basic fixture rendered 3 nodes and 2 edges, dense fixture rendered 200 nodes, 231 edges, and 8 communities, and multicomm fixture rendered 20 nodes, 30 edges, and 4 communities.",
+            "Ran supplemental real-library offline smoke check by copying /Users/kangjiaqi/Documents/AI学习知识库/wiki/graph-data.json to a temporary wiki and generating knowledge-graph.html from the current engine. It rendered 88 nodes, 217 edges, and 9 communities.",
+            "Supplemental real-library smoke verified wheel zoom over blank, node, community wash, and edge; hover preview opened near the node anchor; and offline output did not depend on the React drawer. Persistent artifacts: /var/folders/5f/hq4t401j741g652glng_xbww0000gn/T//llm-wiki-real-graph-artifacts.UxGRVQ/real-library-graph-smoke.json and real-library-graph-smoke.png.",
+            "Verified git status was clean before final progress recording.",
+            "Marked phase-7 and the overall plan completed after all verification passed."
+          ],
           "commit": null
         }
       ]
     }
   ],
-  "residual_risk": [],
+  "residual_risk": [
+    {
+      "risk": "Workbench browser regression artifacts are printed in the script output but live under that script's temporary directory, which is cleaned up on exit.",
+      "mitigation": "The regression itself passed and the output JSON was captured in this run. Offline and real-library supplemental checks also produced persistent artifacts outside the cleaned workbench temp directory."
+    },
+    {
+      "risk": "Large graph rendering beyond the current dense fixture and real library was not profiled in this delivery.",
+      "mitigation": "The plan deliberately gates spatial index and Canvas/WebGL behind future profiling. Current evidence covers the user's real library scale plus a denser 200-node fixture."
+    },
+    {
+      "risk": "Workbench production build still reports the existing large chunk warning.",
+      "mitigation": "The build exits 0 and this warning predates the interaction architecture work; bundle splitting remains a separate performance cleanup, not a blocker for this graph interaction fix."
+    }
+  ],
   "turn_log": [
     {
       "turn": "phase-0-task-0.1",
@@ -1086,6 +1127,18 @@
         "Verified git diff --check exited 0.",
         "Committed verified task 7.2 as 82ffcb906d44d3f738d1fb21d4638cd4dd5d92b8.",
         "Advanced current task pointer to phase-7 task 7.3; phase-7 remains pending because final regression and residual risk recording still need planned tasks."
+      ]
+    },
+    {
+      "turn": "phase-7-task-7.3",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-7 task 7.3.",
+        "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before continuing; graph-engine tests exited 0 with 49 suites and 198 tests passing.",
+        "Verified graph-engine typecheck/build, workbench web test/typecheck/build, git diff --check, workbench browser regression, offline HTML regression, and supplemental real-library offline smoke.",
+        "Recorded graph size coverage: fixture basic 3 nodes/2 edges, fixture dense 200 nodes/231 edges/8 communities, fixture multicomm 20 nodes/30 edges/4 communities, and real AI学习知识库 88 nodes/217 edges/9 communities.",
+        "Recorded residual risks: cleaned-up workbench artifacts, unprofiled larger-than-fixture graph scale, and existing workbench large chunk warning.",
+        "Marked phase-7 and overall plan completed after all verification passed."
       ]
     }
   ]
