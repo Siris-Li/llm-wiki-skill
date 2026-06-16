@@ -113,7 +113,7 @@
             "overlay and wash probe shape recorded for phase 5 follow-through: projected node hover anchor, projected edge midpoint anchor, preview bounds after viewport/drawer resize, community wash non-fence behavior, and capped outlier wash response fixtures.",
             "No test helper or fixture was created in task 0.2 because no passing helper is needed before Geometry/Gesture modules exist; this avoids committing empty scaffolding or failing regression assertions ahead of the implementation phase."
           ],
-          "commit": null
+          "commit": "3cf8d0cd90e08ada7a86028036af4c358ca5e81a"
         },
         {
           "id": "0.3",
@@ -438,7 +438,8 @@
         "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before changing progress; both exited 0, with graph-engine reporting 150 passing tests.",
         "Recorded the future pure regression probe shape for Geometry, Gestures, gesture state-machine cleanup, overlays, and capped community wash fixtures.",
         "Created no helper or fixture because current modules do not yet exist and empty scaffolding would not improve verification.",
-        "Advanced current task pointer to phase-0 task 0.3; phase-0 remains pending because browser/offline baseline evidence is not complete."
+        "Advanced current task pointer to phase-0 task 0.3; phase-0 remains pending because browser/offline baseline evidence is not complete.",
+        "Committed verified task 0.2 as 3cf8d0cd90e08ada7a86028036af4c358ca5e81a."
       ]
     }
   ]
