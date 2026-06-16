@@ -5,7 +5,6 @@ import type {
   GraphData,
   GraphDiff,
   GraphNode,
-  GraphOpenPagePayload,
   NodeId,
   PinMap,
   SelectionInput,
@@ -79,11 +78,11 @@ interface StaticRendererOptions {
   data: GraphData;
   pins?: PinMap;
   theme: ThemeId;
-  onOpenPage?: (payload: GraphOpenPagePayload) => void;
-  onSelectionChange?: (selection: SelectionInput) => void;
-  onSelectionClear?: () => void;
-  persistPins?: (pins: PinMap) => Promise<void>;
-  onDragStateChange?: (dragging: boolean) => void;
+  onNodeOpen?: (nodeId: NodeId) => void;
+  onSelectionInput?: (selection: SelectionInput) => void;
+  onSelectionClearRequested?: () => void;
+  onPinsChanged?: (pins: PinMap) => void;
+  onDragActiveChange?: (dragging: boolean) => void;
   toolbarContainer?: HTMLElement | null;
   focus?: GraphFocusInput;
   typeFilters?: GraphTypeFilters;
@@ -269,7 +268,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     searchIndex = undefined;
     pinState = new PinState(graph, runtimeState.snapshot().pins);
     applyTheme(root, theme);
-    dom = paint(root, graph, theme, Boolean(options.onOpenPage), {
+    dom = paint(root, graph, theme, Boolean(options.onNodeOpen), {
       onNodeClick: (id, additive) => {
         handleNodeClick(id, additive);
       },
@@ -279,7 +278,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         runtimeState.setPins(nextState.pins);
         simulation?.setFixed(id, null);
         markPinnedNodes(nextState.pinnedNodeIds);
-        void options.persistPins?.(nextState.pins);
+        options.onPinsChanged?.(nextState.pins);
         return true;
       },
       onNodePreviewEnter: (id) => {
@@ -359,7 +358,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       const nextState = pinState.reset();
       runtimeState.setPins(nextState.pins);
       render();
-      void options.persistPins?.(nextState.pins);
+      options.onPinsChanged?.(nextState.pins);
     },
     destroy(): void {
       if (destroyed) return;
@@ -409,7 +408,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     }
     runtimeState.clearInteraction();
     delete root.dataset.focus;
-    options.onSelectionClear?.();
+    options.onSelectionClearRequested?.();
     render();
   }
 
@@ -426,8 +425,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     simulation?.endDrag();
     gestureMachine.escape();
     runtimeState.clearInteraction();
-    options.onDragStateChange?.(false);
-    options.onSelectionClear?.();
+    options.onDragActiveChange?.(false);
+    options.onSelectionClearRequested?.();
   }
 
   function hasInteractionState(): boolean {
@@ -584,7 +583,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function selectCommunity(id: string): void {
     const nextSelection: SelectionInput = { kind: "community", id };
     runtimeState.setSelection(nextSelection, "selection-panel");
-    options.onSelectionChange?.(nextSelection);
+    options.onSelectionInput?.(nextSelection);
     focusCommunity(id);
   }
 
@@ -601,7 +600,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     searchFocusedNodeId = null;
     runtimeState.clearInteraction();
     delete root.dataset.focus;
-    options.onSelectionClear?.();
+    options.onSelectionClearRequested?.();
     render();
     setViewportAnimating(true);
     viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize(), { worldBounds: graph.worldBounds }));
@@ -612,7 +611,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     setGraphHover(null);
     runtimeState.setSelection(null);
     delete root.dataset.focus;
-    options.onSelectionClear?.();
+    options.onSelectionClearRequested?.();
     render();
   }
 
@@ -798,14 +797,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function handleNodeClick(id: NodeId, additive: boolean): void {
     if (!additive) {
       runtimeState.setSelection({ kind: "node", id }, "reader");
-      options.onOpenPage?.(openPagePayloadForNode(data, id));
+      options.onNodeOpen?.(id);
       render();
       focusRenderedNode(id);
       return;
     }
     const nextSelection = shiftSelection(id, selectedNodeIds(runtimeState.snapshot().selection));
     runtimeState.setSelection(nextSelection, "selection-panel");
-    options.onSelectionChange?.(nextSelection);
+    options.onSelectionInput?.(nextSelection);
     render();
     focusRenderedNode(id);
   }
@@ -833,7 +832,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     simulation.beginDrag(id);
     simulation.dragTo(id, nodeDragTargetFromPointer(event, grabOffset));
     root.dataset.dragging = id;
-    options.onDragStateChange?.(true);
+    options.onDragActiveChange?.(true);
   }
 
   function handleNodeDragMove(id: NodeId, event: PointerEvent): void {
@@ -852,11 +851,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     runtimeState.setPins(result.pins);
     applyMotionFrame(result.positions);
     markPinnedNodes(result.pinnedNodeIds);
-    void options.persistPins?.(result.pins);
+    options.onPinsChanged?.(result.pins);
     dom.nodeElements.get(id)?.classList.remove("is-dragging");
     delete root.dataset.dragging;
     runtimeState.setActiveGesture(null);
-    options.onDragStateChange?.(false);
+    options.onDragActiveChange?.(false);
   }
 
   function handleNodeDragCancel(id: NodeId, pointerId: number): void {
@@ -869,7 +868,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     dom.nodeElements.get(id)?.classList.remove("is-dragging");
     delete root.dataset.dragging;
     runtimeState.setActiveGesture(null);
-    options.onDragStateChange?.(false);
+    options.onDragActiveChange?.(false);
   }
 
   function handleBlankClick(): void {
@@ -1225,10 +1224,10 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const title = document.createElement("div");
     title.className = "graph-reader-title";
     title.textContent = selected.label;
-    const payload = openPagePayloadForNode(data, selected.id);
+    const readerNode = graphReaderNode(data, selected.id);
     const meta = document.createElement("div");
     meta.className = "graph-reader-meta";
-    for (const item of graphReaderMetaItems(payload.node)) {
+    for (const item of graphReaderMetaItems(readerNode)) {
       const tag = document.createElement("span");
       tag.textContent = item;
       meta.appendChild(tag);
@@ -1243,11 +1242,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
     const body = document.createElement("div");
     body.className = "graph-reader-body";
-    if (payload.node.type === "source" && payload.node.sourcePath) {
+    if (readerNode.type === "source" && readerNode.sourcePath) {
       const sourceLink = document.createElement("a");
       sourceLink.className = "graph-reader-source";
-      sourceLink.href = payload.node.sourcePath;
-      sourceLink.textContent = payload.node.sourcePath;
+      sourceLink.href = readerNode.sourcePath;
+      sourceLink.textContent = readerNode.sourcePath;
       body.appendChild(sourceLink);
     }
     const content = String(rawNode.content || rawNode.summary || selected.label);
@@ -1695,43 +1694,33 @@ function shiftSelection(id: NodeId, current: NodeId[]): SelectionInput {
   return { kind: "nodes", ids };
 }
 
-function openPagePayloadForNode(data: GraphData, id: NodeId): GraphOpenPagePayload {
+interface GraphReaderNode {
+  type: string;
+  typeLabel: string;
+  sourcePath: string;
+  date: string | null;
+  source: string | null;
+}
+
+function graphReaderNode(data: GraphData, id: NodeId): GraphReaderNode {
   const node = data.nodes.find((item) => item.id === id);
   if (!node) {
     return {
-      path: id,
-      node: {
-        id,
-        title: id,
-        type: "entity",
-        typeLabel: "实体",
-        sourcePath: id,
-        community: null,
-        date: null,
-        source: null,
-        isolated: true
-      }
+      type: "entity",
+      typeLabel: "实体",
+      sourcePath: id,
+      date: null,
+      source: null
     };
   }
   const sourcePath = wikiPathForGraphNode(node);
   return {
-    path: sourcePath,
-    node: {
-      id: node.id,
-      title: node.label || node.id,
-      type: node.type,
-      typeLabel: graphNodeTypeLabel(node.type),
-      sourcePath,
-      community: node.community ?? null,
-      date: dateForNode(node),
-      source: sourceForNode(node),
-      isolated: isIsolatedNode(data, node.id)
-    }
+    type: node.type,
+    typeLabel: graphNodeTypeLabel(node.type),
+    sourcePath,
+    date: dateForNode(node),
+    source: sourceForNode(node)
   };
-}
-
-function isIsolatedNode(data: GraphData, id: NodeId): boolean {
-  return !data.edges.some((edge) => edge.from === id || edge.to === id);
 }
 
 function dateForNode(node: GraphNode): string | null {
@@ -1744,7 +1733,7 @@ function sourceForNode(node: GraphNode): string | null {
   return value == null || value === "" ? null : String(value);
 }
 
-function graphReaderMetaItems(node: GraphOpenPagePayload["node"]): string[] {
+function graphReaderMetaItems(node: GraphReaderNode): string[] {
   const items = [node.typeLabel];
   if (node.date) items.push(node.date);
   if (node.source) items.push(node.source);

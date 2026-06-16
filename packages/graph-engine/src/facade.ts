@@ -1,14 +1,17 @@
 import type {
+  GraphNode,
   GraphDiff,
   GraphEngine,
   GraphEngineOptions,
   GraphData,
+  GraphOpenPagePayload,
   Selection,
   SelectionInput,
   ThemeId
 } from "./types";
 import { createStaticGraphRenderer } from "./render";
 import { resolveSelectionForCapabilities } from "./select";
+import { graphNodeTypeLabel, wikiPathForGraphNode } from "./graph-node";
 
 export type GraphFacadeHostMode = "workbench" | "offline" | "standalone";
 
@@ -90,8 +93,10 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
     toolbarContainer: options.toolbarContainer,
     focus: options.focus,
     typeFilters: options.typeFilters,
-    onOpenPage: capabilities?.onOpenPage,
-    onSelectionChange: shouldResolveSelection(capabilities)
+    onNodeOpen: capabilities?.onOpenPage
+      ? (nodeId) => capabilities.onOpenPage?.(openPagePayloadForNode(facadeState.data, nodeId))
+      : undefined,
+    onSelectionInput: shouldResolveSelection(capabilities)
       ? (input) => {
           const selection = resolveSelectionForCapabilities(facadeState.data, input, {
             canAsk: Boolean(capabilities?.onAsk)
@@ -100,9 +105,9 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
           if (!capabilities?.onSelectionChange) capabilities?.onAsk?.(selection);
         }
       : undefined,
-    persistPins: capabilities?.persistPins,
-    onSelectionClear: capabilities?.onSelectionClear,
-    onDragStateChange: capabilities?.onDragStateChange
+    onPinsChanged: capabilities?.persistPins ? (pins) => void capabilities.persistPins?.(pins) : undefined,
+    onSelectionClearRequested: capabilities?.onSelectionClear,
+    onDragActiveChange: capabilities?.onDragStateChange
   });
 
   return createGraphFacadeFromRenderer(container, renderer, options, facadeState);
@@ -217,4 +222,53 @@ export function createGraphFacadeFromRenderer(
 
 function shouldResolveSelection(capabilities: GraphEngineOptions["capabilities"]): boolean {
   return Boolean(capabilities?.onSelectionChange || capabilities?.onAsk);
+}
+
+function openPagePayloadForNode(data: GraphData, id: string): GraphOpenPagePayload {
+  const node = data.nodes.find((item) => item.id === id);
+  if (!node) {
+    return {
+      path: id,
+      node: {
+        id,
+        title: id,
+        type: "entity",
+        typeLabel: "实体",
+        sourcePath: id,
+        community: null,
+        date: null,
+        source: null,
+        isolated: true
+      }
+    };
+  }
+  const sourcePath = wikiPathForGraphNode(node);
+  return {
+    path: sourcePath,
+    node: {
+      id: node.id,
+      title: node.label || node.id,
+      type: node.type,
+      typeLabel: graphNodeTypeLabel(node.type),
+      sourcePath,
+      community: node.community ?? null,
+      date: dateForNode(node),
+      source: sourceForNode(node),
+      isolated: isIsolatedNode(data, node.id)
+    }
+  };
+}
+
+function isIsolatedNode(data: GraphData, id: string): boolean {
+  return !data.edges.some((edge) => edge.from === id || edge.to === id);
+}
+
+function dateForNode(node: GraphNode): string | null {
+  const value = node.date || node.updated_at || node.updatedAt || node.created_at || node.createdAt;
+  return value == null || value === "" ? null : String(value);
+}
+
+function sourceForNode(node: GraphNode): string | null {
+  const value = node.source_title || node.source_url || node.url || node.author || node.source_name;
+  return value == null || value === "" ? null : String(value);
 }
