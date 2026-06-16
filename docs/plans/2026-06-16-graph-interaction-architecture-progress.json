@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-4",
-    "task": "4.1",
-    "next_allowed_action": "Execute phase-4 task 4.1: route node drag through geometry and simulation bridge. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
+    "task": "4.2",
+    "next_allowed_action": "Execute phase-4 task 4.2: fix drag end, click, pointercancel, lostpointercapture, and pin persistence semantics. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -453,8 +453,16 @@
       "acceptance": [
         {
           "check": "Node drag uses screen-to-world projection with preserved grab offset",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "Added packages/graph-engine/src/render/simulation-bridge.ts so drag start records pointer world point and grab offset, and drag move resolves a world target from the current screen pointer plus that offset.",
+            "Updated static-renderer.ts node drag handling to use rootClientPointToScreenPoint, beginGraphNodeDrag, and resolveGraphNodeDragTarget instead of the old root percentage eventToGraphPoint formula.",
+            "Updated applyMotionFrame to convert world deltas into content-layer deltas before writing node CSS translate, keeping runtime world positions and DOM layer offsets in the correct coordinate spaces.",
+            "Added simulation-bridge tests proving zoomed/panned drag keeps the grabbed point under the pointer, edge grabs do not jump to node center, and bridge projection does not clamp off-world targets before simulation/layout constraints.",
+            "Headless Chrome CDP verification opened a freshly generated offline HTML file at /tmp/llm-wiki-drag-fixture-current-7J1Oc5/graph-interactive-basic/wiki/knowledge-graph.html, zoomed the graph to matrix scale 3.2, dragged node C by 72px/30px, and measured node center movement as 71.997px/30.003px with about 0.003px error.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 after task 4.1: 46 suites, 186 tests, 186 pass, 0 fail.",
+            "npm run typecheck --workspace=@llm-wiki/graph-engine, npm run build --workspace=@llm-wiki/graph-engine, and git diff --check all exited 0."
+          ]
         },
         {
           "check": "Drag end, click, pointercancel, and lostpointercapture persist or discard pins correctly",
@@ -466,9 +474,24 @@
         {
           "id": "4.1",
           "title": "Route node drag through geometry and simulation bridge",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-4 task 4.1.",
+            "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before continuing; both exited 0.",
+            "Added a simulation bridge for drag start and drag move so renderer event handling converts pointer screen points into world drag targets through the shared projection helpers.",
+            "Preserved grab offset from pointerdown to drag start/move, so grabbing a card edge keeps that same point under the pointer instead of snapping the card center to the cursor.",
+            "Removed the old eventToGraphPoint root percentage formula from static-renderer.ts.",
+            "Converted world motion deltas to layer deltas before writing node CSS translate, preventing zoom scale from being applied in the wrong coordinate space.",
+            "Verified node --import tsx --test packages/graph-engine/test/simulation-bridge.test.ts exited 0: 3 tests passed.",
+            "Verified npm run test --workspace=@llm-wiki/graph-engine exited 0: 46 suites, 186 tests, 186 pass, 0 fail.",
+            "Verified npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "Verified npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated both engine.esm.js and engine.iife.js.",
+            "Verified git diff --check exited 0.",
+            "Verified freshly generated offline HTML through headless Chrome CDP after zooming to scale 3.2: dragged node C pointer delta 72px/30px matched node center delta 71.997px/30.003px, with about 0.003px error.",
+            "Committed verified task 4.1 as 0a0bdadf678a2c1704f59dbb56959863552f4196.",
+            "Advanced current task pointer to phase-4 task 4.2; phase-4 remains pending because drag end, click, cancel, capture loss, and pin persistence semantics are not complete."
+          ],
+          "commit": "0a0bdadf678a2c1704f59dbb56959863552f4196"
         },
         {
           "id": "4.2",
@@ -734,6 +757,20 @@
         "Verified graph-engine typecheck, full graph-engine test suite, graph-engine build, git diff --check, and headless Chrome CDP browser interaction checks all passed.",
         "Committed verified task 3.3 as 267f17f1ca9277309fa6b75d0f9e318319308d19.",
         "All phase-3 acceptance checks now pass, so phase-3 was marked completed and the progress pointer advanced to phase-4 task 4.1."
+      ]
+    },
+    {
+      "turn": "phase-4-task-4.1",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-4 task 4.1.",
+        "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before continuing; both exited 0.",
+        "Routed node drag start and move through a shared simulation bridge that uses screen-to-world projection and preserved grab offset.",
+        "Removed the old root percentage drag formula and converted motion-frame world deltas to layer deltas before painting nodes.",
+        "Verified simulation-bridge single-file test, full graph-engine test, graph-engine typecheck, graph-engine build, and git diff --check all exited 0.",
+        "Verified freshly generated offline HTML in headless Chrome after zooming to scale 3.2: node C drag pointer delta 72px/30px matched center delta 71.997px/30.003px.",
+        "Committed verified task 4.1 as 0a0bdadf678a2c1704f59dbb56959863552f4196.",
+        "Advanced current task pointer to phase-4 task 4.2; phase-4 remains pending because pin persistence and cancel/capture semantics still need the planned task."
       ]
     }
   ]
