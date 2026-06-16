@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  GraphGestureStateMachine,
   classifyGraphEventTarget,
   classifyGraphPointerDownTarget,
   classifyGraphWheelTarget,
@@ -60,6 +61,17 @@ describe("graph gesture target classifier", () => {
     assert.equal(classifyGraphWheelTarget(edgeTarget("edge-a")).intent, "zoom");
   });
 
+  it("blocks browser zoom shortcut wheels instead of silently hijacking page zoom", () => {
+    assert.deepEqual(classifyGraphWheelTarget(nodeTarget("node-a"), { metaKey: true }), {
+      intent: "blocked",
+      target: { kind: "node", id: "node-a" }
+    });
+    assert.deepEqual(classifyGraphWheelTarget(blankTarget(), { ctrlKey: true }), {
+      intent: "blocked",
+      target: { kind: "graph-blank" }
+    });
+  });
+
   it("blocks wheel zoom over controls, drawers, minimap, and text editing targets", () => {
     for (const target of [
       controlTarget(".graph-search"),
@@ -106,6 +118,128 @@ describe("graph gesture target classifier", () => {
   });
 });
 
+describe("graph gesture state machine", () => {
+  it("turns a low-movement node pointer sequence into a node click intent", () => {
+    const machine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    machine.pointerDown(classifyGraphPointerDownTarget(nodeTarget("node-a")), pointer(7, 100, 100));
+
+    assert.deepEqual(machine.pointerMove(pointer(7, 102, 102)), []);
+    assert.deepEqual(machine.pointerUp(pointer(7, 102, 102)), [
+      { kind: "node-click", nodeId: "node-a", additive: false, pointerId: 7 }
+    ]);
+    assert.equal(machine.snapshot(), null);
+  });
+
+  it("turns a high-movement node pointer sequence into drag start, move, and end intents without a click", () => {
+    const machine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    machine.pointerDown(classifyGraphPointerDownTarget(nodeTarget("node-a")), pointer(8, 10, 10));
+
+    assert.deepEqual(machine.pointerMove(pointer(8, 20, 18)), [
+      { kind: "node-drag-start", nodeId: "node-a", pointerId: 8, screenPoint: { x: 20, y: 18 } },
+      { kind: "node-drag-move", nodeId: "node-a", pointerId: 8, screenPoint: { x: 20, y: 18 }, delta: { x: 10, y: 8 } }
+    ]);
+    assert.deepEqual(machine.pointerMove(pointer(8, 25, 28)), [
+      { kind: "node-drag-move", nodeId: "node-a", pointerId: 8, screenPoint: { x: 25, y: 28 }, delta: { x: 5, y: 10 } }
+    ]);
+    assert.deepEqual(machine.pointerUp(pointer(8, 25, 28)), [
+      { kind: "node-drag-end", nodeId: "node-a", pointerId: 8, screenPoint: { x: 25, y: 28 } }
+    ]);
+    assert.equal(machine.snapshot(), null);
+  });
+
+  it("preserves shift additive state for node clicks", () => {
+    const machine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    machine.pointerDown(classifyGraphPointerDownTarget(nodeTarget("node-a")), pointer(9, 40, 40, { shiftKey: true }));
+
+    assert.deepEqual(machine.pointerUp(pointer(9, 40, 40)), [
+      { kind: "node-click", nodeId: "node-a", additive: true, pointerId: 9 }
+    ]);
+  });
+
+  it("turns a low-movement community wash sequence into a community click", () => {
+    const machine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    machine.pointerDown(classifyGraphPointerDownTarget(communityWashTarget("community-a")), pointer(10, 120, 80));
+
+    assert.deepEqual(machine.pointerMove(pointer(10, 121, 82)), []);
+    assert.deepEqual(machine.pointerUp(pointer(10, 121, 82)), [
+      { kind: "community-click", communityId: "community-a", pointerId: 10 }
+    ]);
+  });
+
+  it("cancels a community click after movement above threshold", () => {
+    const machine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    machine.pointerDown(classifyGraphPointerDownTarget(communityWashTarget("community-a")), pointer(11, 0, 0));
+
+    assert.deepEqual(machine.pointerMove(pointer(11, 10, 0)), [
+      { kind: "community-click-cancelled", communityId: "community-a", pointerId: 11, reason: "moved" }
+    ]);
+    assert.deepEqual(machine.pointerUp(pointer(11, 10, 0)), []);
+  });
+
+  it("turns blank canvas movement into pan intents and low movement into blank click", () => {
+    const machine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    machine.pointerDown(classifyGraphPointerDownTarget(blankTarget()), pointer(12, 50, 50));
+    assert.deepEqual(machine.pointerUp(pointer(12, 51, 51)), [{ kind: "blank-click", pointerId: 12 }]);
+
+    machine.pointerDown(classifyGraphPointerDownTarget(blankTarget()), pointer(13, 50, 50));
+    assert.deepEqual(machine.pointerMove(pointer(13, 58, 52)), [
+      { kind: "blank-pan-start", pointerId: 13, screenPoint: { x: 58, y: 52 } },
+      { kind: "blank-pan-move", pointerId: 13, screenPoint: { x: 58, y: 52 }, delta: { x: 8, y: 2 } }
+    ]);
+    assert.deepEqual(machine.pointerMove(pointer(13, 60, 57)), [
+      { kind: "blank-pan-move", pointerId: 13, screenPoint: { x: 60, y: 57 }, delta: { x: 2, y: 5 } }
+    ]);
+    assert.deepEqual(machine.pointerUp(pointer(13, 60, 57)), [
+      { kind: "blank-pan-end", pointerId: 13, screenPoint: { x: 60, y: 57 } }
+    ]);
+  });
+
+  it("cleans up active gestures on pointercancel and lostpointercapture without false clicks or pins", () => {
+    const nodeMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    nodeMachine.pointerDown(classifyGraphPointerDownTarget(nodeTarget("node-a")), pointer(14, 0, 0));
+    nodeMachine.pointerMove(pointer(14, 10, 0));
+    assert.deepEqual(nodeMachine.pointerCancel({ pointerId: 14 }), [
+      { kind: "node-drag-cancel", nodeId: "node-a", pointerId: 14, reason: "pointercancel" }
+    ]);
+    assert.equal(nodeMachine.snapshot(), null);
+
+    const clickMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    clickMachine.pointerDown(classifyGraphPointerDownTarget(nodeTarget("node-a")), pointer(15, 0, 0));
+    assert.deepEqual(clickMachine.pointerCancel({ pointerId: 15 }), []);
+    assert.deepEqual(clickMachine.pointerUp(pointer(15, 0, 0)), []);
+
+    const panMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    panMachine.pointerDown(classifyGraphPointerDownTarget(blankTarget()), pointer(16, 0, 0));
+    panMachine.pointerMove(pointer(16, 10, 0));
+    assert.deepEqual(panMachine.lostPointerCapture({ pointerId: 16 }), [
+      { kind: "blank-pan-cancel", pointerId: 16, reason: "lostpointercapture" }
+    ]);
+    assert.equal(panMachine.snapshot(), null);
+  });
+
+  it("lets Escape cancel active drag, community, and pan gestures", () => {
+    const dragMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    dragMachine.pointerDown(classifyGraphPointerDownTarget(nodeTarget("node-a")), pointer(17, 0, 0));
+    dragMachine.pointerMove(pointer(17, 10, 0));
+    assert.deepEqual(dragMachine.escape(), [
+      { kind: "node-drag-cancel", nodeId: "node-a", pointerId: 17, reason: "escape" }
+    ]);
+
+    const communityMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    communityMachine.pointerDown(classifyGraphPointerDownTarget(communityWashTarget("community-a")), pointer(18, 0, 0));
+    assert.deepEqual(communityMachine.escape(), [
+      { kind: "community-click-cancelled", communityId: "community-a", pointerId: 18, reason: "escape" }
+    ]);
+
+    const panMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    panMachine.pointerDown(classifyGraphPointerDownTarget(blankTarget()), pointer(19, 0, 0));
+    panMachine.pointerMove(pointer(19, 10, 0));
+    assert.deepEqual(panMachine.escape(), [
+      { kind: "blank-pan-cancel", pointerId: 19, reason: "escape" }
+    ]);
+  });
+});
+
 function blankTarget(): FakeTarget {
   return new FakeTarget();
 }
@@ -128,6 +262,14 @@ function edgeTarget(id: string): FakeTarget {
 function controlTarget(selector: string): FakeTarget {
   const control = new FakeTarget();
   return new FakeTarget({ closest: { [selector]: control } });
+}
+
+function pointer(pointerId: number, x: number, y: number, options: { shiftKey?: boolean } = {}) {
+  return {
+    pointerId,
+    screenPoint: { x, y },
+    shiftKey: options.shiftKey
+  };
 }
 
 function matchesSelf(target: FakeTarget, selector: string): boolean {
