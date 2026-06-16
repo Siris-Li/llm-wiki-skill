@@ -10,6 +10,47 @@ import type {
 import { createStaticGraphRenderer } from "./render";
 import { resolveSelectionForCapabilities } from "./select";
 
+export type GraphFacadeHostMode = "workbench" | "offline" | "standalone";
+
+export interface GraphFacadeCapabilityContract {
+  mode: GraphFacadeHostMode;
+  capabilities: GraphEngineOptions["capabilities"];
+}
+
+export function createGraphWorkbenchCapabilities(
+  capabilities: NonNullable<GraphEngineOptions["capabilities"]>
+): GraphFacadeCapabilityContract {
+  return {
+    mode: "workbench",
+    capabilities: {
+      onOpenPage: capabilities.onOpenPage,
+      onSelectionChange: capabilities.onSelectionChange,
+      onSelectionClear: capabilities.onSelectionClear,
+      onAsk: capabilities.onAsk,
+      persistPins: capabilities.persistPins,
+      onDragStateChange: capabilities.onDragStateChange
+    }
+  };
+}
+
+export function createGraphOfflineCapabilities(
+  capabilities: Pick<NonNullable<GraphEngineOptions["capabilities"]>, "persistPins"> = {}
+): GraphFacadeCapabilityContract {
+  return {
+    mode: "offline",
+    capabilities: {
+      persistPins: capabilities.persistPins
+    }
+  };
+}
+
+export function createGraphStandaloneCapabilities(): GraphFacadeCapabilityContract {
+  return {
+    mode: "standalone",
+    capabilities: undefined
+  };
+}
+
 export interface GraphFacadeRenderer {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
@@ -40,6 +81,7 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
     throw new Error("createGraphEngine requires a container element");
   }
 
+  const capabilities = options.capabilities;
   const facadeState: GraphFacadeState = { data: options.data };
   const renderer = createStaticGraphRenderer(container, {
     data: options.data,
@@ -48,19 +90,19 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
     toolbarContainer: options.toolbarContainer,
     focus: options.focus,
     typeFilters: options.typeFilters,
-    onOpenPage: options.capabilities?.onOpenPage,
-    onSelectionChange: shouldResolveSelection(options)
+    onOpenPage: capabilities?.onOpenPage,
+    onSelectionChange: shouldResolveSelection(capabilities)
       ? (input) => {
           const selection = resolveSelectionForCapabilities(facadeState.data, input, {
-            canAsk: Boolean(options.capabilities?.onAsk)
+            canAsk: Boolean(capabilities?.onAsk)
           });
-          options.capabilities?.onSelectionChange?.(selection);
-          if (!options.capabilities?.onSelectionChange) options.capabilities?.onAsk?.(selection);
+          capabilities?.onSelectionChange?.(selection);
+          if (!capabilities?.onSelectionChange) capabilities?.onAsk?.(selection);
         }
       : undefined,
-    persistPins: options.capabilities?.persistPins,
-    onSelectionClear: options.capabilities?.onSelectionClear,
-    onDragStateChange: options.capabilities?.onDragStateChange
+    persistPins: capabilities?.persistPins,
+    onSelectionClear: capabilities?.onSelectionClear,
+    onDragStateChange: capabilities?.onDragStateChange
   });
 
   return createGraphFacadeFromRenderer(container, renderer, options, facadeState);
@@ -173,6 +215,6 @@ export function createGraphFacadeFromRenderer(
   }
 }
 
-function shouldResolveSelection(options: GraphEngineOptions): boolean {
-  return Boolean(options.capabilities?.onSelectionChange || options.capabilities?.onAsk);
+function shouldResolveSelection(capabilities: GraphEngineOptions["capabilities"]): boolean {
+  return Boolean(capabilities?.onSelectionChange || capabilities?.onAsk);
 }

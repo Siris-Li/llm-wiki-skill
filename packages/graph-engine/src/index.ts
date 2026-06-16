@@ -9,7 +9,12 @@ export * from "./themes";
 export * from "./diff";
 export * from "./anim";
 export * from "./architecture";
-export { createGraphFacade } from "./facade";
+export {
+  createGraphFacade,
+  createGraphOfflineCapabilities,
+  createGraphStandaloneCapabilities,
+  createGraphWorkbenchCapabilities
+} from "./facade";
 
 import type { GraphEngine, GraphEngineOptions } from "./types";
 import { createGraphFacade } from "./facade";

@@ -8,7 +8,13 @@ import {
   type SelectionInput,
   type ThemeId
 } from "../src";
-import { createGraphFacadeFromRenderer, type GraphFacadeRenderer } from "../src/facade";
+import {
+  createGraphFacadeFromRenderer,
+  createGraphOfflineCapabilities,
+  createGraphStandaloneCapabilities,
+  createGraphWorkbenchCapabilities,
+  type GraphFacadeRenderer
+} from "../src/facade";
 
 const DATA: GraphData = {
   meta: {
@@ -104,6 +110,40 @@ describe("GraphFacade", () => {
     assert.deepEqual(selection.communityIds, ["c2"]);
     assert.deepEqual(renderer.calls.at(-2), ["setData", nextData, undefined]);
     assert.deepEqual(renderer.calls.at(-1), ["select", { kind: "node", id: "a" }]);
+  });
+
+  it("declares separate workbench, offline, and standalone capability contracts", async () => {
+    const persistPins = async (_pins: PinMap) => {};
+    const workbench = createGraphWorkbenchCapabilities({
+      onOpenPage: () => {},
+      onSelectionChange: () => {},
+      onSelectionClear: () => {},
+      onAsk: () => {},
+      persistPins,
+      onDragStateChange: () => {}
+    });
+    const offline = createGraphOfflineCapabilities({ persistPins });
+    const standalone = createGraphStandaloneCapabilities();
+
+    assert.equal(workbench.mode, "workbench");
+    assert.deepEqual(Object.keys(workbench.capabilities || {}).sort(), [
+      "onAsk",
+      "onDragStateChange",
+      "onOpenPage",
+      "onSelectionChange",
+      "onSelectionClear",
+      "persistPins"
+    ]);
+
+    assert.equal(offline.mode, "offline");
+    assert.deepEqual(Object.keys(offline.capabilities || {}), ["persistPins"]);
+    assert.equal(offline.capabilities?.onOpenPage, undefined);
+    assert.equal(offline.capabilities?.onSelectionChange, undefined);
+    assert.equal(offline.capabilities?.onAsk, undefined);
+
+    assert.equal(standalone.mode, "standalone");
+    assert.equal(standalone.capabilities, undefined);
+    await offline.capabilities?.persistPins?.({});
   });
 });
 

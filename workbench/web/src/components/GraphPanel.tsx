@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Moon, RefreshCw, RotateCcw, Sun } from "lucide-react";
 import {
+	createGraphWorkbenchCapabilities,
 	createGraphEngine,
 	GraphDiffQueue,
 	type GraphData,
@@ -313,7 +314,7 @@ export function GraphPanel({
 			data,
 			pins: layoutPinsRef.current,
 			theme: graphThemeRef.current,
-			capabilities: {
+			capabilities: createGraphWorkbenchCapabilities({
 				onOpenPage: (payload) => onOpenPageRef.current?.(payload),
 				onSelectionChange: (nextSelection) => onSelectionChangeRef.current?.(nextSelection),
 				onSelectionClear: () => onSelectionChangeRef.current?.(null),
@@ -326,7 +327,7 @@ export function GraphPanel({
 						void playDiff(decision.diff);
 					}
 				},
-			},
+			}).capabilities,
 		});
 		engineRef.current = engine;
 		engineKbPathRef.current = currentKnowledgeBasePath;

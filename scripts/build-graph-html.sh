@@ -402,12 +402,12 @@ cat >> "$output_tmp" <<'HTML_BOOT'
         pins: pins,
         theme: currentTheme,
         toolbarContainer: toolbarHost,
-        capabilities: {
+        capabilities: window.LlmWikiGraphEngine.createGraphOfflineCapabilities({
           persistPins: function (nextPins) {
             writeStoredPins(key, nextPins || {});
             return Promise.resolve();
           }
-        }
+        }).capabilities
       });
       syncThemeToggle(currentTheme);
       if (themeToggle) {
