@@ -345,6 +345,26 @@ describe("buildRenderableGraph", () => {
     assert.equal(graph.worldBounds.width, 1320);
     assert.equal(graph.worldBounds.height, 896);
   });
+
+  it("does not let expanded render bounds enlarge the community wash cap", () => {
+    const graph = buildRenderableGraph(outlierCommunityGraph(), {
+      theme: "shan-shui",
+      positions: {
+        outlier: { x: 5000, y: 3400 }
+      }
+    });
+    const community = graph.communities.find((item) => item.id === "c1");
+    const outlier = graph.nodes.find((node) => node.id === "outlier");
+
+    assert.ok(community?.wash);
+    assert.ok(outlier);
+    assert.ok(graph.worldBounds.width > 5000, `world bounds should expand to include the outlier, got ${graph.worldBounds.width}`);
+    assert.ok(graph.worldBounds.height > 3400, `world bounds should expand to include the outlier, got ${graph.worldBounds.height}`);
+    assert.equal(community.wash.rx, 190);
+    assert.equal(community.wash.ry, 142.8);
+    assert.ok(outlier.point.x > community.wash.cx + community.wash.rx, "the node can sit outside the capped visual wash");
+    assert.equal(outlier.community, "c1");
+  });
 });
 
 function communityWashStates(graph: ReturnType<typeof buildRenderableGraph>): Array<[string, boolean]> {

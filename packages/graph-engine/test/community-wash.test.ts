@@ -53,4 +53,30 @@ describe("community wash geometry", () => {
     assert.equal(wash.rx, DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X);
     assert.equal(wash.ry, DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y);
   });
+
+  it("keeps the cap stable for a single extreme dragged outlier", () => {
+    const nearOutlier = computeCommunityWash([
+      node(200, 240),
+      node(220, 256),
+      node(238, 230),
+      node(252, 248),
+      node(1240, 816)
+    ]);
+    const extremeOutlier = computeCommunityWash([
+      node(200, 240),
+      node(220, 256),
+      node(238, 230),
+      node(252, 248),
+      node(10000, 5000)
+    ]);
+
+    assert.ok(nearOutlier);
+    assert.ok(extremeOutlier);
+    assert.equal(nearOutlier.rx, DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X);
+    assert.equal(nearOutlier.ry, DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y);
+    assert.equal(extremeOutlier.rx, DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X);
+    assert.equal(extremeOutlier.ry, DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y);
+    assert.ok(extremeOutlier.cx < 440, `wash should stay visually anchored, got cx ${extremeOutlier.cx}`);
+    assert.ok(extremeOutlier.cy < 390, `wash should stay visually anchored, got cy ${extremeOutlier.cy}`);
+  });
 });
