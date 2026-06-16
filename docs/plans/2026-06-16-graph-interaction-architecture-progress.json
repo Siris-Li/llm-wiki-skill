@@ -289,7 +289,7 @@
             "git diff --check exited 0.",
             "Advanced current task pointer to phase-2 task 2.2; phase-2 remains pending because renderer shell is not yet wired to state snapshots."
           ],
-          "commit": null
+          "commit": "3e577b9b275a4ff9e41f0ca8314da5e12b7bb47a"
         },
         {
           "id": "2.2",
@@ -602,6 +602,7 @@
         "Kept host drawer/search/toolbar/diff state out of GraphRuntimeState in this task.",
         "Added state tests for update APIs, subscriptions, cloned snapshots, simulation proposal commit boundaries, and interaction clearing.",
         "Verified state single-file test, full graph-engine test, graph-engine typecheck, graph-engine build, and git diff --check all exited 0.",
+        "Committed verified task 2.1 as 3e577b9b275a4ff9e41f0ca8314da5e12b7bb47a.",
         "Advanced current task pointer to phase-2 task 2.2; phase-2 remains pending because renderer shell is not yet wired to state snapshots."
       ]
     }
