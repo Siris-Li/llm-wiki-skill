@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-2",
-    "task": "2.1",
-    "next_allowed_action": "Execute phase-2 task 2.1: create minimal graph runtime state. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
+    "task": "2.2",
+    "next_allowed_action": "Execute phase-2 task 2.2: wire state snapshots into the renderer shell. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -252,8 +252,15 @@
       "acceptance": [
         {
           "check": "Viewport, hover, single selection, multi selection, community focus, pins, positions, and active gesture have one graph-local state owner",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "packages/graph-engine/src/render/state.ts now defines GraphRuntimeState as the graph-local owner for viewport, positions, pins, hover, selection, focus, and active gesture snapshots.",
+            "state.test.ts covers viewport, node hover, community hover, edge hover, single-node selection, multi-node selection, community focus, pins, positions, node-drag gesture, viewport-pan gesture, community-click gesture, and clearInteraction.",
+            "state.test.ts proves callers can subscribe to explicit updates and cannot mutate hidden state through returned snapshots.",
+            "state.test.ts proves simulation proposals do not enter committed positions until setPositions or commitPosition is explicitly called.",
+            "node --import tsx --test packages/graph-engine/test/state.test.ts exited 0: 6 tests passed.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 after task 2.1 work: 43 suites, 169 tests, 169 pass, 0 fail."
+          ]
         },
         {
           "check": "Renderer reads runtime state snapshots without moving host drawer state into graph-engine",
@@ -265,8 +272,23 @@
         {
           "id": "2.1",
           "title": "Create minimal graph runtime state",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-2 task 2.1.",
+            "git log --oneline -15 exited 0 before task 2.1 work; branch head was 85bd6df docs: record layout bounds commit.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 before task 2.1 work: 42 suites, 163 tests, 163 pass, 0 fail.",
+            "Created packages/graph-engine/src/render/state.ts with GraphRuntimeState, createGraphRuntimeState, explicit snapshot/update APIs, and types for hover, focus, active gesture, and listeners.",
+            "GraphRuntimeState owns viewport, committed positions, pin snapshots, hover target, selection/focus graph item, and active gesture without moving host drawer/search/toolbar/diff state into the module.",
+            "GraphRuntimeState clones inputs and snapshots so renderer or host callers cannot mutate hidden graph state by reference.",
+            "Exported GraphRuntimeState and related types through packages/graph-engine/src/render/index.ts.",
+            "Added packages/graph-engine/test/state.test.ts with 6 tests covering defaults, viewport/hover/selection/focus/pins/positions/gesture updates, subscriptions, simulation proposal commit boundaries, cloned snapshots, and clearInteraction behavior.",
+            "node --import tsx --test packages/graph-engine/test/state.test.ts exited 0: 6 tests passed.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 after task 2.1 work: 43 suites, 169 tests, 169 pass, 0 fail.",
+            "npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated both engine.esm.js and engine.iife.js.",
+            "git diff --check exited 0.",
+            "Advanced current task pointer to phase-2 task 2.2; phase-2 remains pending because renderer shell is not yet wired to state snapshots."
+          ],
           "commit": null
         },
         {
@@ -568,6 +590,19 @@
         "Verified sim single-file test, full graph-engine test, graph-engine typecheck, graph-engine build, and git diff --check all exited 0.",
         "Committed verified task 1.3 as 332c4cd776511270120f9c180e7cdf1e2d95e2e3.",
         "All phase-1 acceptance checks now pass, so phase-1 was marked completed and the progress pointer advanced to phase-2 task 2.1."
+      ]
+    },
+    {
+      "turn": "phase-2-task-2.1",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-2 task 2.1.",
+        "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before changing code; both exited 0.",
+        "Added GraphRuntimeState as a graph-local owner for viewport, committed positions, pin snapshots, hover, selection/focus, and active gesture.",
+        "Kept host drawer/search/toolbar/diff state out of GraphRuntimeState in this task.",
+        "Added state tests for update APIs, subscriptions, cloned snapshots, simulation proposal commit boundaries, and interaction clearing.",
+        "Verified state single-file test, full graph-engine test, graph-engine typecheck, graph-engine build, and git diff --check all exited 0.",
+        "Advanced current task pointer to phase-2 task 2.2; phase-2 remains pending because renderer shell is not yet wired to state snapshots."
       ]
     }
   ]

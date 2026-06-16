@@ -42,6 +42,15 @@ export { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 export type { GraphSearchFocus, GraphSearchNodeState, GraphSearchNodeView, GraphSearchState } from "./search";
 export { buildHoverPreview, firstUsefulParagraph, previewSummary } from "./preview";
 export type { GraphHoverPreview } from "./preview";
+export { createGraphRuntimeState, GraphRuntimeState } from "./state";
+export type {
+  GraphRuntimeFocusTarget,
+  GraphRuntimeGestureState,
+  GraphRuntimeHoverTarget,
+  GraphRuntimeStateListener,
+  GraphRuntimeStateOptions,
+  GraphRuntimeStateSnapshot
+} from "./state";
 export {
   GRAPH_MINIMAP_VIEWBOX,
   GRAPH_WORLD_SIZE,
