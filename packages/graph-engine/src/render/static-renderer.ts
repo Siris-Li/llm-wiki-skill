@@ -41,6 +41,7 @@ import {
   viewportAfterWheelZoom,
   type RendererViewport
 } from "./viewport";
+import { createGraphRuntimeState, type GraphRuntimeStateSnapshot } from "./state";
 import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 import { buildHoverPreview, type GraphHoverPreview } from "./preview";
 import {
@@ -187,7 +188,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let resizeObserver: ResizeObserver | null = null;
 
   let graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, focus, typeFilters, pathCache });
-  let pinState = new PinState(graph, pins);
+  const runtimeState = createGraphRuntimeState({
+    viewport,
+    positions: positionsFromRenderableGraph(graph),
+    pins,
+    selection: rendererSelectionInput(),
+    focus
+  });
+  let pinState = new PinState(graph, runtimeState.snapshot().pins);
   bindViewportHandlers();
   bindResizeObserver();
 
@@ -200,10 +208,22 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (Object.hasOwn(next, "typeFilters")) typeFilters = next.typeFilters || {};
     if (Object.hasOwn(next, "selectedNodeId")) selectedNodeId = next.selectedNodeId || null;
     if (Object.hasOwn(next, "selection")) selection = next.selection || null;
-    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, focus, typeFilters, pathCache });
+    const runtimeSnapshot = syncRuntimeInputState();
+    const renderSelection = rendererSelectionFromRuntimeState(runtimeSnapshot);
+    pins = runtimeSnapshot.pins;
+    graph = buildRenderableGraph(data, {
+      pins,
+      theme,
+      selectedNodeId: renderSelection.selectedNodeId,
+      selection: renderSelection.selection,
+      focus: runtimeSnapshot.focus,
+      typeFilters,
+      pathCache
+    });
+    runtimeState.setPositions(positionsFromRenderableGraph(graph));
     availableTypeFilters = graph.typeFilters;
     searchIndex = undefined;
-    pinState = new PinState(graph, pins);
+    pinState = new PinState(graph, runtimeState.snapshot().pins);
     applyTheme(root, theme);
     dom = paint(root, graph, theme, Boolean(options.onOpenPage), {
       onCommunitySelect: (id) => {
@@ -227,6 +247,13 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       },
       onDragStart: (id, event) => {
         if (!simulation) return;
+        runtimeState.setActiveGesture({
+          kind: "node-drag",
+          pointerId: event.pointerId,
+          nodeId: id,
+          grabOffset: { x: 0, y: 0 },
+          locked: true
+        });
         simulation.beginDrag(id);
         simulation.dragTo(id, eventToGraphPoint(root, event));
         root.dataset.dragging = id;
@@ -243,17 +270,20 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         if (position) {
           const nextState = pinState.pin(id, position);
           pins = nextState.pins;
+          runtimeState.setPins(pins);
           applyMotionFrame(snapshot.positions);
           markPinnedNodes(nextState.pinnedNodeIds);
           void options.persistPins?.(nextState.pins);
         }
         delete root.dataset.dragging;
+        runtimeState.setActiveGesture(null);
         options.onDragStateChange?.(false);
       },
       onNodeDoubleClick: (id) => {
         if (!pinState.isPinned(id)) return false;
         const nextState = pinState.unpin(id);
         pins = nextState.pins;
+        runtimeState.setPins(pins);
         simulation?.setFixed(id, null);
         markPinnedNodes(nextState.pinnedNodeIds);
         void options.persistPins?.(nextState.pins);
@@ -274,7 +304,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     mountGraphToolbar();
     applySearchQuery(searchQuery);
     applyCommunityHover();
-    commitViewport(viewport);
+    commitViewport(runtimeState.snapshot().viewport);
     if (activeDiff && root.dataset.diffState === "playing") markDiffElements(activeDiff);
     renderReader();
     renderSelectionPanel();
@@ -295,13 +325,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       return animateDiff(diff, animationOptions);
     },
     isDragging(): boolean {
-      return Boolean(root.dataset.dragging);
+      return runtimeState.snapshot().activeGesture?.kind === "node-drag";
     },
     setTheme(nextTheme: ThemeId): void {
       render({ theme: nextTheme });
     },
     setPins(nextPins: PinMap): void {
       pins = nextPins;
+      runtimeState.setPins(pins);
       render({ pins });
     },
     focusNode(pathOrId: WikiPath): void {
@@ -331,6 +362,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     resetLayout(): void {
       const nextState = pinState.reset();
       pins = nextState.pins;
+      runtimeState.setPins(pins);
       render({ pins });
       void options.persistPins?.(nextState.pins);
     },
@@ -352,6 +384,31 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     }
   };
 
+  function syncRuntimeInputState(): GraphRuntimeStateSnapshot {
+    runtimeState.setPins(pins);
+    runtimeState.setSelection(rendererSelectionInput());
+    runtimeState.setFocus(focus);
+    return runtimeState.snapshot();
+  }
+
+  function rendererSelectionInput(): SelectionInput | null {
+    if (selection) return selection;
+    return selectedNodeId ? { kind: "node", id: selectedNodeId } : null;
+  }
+
+  function rendererSelectionFromRuntimeState(snapshot: GraphRuntimeStateSnapshot): { selectedNodeId: NodeId | null; selection: SelectionInput | null } {
+    if (selection) return { selectedNodeId: null, selection: snapshot.selection };
+    if (snapshot.selection?.kind === "node") return { selectedNodeId: snapshot.selection.id, selection: null };
+    return { selectedNodeId: null, selection: snapshot.selection };
+  }
+
+  function syncHoverState(): GraphRuntimeStateSnapshot {
+    if (previewNodeId) return runtimeState.setHover({ kind: "node", id: previewNodeId });
+    if (previewEdgeId) return runtimeState.setHover({ kind: "edge", id: previewEdgeId });
+    if (hoveredCommunityId) return runtimeState.setHover({ kind: "community", id: hoveredCommunityId });
+    return runtimeState.setHover(null);
+  }
+
   function assertActive(): void {
     if (destroyed) throw new Error("Graph renderer has been destroyed");
   }
@@ -369,6 +426,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       clearTimeout(previewTimer);
       previewTimer = null;
     }
+    runtimeState.clearInteraction();
     delete root.dataset.focus;
     options.onSelectionClear?.();
     render({ selectedNodeId: null, selection: null, focus: null });
@@ -447,7 +505,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const node = graph.nodes.find((item) => item.id === next.id);
     if (node) {
       setViewportAnimating(true);
-      viewportCommitter.schedule(centerRendererViewportOnPoint(node.point, viewport, viewportSize()));
+      viewportCommitter.schedule(centerRendererViewportOnPoint(node.point, runtimeState.snapshot().viewport, viewportSize()));
     }
     applySearchQuery(searchQuery);
   }
@@ -473,6 +531,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       },
       onHover: (id) => {
         hoveredCommunityId = id;
+        syncHoverState();
         applyCommunityHover();
       },
       onSelect: (id) => selectCommunity(id)
@@ -529,6 +588,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const nextSelection: SelectionInput = { kind: "community", id };
     selection = nextSelection;
     selectedNodeId = null;
+    runtimeState.setSelection(nextSelection);
     options.onSelectionChange?.(nextSelection);
     focusCommunity(id);
   }
@@ -550,6 +610,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     hoveredCommunityId = null;
     previewNodeId = null;
     previewEdgeId = null;
+    runtimeState.clearInteraction();
     delete root.dataset.focus;
     options.onSelectionClear?.();
     render({ selectedNodeId: null, selection: null, focus: null });
@@ -565,13 +626,17 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     hoveredCommunityId = null;
     previewNodeId = null;
     previewEdgeId = null;
+    syncRuntimeInputState();
+    syncHoverState();
     delete root.dataset.focus;
     options.onSelectionClear?.();
     render({ selectedNodeId: null, selection: null, focus });
   }
 
   function applyCommunityHover(): void {
-    const active = hoveredCommunityId;
+    const hover = runtimeState.snapshot().hover;
+    const active = hover?.kind === "community" ? hover.id : null;
+    hoveredCommunityId = active;
     root.dataset.legendHover = active || "";
     for (const [id, row] of dom.legendRows) {
       row.dataset.communityState = active ? (id === active ? "active" : "faded") : "none";
@@ -600,7 +665,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     simulation = createLiveGraphSimulation(graph, {
       onTick: (snapshot) => applyMotionFrame(snapshot.positions)
     });
-    for (const [id, position] of Object.entries(pinsToPositions(graph, pins))) {
+    for (const [id, position] of Object.entries(pinsToPositions(graph, runtimeState.snapshot().pins))) {
       simulation.setFixed(id, position);
     }
     simulation.startCold();
@@ -609,7 +674,18 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function applyMotionFrame(positions: RenderPositionMap): void {
     if (destroyed) return;
-    graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, focus, typeFilters, positions, pathCache });
+    const snapshot = runtimeState.setPositions(positions);
+    const renderSelection = rendererSelectionFromRuntimeState(snapshot);
+    graph = buildRenderableGraph(data, {
+      pins: snapshot.pins,
+      theme,
+      selectedNodeId: renderSelection.selectedNodeId,
+      selection: renderSelection.selection,
+      focus: snapshot.focus,
+      typeFilters,
+      positions: snapshot.positions,
+      pathCache
+    });
     const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
     for (const node of graph.nodes) {
       const element = dom.nodeElements.get(node.id);
@@ -662,7 +738,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       setViewportAnimating(false);
       const rect = root.getBoundingClientRect();
       viewportCommitter.schedule(viewportAfterWheelZoom(
-        viewport,
+        runtimeState.snapshot().viewport,
         { deltaY: event.deltaY, deltaMode: event.deltaMode },
         {
           x: event.clientX - rect.left,
@@ -684,6 +760,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         startY: event.clientY,
         moved: false
       };
+      runtimeState.setActiveGesture({
+        kind: "viewport-pan",
+        pointerId: event.pointerId,
+        lastScreenPoint: {
+          x: event.clientX - root.getBoundingClientRect().left,
+          y: event.clientY - root.getBoundingClientRect().top
+        },
+        locked: false
+      });
       setViewportAnimating(false);
       root.setPointerCapture(event.pointerId);
     });
@@ -695,13 +780,23 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         || Math.abs(event.clientX - blankPan.startX) > 3
         || Math.abs(event.clientY - blankPan.startY) > 3;
       blankPan = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY, startX: blankPan.startX, startY: blankPan.startY, moved };
+      runtimeState.setActiveGesture({
+        kind: "viewport-pan",
+        pointerId: event.pointerId,
+        lastScreenPoint: {
+          x: event.clientX - root.getBoundingClientRect().left,
+          y: event.clientY - root.getBoundingClientRect().top
+        },
+        locked: moved
+      });
       if (moved) root.dataset.viewportDragging = "true";
-      viewportCommitter.schedule(panRendererViewport(viewport, { x: dx, y: dy }, viewportSize()));
+      viewportCommitter.schedule(panRendererViewport(runtimeState.snapshot().viewport, { x: dx, y: dy }, viewportSize()));
     });
     const endPan = (event: PointerEvent) => {
       if (!blankPan || event.pointerId !== blankPan.pointerId) return;
       const wasClick = !blankPan.moved;
       blankPan = null;
+      runtimeState.setActiveGesture(null);
       delete root.dataset.viewportDragging;
       if (root.hasPointerCapture(event.pointerId)) root.releasePointerCapture(event.pointerId);
       if (!wasClick) return;
@@ -734,13 +829,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         ? graph.nodes.find((node) => node.id === selectedNodeId)?.point ?? null
         : null;
       setViewportAnimating(false);
-      commitViewport(viewportAfterResize(viewport, previous, next, { anchorPoint }));
+      commitViewport(viewportAfterResize(runtimeState.snapshot().viewport, previous, next, { anchorPoint }));
     });
     resizeObserver.observe(root);
   }
 
   function commitViewport(nextViewport: RendererViewport): void {
-    viewport = nextViewport;
+    const snapshot = runtimeState.setViewport(nextViewport);
+    viewport = snapshot.viewport;
     root.dataset.viewportScale = String(round(viewport.scale));
     if (dom.contentLayer) applyRendererViewportTransform(dom.contentLayer, viewport);
     updateEffectiveDensity();
@@ -748,7 +844,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function updateEffectiveDensity(): void {
-    const densityMode = screenEffectiveDensityMode(graph.counts.visibleNodes, viewport.scale);
+    const densityMode = screenEffectiveDensityMode(graph.counts.visibleNodes, runtimeState.snapshot().viewport.scale);
     root.dataset.density = densityMode;
     root.dataset.effectiveDensity = densityMode;
     if (densityMode === lastEffectiveDensityMode) return;
@@ -768,7 +864,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function updateMinimapViewport(): void {
     if (!dom.miniViewportElement) return;
-    const rect = rendererViewportToMinimapRect(viewport, viewportSize());
+    const rect = rendererViewportToMinimapRect(runtimeState.snapshot().viewport, viewportSize());
     dom.miniViewportElement.setAttribute("x", String(round(rect.x)));
     dom.miniViewportElement.setAttribute("y", String(round(rect.y)));
     dom.miniViewportElement.setAttribute("width", String(round(rect.width)));
@@ -1014,6 +1110,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       previewTimer = null;
       previewNodeId = id;
       previewEdgeId = null;
+      syncHoverState();
       renderHoverPreview();
     }, 300);
   }
@@ -1025,6 +1122,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     }
     previewNodeId = null;
     previewEdgeId = id;
+    syncHoverState();
     renderHoverPreview();
   }
 
@@ -1036,15 +1134,17 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (!previewNodeId && !previewEdgeId) return;
     previewNodeId = null;
     previewEdgeId = null;
+    syncHoverState();
     renderHoverPreview();
   }
 
   function renderHoverPreview(): void {
     const preview = dom.previewElement;
     if (!preview) return;
-    const edge = previewEdgeId ? graph.edges.find((item) => item.id === previewEdgeId) : null;
-    const rawNode = previewNodeId ? data.nodes.find((node) => node.id === previewNodeId) : null;
-    const renderedNode = previewNodeId ? graph.nodes.find((node) => node.id === previewNodeId) : null;
+    const hover = runtimeState.snapshot().hover;
+    const edge = hover?.kind === "edge" ? graph.edges.find((item) => item.id === hover.id) : null;
+    const rawNode = hover?.kind === "node" ? data.nodes.find((node) => node.id === hover.id) : null;
+    const renderedNode = hover?.kind === "node" ? graph.nodes.find((node) => node.id === hover.id) : null;
     preview.replaceChildren();
     preview.dataset.kind = edge ? "edge" : "node";
     if (edge) {
@@ -1299,6 +1399,10 @@ function offlineSelectionTitle(selection: SelectionInput, count: number): string
   if (selection.kind === "neighbors") return `相邻节点 · ${count} 页`;
   if (selection.kind === "node") return "选中页面";
   return `手动选区 · ${count} 页`;
+}
+
+function positionsFromRenderableGraph(graph: RenderableGraph): RenderPositionMap {
+  return Object.fromEntries(graph.nodes.map((node) => [node.id, { x: node.point.x, y: node.point.y }]));
 }
 
 function createNodeButton(node: RenderableNode, dragHandlers: DragHandlers): HTMLButtonElement {
