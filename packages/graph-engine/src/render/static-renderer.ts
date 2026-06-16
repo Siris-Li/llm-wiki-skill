@@ -44,7 +44,8 @@ import {
 import { createGraphRuntimeState, type GraphRuntimeStateSnapshot } from "./state";
 import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 import { buildHoverPreview, type GraphHoverPreview } from "./preview";
-import { rootClientPointToScreenPoint } from "./geometry";
+import { rootClientPointToScreenPoint, worldDeltaToLayerDelta, type GraphWorldPoint } from "./geometry";
+import { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
 import {
   GraphGestureStateMachine,
   classifyGraphPointerDownTarget,
@@ -201,6 +202,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   ownerDocument.addEventListener("keydown", handleDocumentKeydown);
   const viewportCommitter = createViewportFrameCommitter(commitViewport, root.ownerDocument.defaultView || undefined);
   const gestureMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
+  let pendingNodeDrag: { pointerId: number; nodeId: NodeId; grabOffset: GraphWorldPoint } | null = null;
   let viewportAnimationTimer: ReturnType<typeof setTimeout> | null = null;
   let lastEffectiveDensityMode: DensityMode | null = null;
   let lastViewportSize = viewportSize();
@@ -656,13 +658,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       pathCache
     });
     const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+    const size = viewportSize();
     for (const node of graph.nodes) {
       const element = dom.nodeElements.get(node.id);
       const base = dom.basePoints.get(node.id);
       if (!element || !base) continue;
       const dx = node.point.x - base.x;
       const dy = node.point.y - base.y;
-      element.style.translate = `calc(-50% + ${round(dx)}px) calc(-50% + ${round(dy)}px)`;
+      const layerDelta = worldDeltaToLayerDelta({ x: dx, y: dy }, size);
+      element.style.translate = `calc(-50% + ${round(layerDelta.x)}px) calc(-50% + ${round(layerDelta.y)}px)`;
       element.dataset.liveX = String(round(node.point.x));
       element.dataset.liveY = String(round(node.point.y));
     }
@@ -718,6 +722,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       if (event.button !== 0) return;
       const decision = classifyGraphPointerDownTarget(graphGestureTarget(event.target));
       if (decision.intent === "blocked") return;
+      pendingNodeDrag = decision.intent === "node-drag-candidate" && decision.target.id
+        ? pendingNodeDragFromPointerDown(decision.target.id, event)
+        : null;
       if (decision.intent !== "node-drag-candidate") root.focus({ preventScroll: true });
       gestureMachine.pointerDown(decision, graphPointerEvent(event));
       syncRuntimeGestureState();
@@ -816,24 +823,28 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function handleNodeDragStart(id: NodeId, event: PointerEvent): void {
-    if (!simulation) return;
+    if (!simulation) {
+      pendingNodeDrag = null;
+      return;
+    }
+    const grabOffset = nodeDragGrabOffset(id, event.pointerId);
     dom.nodeElements.get(id)?.classList.add("is-dragging");
     runtimeState.setActiveGesture({
       kind: "node-drag",
       pointerId: event.pointerId,
       nodeId: id,
-      grabOffset: { x: 0, y: 0 },
+      grabOffset,
       locked: true
     });
     simulation.beginDrag(id);
-    simulation.dragTo(id, eventToGraphPoint(root, event));
+    simulation.dragTo(id, nodeDragTargetFromPointer(event, grabOffset));
     root.dataset.dragging = id;
     options.onDragStateChange?.(true);
   }
 
   function handleNodeDragMove(id: NodeId, event: PointerEvent): void {
     if (!simulation || root.dataset.dragging !== id) return;
-    simulation.dragTo(id, eventToGraphPoint(root, event));
+    simulation.dragTo(id, nodeDragTargetFromPointer(event, nodeDragGrabOffset(id, event.pointerId)));
   }
 
   function handleNodeDragEnd(id: NodeId, _event: PointerEvent): void {
@@ -849,6 +860,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       void options.persistPins?.(nextState.pins);
     }
     dom.nodeElements.get(id)?.classList.remove("is-dragging");
+    pendingNodeDrag = null;
     delete root.dataset.dragging;
     runtimeState.setActiveGesture(null);
     options.onDragStateChange?.(false);
@@ -859,6 +871,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const snapshot = simulation.endDrag({ keepFixed: false });
     applyMotionFrame(snapshot.positions);
     dom.nodeElements.get(id)?.classList.remove("is-dragging");
+    pendingNodeDrag = null;
     delete root.dataset.dragging;
     runtimeState.setActiveGesture(null);
     options.onDragStateChange?.(false);
@@ -875,7 +888,10 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function syncRuntimeGestureState(): void {
-    runtimeState.setActiveGesture(runtimeGestureFromActiveGesture(gestureMachine.snapshot()));
+    const active = gestureMachine.snapshot();
+    if (!active || active.kind !== "node") pendingNodeDrag = null;
+    if (active?.kind === "node" && pendingNodeDrag && (active.pointerId !== pendingNodeDrag.pointerId || active.nodeId !== pendingNodeDrag.nodeId)) pendingNodeDrag = null;
+    runtimeState.setActiveGesture(runtimeGestureFromActiveGesture(active));
   }
 
   function runtimeGestureFromActiveGesture(active: GraphGestureActiveState): GraphRuntimeStateSnapshot["activeGesture"] {
@@ -886,7 +902,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
             kind: "node-drag",
             pointerId: active.pointerId,
             nodeId: active.nodeId,
-            grabOffset: { x: 0, y: 0 },
+            grabOffset: nodeDragGrabOffset(active.nodeId, active.pointerId),
             locked: active.locked
           }
         : null;
@@ -926,6 +942,42 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function graphGestureTarget(target: EventTarget | null): GraphGestureTargetLike | null {
     return target instanceof Element ? target as Element & GraphGestureTargetLike : null;
+  }
+
+  function pendingNodeDragFromPointerDown(nodeId: NodeId, event: PointerEvent): { pointerId: number; nodeId: NodeId; grabOffset: GraphWorldPoint } | null {
+    const node = graph.nodes.find((item) => item.id === nodeId);
+    if (!node) return null;
+    const drag = beginGraphNodeDrag({
+      nodeWorldPoint: node.point,
+      pointerScreenPoint: graphScreenPointFromPointerEvent(event),
+      viewport: runtimeState.snapshot().viewport,
+      viewportSize: viewportSize()
+    });
+    return {
+      pointerId: event.pointerId,
+      nodeId,
+      grabOffset: drag.grabOffset
+    };
+  }
+
+  function nodeDragGrabOffset(nodeId: NodeId, pointerId: number): GraphWorldPoint {
+    const active = runtimeState.snapshot().activeGesture;
+    if (active?.kind === "node-drag" && active.nodeId === nodeId && active.pointerId === pointerId) {
+      return active.grabOffset;
+    }
+    if (pendingNodeDrag?.nodeId === nodeId && pendingNodeDrag.pointerId === pointerId) {
+      return pendingNodeDrag.grabOffset;
+    }
+    return { x: 0, y: 0 };
+  }
+
+  function nodeDragTargetFromPointer(event: PointerEvent, grabOffset: GraphWorldPoint): GraphWorldPoint {
+    return resolveGraphNodeDragTarget({
+      pointerScreenPoint: graphScreenPointFromPointerEvent(event),
+      viewport: runtimeState.snapshot().viewport,
+      viewportSize: viewportSize(),
+      grabOffset
+    });
   }
 
   function bindResizeObserver(): void {
@@ -1656,14 +1708,6 @@ function edgeConfidenceLabel(confidence: string): string {
     default:
       return "原文";
   }
-}
-
-function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number; y: number } {
-  const rect = root.getBoundingClientRect();
-  return {
-    x: clamp((event.clientX - rect.left) / Math.max(1, rect.width) * WORLD_WIDTH, 0, WORLD_WIDTH),
-    y: clamp((event.clientY - rect.top) / Math.max(1, rect.height) * WORLD_HEIGHT, 0, WORLD_HEIGHT)
-  };
 }
 
 function isTextEditingElement(element: Element | null): boolean {
