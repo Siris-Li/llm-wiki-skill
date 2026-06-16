@@ -4,7 +4,7 @@
     "overall": "pending",
     "phase": "phase-1",
     "task": "1.1",
-    "next_allowed_action": "Run the baseline smoke check, then add d3-quadtree as a direct graph-engine dependency for task 1.1."
+    "next_allowed_action": "Commit task 1.1 direct dependency changes, then record that commit hash before moving to task 1.2."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -181,8 +181,12 @@
       "acceptance": [
         {
           "check": "d3-quadtree is a direct graph-engine dependency and lockfile state is verified.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "packages/graph-engine/package.json declares d3-quadtree ^3.0.1 in dependencies.",
+            "package-lock.json packages/graph-engine dependencies include d3-quadtree ^3.0.1.",
+            "npm ls d3-quadtree --workspace=@llm-wiki/graph-engine shows @llm-wiki/graph-engine directly depends on d3-quadtree@3.0.1."
+          ]
         },
         {
           "check": "SpatialIndex covers node, edge, community wash, blank, overlap priority, and out-of-world cases.",
@@ -204,8 +208,24 @@
         {
           "id": "1.1",
           "title": "Add d3-quadtree as a direct graph-engine dependency",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "npm ls d3-quadtree --workspace=@llm-wiki/graph-engine",
+              "result": "@llm-wiki/graph-engine directly lists d3-quadtree@3.0.1 and d3-force uses the same deduped package.",
+              "status": "passed"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "198 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "result": "tsc -p tsconfig.json --noEmit exited 0",
+              "status": "passed"
+            }
+          ],
           "commit": null
         },
         {
@@ -665,6 +685,19 @@
       "evidence": [
         "commit: 569ef0e docs: map graph interaction test coverage",
         "phase-0 acceptance checks passed"
+      ]
+    },
+    {
+      "timestamp": "2026-06-16T14:48:00.000Z",
+      "phase": "phase-1",
+      "task": "1.1",
+      "action": "Added d3-quadtree as a direct graph-engine dependency",
+      "evidence": [
+        "packages/graph-engine/package.json declares d3-quadtree ^3.0.1",
+        "package-lock.json records d3-quadtree under packages/graph-engine dependencies",
+        "npm ls d3-quadtree --workspace=@llm-wiki/graph-engine passed",
+        "npm run test --workspace=@llm-wiki/graph-engine passed: 198 tests, 0 failed",
+        "npm run typecheck --workspace=@llm-wiki/graph-engine passed"
       ]
     }
   ]
