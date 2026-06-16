@@ -4,7 +4,7 @@
     "overall": "pending",
     "phase": "phase-0",
     "task": "0.2",
-    "next_allowed_action": "Record the task 0.2 commit hash, then run the baseline smoke check and map existing/missing test coverage for task 0.3."
+    "next_allowed_action": "Commit the task 0.3 test coverage map, then record that commit hash before moving to phase-1 task 1.1."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -157,8 +157,19 @@
         {
           "id": "0.3",
           "title": "Map existing and missing test coverage to target phases",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "198 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "rg -n \"Covered|Partial|Missing|spatial-index|renderer-boundary|graph-owned wheel|native selection|fast release|Phase 1|Phase 2|Phase 3|Phase 4|Phase 5|Phase 6|Phase 7|workbench|offline\" docs/graph/2026-06-16-interaction-test-coverage-map.md",
+              "result": "Coverage map includes status labels, required future tests, phase gates, and workbench/offline parity.",
+              "status": "passed"
+            }
+          ],
           "commit": null
         }
       ]
@@ -633,6 +644,17 @@
       "action": "Recorded graph interaction risk audit commit hash",
       "evidence": [
         "commit: 7a996d9 docs: audit graph interaction risks"
+      ]
+    },
+    {
+      "timestamp": "2026-06-16T14:24:00.000Z",
+      "phase": "phase-0",
+      "task": "0.3",
+      "action": "Mapped existing and missing graph interaction test coverage",
+      "evidence": [
+        "docs/graph/2026-06-16-interaction-test-coverage-map.md",
+        "npm run test --workspace=@llm-wiki/graph-engine passed: 198 tests, 0 failed",
+        "coverage map phase labels checked with rg"
       ]
     }
   ]
