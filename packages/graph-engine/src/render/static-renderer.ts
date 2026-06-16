@@ -167,6 +167,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   const ownerDocument = container.ownerDocument || document;
   let legendCollapsed = readLegendCollapsed(ownerDocument);
   let toolbarPanelState: GraphToolbarPanelState = readToolbarPanelState(ownerDocument.defaultView?.localStorage);
+  root.addEventListener("scroll", resetRootScroll, { passive: true });
   const handleDocumentKeydown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
     if ((event.metaKey || event.ctrlKey) && key === "f" && isGraphFocusActive()) {
@@ -350,6 +351,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       simulation = null;
       resizeObserver?.disconnect();
       resizeObserver = null;
+      root.removeEventListener("scroll", resetRootScroll);
       ownerDocument.removeEventListener("keydown", handleDocumentKeydown);
       if (previewTimer) clearTimeout(previewTimer);
       if (viewportAnimationTimer) clearTimeout(viewportAnimationTimer);
@@ -1021,6 +1023,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function commitViewport(nextViewport: RendererViewport): void {
+    resetRootScroll();
     const snapshot = runtimeState.setViewport(nextViewport);
     viewport = snapshot.viewport;
     root.dataset.viewportScale = String(round(viewport.scale));
@@ -1076,6 +1079,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       width: Math.max(1, rect.width || WORLD_WIDTH),
       height: Math.max(1, rect.height || WORLD_HEIGHT)
     };
+  }
+
+  function resetRootScroll(): void {
+    if (root.scrollLeft !== 0) root.scrollLeft = 0;
+    if (root.scrollTop !== 0) root.scrollTop = 0;
   }
 
   async function animateDiff(diff: GraphDiff, animationOptions: { reducedMotion?: boolean; durationMs?: number }): Promise<void> {

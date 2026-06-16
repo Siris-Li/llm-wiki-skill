@@ -3,6 +3,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+const apiOrigin = process.env.LLM_WIKI_AGENT_API_ORIGIN || "http://localhost:8787";
+
 // https://vite.dev/config/
 export default defineConfig({
 	plugins: [react(), tailwindcss()],
@@ -18,7 +20,7 @@ export default defineConfig({
 		proxy: {
 			// dev 期同源访问后端，避免 CORS；生产由后端/Tauri 直接服务前端
 			"/api": {
-				target: "http://localhost:8787",
+				target: apiOrigin,
 				changeOrigin: true,
 			},
 		},
