@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-06-16-graph-six-layer-architecture-phased-plan.md",
   "status": {
     "overall": "pending",
-    "phase": "phase-4",
-    "task": "4.4",
-    "next_allowed_action": "Add facade and renderer boundary tests for task 4.4."
+    "phase": "phase-5",
+    "task": "5.1",
+    "next_allowed_action": "Start Phase 5 by extracting focused renderer drawing modules for task 5.1."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -861,27 +861,44 @@
     {
       "id": "phase-4",
       "goal": "Create GraphFacade after the real interaction chain is stable while preserving public API compatibility.",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
         {
           "check": "createGraphEngine remains compatible for workbench and offline HTML callers.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "npm run typecheck --workspace=@llm-wiki-agent/web exited 0 after facade boundary changes.",
+            "bash tests/graph-workbench-interactions.regression-1.sh exited 0 after facade boundary changes.",
+            "bash tests/graph-offline-phase-6.regression-1.sh exited 0 after facade boundary changes."
+          ]
         },
         {
           "check": "GraphFacade is the only layer that knows both graph internals and host callbacks.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "packages/graph-engine/src/facade.ts maps renderer semantic events to host capabilities.",
+            "packages/graph-engine/test/renderer-boundary.test.ts verifies host callback identifiers stay out of layout and renderer modules.",
+            "node --import tsx --test packages/graph-engine/test/renderer-boundary.test.ts exited 0."
+          ]
         },
         {
           "check": "Workbench and offline HTML use the same facade capability contract.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "workbench GraphPanel uses createGraphWorkbenchCapabilities(...).capabilities.",
+            "offline HTML bootstrap uses createGraphOfflineCapabilities(...).capabilities.",
+            "node --import tsx --test packages/graph-engine/test/facade.test.ts exited 0 and covers workbench/offline/standalone capability contracts."
+          ]
         },
         {
           "check": "npm run test, typecheck, and build for @llm-wiki/graph-engine exit 0, and @llm-wiki-agent/web typecheck exits 0.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "npm run test --workspace=@llm-wiki/graph-engine -> 244 tests passed, 0 failed.",
+            "npm run typecheck --workspace=@llm-wiki/graph-engine -> tsc -p tsconfig.json --noEmit exited 0.",
+            "npm run build --workspace=@llm-wiki/graph-engine -> vite build and declaration emit exited 0.",
+            "npm run typecheck --workspace=@llm-wiki-agent/web -> graph-engine prebuild and tsc -b --noEmit exited 0."
+          ]
         }
       ],
       "tasks": [
@@ -1017,9 +1034,55 @@
         {
           "id": "4.4",
           "title": "Add facade and renderer boundary tests",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "node --import tsx --test packages/graph-engine/test/renderer-boundary.test.ts",
+              "result": "2 tests passed, 0 failed; verifies host callback identifiers stay out of layout/renderer modules and graph object hit classification calls stay inside GraphGestures",
+              "status": "passed"
+            },
+            {
+              "command": "node --import tsx --test packages/graph-engine/test/facade.test.ts",
+              "result": "3 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "result": "tsc -p tsconfig.json --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "244 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run build --workspace=@llm-wiki/graph-engine",
+              "result": "vite build and declaration emit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki-agent/web",
+              "result": "graph-engine prebuild and tsc -b --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "result": "PASS: graph workbench interaction regression",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-offline-phase-6.regression-1.sh",
+              "result": "PASS: phase 6 offline graph regression",
+              "status": "passed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "No whitespace errors",
+              "status": "passed"
+            }
+          ],
+          "commit": "4143648"
         }
       ]
     },
