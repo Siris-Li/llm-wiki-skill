@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-06-16-graph-interaction-architecture-phased-plan.md",
   "status": {
     "overall": "pending",
-    "phase": "phase-5",
-    "task": "5.3",
-    "next_allowed_action": "Execute phase-5 task 5.3: implement capped community wash response fixtures. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
+    "phase": "phase-6",
+    "task": "6.1",
+    "next_allowed_action": "Execute phase-6 task 6.1: integrate workbench host without duplicating graph rules. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -531,7 +531,7 @@
     {
       "id": "phase-5",
       "goal": "Fix overlays and bounded community wash behavior",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
         {
           "check": "Hover and edge previews are positioned from projected screen anchors",
@@ -558,8 +558,20 @@
         },
         {
           "check": "Community wash response to outliers is capped by deterministic fixture tests",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "packages/graph-engine/src/render/community-wash.ts now owns community wash geometry with explicit minimum size, padding, outlier detection, and capped response.",
+            "packages/graph-engine/test/community-wash.test.ts covers small two-node communities, one dragged outlier, and multiple-direction outliers without exceeding the default caps rx <= 190 and ry <= 142.8.",
+            "packages/graph-engine/test/render-model.test.ts covers dense community + outlier, pinned outlier membership stability, and focused community membership after a member is positioned beyond the wash cap.",
+            "Browser evidence from generated offline HTML confirmed node A can be dragged beyond the initial t1 wash right edge from about 603.66px to center x about 846.99px while pinned=true.",
+            "Browser evidence confirmed the wash stayed finite after drag with rx=149.496 and ry=48.568, reset view returned visible nodes A/B/C with valid minimap viewport, and re-entering community focus showed A/B with node A still in community t1.",
+            "Verified node --import tsx --test packages/graph-engine/test/community-wash.test.ts packages/graph-engine/test/render-model.test.ts exited 0: 21 tests passed.",
+            "Verified npm run test --workspace=@llm-wiki/graph-engine exited 0: 49 suites, 198 tests passed.",
+            "Verified npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "Verified npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated both engine.esm.js and engine.iife.js.",
+            "Verified bash tests/graph-community-wash-interactions.regression-1.sh exited 0 and printed PASS.",
+            "Verified git diff --check exited 0."
+          ]
         }
       ],
       "tasks": [
@@ -608,9 +620,24 @@
         {
           "id": "5.3",
           "title": "Implement capped community wash response fixtures",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-5 task 5.3.",
+            "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before continuing; graph-engine tests exited 0.",
+            "Extracted community wash geometry into packages/graph-engine/src/render/community-wash.ts so visual wash sizing is no longer hidden inside the render model.",
+            "Implemented a bounded response policy: core cluster determines the base wash, outliers can pull the wash only up to cap, and community membership is not changed by wash bounds.",
+            "Added deterministic tests for small communities, one far outlier, multiple-direction outliers, pinned outlier membership, and community focus after a dragged member leaves the wash cap.",
+            "Verified targeted community wash and render-model tests exited 0: 21 tests passed.",
+            "Verified npm run test --workspace=@llm-wiki/graph-engine exited 0: 49 suites, 198 tests passed.",
+            "Verified npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "Verified npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated both engine.esm.js and engine.iife.js.",
+            "Verified bash tests/graph-community-wash-interactions.regression-1.sh exited 0 and printed PASS.",
+            "Verified supplemental offline browser evidence for drag beyond wash, reset view, re-entering community focus, and valid minimap viewport after each step.",
+            "Verified git diff --check exited 0.",
+            "Committed verified task 5.3 as 4e281d77d389c5b95c09290ed779636ba54f353e.",
+            "All phase-5 acceptance checks now pass, so phase-5 was marked completed and the progress pointer advanced to phase-6 task 6.1."
+          ],
+          "commit": "4e281d77d389c5b95c09290ed779636ba54f353e"
         }
       ]
     },
@@ -880,6 +907,19 @@
         "Browser regression evidence: community t1 wash wheel changed transform, click showed only A/B, movement above threshold kept A/B/C visible, and dragging A beyond the initial wash wrote a pin without stuck dragging.",
         "Committed verified task 5.2 as 68d51bf3bc97637ab25184f64816f6805f7e9c0e.",
         "Advanced current task pointer to phase-5 task 5.3; phase-5 remains pending because capped wash response still needs the planned task."
+      ]
+    },
+    {
+      "turn": "phase-5-task-5.3",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-5 task 5.3.",
+        "Extracted community wash geometry into its own tested module with bounded outlier response.",
+        "Added deterministic unit coverage for small communities, dragged/pinned outliers, multiple-direction outliers, and community focus after a member leaves the wash cap.",
+        "Verified targeted tests, full graph-engine tests, graph-engine typecheck, graph-engine build, community wash browser regression, supplemental offline browser checks, and git diff --check all exited 0.",
+        "Supplemental browser evidence: dragging A beyond the initial t1 wash pinned it at center x about 846.99px, reset returned A/B/C, refocusing t1 returned A/B with A still in community t1, and minimap viewport stayed valid throughout.",
+        "Committed verified task 5.3 as 4e281d77d389c5b95c09290ed779636ba54f353e.",
+        "All phase-5 acceptance checks now pass, so phase-5 was marked completed and the progress pointer advanced to phase-6 task 6.1."
       ]
     }
   ]
