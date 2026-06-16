@@ -13,6 +13,7 @@ describe("GraphRuntimeState", () => {
       pins: {},
       hover: null,
       selection: null,
+      selectionSurface: null,
       focus: null,
       activeGesture: null
     });
@@ -26,7 +27,7 @@ describe("GraphRuntimeState", () => {
 
     state.setViewport({ x: -120, y: 64, scale: 1.75 });
     state.setHover({ kind: "node", id: "a" });
-    state.setSelection({ kind: "node", id: "a" });
+    state.setSelection({ kind: "node", id: "a" }, "reader");
     state.setFocus({ kind: "community", id: "c1" });
     state.commitPosition("a", { x: 130, y: 215 });
     state.setPins({ "wiki/a.md": { x: 130, y: 215 } });
@@ -35,6 +36,8 @@ describe("GraphRuntimeState", () => {
       pointerId: 7,
       nodeId: "a",
       grabOffset: { x: 12, y: -4 },
+      startWorldPoint: { x: 100, y: 200 },
+      wasPinned: true,
       locked: true
     });
 
@@ -44,12 +47,15 @@ describe("GraphRuntimeState", () => {
       pins: { "wiki/a.md": { x: 130, y: 215 } },
       hover: { kind: "node", id: "a" },
       selection: { kind: "node", id: "a" },
+      selectionSurface: "reader",
       focus: { kind: "community", id: "c1" },
       activeGesture: {
         kind: "node-drag",
         pointerId: 7,
         nodeId: "a",
         grabOffset: { x: 12, y: -4 },
+        startWorldPoint: { x: 100, y: 200 },
+        wasPinned: true,
         locked: true
       }
     });
@@ -73,6 +79,7 @@ describe("GraphRuntimeState", () => {
 
     assert.equal(snapshots.length, 3);
     assert.deepEqual(state.snapshot().selection, { kind: "nodes", ids: ["a", "b"] });
+    assert.equal(state.snapshot().selectionSurface, "selection-panel");
     assert.deepEqual(state.snapshot().hover, { kind: "edge", id: "edge-1" });
     assert.deepEqual(state.snapshot().activeGesture, {
       kind: "viewport-pan",
@@ -107,6 +114,8 @@ describe("GraphRuntimeState", () => {
         pointerId: 1,
         nodeId: "a",
         grabOffset: { x: 4, y: 5 },
+        startWorldPoint: { x: 100, y: 200 },
+        wasPinned: true,
         locked: true
       }
     });
@@ -116,15 +125,19 @@ describe("GraphRuntimeState", () => {
     snapshot.pins["wiki/a.md"].x = 999;
     if (snapshot.selection?.kind === "nodes") snapshot.selection.ids.push("b");
     if (snapshot.activeGesture?.kind === "node-drag") snapshot.activeGesture.grabOffset.x = 999;
+    if (snapshot.activeGesture?.kind === "node-drag") snapshot.activeGesture.startWorldPoint.x = 999;
 
     assert.deepEqual(state.snapshot().positions, { a: { x: 100, y: 200 } });
     assert.deepEqual(state.snapshot().pins, { "wiki/a.md": { x: 100, y: 200 } });
     assert.deepEqual(state.snapshot().selection, { kind: "nodes", ids: ["a"] });
+    assert.equal(state.snapshot().selectionSurface, "selection-panel");
     assert.deepEqual(state.snapshot().activeGesture, {
       kind: "node-drag",
       pointerId: 1,
       nodeId: "a",
       grabOffset: { x: 4, y: 5 },
+      startWorldPoint: { x: 100, y: 200 },
+      wasPinned: true,
       locked: true
     });
   });
@@ -136,6 +149,7 @@ describe("GraphRuntimeState", () => {
       pins: { "wiki/a.md": { x: 100, y: 200 } },
       hover: { kind: "node", id: "a" },
       selection: { kind: "node", id: "a" },
+      selectionSurface: "reader",
       focus: { kind: "community", id: "c1" },
       activeGesture: { kind: "community-click", pointerId: 9, communityId: "c1", locked: false }
     });
@@ -148,6 +162,7 @@ describe("GraphRuntimeState", () => {
       pins: { "wiki/a.md": { x: 100, y: 200 } },
       hover: null,
       selection: null,
+      selectionSurface: null,
       focus: null,
       activeGesture: null
     });

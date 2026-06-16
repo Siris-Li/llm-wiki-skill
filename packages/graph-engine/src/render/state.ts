@@ -12,12 +12,19 @@ export type GraphRuntimeFocusTarget =
   | { kind: "community"; id: CommunityId }
   | null;
 
+export type GraphRuntimeSelectionSurface =
+  | "reader"
+  | "selection-panel"
+  | null;
+
 export type GraphRuntimeGestureState =
   | {
       kind: "node-drag";
       pointerId: number;
       nodeId: NodeId;
       grabOffset: { x: number; y: number };
+      startWorldPoint: { x: number; y: number };
+      wasPinned: boolean;
       locked: boolean;
     }
   | {
@@ -40,6 +47,7 @@ export interface GraphRuntimeStateSnapshot {
   pins: PinMap;
   hover: GraphRuntimeHoverTarget;
   selection: SelectionInput | null;
+  selectionSurface: GraphRuntimeSelectionSurface;
   focus: GraphRuntimeFocusTarget;
   activeGesture: GraphRuntimeGestureState;
 }
@@ -50,6 +58,7 @@ export interface GraphRuntimeStateOptions {
   pins?: PinMap;
   hover?: GraphRuntimeHoverTarget;
   selection?: SelectionInput | null;
+  selectionSurface?: GraphRuntimeSelectionSurface;
   focus?: GraphRuntimeFocusTarget;
   activeGesture?: GraphRuntimeGestureState;
 }
@@ -100,8 +109,12 @@ export class GraphRuntimeState {
     return this.update({ hover: cloneHoverTarget(hover) });
   }
 
-  setSelection(selection: SelectionInput | null): GraphRuntimeStateSnapshot {
-    return this.update({ selection: cloneSelection(selection) });
+  setSelection(selection: SelectionInput | null, selectionSurface?: GraphRuntimeSelectionSurface): GraphRuntimeStateSnapshot {
+    const nextSelection = cloneSelection(selection);
+    return this.update({
+      selection: nextSelection,
+      selectionSurface: normalizeSelectionSurface(nextSelection, selectionSurface)
+    });
   }
 
   setFocus(focus: GraphRuntimeFocusTarget): GraphRuntimeStateSnapshot {
@@ -116,6 +129,7 @@ export class GraphRuntimeState {
     return this.update({
       hover: null,
       selection: null,
+      selectionSurface: null,
       focus: null,
       activeGesture: null
     });
@@ -143,6 +157,7 @@ function normalizeSnapshot(options: GraphRuntimeStateOptions): GraphRuntimeState
     pins: clonePins(options.pins || {}),
     hover: cloneHoverTarget(options.hover ?? null),
     selection: cloneSelection(options.selection ?? null),
+    selectionSurface: normalizeSelectionSurface(options.selection ?? null, options.selectionSurface),
     focus: cloneFocusTarget(options.focus ?? null),
     activeGesture: cloneGestureState(options.activeGesture ?? null)
   };
@@ -155,6 +170,7 @@ function cloneSnapshot(snapshot: GraphRuntimeStateSnapshot): GraphRuntimeStateSn
     pins: clonePins(snapshot.pins),
     hover: cloneHoverTarget(snapshot.hover),
     selection: cloneSelection(snapshot.selection),
+    selectionSurface: snapshot.selectionSurface,
     focus: cloneFocusTarget(snapshot.focus),
     activeGesture: cloneGestureState(snapshot.activeGesture)
   };
@@ -205,6 +221,11 @@ function cloneGestureState(activeGesture: GraphRuntimeGestureState): GraphRuntim
         x: finiteNumber(activeGesture.grabOffset.x, 0),
         y: finiteNumber(activeGesture.grabOffset.y, 0)
       },
+      startWorldPoint: {
+        x: finiteNumber(activeGesture.startWorldPoint.x, 0),
+        y: finiteNumber(activeGesture.startWorldPoint.y, 0)
+      },
+      wasPinned: Boolean(activeGesture.wasPinned),
       locked: Boolean(activeGesture.locked)
     };
   }
@@ -225,6 +246,14 @@ function cloneGestureState(activeGesture: GraphRuntimeGestureState): GraphRuntim
     communityId: activeGesture.communityId,
     locked: Boolean(activeGesture.locked)
   };
+}
+
+function normalizeSelectionSurface(
+  selection: SelectionInput | null,
+  selectionSurface: GraphRuntimeSelectionSurface | undefined
+): GraphRuntimeSelectionSurface {
+  if (!selection) return null;
+  return selectionSurface ?? "selection-panel";
 }
 
 function finiteNumber(value: unknown, fallback: number): number {

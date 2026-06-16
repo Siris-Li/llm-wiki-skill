@@ -131,32 +131,21 @@ interface PaintedGraphDom {
   previewElement: HTMLElement | null;
 }
 
-interface PendingNodeDragSession extends GraphNodeDragSession {
-  grabOffset: GraphWorldPoint;
-}
-
 export function createStaticGraphRenderer(container: HTMLElement, options: StaticRendererOptions): StaticGraphRenderer {
   let data = options.data;
-  let pins = options.pins || {};
+  const initialPins = options.pins || {};
+  const initialFocus = options.focus || null;
   let theme = options.theme;
-  let selectedNodeId: string | null = null;
-  let selection: SelectionInput | null = null;
-  let manualNodeIds: NodeId[] = [];
   let destroyed = false;
   let simulation: LiveGraphSimulation | null = null;
   let dom: PaintedGraphDom = emptyPaintedDom();
-  let viewport: RendererViewport = DEFAULT_RENDERER_VIEWPORT;
   let activeDiff: GraphDiff | null = null;
   let searchOpen = false;
   let searchQuery = "";
   let searchFocusedNodeId: NodeId | null = null;
-  let focus: GraphFocusInput = options.focus || null;
   let typeFilters: GraphTypeFilters = options.typeFilters || {};
   let availableTypeFilters: GraphTypeFilters = {};
   let searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
-  let hoveredCommunityId: string | null = null;
-  let previewNodeId: NodeId | null = null;
-  let previewEdgeId: string | null = null;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
   const pathCache = createRenderPathCache();
   const root = document.createElement("div");
@@ -212,7 +201,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       return;
     }
 
-    if (focus) {
+    if (runtimeState.snapshot().focus) {
       resetViewState();
       return;
     }
@@ -222,19 +211,27 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   const viewportCommitter = createViewportFrameCommitter(commitViewport, root.ownerDocument.defaultView || undefined);
   const gestureMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
   let gestureController: GraphGestureController | null = null;
-  let pendingNodeDrag: PendingNodeDragSession | null = null;
   let viewportAnimationTimer: ReturnType<typeof setTimeout> | null = null;
   let lastEffectiveDensityMode: DensityMode | null = null;
   let lastViewportSize = viewportSize();
   let resizeObserver: ResizeObserver | null = null;
 
-  let graph = buildRenderableGraph(data, { pins, theme, selectedNodeId, selection, focus, typeFilters, pathCache });
+  let graph = buildRenderableGraph(data, {
+    pins: initialPins,
+    theme,
+    selectedNodeId: null,
+    selection: null,
+    focus: initialFocus,
+    typeFilters,
+    pathCache
+  });
   const runtimeState = createGraphRuntimeState({
-    viewport,
+    viewport: DEFAULT_RENDERER_VIEWPORT,
     positions: positionsFromRenderableGraph(graph),
-    pins,
-    selection: rendererSelectionInput(),
-    focus
+    pins: initialPins,
+    selection: null,
+    selectionSurface: null,
+    focus: initialFocus
   });
   let pinState = new PinState(graph, runtimeState.snapshot().pins);
   gestureController = bindViewportHandlers();
@@ -243,17 +240,21 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function render(next: Partial<StaticRendererOptions> & { selectedNodeId?: string | null; selection?: SelectionInput | null } = {}): void {
     assertActive();
     data = next.data || data;
-    pins = next.pins || pins;
     theme = next.theme || theme;
-    if (Object.hasOwn(next, "focus")) focus = next.focus || null;
     if (Object.hasOwn(next, "typeFilters")) typeFilters = next.typeFilters || {};
-    if (Object.hasOwn(next, "selectedNodeId")) selectedNodeId = next.selectedNodeId || null;
-    if (Object.hasOwn(next, "selection")) selection = next.selection || null;
-    const runtimeSnapshot = syncRuntimeInputState();
+    if (Object.hasOwn(next, "pins")) runtimeState.setPins(next.pins || {});
+    if (Object.hasOwn(next, "focus")) runtimeState.setFocus(next.focus || null);
+    if (Object.hasOwn(next, "selectedNodeId")) {
+      const id = next.selectedNodeId || null;
+      runtimeState.setSelection(id ? { kind: "node", id } : null, id ? "reader" : null);
+    }
+    if (Object.hasOwn(next, "selection")) {
+      runtimeState.setSelection(next.selection || null, next.selection ? "selection-panel" : null);
+    }
+    const runtimeSnapshot = runtimeState.snapshot();
     const renderSelection = rendererSelectionFromRuntimeState(runtimeSnapshot);
-    pins = runtimeSnapshot.pins;
     graph = buildRenderableGraph(data, {
-      pins,
+      pins: runtimeSnapshot.pins,
       theme,
       selectedNodeId: renderSelection.selectedNodeId,
       selection: renderSelection.selection,
@@ -273,8 +274,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       onNodeDoubleClick: (id) => {
         if (!pinState.isPinned(id)) return false;
         const nextState = pinState.unpin(id);
-        pins = nextState.pins;
-        runtimeState.setPins(pins);
+        runtimeState.setPins(nextState.pins);
         simulation?.setFixed(id, null);
         markPinnedNodes(nextState.pinnedNodeIds);
         void options.persistPins?.(nextState.pins);
@@ -322,13 +322,12 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       render({ theme: nextTheme });
     },
     setPins(nextPins: PinMap): void {
-      pins = nextPins;
-      runtimeState.setPins(pins);
-      render({ pins });
+      runtimeState.setPins(nextPins);
+      render();
     },
     focusNode(pathOrId: WikiPath): void {
       const node = graph.nodes.find((item) => item.id === pathOrId || item.sourcePath === pathOrId);
-      render({ selectedNodeId: node ? node.id : pathOrId });
+      render({ selectedNodeId: node ? node.id : null });
       root.dataset.focus = pathOrId;
     },
     focusCommunity(id: CommunityId): void {
@@ -341,8 +340,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       resetViewState();
     },
     select(nextSelection: SelectionInput): void {
-      manualNodeIds = nextSelection.kind === "nodes" ? nextSelection.ids : [];
-      render({ selection: nextSelection });
+      runtimeState.setSelection(nextSelection, "selection-panel");
+      render();
     },
     clearSelection(): void {
       retreatFocusedView();
@@ -352,9 +351,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     },
     resetLayout(): void {
       const nextState = pinState.reset();
-      pins = nextState.pins;
-      runtimeState.setPins(pins);
-      render({ pins });
+      runtimeState.setPins(nextState.pins);
+      render();
       void options.persistPins?.(nextState.pins);
     },
     destroy(): void {
@@ -378,29 +376,19 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     }
   };
 
-  function syncRuntimeInputState(): GraphRuntimeStateSnapshot {
-    runtimeState.setPins(pins);
-    runtimeState.setSelection(rendererSelectionInput());
-    runtimeState.setFocus(focus);
-    return runtimeState.snapshot();
-  }
-
-  function rendererSelectionInput(): SelectionInput | null {
-    if (selection) return selection;
-    return selectedNodeId ? { kind: "node", id: selectedNodeId } : null;
-  }
-
   function rendererSelectionFromRuntimeState(snapshot: GraphRuntimeStateSnapshot): { selectedNodeId: NodeId | null; selection: SelectionInput | null } {
-    if (selection) return { selectedNodeId: null, selection: snapshot.selection };
-    if (snapshot.selection?.kind === "node") return { selectedNodeId: snapshot.selection.id, selection: null };
+    if (snapshot.selectionSurface === "reader" && snapshot.selection?.kind === "node") {
+      return { selectedNodeId: snapshot.selection.id, selection: null };
+    }
     return { selectedNodeId: null, selection: snapshot.selection };
   }
 
-  function syncHoverState(): GraphRuntimeStateSnapshot {
-    if (previewNodeId) return runtimeState.setHover({ kind: "node", id: previewNodeId });
-    if (previewEdgeId) return runtimeState.setHover({ kind: "edge", id: previewEdgeId });
-    if (hoveredCommunityId) return runtimeState.setHover({ kind: "community", id: hoveredCommunityId });
-    return runtimeState.setHover(null);
+  function panelSelection(snapshot: GraphRuntimeStateSnapshot = runtimeState.snapshot()): SelectionInput | null {
+    return snapshot.selectionSurface === "selection-panel" ? snapshot.selection : null;
+  }
+
+  function readerNodeId(snapshot: GraphRuntimeStateSnapshot = runtimeState.snapshot()): NodeId | null {
+    return snapshot.selectionSurface === "reader" && snapshot.selection?.kind === "node" ? snapshot.selection.id : null;
   }
 
   function assertActive(): void {
@@ -408,14 +396,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function clearInteractionState(): void {
-    manualNodeIds = [];
-    selection = null;
-    selectedNodeId = null;
-    focus = null;
     searchFocusedNodeId = null;
-    hoveredCommunityId = null;
-    previewNodeId = null;
-    previewEdgeId = null;
     if (previewTimer) {
       clearTimeout(previewTimer);
       previewTimer = null;
@@ -423,11 +404,12 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     runtimeState.clearInteraction();
     delete root.dataset.focus;
     options.onSelectionClear?.();
-    render({ selectedNodeId: null, selection: null, focus: null });
+    render();
   }
 
   function hasInteractionState(): boolean {
-    return Boolean(selectedNodeId || selection || focus || root.dataset.focus);
+    const snapshot = runtimeState.snapshot();
+    return Boolean(snapshot.selection || snapshot.focus || root.dataset.focus);
   }
 
   function isGraphKeyboardFocusActive(): boolean {
@@ -524,8 +506,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         mountCommunityLegend();
       },
       onHover: (id) => {
-        hoveredCommunityId = id;
-        syncHoverState();
+        setGraphHover(id ? { kind: "community", id } : null);
         applyCommunityHover();
       },
       onSelect: (id) => selectCommunity(id)
@@ -578,17 +559,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function selectCommunity(id: string): void {
-    manualNodeIds = [];
     const nextSelection: SelectionInput = { kind: "community", id };
-    selection = nextSelection;
-    selectedNodeId = null;
-    runtimeState.setSelection(nextSelection);
+    runtimeState.setSelection(nextSelection, "selection-panel");
     options.onSelectionChange?.(nextSelection);
     focusCommunity(id);
   }
 
   function focusCommunity(id: string): void {
-    render({ focus: { kind: "community", id }, selection });
+    runtimeState.setFocus({ kind: "community", id });
+    render();
     const points = graph.nodes.map((node) => node.point);
     if (!points.length) return;
     setViewportAnimating(true);
@@ -596,41 +575,27 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function resetViewState(): void {
-    manualNodeIds = [];
-    selection = null;
-    selectedNodeId = null;
-    focus = null;
     searchFocusedNodeId = null;
-    hoveredCommunityId = null;
-    previewNodeId = null;
-    previewEdgeId = null;
     runtimeState.clearInteraction();
     delete root.dataset.focus;
     options.onSelectionClear?.();
-    render({ selectedNodeId: null, selection: null, focus: null });
+    render();
     setViewportAnimating(true);
     viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize()));
   }
 
   function retreatFocusedView(): void {
-    manualNodeIds = [];
-    selection = null;
-    selectedNodeId = null;
     searchFocusedNodeId = null;
-    hoveredCommunityId = null;
-    previewNodeId = null;
-    previewEdgeId = null;
-    syncRuntimeInputState();
-    syncHoverState();
+    setGraphHover(null);
+    runtimeState.setSelection(null);
     delete root.dataset.focus;
     options.onSelectionClear?.();
-    render({ selectedNodeId: null, selection: null, focus });
+    render();
   }
 
   function applyCommunityHover(): void {
     const hover = runtimeState.snapshot().hover;
     const active = hover?.kind === "community" ? hover.id : null;
-    hoveredCommunityId = active;
     root.dataset.legendHover = active || "";
     for (const [id, row] of dom.legendRows) {
       row.dataset.communityState = active ? (id === active ? "active" : "faded") : "none";
@@ -742,9 +707,6 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         ));
       },
       onPointerDown: (event, decision) => {
-        pendingNodeDrag = decision.intent === "node-drag-candidate" && decision.target.id
-          ? pendingNodeDragFromPointerDown(decision.target.id, event)
-          : null;
         if (decision.intent !== "node-drag-candidate") root.focus({ preventScroll: true });
         setViewportAnimating(false);
       },
@@ -801,20 +763,16 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function handleNodeClick(id: NodeId, additive: boolean): void {
     if (!additive) {
-      manualNodeIds = [];
-      selection = null;
-      selectedNodeId = id;
+      runtimeState.setSelection({ kind: "node", id }, "reader");
       options.onOpenPage?.(openPagePayloadForNode(data, id));
-      render({ selectedNodeId: id, selection: null });
+      render();
       focusRenderedNode(id);
       return;
     }
-    const nextSelection = shiftSelection(id, manualNodeIds.length ? manualNodeIds : selectedNodeIds(selection));
-    manualNodeIds = nextSelection.kind === "nodes" ? nextSelection.ids : nextSelection.kind === "node" ? [nextSelection.id] : [];
-    selection = nextSelection;
-    selectedNodeId = null;
+    const nextSelection = shiftSelection(id, selectedNodeIds(runtimeState.snapshot().selection));
+    runtimeState.setSelection(nextSelection, "selection-panel");
     options.onSelectionChange?.(nextSelection);
-    render({ selection: nextSelection });
+    render();
     focusRenderedNode(id);
   }
 
@@ -824,7 +782,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function handleNodeDragStart(id: NodeId, event: PointerEvent): void {
     if (!simulation) {
-      pendingNodeDrag = null;
+      runtimeState.setActiveGesture(null);
       return;
     }
     const grabOffset = nodeDragGrabOffset(id, event.pointerId);
@@ -834,6 +792,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       pointerId: event.pointerId,
       nodeId: id,
       grabOffset,
+      startWorldPoint: nodeDragSession(id, event.pointerId).startWorldPoint,
+      wasPinned: nodeDragSession(id, event.pointerId).wasPinned,
       locked: true
     });
     simulation.beginDrag(id);
@@ -843,40 +803,36 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function handleNodeDragMove(id: NodeId, event: PointerEvent): void {
-    if (!simulation || root.dataset.dragging !== id) return;
+    if (!simulation || !isRuntimeNodeDrag(id, event.pointerId, true)) return;
     simulation.dragTo(id, nodeDragTargetFromPointer(event, nodeDragGrabOffset(id, event.pointerId)));
   }
 
   function handleNodeDragEnd(id: NodeId, event: PointerEvent): void {
-    if (!simulation || root.dataset.dragging !== id) return;
+    if (!simulation || !isRuntimeNodeDrag(id, event.pointerId, true)) return;
     const result = commitGraphNodeDrag({
       nodeId: id,
       simulation,
       pinState,
       finalWorldPoint: nodeDragTargetFromPointer(event, nodeDragGrabOffset(id, event.pointerId))
     });
-    pins = result.pins;
-    runtimeState.setPins(pins);
+    runtimeState.setPins(result.pins);
     applyMotionFrame(result.positions);
     markPinnedNodes(result.pinnedNodeIds);
     void options.persistPins?.(result.pins);
     dom.nodeElements.get(id)?.classList.remove("is-dragging");
-    pendingNodeDrag = null;
     delete root.dataset.dragging;
     runtimeState.setActiveGesture(null);
     options.onDragStateChange?.(false);
   }
 
   function handleNodeDragCancel(id: NodeId, pointerId: number): void {
-    if (!simulation || root.dataset.dragging !== id) return;
+    if (!simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
     const session = nodeDragSession(id, pointerId);
     const result = cancelGraphNodeDrag({ session, simulation, pinState });
-    pins = result.pins;
-    runtimeState.setPins(pins);
+    runtimeState.setPins(result.pins);
     applyMotionFrame(result.positions);
     markPinnedNodes(result.pinnedNodeIds);
     dom.nodeElements.get(id)?.classList.remove("is-dragging");
-    pendingNodeDrag = null;
     delete root.dataset.dragging;
     runtimeState.setActiveGesture(null);
     options.onDragStateChange?.(false);
@@ -889,13 +845,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       closeToolbarPanel();
       return;
     }
-    if (focus) retreatFocusedView();
+    if (runtimeState.snapshot().focus) retreatFocusedView();
   }
 
   function syncRuntimeGestureState(): void {
     const active = gestureMachine.snapshot();
-    if (!active || active.kind !== "node") pendingNodeDrag = null;
-    if (active?.kind === "node" && pendingNodeDrag && (active.pointerId !== pendingNodeDrag.pointerId || active.nodeId !== pendingNodeDrag.nodeId)) pendingNodeDrag = null;
     runtimeState.setActiveGesture(runtimeGestureFromActiveGesture(active));
   }
 
@@ -907,7 +861,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
             kind: "node-drag",
             pointerId: active.pointerId,
             nodeId: active.nodeId,
-            grabOffset: nodeDragGrabOffset(active.nodeId, active.pointerId),
+            grabOffset: nodeDragGrabOffsetFromActive(active),
+            startWorldPoint: nodeDragStartWorldPoint(active.nodeId),
+            wasPinned: nodeDragWasPinned(active.nodeId),
             locked: active.locked
           }
         : null;
@@ -949,28 +905,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     return target instanceof Element ? target as Element & GraphGestureTargetLike : null;
   }
 
-  function pendingNodeDragFromPointerDown(nodeId: NodeId, event: PointerEvent): PendingNodeDragSession | null {
-    const node = graph.nodes.find((item) => item.id === nodeId);
-    if (!node) return null;
-    const drag = beginGraphNodeDrag({
-      nodeWorldPoint: node.point,
-      pointerScreenPoint: graphScreenPointFromPointerEvent(event),
-      viewport: runtimeState.snapshot().viewport,
-      viewportSize: viewportSize()
-    });
-    const pinnedStartPoint = pinsToPositions(graph, runtimeState.snapshot().pins)[nodeId];
-    return {
-      pointerId: event.pointerId,
-      nodeId,
-      startWorldPoint: pinnedStartPoint || drag.targetWorldPoint,
-      wasPinned: Boolean(pinnedStartPoint) || pinState.isPinned(nodeId),
-      grabOffset: drag.grabOffset
-    };
-  }
-
   function nodeDragSession(nodeId: NodeId, pointerId: number): GraphNodeDragSession {
-    if (pendingNodeDrag?.nodeId === nodeId && pendingNodeDrag.pointerId === pointerId) {
-      return pendingNodeDrag;
+    const active = runtimeState.snapshot().activeGesture;
+    if (active?.kind === "node-drag" && active.nodeId === nodeId && active.pointerId === pointerId) {
+      return {
+        pointerId,
+        nodeId,
+        startWorldPoint: active.startWorldPoint,
+        wasPinned: active.wasPinned
+      };
     }
     const node = graph.nodes.find((item) => item.id === nodeId);
     return {
@@ -986,10 +929,62 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (active?.kind === "node-drag" && active.nodeId === nodeId && active.pointerId === pointerId) {
       return active.grabOffset;
     }
-    if (pendingNodeDrag?.nodeId === nodeId && pendingNodeDrag.pointerId === pointerId) {
-      return pendingNodeDrag.grabOffset;
-    }
     return { x: 0, y: 0 };
+  }
+
+  function nodeDragGrabOffsetFromActive(active: NonNullable<Extract<GraphGestureActiveState, { kind: "node" }>>): GraphWorldPoint {
+    const existing = runtimeState.snapshot().activeGesture;
+    if (existing?.kind === "node-drag" && existing.nodeId === active.nodeId && existing.pointerId === active.pointerId) {
+      return existing.grabOffset;
+    }
+    if (!active.nodeId) return { x: 0, y: 0 };
+    return nodeDragStartSnapshot(active).grabOffset;
+  }
+
+  function nodeDragStartWorldPoint(nodeId: NodeId): GraphWorldPoint {
+    const existing = runtimeState.snapshot().activeGesture;
+    if (existing?.kind === "node-drag" && existing.nodeId === nodeId) return existing.startWorldPoint;
+    const pinnedStartPoint = pinsToPositions(graph, runtimeState.snapshot().pins)[nodeId];
+    if (pinnedStartPoint) return pinnedStartPoint;
+    return graph.nodes.find((item) => item.id === nodeId)?.point || { x: 0, y: 0 };
+  }
+
+  function nodeDragWasPinned(nodeId: NodeId): boolean {
+    const existing = runtimeState.snapshot().activeGesture;
+    if (existing?.kind === "node-drag" && existing.nodeId === nodeId) return existing.wasPinned;
+    return Boolean(pinsToPositions(graph, runtimeState.snapshot().pins)[nodeId]) || pinState.isPinned(nodeId);
+  }
+
+  function nodeDragStartSnapshot(active: NonNullable<Extract<GraphGestureActiveState, { kind: "node" }>>): {
+    grabOffset: GraphWorldPoint;
+    startWorldPoint: GraphWorldPoint;
+    wasPinned: boolean;
+  } {
+    if (!active.nodeId) {
+      return { grabOffset: { x: 0, y: 0 }, startWorldPoint: { x: 0, y: 0 }, wasPinned: false };
+    }
+    const node = graph.nodes.find((item) => item.id === active.nodeId);
+    if (!node) {
+      return { grabOffset: { x: 0, y: 0 }, startWorldPoint: { x: 0, y: 0 }, wasPinned: false };
+    }
+    const drag = beginGraphNodeDrag({
+      nodeWorldPoint: node.point,
+      pointerScreenPoint: active.startScreenPoint,
+      viewport: runtimeState.snapshot().viewport,
+      viewportSize: viewportSize()
+    });
+    const pinnedStartPoint = pinsToPositions(graph, runtimeState.snapshot().pins)[active.nodeId];
+    return {
+      grabOffset: drag.grabOffset,
+      startWorldPoint: pinnedStartPoint || drag.targetWorldPoint,
+      wasPinned: Boolean(pinnedStartPoint) || pinState.isPinned(active.nodeId)
+    };
+  }
+
+  function isRuntimeNodeDrag(nodeId: NodeId, pointerId: number, locked?: boolean): boolean {
+    const active = runtimeState.snapshot().activeGesture;
+    if (active?.kind !== "node-drag" || active.nodeId !== nodeId || active.pointerId !== pointerId) return false;
+    return locked === undefined ? true : active.locked === locked;
   }
 
   function nodeDragTargetFromPointer(event: PointerEvent, grabOffset: GraphWorldPoint): GraphWorldPoint {
@@ -1010,8 +1005,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       const next = viewportSize();
       if (Math.abs(previous.width - next.width) < 1 && Math.abs(previous.height - next.height) < 1) return;
       lastViewportSize = next;
-      const anchorPoint = selectedNodeId
-        ? graph.nodes.find((node) => node.id === selectedNodeId)?.point ?? null
+      const selectedReaderNodeId = readerNodeId();
+      const anchorPoint = selectedReaderNodeId
+        ? graph.nodes.find((node) => node.id === selectedReaderNodeId)?.point ?? null
         : null;
       setViewportAnimating(false);
       commitViewport(viewportAfterResize(runtimeState.snapshot().viewport, previous, next, { anchorPoint }));
@@ -1022,9 +1018,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function commitViewport(nextViewport: RendererViewport): void {
     resetRootScroll();
     const snapshot = runtimeState.setViewport(nextViewport);
-    viewport = snapshot.viewport;
-    root.dataset.viewportScale = String(round(viewport.scale));
-    if (dom.contentLayer) applyRendererViewportTransform(dom.contentLayer, viewport);
+    const next = snapshot.viewport;
+    root.dataset.viewportScale = String(round(next.scale));
+    if (dom.contentLayer) applyRendererViewportTransform(dom.contentLayer, next);
     updateEffectiveDensity();
     updateMinimapViewport();
     renderMotionOverlays();
@@ -1046,7 +1042,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function renderMotionOverlays(): void {
     if (dom.readerElement?.dataset.state === "open") renderReader();
     if (dom.selectionElement?.dataset.state === "open") renderSelectionPanel();
-    if (previewNodeId || previewEdgeId || dom.previewElement?.dataset.state === "open") renderHoverPreview();
+    const hover = runtimeState.snapshot().hover;
+    if (hover?.kind === "node" || hover?.kind === "edge" || dom.previewElement?.dataset.state === "open") renderHoverPreview();
   }
 
   function updateMinimapViewport(): void {
@@ -1235,6 +1232,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function renderSelectionPanel(): void {
     const panel = dom.selectionElement;
     if (!panel) return;
+    const selection = panelSelection();
     panel.replaceChildren();
     panel.dataset.state = selection ? "open" : "closed";
     if (!selection) {
@@ -1298,9 +1296,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = setTimeout(() => {
       previewTimer = null;
-      previewNodeId = id;
-      previewEdgeId = null;
-      syncHoverState();
+      setGraphHover({ kind: "node", id });
       renderHoverPreview();
     }, 300);
   }
@@ -1310,9 +1306,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       clearTimeout(previewTimer);
       previewTimer = null;
     }
-    previewNodeId = null;
-    previewEdgeId = id;
-    syncHoverState();
+    setGraphHover({ kind: "edge", id });
     renderHoverPreview();
   }
 
@@ -1321,11 +1315,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       clearTimeout(previewTimer);
       previewTimer = null;
     }
-    if (!previewNodeId && !previewEdgeId) return;
-    previewNodeId = null;
-    previewEdgeId = null;
-    syncHoverState();
+    const hover = runtimeState.snapshot().hover;
+    if (hover?.kind !== "node" && hover?.kind !== "edge") return;
+    setGraphHover(null);
     renderHoverPreview();
+  }
+
+  function setGraphHover(hover: GraphRuntimeStateSnapshot["hover"]): GraphRuntimeStateSnapshot {
+    return runtimeState.setHover(hover);
   }
 
   function renderHoverPreview(): void {
