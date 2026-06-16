@@ -95,7 +95,7 @@
             "Regression baseline recorded: hover preview and edge preview use rootRect.width * node.x / 100 and rootRect.height * node.y / 100 instead of projected screen anchors, so they drift after viewport transforms or drawer resize.",
             "Regression baseline recorded: community wash is a clickable SVG ellipse that stops click propagation; render/model.ts already has core-point wash logic that avoids chasing one far outlier, and later phases must preserve the visual-region-not-fence rule while adding bounded response evidence."
           ],
-          "commit": null
+          "commit": "66d1f265d442b817c09c7c80e4a0b7bb9dcb4ad3"
         },
         {
           "id": "0.2",
@@ -415,7 +415,8 @@
         "Ran git log --oneline -15 and npm run test --workspace=@llm-wiki/graph-engine before changing progress; both exited 0, with graph-engine reporting 150 passing tests.",
         "Compared old branch codex/fix-graph-community-wheel-zoom and recorded why this architecture branch will not bring those renderer-level patches forward directly.",
         "Recorded public API, workbench usage, offline HTML usage, and current root-cause baselines for the known graph interaction regressions.",
-        "Advanced current task pointer to phase-0 task 0.2; phase-0 remains pending because 0.2 and 0.3 are not complete."
+        "Advanced current task pointer to phase-0 task 0.2; phase-0 remains pending because 0.2 and 0.3 are not complete.",
+        "Committed verified task 0.1 as 66d1f265d442b817c09c7c80e4a0b7bb9dcb4ad3."
       ]
     }
   ]
