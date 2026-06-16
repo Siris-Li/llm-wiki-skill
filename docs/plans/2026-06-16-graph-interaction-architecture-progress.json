@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-3",
-    "task": "3.2",
-    "next_allowed_action": "Execute phase-3 task 3.2: extract gesture threshold and intent state machine. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
+    "task": "3.3",
+    "next_allowed_action": "Execute phase-3 task 3.3: wire renderer shell through the gesture module. Start by reading the progress file and running git log --oneline -15 plus npm run test --workspace=@llm-wiki/graph-engine."
   },
   "execution_rules": {
     "branch": "codex/graph-interaction-architecture",
@@ -34,6 +34,12 @@
       "decision": "Do not bring in earlier temporary bugfix commits from codex/fix-graph-community-wheel-zoom",
       "reason": "This branch should stay clean and solve the regression class through the new shared coordinate/gesture/state path.",
       "source": "git log and user branch cleanliness question",
+      "status": "recorded"
+    },
+    {
+      "decision": "Community wash movement above threshold cancels community click and does not auto-pan yet",
+      "reason": "Task 3.2 is responsible for intent classification, not final renderer behavior. Deferring wash-drag-to-pan until renderer wiring keeps the interaction contract explicit and avoids a local patch that bypasses the shared gesture path.",
+      "source": "phase-3 task 3.2 gesture state machine",
       "status": "recorded"
     }
   ],
@@ -337,13 +343,16 @@
       "acceptance": [
         {
           "check": "Wheel, pointer, click, drag, community, minimap, and UI blocker classification has one tested path",
-          "status": "pending",
+          "status": "completed",
           "evidence": [
             "Task 3.1 added packages/graph-engine/src/render/gestures.ts with classifyGraphEventTarget, classifyGraphWheelTarget, and classifyGraphPointerDownTarget.",
             "gestures.test.ts uses a fake target adapter rather than a DOM dependency and covers graph-blank, node, community-wash, edge, minimap, toolbar, search, legend, drawer, and text-control target kinds.",
             "gestures.test.ts proves wheel over blank, node, community wash, and edge returns zoom while wheel over search, toolbar, legend, drawer, minimap, textarea, text input, and contenteditable targets returns blocked.",
             "gestures.test.ts proves pointerdown over node returns node-drag-candidate, over community wash returns community-click-candidate, over blank returns blank-pan-candidate, and over minimap, toolbar, and text input returns blocked.",
-            "The full acceptance remains pending until task 3.2 adds click-vs-drag threshold and gesture sequence tests."
+            "Task 3.2 added GraphGestureStateMachine so click-vs-drag thresholds, gesture lock, pointercancel, lostpointercapture, Escape cancellation, node drag, community click cancellation, blank pan, and additive node click now share one tested path.",
+            "classifyGraphWheelTarget now records browser zoom shortcut handling by blocking ctrl/meta wheel rather than silently hijacking page zoom.",
+            "node --import tsx --test packages/graph-engine/test/gestures.test.ts exited 0 after task 3.2 work: 14 tests passed.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0 after task 3.2 work: 45 suites, 183 tests, 183 pass, 0 fail."
           ]
         },
         {
@@ -379,9 +388,24 @@
         {
           "id": "3.2",
           "title": "Extract gesture threshold and intent state machine",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            "Read progress file and plan; current unit was phase-3 task 3.2.",
+            "git log --oneline -15 exited 0 before task 3.2 progress recording; branch head before the code commit was 6a5850f docs: record gesture classifier commit.",
+            "Implemented GraphGestureStateMachine in packages/graph-engine/src/render/gestures.ts with a shared drag threshold, active gesture snapshot, node click/drag intents, community click/cancel intents, blank click/pan intents, pointercancel cleanup, lostpointercapture cleanup, and Escape cleanup.",
+            "Preserved Shift additive state for node click intents and avoided false node click or pin-style completion after pointercancel or lostpointercapture.",
+            "Recorded the community wash movement policy: movement above threshold cancels community click and does not auto-pan yet; renderer wiring can decide final behavior through the same gesture intent path.",
+            "Updated classifyGraphWheelTarget to block ctrl/meta wheel so browser zoom shortcuts are not silently hijacked by graph zoom.",
+            "Exported GraphGestureStateMachine and gesture event/intent/state types through packages/graph-engine/src/render/index.ts.",
+            "Expanded packages/graph-engine/test/gestures.test.ts to 14 tests covering low-movement node click, high-movement node drag start/move/end, shift additive click, low-movement community click, moved community click cancellation, blank pan/click, pointercancel, lostpointercapture, Escape, and browser zoom shortcut wheels.",
+            "node --import tsx --test packages/graph-engine/test/gestures.test.ts exited 0: 14 tests passed.",
+            "npm run test --workspace=@llm-wiki/graph-engine exited 0: 45 suites, 183 tests, 183 pass, 0 fail.",
+            "npm run typecheck --workspace=@llm-wiki/graph-engine exited 0.",
+            "npm run build --workspace=@llm-wiki/graph-engine exited 0 and generated both engine.esm.js and engine.iife.js.",
+            "git diff --check exited 0.",
+            "Advanced current task pointer to phase-3 task 3.3; phase-3 remains pending because renderer shell is not yet wired through the gesture module."
+          ],
+          "commit": "990d488f93c57b6384e1ea405fd597ae4ee7f631"
         },
         {
           "id": "3.3",
@@ -656,6 +680,18 @@
         "Verified state single-file test, full graph-engine test, graph-engine typecheck, graph-engine build, and git diff --check all exited 0.",
         "Committed verified task 2.1 as 3e577b9b275a4ff9e41f0ca8314da5e12b7bb47a.",
         "Advanced current task pointer to phase-2 task 2.2; phase-2 remains pending because renderer shell is not yet wired to state snapshots."
+      ]
+    },
+    {
+      "turn": "phase-3-task-3.2",
+      "status": "completed",
+      "evidence": [
+        "Read progress file and plan; current unit was phase-3 task 3.2.",
+        "Ran gesture single-file test, full graph-engine test, graph-engine typecheck, graph-engine build, and git diff --check; all exited 0.",
+        "Added GraphGestureStateMachine and gesture intent types for click-vs-drag threshold, node drag/click, community click cancellation, blank pan, pointercancel, lostpointercapture, and Escape cleanup.",
+        "Recorded decision that community wash movement above threshold cancels community click and does not auto-pan yet; task 3.3 will wire renderer behavior through gesture intents.",
+        "Committed verified task 3.2 as 990d488f93c57b6384e1ea405fd597ae4ee7f631.",
+        "Advanced current task pointer to phase-3 task 3.3; phase-3 remains pending because renderer shell wiring is not complete."
       ]
     }
   ]
