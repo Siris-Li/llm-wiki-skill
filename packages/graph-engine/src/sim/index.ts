@@ -46,6 +46,10 @@ export interface LiveGraphSimulationSnapshot {
 
 export interface DragEndOptions {
   keepFixed?: boolean;
+  restore?: {
+    position: { x: number; y: number };
+    fixed: boolean;
+  };
 }
 
 export interface GraphLayoutBounds {
@@ -194,9 +198,18 @@ export class LiveGraphSimulation {
   endDrag(options: DragEndOptions = {}): LiveGraphSimulationSnapshot {
     this.assertActive();
     const node = this.draggedNodeId ? this.nodeById.get(this.draggedNodeId) : null;
-    if (node && !options.keepFixed) {
-      node.fx = null;
-      node.fy = null;
+    if (node) {
+      if (options.restore) {
+        const x = finiteNumber(options.restore.position.x, node.baseX);
+        const y = finiteNumber(options.restore.position.y, node.baseY);
+        node.x = x;
+        node.y = y;
+        node.fx = options.restore.fixed ? x : null;
+        node.fy = options.restore.fixed ? y : null;
+      } else if (!options.keepFixed) {
+        node.fx = null;
+        node.fy = null;
+      }
     }
     this.unfreezeFarNodes();
     this.draggedNodeId = null;
@@ -210,8 +223,8 @@ export class LiveGraphSimulation {
       positions: Object.fromEntries(this.nodes.map((node) => [
         node.id,
         {
-          x: round(node.x ?? node.baseX),
-          y: round(node.y ?? node.baseY)
+          x: round(node.fx ?? node.x ?? node.baseX),
+          y: round(node.fy ?? node.y ?? node.baseY)
         }
       ]))
     };

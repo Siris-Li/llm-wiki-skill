@@ -46,6 +46,7 @@ import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 import { buildHoverPreview, type GraphHoverPreview } from "./preview";
 import { rootClientPointToScreenPoint, worldDeltaToLayerDelta, type GraphWorldPoint } from "./geometry";
 import { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
+import { cancelGraphNodeDrag, commitGraphNodeDrag, type GraphNodeDragSession } from "./node-drag-lifecycle";
 import {
   GraphGestureStateMachine,
   classifyGraphPointerDownTarget,
@@ -126,6 +127,10 @@ interface PaintedGraphDom {
   previewElement: HTMLElement | null;
 }
 
+interface PendingNodeDragSession extends GraphNodeDragSession {
+  grabOffset: GraphWorldPoint;
+}
+
 export function createStaticGraphRenderer(container: HTMLElement, options: StaticRendererOptions): StaticGraphRenderer {
   let data = options.data;
   let pins = options.pins || {};
@@ -202,7 +207,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   ownerDocument.addEventListener("keydown", handleDocumentKeydown);
   const viewportCommitter = createViewportFrameCommitter(commitViewport, root.ownerDocument.defaultView || undefined);
   const gestureMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
-  let pendingNodeDrag: { pointerId: number; nodeId: NodeId; grabOffset: GraphWorldPoint } | null = null;
+  let pendingNodeDrag: PendingNodeDragSession | null = null;
   let viewportAnimationTimer: ReturnType<typeof setTimeout> | null = null;
   let lastEffectiveDensityMode: DensityMode | null = null;
   let lastViewportSize = viewportSize();
@@ -780,7 +785,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
           if (intent.nodeId && event) handleNodeDragEnd(intent.nodeId, event);
           break;
         case "node-drag-cancel":
-          if (intent.nodeId) handleNodeDragCancel(intent.nodeId);
+          if (intent.nodeId) handleNodeDragCancel(intent.nodeId, intent.pointerId);
           break;
         case "community-click":
           if (intent.communityId) selectCommunity(intent.communityId);
@@ -849,16 +854,12 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function handleNodeDragEnd(id: NodeId, _event: PointerEvent): void {
     if (!simulation || root.dataset.dragging !== id) return;
-    const snapshot = simulation.endDrag({ keepFixed: true });
-    const position = snapshot.positions[id];
-    if (position) {
-      const nextState = pinState.pin(id, position);
-      pins = nextState.pins;
-      runtimeState.setPins(pins);
-      applyMotionFrame(snapshot.positions);
-      markPinnedNodes(nextState.pinnedNodeIds);
-      void options.persistPins?.(nextState.pins);
-    }
+    const result = commitGraphNodeDrag({ nodeId: id, simulation, pinState });
+    pins = result.pins;
+    runtimeState.setPins(pins);
+    applyMotionFrame(result.positions);
+    markPinnedNodes(result.pinnedNodeIds);
+    void options.persistPins?.(result.pins);
     dom.nodeElements.get(id)?.classList.remove("is-dragging");
     pendingNodeDrag = null;
     delete root.dataset.dragging;
@@ -866,10 +867,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     options.onDragStateChange?.(false);
   }
 
-  function handleNodeDragCancel(id: NodeId): void {
+  function handleNodeDragCancel(id: NodeId, pointerId: number): void {
     if (!simulation || root.dataset.dragging !== id) return;
-    const snapshot = simulation.endDrag({ keepFixed: false });
-    applyMotionFrame(snapshot.positions);
+    const session = nodeDragSession(id, pointerId);
+    const result = cancelGraphNodeDrag({ session, simulation, pinState });
+    pins = result.pins;
+    runtimeState.setPins(pins);
+    applyMotionFrame(result.positions);
+    markPinnedNodes(result.pinnedNodeIds);
     dom.nodeElements.get(id)?.classList.remove("is-dragging");
     pendingNodeDrag = null;
     delete root.dataset.dragging;
@@ -944,7 +949,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     return target instanceof Element ? target as Element & GraphGestureTargetLike : null;
   }
 
-  function pendingNodeDragFromPointerDown(nodeId: NodeId, event: PointerEvent): { pointerId: number; nodeId: NodeId; grabOffset: GraphWorldPoint } | null {
+  function pendingNodeDragFromPointerDown(nodeId: NodeId, event: PointerEvent): PendingNodeDragSession | null {
     const node = graph.nodes.find((item) => item.id === nodeId);
     if (!node) return null;
     const drag = beginGraphNodeDrag({
@@ -953,10 +958,26 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       viewport: runtimeState.snapshot().viewport,
       viewportSize: viewportSize()
     });
+    const pinnedStartPoint = pinsToPositions(graph, runtimeState.snapshot().pins)[nodeId];
     return {
       pointerId: event.pointerId,
       nodeId,
+      startWorldPoint: pinnedStartPoint || drag.targetWorldPoint,
+      wasPinned: Boolean(pinnedStartPoint) || pinState.isPinned(nodeId),
       grabOffset: drag.grabOffset
+    };
+  }
+
+  function nodeDragSession(nodeId: NodeId, pointerId: number): GraphNodeDragSession {
+    if (pendingNodeDrag?.nodeId === nodeId && pendingNodeDrag.pointerId === pointerId) {
+      return pendingNodeDrag;
+    }
+    const node = graph.nodes.find((item) => item.id === nodeId);
+    return {
+      pointerId,
+      nodeId,
+      startWorldPoint: node?.point || { x: 0, y: 0 },
+      wasPinned: pinState.isPinned(nodeId)
     };
   }
 

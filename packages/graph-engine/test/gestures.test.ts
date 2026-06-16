@@ -203,6 +203,14 @@ describe("graph gesture state machine", () => {
     ]);
     assert.equal(nodeMachine.snapshot(), null);
 
+    const lostNodeMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
+    lostNodeMachine.pointerDown(classifyGraphPointerDownTarget(nodeTarget("node-a")), pointer(20, 0, 0));
+    lostNodeMachine.pointerMove(pointer(20, 10, 0));
+    assert.deepEqual(lostNodeMachine.lostPointerCapture({ pointerId: 20 }), [
+      { kind: "node-drag-cancel", nodeId: "node-a", pointerId: 20, reason: "lostpointercapture" }
+    ]);
+    assert.equal(lostNodeMachine.snapshot(), null);
+
     const clickMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
     clickMachine.pointerDown(classifyGraphPointerDownTarget(nodeTarget("node-a")), pointer(15, 0, 0));
     assert.deepEqual(clickMachine.pointerCancel({ pointerId: 15 }), []);
