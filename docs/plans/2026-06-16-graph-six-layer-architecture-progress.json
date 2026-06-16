@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-3",
-    "task": "3.5",
-    "next_allowed_action": "Run the baseline smoke check, then handle graph data refresh while dragging for task 3.5."
+    "task": "3.6",
+    "next_allowed_action": "Run the baseline smoke check, then verify projected overlays after zoom, pan, drag, and drawer resize for task 3.6."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -778,9 +778,45 @@
         {
           "id": "3.5",
           "title": "Handle graph data refresh while dragging without stale state",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "232 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "node --import tsx --test packages/graph-engine/test/anim.test.ts packages/graph-engine/test/state.test.ts workbench/web/test/api.test.ts",
+              "result": "14 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "result": "tsc -p tsconfig.json --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki-agent/web",
+              "result": "graph-engine prebuild and tsc -b --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "result": "PASS: graph workbench interaction regression; evidence shows graph-owned wheel targets still zoom, UI targets remain blocked, community drag pointerDistance 0.043, and hover offsets remain anchored after zoom and drawer resize",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-offline-phase-6.regression-1.sh",
+              "result": "PASS: phase 6 offline graph regression; evidence shows offline drag pointerDistance 0.028 and stored pins keep coordinateSpace: world",
+              "status": "passed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "No whitespace errors",
+              "status": "passed"
+            }
+          ],
+          "commit": "4ee3eb0"
         },
         {
           "id": "3.6",
