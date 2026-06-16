@@ -21,7 +21,6 @@ import {
   nodeDisplayModeForDensity,
   screenEffectiveDensityMode,
   type DensityMode,
-  type NodeDisplayMode,
   type RenderableGraph,
   type RenderableNode,
   type RenderPositionMap
@@ -42,7 +41,7 @@ import {
 } from "./viewport";
 import { createGraphRuntimeState, type GraphRuntimeStateSnapshot } from "./state";
 import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
-import { buildHoverPreview, type GraphHoverPreview } from "./preview";
+import { buildHoverPreview } from "./preview";
 import {
   defaultGraphViewportSize,
   rootClientPointToScreenPoint,
@@ -53,6 +52,11 @@ import {
 import { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
 import { cancelGraphNodeDrag, commitGraphNodeDrag, type GraphNodeDragSession } from "./node-drag-lifecycle";
 import { graphEdgeHoverAnchor, graphNodeHoverAnchor, resolveGraphHoverPreviewPosition } from "./overlays";
+import { applyGraphNodeDisplayMode, createGraphNodeElement, type GraphNodeElementHandlers } from "./nodes";
+import { createGraphEdgeElement, type GraphEdgeElementHandlers } from "./edges";
+import { createCommunityWashElement } from "./community-washes";
+import { createGraphMinimap } from "./minimap";
+import { createEdgeHoverPreviewContent, createHoverPreviewContent } from "./hover-card";
 import {
   GraphGestureController,
   GraphGestureStateMachine,
@@ -286,6 +290,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       },
       onEdgePreviewEnter: (id) => {
         showEdgeHoverPreview(id);
+      },
+      onEdgePreviewLeave: () => {
+        clearHoverPreview();
       },
       onNodePreviewLeave: () => {
         clearHoverPreview();
@@ -1070,7 +1077,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     for (const node of graph.nodes) {
       const element = dom.nodeElements.get(node.id);
       if (!element) continue;
-      applyNodeDisplayMode(element, nodeDisplayModeForDensity(node, densityMode));
+      applyGraphNodeDisplayMode(element, nodeDisplayModeForDensity(node, densityMode));
     }
   }
 
@@ -1371,14 +1378,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     preview.dataset.kind = edge ? "edge" : "node";
     if (edge) {
       preview.dataset.state = "open";
-      preview.append(createEdgeHoverPreviewContent(edge.relationType, edge.confidence));
+      preview.append(createEdgeHoverPreviewContent(ownerDocument, edge.relationType, edge.confidence));
       positionEdgeHoverPreview(preview, edge);
       return;
     }
     preview.dataset.state = rawNode && renderedNode ? "open" : "closed";
     if (!rawNode || !renderedNode) return;
     const content = buildHoverPreview(rawNode);
-    preview.append(createHoverPreviewContent(content));
+    preview.append(createHoverPreviewContent(ownerDocument, content));
     positionHoverPreview(preview, renderedNode);
   }
 
@@ -1413,11 +1420,12 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 }
 
-interface DragHandlers {
+interface DragHandlers extends GraphNodeElementHandlers, GraphEdgeElementHandlers {
   onNodeClick: (id: NodeId, additive: boolean) => void;
   onNodeDoubleClick: (id: string) => boolean;
   onNodePreviewEnter: (id: NodeId) => void;
   onEdgePreviewEnter: (id: string) => void;
+  onEdgePreviewLeave: () => void;
   onNodePreviewLeave: () => void;
 }
 
@@ -1447,17 +1455,8 @@ function paint(
   const washLayer = document.createElementNS(SVG_NS, "g");
   washLayer.setAttribute("class", "community-wash-layer");
   for (const community of graph.communities) {
-    if (!community.wash) continue;
-    const ellipse = document.createElementNS(SVG_NS, "ellipse");
-    ellipse.setAttribute("class", "community-wash");
-    ellipse.setAttribute("cx", String(community.wash.cx));
-    ellipse.setAttribute("cy", String(community.wash.cy));
-    ellipse.setAttribute("rx", String(community.wash.rx));
-    ellipse.setAttribute("ry", String(community.wash.ry));
-    ellipse.setAttribute("fill", community.color);
-    ellipse.setAttribute("opacity", String(community.wash.opacity));
-    ellipse.dataset.communityId = community.id;
-    ellipse.style.cursor = "pointer";
+    const ellipse = createCommunityWashElement(root.ownerDocument, community);
+    if (!ellipse) continue;
     washLayer.appendChild(ellipse);
     painted.communityWashElements.set(community.id, ellipse);
   }
@@ -1466,25 +1465,7 @@ function paint(
   const edgeLayer = document.createElementNS(SVG_NS, "g");
   edgeLayer.setAttribute("class", "edge-layer");
   for (const edge of graph.edges) {
-    const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("d", edge.path);
-    path.setAttribute("class", `edge confidence-${edge.confidence} ${edge.relationClass}`);
-    path.setAttribute("data-from", edge.source);
-    path.setAttribute("data-to", edge.target);
-    path.setAttribute("data-edge-id", edge.id);
-    path.setAttribute("data-confidence", edge.confidence);
-    path.setAttribute("data-relation-type", edge.relationType);
-    path.setAttribute("aria-label", `${edge.relationType} · ${edgeConfidenceLabel(edge.confidence)}`);
-    path.setAttribute("tabindex", "0");
-    path.addEventListener("pointerenter", () => dragHandlers.onEdgePreviewEnter(edge.id));
-    path.addEventListener("pointerleave", () => dragHandlers.onNodePreviewLeave());
-    path.addEventListener("focus", () => dragHandlers.onEdgePreviewEnter(edge.id));
-    path.addEventListener("blur", () => dragHandlers.onNodePreviewLeave());
-    path.style.strokeWidth = String(edge.strokeWidth);
-    path.style.opacity = String(edge.opacity);
-    const title = document.createElementNS(SVG_NS, "title");
-    title.textContent = `${edge.relationType} · ${edgeConfidenceLabel(edge.confidence)}`;
-    path.appendChild(title);
+    const path = createGraphEdgeElement(root.ownerDocument, edge, dragHandlers);
     edgeLayer.appendChild(path);
     painted.edgeElements.set(edge.id, path);
   }
@@ -1494,7 +1475,7 @@ function paint(
   const nodeLayer = document.createElement("div");
   nodeLayer.className = "node-layer";
   for (const node of graph.nodes) {
-    const button = createNodeButton(node, dragHandlers);
+    const button = createGraphNodeElement(root.ownerDocument, node, dragHandlers);
     painted.nodeElements.set(node.id, button);
     painted.basePoints.set(node.id, node.point);
     nodeLayer.appendChild(button);
@@ -1509,38 +1490,10 @@ function paint(
   root.appendChild(preview);
   painted.previewElement = preview;
 
-  const minimap = document.createElement("div");
-  minimap.className = "mini-map";
-  const miniSvg = document.createElementNS(SVG_NS, "svg");
-  miniSvg.setAttribute("viewBox", "0 0 160 54");
-  miniSvg.setAttribute("aria-hidden", "true");
-  const miniPath = document.createElementNS(SVG_NS, "path");
-  miniPath.setAttribute("d", graph.minimap.path);
-  miniPath.setAttribute("fill", "none");
-  miniPath.setAttribute("stroke", "var(--line)");
-  miniPath.setAttribute("stroke-width", "1.4");
-  miniSvg.appendChild(miniPath);
-  const miniViewport = document.createElementNS(SVG_NS, "rect");
-  miniViewport.setAttribute("class", "mini-map-viewport");
-  miniViewport.setAttribute("data-mini-map-viewport", "true");
-  miniViewport.setAttribute("x", "0");
-  miniViewport.setAttribute("y", "0");
-  miniViewport.setAttribute("width", "160");
-  miniViewport.setAttribute("height", "54");
-  miniSvg.appendChild(miniViewport);
-  painted.miniViewportElement = miniViewport;
-  for (const miniNode of graph.minimap.nodes) {
-    const circle = document.createElementNS(SVG_NS, "circle");
-    circle.setAttribute("cx", String(miniNode.x));
-    circle.setAttribute("cy", String(miniNode.y));
-    circle.setAttribute("r", String(miniNode.r));
-    circle.setAttribute("fill", miniNode.fill);
-    if (miniNode.selected) circle.classList.add("is-selected");
-    miniSvg.appendChild(circle);
-    painted.miniNodeElements.set(miniNode.id, circle);
-  }
-  minimap.appendChild(miniSvg);
-  root.appendChild(minimap);
+  const minimap = createGraphMinimap(root.ownerDocument, graph.minimap);
+  painted.miniViewportElement = minimap.viewportElement;
+  painted.miniNodeElements = minimap.nodeElements;
+  root.appendChild(minimap.element);
   if (!hasHostReader) {
     const reader = document.createElement("aside");
     reader.className = "graph-reader";
@@ -1555,41 +1508,6 @@ function paint(
     painted.selectionElement = selectionPanel;
   }
   return painted;
-}
-
-function createHoverPreviewContent(preview: GraphHoverPreview): HTMLElement {
-  const article = document.createElement("article");
-  article.className = "graph-hover-preview-card";
-  const type = document.createElement("div");
-  type.className = "graph-hover-preview-type";
-  type.textContent = preview.typeLabel;
-  const title = document.createElement("div");
-  title.className = "graph-hover-preview-title";
-  title.textContent = preview.title;
-  article.append(type, title);
-  if (preview.summary) {
-    const summary = document.createElement("p");
-    summary.className = "graph-hover-preview-summary";
-    summary.textContent = preview.summary;
-    article.appendChild(summary);
-  }
-  return article;
-}
-
-function createEdgeHoverPreviewContent(relationType: string, confidence: string): HTMLElement {
-  const article = document.createElement("article");
-  article.className = "graph-hover-preview-card graph-edge-hover-card";
-  const type = document.createElement("div");
-  type.className = "graph-hover-preview-type";
-  type.textContent = "关系";
-  const title = document.createElement("div");
-  title.className = "graph-hover-preview-title";
-  title.textContent = relationType;
-  const summary = document.createElement("p");
-  summary.className = "graph-hover-preview-summary";
-  summary.textContent = `置信度：${edgeConfidenceLabel(confidence)}`;
-  article.append(type, title, summary);
-  return article;
 }
 
 function createSelectionFact(label: string, value: number): HTMLElement {
@@ -1612,70 +1530,6 @@ function offlineSelectionTitle(selection: SelectionInput, count: number): string
 
 function positionsFromRenderableGraph(graph: RenderableGraph): RenderPositionMap {
   return Object.fromEntries(graph.nodes.map((node) => [node.id, { x: node.point.x, y: node.point.y }]));
-}
-
-function createNodeButton(node: RenderableNode, dragHandlers: DragHandlers): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.className = "node";
-  if (node.unavailable) button.classList.add("is-disabled");
-  applyNodeDisplayMode(button, node.displayMode);
-  if (node.previewStart) button.classList.add("is-preview-start");
-  if (!node.labelVisible) button.classList.add("is-label-hidden");
-  button.type = "button";
-  button.dataset.id = node.id;
-  button.dataset.type = node.type;
-  button.dataset.community = node.community;
-  button.dataset.visualRole = node.visualRole;
-  button.dataset.startNode = node.startNode ? "true" : "false";
-  button.dataset.previewStart = node.previewStart ? "true" : "false";
-  button.style.left = `${node.x}%`;
-  button.style.top = `${node.y}%`;
-  button.title = node.label;
-  button.setAttribute("aria-pressed", node.selected ? "true" : "false");
-  button.addEventListener("dblclick", (event) => {
-    event.stopPropagation();
-    dragHandlers.onNodeDoubleClick(node.id);
-  });
-  button.addEventListener("pointerenter", () => dragHandlers.onNodePreviewEnter(node.id));
-  button.addEventListener("pointerleave", () => dragHandlers.onNodePreviewLeave());
-  button.addEventListener("focus", () => dragHandlers.onNodePreviewEnter(node.id));
-  button.addEventListener("blur", () => dragHandlers.onNodePreviewLeave());
-  bindNodeActivationHandlers(button, node.id, dragHandlers);
-
-  const kind = document.createElement("span");
-  kind.className = "node-kind";
-  kind.textContent = node.kind;
-  button.appendChild(kind);
-
-  const name = document.createElement("span");
-  name.className = "node-name";
-  name.textContent = node.label;
-  button.appendChild(name);
-
-  const meta = document.createElement("span");
-  meta.className = "node-meta";
-  const spark = document.createElement("i");
-  spark.className = "spark";
-  meta.appendChild(spark);
-  meta.append(node.unavailable ? "来源暂不可用" : String(Math.round(node.priority || node.weight || 0)));
-  button.appendChild(meta);
-
-  return button;
-}
-
-function applyNodeDisplayMode(button: HTMLButtonElement, displayMode: NodeDisplayMode): void {
-  button.classList.toggle("is-compact", displayMode === "compact-card");
-  button.classList.toggle("is-point", displayMode === "point");
-  button.classList.toggle("is-overview", displayMode === "overview");
-  button.dataset.densityMode = displayMode;
-}
-
-function bindNodeActivationHandlers(button: HTMLButtonElement, nodeId: string, handlers: DragHandlers): void {
-  button.addEventListener("click", (event) => {
-    if (event.detail !== 0) return;
-    event.stopPropagation();
-    handlers.onNodeClick(nodeId, event.shiftKey);
-  });
 }
 
 function selectedNodeIds(selection: SelectionInput | null): NodeId[] {
@@ -1738,19 +1592,6 @@ function graphReaderMetaItems(node: GraphReaderNode): string[] {
   if (node.date) items.push(node.date);
   if (node.source) items.push(node.source);
   return items;
-}
-
-function edgeConfidenceLabel(confidence: string): string {
-  switch (confidence) {
-    case "inferred":
-      return "推断";
-    case "ambiguous":
-      return "待确认";
-    case "unverified":
-      return "未验证";
-    default:
-      return "原文";
-  }
 }
 
 function isTextEditingElement(element: Element | null): boolean {
