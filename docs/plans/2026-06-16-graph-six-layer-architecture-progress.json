@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-6",
-    "task": "6.3",
-    "next_allowed_action": "Use SpatialIndex to preserve node, community wash, and blank hit priority."
+    "task": "6.4",
+    "next_allowed_action": "Verify wash behavior in workbench and offline browser paths."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -1348,8 +1348,12 @@
         },
         {
           "check": "Node hits outrank community wash hits, and community hits outrank blank hits.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "packages/graph-engine/test/spatial-index.test.ts covers a single SpatialIndex path ordering node, edge, community wash, and blank hits.",
+            "node --import tsx --test packages/graph-engine/test/spatial-index.test.ts packages/graph-engine/test/interaction-contract.test.ts packages/graph-engine/test/gestures.test.ts -> 32 tests passed, 0 failed.",
+            "npm run test --workspace=@llm-wiki/graph-engine -> 251 tests passed, 0 failed."
+          ]
         },
         {
           "check": "Community wash caps do not grow unbounded when layout bounds expand.",
@@ -1427,9 +1431,30 @@
         {
           "id": "6.3",
           "title": "Use SpatialIndex priority for node, community, and blank hits",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "node --import tsx --test packages/graph-engine/test/spatial-index.test.ts packages/graph-engine/test/interaction-contract.test.ts packages/graph-engine/test/gestures.test.ts",
+              "result": "32 tests passed, 0 failed; covers SpatialIndex ordering for node, edge, community wash, and blank targets plus gesture ownership contracts.",
+              "status": "passed"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "251 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "result": "tsc -p tsconfig.json --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "No whitespace errors",
+              "status": "passed"
+            }
+          ],
+          "commit": "dfffaca"
         },
         {
           "id": "6.4",
