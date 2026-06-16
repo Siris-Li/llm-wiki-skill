@@ -88,6 +88,8 @@ export type {
 } from "./gestures";
 export { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 export type { GraphSearchFocus, GraphSearchNodeState, GraphSearchNodeView, GraphSearchState } from "./search";
+export { classifyGraphKeyboardIntent, isTextEditingElement } from "./keyboard";
+export type { GraphKeyboardIntent, GraphKeyboardIntentInput } from "./keyboard";
 export { buildHoverPreview, firstUsefulParagraph, previewSummary } from "./preview";
 export type { GraphHoverPreview } from "./preview";
 export { graphEdgeHoverAnchor, graphNodeHoverAnchor, resolveGraphHoverPreviewPosition } from "./overlays";

@@ -58,6 +58,8 @@ import { createGraphMinimap } from "./minimap";
 import { createEdgeHoverPreviewContent, createHoverPreviewContent } from "./hover-card";
 import { createCommunityLegend, createGraphToolbar, createSearchControl } from "./controls";
 import { renderOfflineReader, renderOfflineSelectionPanel } from "./offline-reader";
+import { classifyGraphKeyboardIntent, isTextEditingElement } from "./keyboard";
+import { createGraphRootElement, resetGraphRootScroll } from "./host-dom";
 import {
   GraphGestureController,
   GraphGestureStateMachine,
@@ -154,11 +156,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
   const pathCache = createRenderPathCache();
-  const root = document.createElement("div");
-  root.className = "llm-wiki-graph-engine";
-  root.dataset.llmWikiGraphRoot = "true";
-  root.tabIndex = 0;
-  container.replaceChildren(root);
+  const root = createGraphRootElement(container);
   const toolbarContainer = options.toolbarContainer || root;
   const hasExternalToolbarContainer = toolbarContainer !== root;
   ensureStaticRendererStyles(container.ownerDocument || document);
@@ -1120,8 +1118,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function resetRootScroll(): void {
-    if (root.scrollLeft !== 0) root.scrollLeft = 0;
-    if (root.scrollTop !== 0) root.scrollTop = 0;
+    resetGraphRootScroll(root);
   }
 
   async function animateDiff(diff: GraphDiff, animationOptions: { reducedMotion?: boolean; durationMs?: number }): Promise<void> {
@@ -1444,55 +1441,6 @@ function shiftSelection(id: NodeId, current: NodeId[]): SelectionInput {
   const ids = Array.from(selected);
   if (ids.length === 1) return { kind: "node", id: ids[0] };
   return { kind: "nodes", ids };
-}
-
-function isTextEditingElement(element: Element | null): boolean {
-  if (!element) return false;
-  const tagName = element.tagName.toLowerCase();
-  if (tagName === "textarea") return true;
-  if (tagName === "input") {
-    const input = element as HTMLInputElement;
-    const type = input.type.toLowerCase();
-    return !["button", "checkbox", "radio", "range", "submit", "reset"].includes(type);
-  }
-  return element instanceof HTMLElement && element.isContentEditable;
-}
-
-export type GraphKeyboardIntent =
-  | "open-search"
-  | "close-search"
-  | "close-toolbar"
-  | "cancel-active-gesture"
-  | "clear-interaction"
-  | "blocked";
-
-export interface GraphKeyboardIntentInput {
-  key: string;
-  ctrlKey?: boolean;
-  metaKey?: boolean;
-  graphFocused: boolean;
-  activeGesture: boolean;
-  textEditingTarget: boolean;
-  searchActive: boolean;
-  toolbarOpen: boolean;
-  interactionActive: boolean;
-}
-
-export function classifyGraphKeyboardIntent(input: GraphKeyboardIntentInput): GraphKeyboardIntent {
-  const key = input.key.toLowerCase();
-  const graphOwnsKeyboard = input.graphFocused || input.activeGesture;
-  if (!graphOwnsKeyboard) return "blocked";
-
-  if ((input.metaKey || input.ctrlKey) && key === "f") {
-    return input.graphFocused && !input.textEditingTarget ? "open-search" : "blocked";
-  }
-
-  if (input.key !== "Escape") return "blocked";
-  if (input.graphFocused && input.searchActive) return "close-search";
-  if (input.graphFocused && input.toolbarOpen) return "close-toolbar";
-  if (input.activeGesture) return "cancel-active-gesture";
-  if (input.graphFocused && input.interactionActive) return "clear-interaction";
-  return "blocked";
 }
 
 function emptyPaintedDom(): PaintedGraphDom {

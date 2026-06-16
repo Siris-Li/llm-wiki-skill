@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { classifyGraphKeyboardIntent, type GraphKeyboardIntentInput } from "../src/render/static-renderer";
+import { classifyGraphKeyboardIntent, type GraphKeyboardIntentInput } from "../src/render/keyboard";
 
 describe("graph keyboard ownership", () => {
   it("opens graph search only when the graph owns focus", () => {
