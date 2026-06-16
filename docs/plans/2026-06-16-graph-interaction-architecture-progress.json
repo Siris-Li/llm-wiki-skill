@@ -1,0 +1,385 @@
+{
+  "plan": "docs/plans/2026-06-16-graph-interaction-architecture-phased-plan.md",
+  "status": {
+    "overall": "pending",
+    "phase": "phase-0",
+    "task": "0.1",
+    "next_allowed_action": "Execute the current task; after verified completion, update status/evidence/log fields, commit, record the hash, and advance automatically"
+  },
+  "execution_rules": {
+    "branch": "codex/graph-interaction-architecture",
+    "smoke_check": "npm run test --workspace=@llm-wiki/graph-engine",
+    "commit_each_verified_task": true,
+    "no_commit_on_failed_verification": true,
+    "never_push_merge_or_amend": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "only_flip_status_fields": true,
+    "no_new_dependencies_without_user_decision": true
+  },
+  "decision_log": [
+    {
+      "decision": "Use L-level phased plan",
+      "reason": "The work spans shared graph-engine modules, workbench integration, offline HTML verification, browser behavior, and multiple regression classes.",
+      "source": "spec-to-goal-plan sizing step",
+      "status": "recorded"
+    },
+    {
+      "decision": "Proceed with a gated vertical slice instead of local patches or renderer rewrite",
+      "reason": "The user rejected MVP patching, while the design document also rules out Canvas/WebGL migration before profiling proves a renderer bottleneck.",
+      "source": "docs/spark/2026-06-16-graph-interaction-geometry-design.md",
+      "status": "recorded"
+    },
+    {
+      "decision": "Do not bring in earlier temporary bugfix commits from codex/fix-graph-community-wheel-zoom",
+      "reason": "This branch should stay clean and solve the regression class through the new shared coordinate/gesture/state path.",
+      "source": "git log and user branch cleanliness question",
+      "status": "recorded"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-0",
+      "goal": "Record baseline failures, public API, and repeatable regression probes",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Known interaction regressions are recorded with trigger, current behavior, expected behavior, and target phase",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Current branch is confirmed clean and does not contain old temporary bugfix commits",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Public graph-engine API baseline and old bugfix comparison are recorded",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Workbench and offline HTML baseline behavior is recorded",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "0.1",
+          "title": "Record interaction regression, API, and old bugfix baseline",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "0.2",
+          "title": "Record pure regression probe shape and commit only passing helpers",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "0.3",
+          "title": "Record workbench and offline HTML baseline behavior",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-1",
+      "goal": "Create the shared Geometry and Camera contract",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Projection helpers are centralized and do not silently clamp drag targets",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Viewport camera behavior remains compatible with existing tests",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Pin format compatibility is documented and tested",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "1.1",
+          "title": "Create Geometry module with explicit coordinate spaces",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "1.2",
+          "title": "Narrow Viewport to camera responsibilities",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "1.3",
+          "title": "Document and test pin/layout bounds compatibility",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "goal": "Create the graph runtime state skeleton before gesture wiring",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Viewport, hover, single selection, multi selection, community focus, pins, positions, and active gesture have one graph-local state owner",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Renderer reads runtime state snapshots without moving host drawer state into graph-engine",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "2.1",
+          "title": "Create minimal graph runtime state",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "2.2",
+          "title": "Wire state snapshots into the renderer shell",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "goal": "Centralize gesture and hit target classification",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Wheel, pointer, click, drag, community, minimap, and UI blocker classification has one tested path",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Renderer delegates gesture interpretation instead of owning scattered target rules",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "3.1",
+          "title": "Define graph event target classifier",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "3.2",
+          "title": "Extract gesture threshold and intent state machine",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "3.3",
+          "title": "Wire renderer shell through the gesture module",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "goal": "Route node drag through geometry, runtime state, and simulation bridge",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Node drag uses screen-to-world projection with preserved grab offset",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Drag end, click, pointercancel, and lostpointercapture persist or discard pins correctly",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "4.1",
+          "title": "Route node drag through geometry and simulation bridge",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "4.2",
+          "title": "Fix drag end, click, pointercancel, lostpointercapture, and pin persistence semantics",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "goal": "Fix overlays and bounded community wash behavior",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Hover and edge previews are positioned from projected screen anchors",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Community wash never acts as wheel or drag fence",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Community wash response to outliers is capped by deterministic fixture tests",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "5.1",
+          "title": "Extract overlay positioning helpers",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "5.2",
+          "title": "Make community wash non-blocking with threshold click behavior",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "5.3",
+          "title": "Implement capped community wash response fixtures",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-6",
+      "goal": "Verify workbench and offline HTML hosts share the fixed engine behavior",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Workbench host does not duplicate graph coordinate logic",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Workbench build and public API compatibility checks pass",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Workbench browser verification passes for zoom, drag, hover, drawer, community focus, pan, minimap, and reset",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Offline HTML fixture verification passes against built IIFE",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "6.1",
+          "title": "Integrate workbench host without duplicating graph rules",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "6.2",
+          "title": "Run workbench browser verification",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "6.3",
+          "title": "Run offline HTML verification",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    },
+    {
+      "id": "phase-7",
+      "goal": "Close old logic, sync docs, and record final verification",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Old scattered drag, hover, wheel, minimap, and community wash formulas are removed or isolated behind named tested adapters",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Design/product docs match the shipped boundaries",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Full verification suite and browser/offline checks are recorded",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "7.1",
+          "title": "Remove or isolate old scattered interaction formulas",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "7.2",
+          "title": "Sync product and design records",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        },
+        {
+          "id": "7.3",
+          "title": "Run final regression checks and record residual risk",
+          "status": "pending",
+          "verification": [],
+          "commit": null
+        }
+      ]
+    }
+  ],
+  "residual_risk": [],
+  "turn_log": []
+}
