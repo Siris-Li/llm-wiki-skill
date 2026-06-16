@@ -44,6 +44,15 @@ import {
 import { createGraphRuntimeState, type GraphRuntimeStateSnapshot } from "./state";
 import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 import { buildHoverPreview, type GraphHoverPreview } from "./preview";
+import { rootClientPointToScreenPoint } from "./geometry";
+import {
+  GraphGestureStateMachine,
+  classifyGraphPointerDownTarget,
+  classifyGraphWheelTarget,
+  type GraphGestureActiveState,
+  type GraphGestureIntent,
+  type GraphGestureTargetLike
+} from "./gestures";
 import {
   nextToolbarPanelState,
   readToolbarPanelState,
@@ -170,6 +179,16 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       closeToolbarPanel();
       return;
     }
+    if (event.key === "Escape") {
+      const intents = gestureMachine.escape();
+      if (intents.length) {
+        event.preventDefault();
+        event.stopPropagation();
+        applyGestureIntents(intents, null);
+        syncRuntimeGestureState();
+        return;
+      }
+    }
     if (event.key !== "Escape" || !hasInteractionState()) return;
     event.preventDefault();
     event.stopPropagation();
@@ -181,7 +200,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   };
   ownerDocument.addEventListener("keydown", handleDocumentKeydown);
   const viewportCommitter = createViewportFrameCommitter(commitViewport, root.ownerDocument.defaultView || undefined);
-  let blankPan: { pointerId: number; lastX: number; lastY: number; startX: number; startY: number; moved: boolean } | null = null;
+  const gestureMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
   let viewportAnimationTimer: ReturnType<typeof setTimeout> | null = null;
   let lastEffectiveDensityMode: DensityMode | null = null;
   let lastViewportSize = viewportSize();
@@ -226,58 +245,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     pinState = new PinState(graph, runtimeState.snapshot().pins);
     applyTheme(root, theme);
     dom = paint(root, graph, theme, Boolean(options.onOpenPage), {
-      onCommunitySelect: (id) => {
-        selectCommunity(id);
-      },
       onNodeClick: (id, additive) => {
-        if (!additive) {
-          manualNodeIds = [];
-          selection = null;
-          selectedNodeId = id;
-          options.onOpenPage?.(openPagePayloadForNode(data, id));
-          render({ selectedNodeId: id, selection: null });
-          return;
-        }
-        const nextSelection = shiftSelection(id, manualNodeIds.length ? manualNodeIds : selectedNodeIds(selection));
-        manualNodeIds = nextSelection.kind === "nodes" ? nextSelection.ids : nextSelection.kind === "node" ? [nextSelection.id] : [];
-        selection = nextSelection;
-        selectedNodeId = null;
-        options.onSelectionChange?.(nextSelection);
-        render({ selection: nextSelection });
-      },
-      onDragStart: (id, event) => {
-        if (!simulation) return;
-        runtimeState.setActiveGesture({
-          kind: "node-drag",
-          pointerId: event.pointerId,
-          nodeId: id,
-          grabOffset: { x: 0, y: 0 },
-          locked: true
-        });
-        simulation.beginDrag(id);
-        simulation.dragTo(id, eventToGraphPoint(root, event));
-        root.dataset.dragging = id;
-        options.onDragStateChange?.(true);
-      },
-      onDragMove: (id, event) => {
-        if (!simulation || root.dataset.dragging !== id) return;
-        simulation.dragTo(id, eventToGraphPoint(root, event));
-      },
-      onDragEnd: (id) => {
-        if (!simulation || root.dataset.dragging !== id) return;
-        const snapshot = simulation.endDrag({ keepFixed: true });
-        const position = snapshot.positions[id];
-        if (position) {
-          const nextState = pinState.pin(id, position);
-          pins = nextState.pins;
-          runtimeState.setPins(pins);
-          applyMotionFrame(snapshot.positions);
-          markPinnedNodes(nextState.pinnedNodeIds);
-          void options.persistPins?.(nextState.pins);
-        }
-        delete root.dataset.dragging;
-        runtimeState.setActiveGesture(null);
-        options.onDragStateChange?.(false);
+        handleNodeClick(id, additive);
       },
       onNodeDoubleClick: (id) => {
         if (!pinState.isPinned(id)) return false;
@@ -733,87 +702,230 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function bindViewportHandlers(): void {
     root.addEventListener("wheel", (event) => {
-      if (!isBlankViewportTarget(event.target)) return;
+      const decision = classifyGraphWheelTarget(graphGestureTarget(event.target), event);
+      if (decision.intent !== "zoom") return;
       event.preventDefault();
       setViewportAnimating(false);
-      const rect = root.getBoundingClientRect();
+      const screenPoint = graphScreenPointFromPointerEvent(event);
       viewportCommitter.schedule(viewportAfterWheelZoom(
         runtimeState.snapshot().viewport,
         { deltaY: event.deltaY, deltaMode: event.deltaMode },
-        {
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top
-        },
+        screenPoint,
         viewportSize()
       ));
     }, { passive: false });
     root.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0 || !isBlankViewportTarget(event.target)) return;
-      // 空白按下一律先准备平移；究竟是"单击手势"（关弹层 / 退一层）还是"拖动平移"，
-      // 留到 pointerup 时按"指针是否移动过"判定——否则在聚焦视图里一按下就退层会吃掉拖动。
-      root.focus({ preventScroll: true });
-      blankPan = {
-        pointerId: event.pointerId,
-        lastX: event.clientX,
-        lastY: event.clientY,
-        startX: event.clientX,
-        startY: event.clientY,
-        moved: false
-      };
-      runtimeState.setActiveGesture({
-        kind: "viewport-pan",
-        pointerId: event.pointerId,
-        lastScreenPoint: {
-          x: event.clientX - root.getBoundingClientRect().left,
-          y: event.clientY - root.getBoundingClientRect().top
-        },
-        locked: false
-      });
+      if (event.button !== 0) return;
+      const decision = classifyGraphPointerDownTarget(graphGestureTarget(event.target));
+      if (decision.intent === "blocked") return;
+      if (decision.intent !== "node-drag-candidate") root.focus({ preventScroll: true });
+      gestureMachine.pointerDown(decision, graphPointerEvent(event));
+      syncRuntimeGestureState();
       setViewportAnimating(false);
       root.setPointerCapture(event.pointerId);
     });
     root.addEventListener("pointermove", (event) => {
-      if (!blankPan || event.pointerId !== blankPan.pointerId) return;
-      const dx = event.clientX - blankPan.lastX;
-      const dy = event.clientY - blankPan.lastY;
-      const moved = blankPan.moved
-        || Math.abs(event.clientX - blankPan.startX) > 3
-        || Math.abs(event.clientY - blankPan.startY) > 3;
-      blankPan = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY, startX: blankPan.startX, startY: blankPan.startY, moved };
-      runtimeState.setActiveGesture({
-        kind: "viewport-pan",
-        pointerId: event.pointerId,
-        lastScreenPoint: {
-          x: event.clientX - root.getBoundingClientRect().left,
-          y: event.clientY - root.getBoundingClientRect().top
-        },
-        locked: moved
-      });
-      if (moved) root.dataset.viewportDragging = "true";
-      viewportCommitter.schedule(panRendererViewport(runtimeState.snapshot().viewport, { x: dx, y: dy }, viewportSize()));
+      const intents = gestureMachine.pointerMove(graphPointerEvent(event));
+      applyGestureIntents(intents, event);
+      syncRuntimeGestureState();
     });
-    const endPan = (event: PointerEvent) => {
-      if (!blankPan || event.pointerId !== blankPan.pointerId) return;
-      const wasClick = !blankPan.moved;
-      blankPan = null;
-      runtimeState.setActiveGesture(null);
-      delete root.dataset.viewportDragging;
+    root.addEventListener("pointerup", (event) => {
+      const intents = gestureMachine.pointerUp(graphPointerEvent(event));
+      applyGestureIntents(intents, event);
       if (root.hasPointerCapture(event.pointerId)) root.releasePointerCapture(event.pointerId);
-      if (!wasClick) return;
-      // 真·单击空白（按下到抬起没拖动）：关弹层 → 退一层（聚焦态），与拖动平移互不冲突
-      if (shouldBlankClickCloseToolbar(toolbarPanelState)) {
-        closeToolbarPanel();
-        return;
-      }
-      if (focus) retreatFocusedView();
-    };
-    root.addEventListener("pointerup", endPan);
-    root.addEventListener("pointercancel", endPan);
+      syncRuntimeGestureState();
+    });
+    root.addEventListener("pointercancel", (event) => {
+      const intents = gestureMachine.pointerCancel({ pointerId: event.pointerId });
+      applyGestureIntents(intents, event);
+      if (root.hasPointerCapture(event.pointerId)) root.releasePointerCapture(event.pointerId);
+      syncRuntimeGestureState();
+    });
+    root.addEventListener("lostpointercapture", (event) => {
+      const pointerId = "pointerId" in event ? Number(event.pointerId) : Number.NaN;
+      if (!Number.isFinite(pointerId)) return;
+      const intents = gestureMachine.lostPointerCapture({ pointerId });
+      applyGestureIntents(intents, null);
+      syncRuntimeGestureState();
+    });
     root.addEventListener("dblclick", (event) => {
-      if (!isBlankViewportTarget(event.target)) return;
+      const decision = classifyGraphPointerDownTarget(graphGestureTarget(event.target));
+      if (decision.intent !== "blank-pan-candidate") return;
       event.preventDefault();
       resetViewState();
     });
+  }
+
+  function applyGestureIntents(intents: GraphGestureIntent[], event: PointerEvent | null): void {
+    for (const intent of intents) {
+      switch (intent.kind) {
+        case "node-click":
+          if (intent.nodeId) dom.nodeElements.get(intent.nodeId)?.focus({ preventScroll: true });
+          if (intent.nodeId) handleNodeClick(intent.nodeId, intent.additive);
+          break;
+        case "node-drag-start":
+          if (intent.nodeId && event) handleNodeDragStart(intent.nodeId, event);
+          break;
+        case "node-drag-move":
+          if (intent.nodeId && event) handleNodeDragMove(intent.nodeId, event);
+          break;
+        case "node-drag-end":
+          if (intent.nodeId && event) handleNodeDragEnd(intent.nodeId, event);
+          break;
+        case "node-drag-cancel":
+          if (intent.nodeId) handleNodeDragCancel(intent.nodeId);
+          break;
+        case "community-click":
+          if (intent.communityId) selectCommunity(intent.communityId);
+          break;
+        case "community-click-cancelled":
+          break;
+        case "blank-click":
+          handleBlankClick();
+          break;
+        case "blank-pan-start":
+          root.dataset.viewportDragging = "true";
+          break;
+        case "blank-pan-move":
+          root.dataset.viewportDragging = "true";
+          viewportCommitter.schedule(panRendererViewport(runtimeState.snapshot().viewport, intent.delta, viewportSize()));
+          break;
+        case "blank-pan-end":
+        case "blank-pan-cancel":
+          delete root.dataset.viewportDragging;
+          break;
+      }
+    }
+  }
+
+  function handleNodeClick(id: NodeId, additive: boolean): void {
+    if (!additive) {
+      manualNodeIds = [];
+      selection = null;
+      selectedNodeId = id;
+      options.onOpenPage?.(openPagePayloadForNode(data, id));
+      render({ selectedNodeId: id, selection: null });
+      return;
+    }
+    const nextSelection = shiftSelection(id, manualNodeIds.length ? manualNodeIds : selectedNodeIds(selection));
+    manualNodeIds = nextSelection.kind === "nodes" ? nextSelection.ids : nextSelection.kind === "node" ? [nextSelection.id] : [];
+    selection = nextSelection;
+    selectedNodeId = null;
+    options.onSelectionChange?.(nextSelection);
+    render({ selection: nextSelection });
+  }
+
+  function handleNodeDragStart(id: NodeId, event: PointerEvent): void {
+    if (!simulation) return;
+    dom.nodeElements.get(id)?.classList.add("is-dragging");
+    runtimeState.setActiveGesture({
+      kind: "node-drag",
+      pointerId: event.pointerId,
+      nodeId: id,
+      grabOffset: { x: 0, y: 0 },
+      locked: true
+    });
+    simulation.beginDrag(id);
+    simulation.dragTo(id, eventToGraphPoint(root, event));
+    root.dataset.dragging = id;
+    options.onDragStateChange?.(true);
+  }
+
+  function handleNodeDragMove(id: NodeId, event: PointerEvent): void {
+    if (!simulation || root.dataset.dragging !== id) return;
+    simulation.dragTo(id, eventToGraphPoint(root, event));
+  }
+
+  function handleNodeDragEnd(id: NodeId, _event: PointerEvent): void {
+    if (!simulation || root.dataset.dragging !== id) return;
+    const snapshot = simulation.endDrag({ keepFixed: true });
+    const position = snapshot.positions[id];
+    if (position) {
+      const nextState = pinState.pin(id, position);
+      pins = nextState.pins;
+      runtimeState.setPins(pins);
+      applyMotionFrame(snapshot.positions);
+      markPinnedNodes(nextState.pinnedNodeIds);
+      void options.persistPins?.(nextState.pins);
+    }
+    dom.nodeElements.get(id)?.classList.remove("is-dragging");
+    delete root.dataset.dragging;
+    runtimeState.setActiveGesture(null);
+    options.onDragStateChange?.(false);
+  }
+
+  function handleNodeDragCancel(id: NodeId): void {
+    if (!simulation || root.dataset.dragging !== id) return;
+    const snapshot = simulation.endDrag({ keepFixed: false });
+    applyMotionFrame(snapshot.positions);
+    dom.nodeElements.get(id)?.classList.remove("is-dragging");
+    delete root.dataset.dragging;
+    runtimeState.setActiveGesture(null);
+    options.onDragStateChange?.(false);
+  }
+
+  function handleBlankClick(): void {
+    delete root.dataset.viewportDragging;
+    // 真·单击空白（按下到抬起没拖动）：关弹层 → 退一层（聚焦态），与拖动平移互不冲突
+    if (shouldBlankClickCloseToolbar(toolbarPanelState)) {
+      closeToolbarPanel();
+      return;
+    }
+    if (focus) retreatFocusedView();
+  }
+
+  function syncRuntimeGestureState(): void {
+    runtimeState.setActiveGesture(runtimeGestureFromActiveGesture(gestureMachine.snapshot()));
+  }
+
+  function runtimeGestureFromActiveGesture(active: GraphGestureActiveState): GraphRuntimeStateSnapshot["activeGesture"] {
+    if (!active) return null;
+    if (active.kind === "node") {
+      return active.nodeId
+        ? {
+            kind: "node-drag",
+            pointerId: active.pointerId,
+            nodeId: active.nodeId,
+            grabOffset: { x: 0, y: 0 },
+            locked: active.locked
+          }
+        : null;
+    }
+    if (active.kind === "community-wash") {
+      return active.communityId
+        ? {
+            kind: "community-click",
+            pointerId: active.pointerId,
+            communityId: active.communityId,
+            locked: active.locked
+          }
+        : null;
+    }
+    return {
+      kind: "viewport-pan",
+      pointerId: active.pointerId,
+      lastScreenPoint: active.lastScreenPoint,
+      locked: active.locked
+    };
+  }
+
+  function graphPointerEvent(event: PointerEvent) {
+    return {
+      pointerId: event.pointerId,
+      screenPoint: graphScreenPointFromPointerEvent(event),
+      shiftKey: event.shiftKey
+    };
+  }
+
+  function graphScreenPointFromPointerEvent(event: MouseEvent): { x: number; y: number } {
+    return rootClientPointToScreenPoint(
+      { x: event.clientX, y: event.clientY },
+      root.getBoundingClientRect()
+    );
+  }
+
+  function graphGestureTarget(target: EventTarget | null): GraphGestureTargetLike | null {
+    return target instanceof Element ? target as Element & GraphGestureTargetLike : null;
   }
 
   function bindResizeObserver(): void {
@@ -1198,11 +1310,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 }
 
 interface DragHandlers {
-  onCommunitySelect: (id: CommunityId) => void;
   onNodeClick: (id: NodeId, additive: boolean) => void;
-  onDragStart: (id: string, event: PointerEvent) => void;
-  onDragMove: (id: string, event: PointerEvent) => void;
-  onDragEnd: (id: string, event: PointerEvent) => void;
   onNodeDoubleClick: (id: string) => boolean;
   onNodePreviewEnter: (id: NodeId) => void;
   onEdgePreviewEnter: (id: string) => void;
@@ -1245,10 +1353,6 @@ function paint(
     ellipse.setAttribute("opacity", String(community.wash.opacity));
     ellipse.dataset.communityId = community.id;
     ellipse.style.cursor = "pointer";
-    ellipse.addEventListener("click", (event) => {
-      event.stopPropagation();
-      dragHandlers.onCommunitySelect(community.id);
-    });
     washLayer.appendChild(ellipse);
     painted.communityWashElements.set(community.id, ellipse);
   }
@@ -1431,7 +1535,7 @@ function createNodeButton(node: RenderableNode, dragHandlers: DragHandlers): HTM
   button.addEventListener("pointerleave", () => dragHandlers.onNodePreviewLeave());
   button.addEventListener("focus", () => dragHandlers.onNodePreviewEnter(node.id));
   button.addEventListener("blur", () => dragHandlers.onNodePreviewLeave());
-  bindDragHandlers(button, node.id, dragHandlers);
+  bindNodeActivationHandlers(button, node.id, dragHandlers);
 
   const kind = document.createElement("span");
   kind.className = "node-kind";
@@ -1461,36 +1565,9 @@ function applyNodeDisplayMode(button: HTMLButtonElement, displayMode: NodeDispla
   button.dataset.densityMode = displayMode;
 }
 
-function bindDragHandlers(button: HTMLButtonElement, nodeId: string, handlers: DragHandlers): void {
-  let dragging = false;
-  let moved = false;
-  button.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return;
-    dragging = true;
-    moved = false;
-    button.classList.add("is-dragging");
-    button.setPointerCapture(event.pointerId);
-    handlers.onDragStart(nodeId, event);
-  });
-  button.addEventListener("pointermove", (event) => {
-    if (!dragging) return;
-    moved = true;
-    handlers.onDragMove(nodeId, event);
-  });
-  const end = (event: PointerEvent) => {
-    if (!dragging) return;
-    dragging = false;
-    button.classList.remove("is-dragging");
-    if (button.hasPointerCapture(event.pointerId)) button.releasePointerCapture(event.pointerId);
-    handlers.onDragEnd(nodeId, event);
-  };
-  button.addEventListener("pointerup", end);
-  button.addEventListener("pointercancel", end);
+function bindNodeActivationHandlers(button: HTMLButtonElement, nodeId: string, handlers: DragHandlers): void {
   button.addEventListener("click", (event) => {
-    if (moved) {
-      moved = false;
-      return;
-    }
+    if (event.detail !== 0) return;
     event.stopPropagation();
     handlers.onNodeClick(nodeId, event.shiftKey);
   });
@@ -1587,12 +1664,6 @@ function eventToGraphPoint(root: HTMLElement, event: PointerEvent): { x: number;
     x: clamp((event.clientX - rect.left) / Math.max(1, rect.width) * WORLD_WIDTH, 0, WORLD_WIDTH),
     y: clamp((event.clientY - rect.top) / Math.max(1, rect.height) * WORLD_HEIGHT, 0, WORLD_HEIGHT)
   };
-}
-
-function isBlankViewportTarget(target: EventTarget | null): boolean {
-  const element = target instanceof Element ? target : null;
-  if (!element) return false;
-  return !element.closest(".node, .mini-map, .graph-reader, .graph-search, .graph-toolbar, .community-legend, .community-wash");
 }
 
 function isTextEditingElement(element: Element | null): boolean {
