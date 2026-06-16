@@ -47,6 +47,7 @@ import { buildHoverPreview, type GraphHoverPreview } from "./preview";
 import { rootClientPointToScreenPoint, worldDeltaToLayerDelta, type GraphWorldPoint } from "./geometry";
 import { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
 import { cancelGraphNodeDrag, commitGraphNodeDrag, type GraphNodeDragSession } from "./node-drag-lifecycle";
+import { graphEdgeHoverAnchor, graphNodeHoverAnchor, resolveGraphHoverPreviewPosition } from "./overlays";
 import {
   GraphGestureStateMachine,
   classifyGraphPointerDownTarget,
@@ -1026,6 +1027,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (dom.contentLayer) applyRendererViewportTransform(dom.contentLayer, viewport);
     updateEffectiveDensity();
     updateMinimapViewport();
+    renderMotionOverlays();
   }
 
   function updateEffectiveDensity(): void {
@@ -1346,39 +1348,33 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function positionHoverPreview(preview: HTMLElement, node: RenderableNode): void {
-    const rootRect = root.getBoundingClientRect();
     const previewRect = preview.getBoundingClientRect();
-    const margin = 12;
-    const nodeX = rootRect.width * node.x / 100;
-    const nodeY = rootRect.height * node.y / 100;
-    const preferredLeft = nodeX + 18;
-    const preferredTop = nodeY - previewRect.height - 24;
-    const maxLeft = Math.max(margin, rootRect.width - previewRect.width - margin);
-    const maxTop = Math.max(margin, rootRect.height - previewRect.height - margin);
-    const left = clamp(preferredLeft, margin, maxLeft);
-    const top = clamp(preferredTop, margin, maxTop);
-    preview.style.left = `${left}px`;
-    preview.style.top = `${top}px`;
+    const size = viewportSize();
+    const position = resolveGraphHoverPreviewPosition({
+      anchorScreenPoint: graphNodeHoverAnchor(node, runtimeState.snapshot().viewport, size),
+      previewSize: { width: previewRect.width, height: previewRect.height },
+      viewportSize: size,
+      offset: { x: 18, y: -previewRect.height - 24 },
+      margin: 12
+    });
+    preview.style.left = `${position.x}px`;
+    preview.style.top = `${position.y}px`;
   }
 
   function positionEdgeHoverPreview(preview: HTMLElement, edge: RenderableGraph["edges"][number]): void {
-    const rootRect = root.getBoundingClientRect();
     const previewRect = preview.getBoundingClientRect();
     const source = graph.nodes.find((node) => node.id === edge.source);
     const target = graph.nodes.find((node) => node.id === edge.target);
-    const margin = 12;
-    const sourceX = source ? rootRect.width * source.x / 100 : rootRect.width / 2;
-    const sourceY = source ? rootRect.height * source.y / 100 : rootRect.height / 2;
-    const targetX = target ? rootRect.width * target.x / 100 : rootRect.width / 2;
-    const targetY = target ? rootRect.height * target.y / 100 : rootRect.height / 2;
-    const midX = (sourceX + targetX) / 2;
-    const midY = (sourceY + targetY) / 2;
-    const maxLeft = Math.max(margin, rootRect.width - previewRect.width - margin);
-    const maxTop = Math.max(margin, rootRect.height - previewRect.height - margin);
-    const left = clamp(midX + 16, margin, maxLeft);
-    const top = clamp(midY - previewRect.height - 16, margin, maxTop);
-    preview.style.left = `${left}px`;
-    preview.style.top = `${top}px`;
+    const size = viewportSize();
+    const position = resolveGraphHoverPreviewPosition({
+      anchorScreenPoint: graphEdgeHoverAnchor({ source, target }, runtimeState.snapshot().viewport, size),
+      previewSize: { width: previewRect.width, height: previewRect.height },
+      viewportSize: size,
+      offset: { x: 16, y: -previewRect.height - 16 },
+      margin: 12
+    });
+    preview.style.left = `${position.x}px`;
+    preview.style.top = `${position.y}px`;
   }
 }
 

@@ -55,6 +55,8 @@ export { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 export type { GraphSearchFocus, GraphSearchNodeState, GraphSearchNodeView, GraphSearchState } from "./search";
 export { buildHoverPreview, firstUsefulParagraph, previewSummary } from "./preview";
 export type { GraphHoverPreview } from "./preview";
+export { graphEdgeHoverAnchor, graphNodeHoverAnchor, resolveGraphHoverPreviewPosition } from "./overlays";
+export type { GraphOverlayEdgeLike, GraphOverlayNodeLike, GraphPreviewPositionInput, GraphPreviewSize } from "./overlays";
 export { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
 export type { GraphNodeDragMoveInput, GraphNodeDragStartInput, GraphNodeDragStartState } from "./simulation-bridge";
 export { createGraphRuntimeState, GraphRuntimeState } from "./state";
