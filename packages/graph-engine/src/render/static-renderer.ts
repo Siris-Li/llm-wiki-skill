@@ -166,37 +166,46 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let toolbarPanelState: GraphToolbarPanelState = readToolbarPanelState(ownerDocument.defaultView?.localStorage);
   root.addEventListener("scroll", resetRootScroll, { passive: true });
   const handleDocumentKeydown = (event: KeyboardEvent) => {
-    const key = event.key.toLowerCase();
-    if ((event.metaKey || event.ctrlKey) && key === "f" && isGraphFocusActive()) {
+    const keyboardIntent = classifyGraphKeyboardIntent({
+      key: event.key,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      graphFocused: isGraphKeyboardFocusActive(),
+      activeGesture: Boolean(gestureMachine.snapshot()),
+      textEditingTarget: isTextEditingElement(ownerDocument.activeElement),
+      searchActive: Boolean(searchOpen || searchQuery || searchFocusedNodeId),
+      toolbarOpen: shouldBlankClickCloseToolbar(toolbarPanelState),
+      interactionActive: hasInteractionState()
+    });
+
+    if (keyboardIntent === "blocked") return;
+
+    if (keyboardIntent === "open-search") {
       event.preventDefault();
       openSearch();
       return;
     }
-    if (event.key === "Escape" && (searchOpen || searchQuery || searchFocusedNodeId)) {
-      event.preventDefault();
-      event.stopPropagation();
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (keyboardIntent === "close-search") {
       closeSearch();
       return;
     }
-    if (event.key === "Escape" && shouldBlankClickCloseToolbar(toolbarPanelState)) {
-      event.preventDefault();
-      event.stopPropagation();
+    if (keyboardIntent === "close-toolbar") {
       closeToolbarPanel();
       return;
     }
-    if (event.key === "Escape") {
+    if (keyboardIntent === "cancel-active-gesture") {
       const intents = gestureMachine.escape();
       if (intents.length) {
-        event.preventDefault();
-        event.stopPropagation();
         applyGestureIntents(intents, null);
         syncRuntimeGestureState();
-        return;
       }
+      return;
     }
-    if (event.key !== "Escape" || !hasInteractionState()) return;
-    event.preventDefault();
-    event.stopPropagation();
+
     if (focus) {
       resetViewState();
       return;
@@ -415,10 +424,10 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     return Boolean(selectedNodeId || selection || focus || root.dataset.focus);
   }
 
-  function isGraphFocusActive(): boolean {
+  function isGraphKeyboardFocusActive(): boolean {
     const active = ownerDocument.activeElement;
     if (active === root || Boolean(active && root.contains(active))) return true;
-    return !isTextEditingElement(active);
+    return false;
   }
 
   function openSearch(): void {
@@ -1723,6 +1732,43 @@ function isTextEditingElement(element: Element | null): boolean {
     return !["button", "checkbox", "radio", "range", "submit", "reset"].includes(type);
   }
   return element instanceof HTMLElement && element.isContentEditable;
+}
+
+export type GraphKeyboardIntent =
+  | "open-search"
+  | "close-search"
+  | "close-toolbar"
+  | "cancel-active-gesture"
+  | "clear-interaction"
+  | "blocked";
+
+export interface GraphKeyboardIntentInput {
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  graphFocused: boolean;
+  activeGesture: boolean;
+  textEditingTarget: boolean;
+  searchActive: boolean;
+  toolbarOpen: boolean;
+  interactionActive: boolean;
+}
+
+export function classifyGraphKeyboardIntent(input: GraphKeyboardIntentInput): GraphKeyboardIntent {
+  const key = input.key.toLowerCase();
+  const graphOwnsKeyboard = input.graphFocused || input.activeGesture;
+  if (!graphOwnsKeyboard) return "blocked";
+
+  if ((input.metaKey || input.ctrlKey) && key === "f") {
+    return input.graphFocused && !input.textEditingTarget ? "open-search" : "blocked";
+  }
+
+  if (input.key !== "Escape") return "blocked";
+  if (input.graphFocused && input.searchActive) return "close-search";
+  if (input.graphFocused && input.toolbarOpen) return "close-toolbar";
+  if (input.activeGesture) return "cancel-active-gesture";
+  if (input.graphFocused && input.interactionActive) return "clear-interaction";
+  return "blocked";
 }
 
 function createGraphToolbar(

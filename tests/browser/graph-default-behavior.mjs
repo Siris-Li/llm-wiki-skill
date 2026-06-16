@@ -35,6 +35,7 @@ try {
   const searchWheel = await assertShortcutWheelDoesNotZoomGraph(page, ".graph-search-input", "search input", { ctrlKey: true });
   const blankDrag = await assertBlankDragDoesNotSelectText(page);
   const fastReleaseDrag = await assertFastReleasePinsFinalPointerPosition(page);
+  const keyboardOwnership = await assertKeyboardOwnership(page);
 
   console.log(JSON.stringify({
     html,
@@ -45,7 +46,8 @@ try {
       searchInput: searchWheel
     },
     blankDrag,
-    fastReleaseDrag
+    fastReleaseDrag,
+    keyboardOwnership
   }, null, 2));
 } finally {
   await browser.close();
@@ -179,6 +181,42 @@ async function assertFastReleasePinsFinalPointerPosition(page) {
     release: roundedPoint(release),
     after: roundedPoint(after.center),
     pinned: after.pinned
+  };
+}
+
+async function assertKeyboardOwnership(page) {
+  await page.reload();
+  await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+  await page.waitForSelector(".graph-search");
+
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    document.body.focus();
+  });
+  const outsideGraph = await dispatchDocumentKey(page, "f", { ctrlKey: true });
+  await page.waitForTimeout(80);
+  assert.equal(outsideGraph.defaultPrevented, false, "graph should not steal search shortcut outside graph focus");
+  assert.equal(await graphSearchState(page), "closed", "search shortcut outside graph focus should not open graph search");
+
+  await page.locator("[data-llm-wiki-graph-root='true']").evaluate((root) => root.focus({ preventScroll: true }));
+  const insideGraph = await dispatchDocumentKey(page, "f", { ctrlKey: true });
+  await page.waitForSelector('.graph-search[data-state="open"]');
+  assert.equal(insideGraph.defaultPrevented, true, "graph should own search shortcut when graph is focused");
+
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    document.body.focus();
+  });
+  const outsideEscape = await dispatchDocumentKey(page, "Escape");
+  await page.waitForTimeout(80);
+  assert.equal(outsideEscape.defaultPrevented, false, "graph should not steal Escape outside graph focus");
+  assert.equal(await graphSearchState(page), "open", "Escape outside graph focus should not close graph search");
+
+  return {
+    outsideGraph,
+    insideGraph,
+    outsideEscape,
+    finalSearchState: await graphSearchState(page)
   };
 }
 
@@ -317,6 +355,28 @@ async function dispatchPointer(page, selector, type, point, options) {
       defaultPrevented: event.defaultPrevented
     };
   }, { selector, type, point, options });
+}
+
+async function dispatchDocumentKey(page, key, options = {}) {
+  return page.evaluate(({ key, options }) => {
+    const event = new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: options.ctrlKey === true,
+      metaKey: options.metaKey === true
+    });
+    const dispatchResult = document.dispatchEvent(event);
+    return {
+      cancelled: !dispatchResult,
+      defaultPrevented: event.defaultPrevented,
+      activeTag: document.activeElement?.tagName || ""
+    };
+  }, { key, options });
+}
+
+async function graphSearchState(page) {
+  return page.locator(".graph-search").evaluate((element) => element.dataset.state || "");
 }
 
 async function resetSelection(page) {
