@@ -4,7 +4,7 @@
     "overall": "pending",
     "phase": "phase-0",
     "task": "0.1",
-    "next_allowed_action": "Ensure the reviewed plan changes are committed or cleanly included, create the dedicated implementation branch, run the smoke check, update progress evidence, then commit the clean-start progress update."
+    "next_allowed_action": "Commit the clean-start progress evidence, then record that commit hash before moving to task 0.2."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -89,13 +89,17 @@
       "acceptance": [
         {
           "check": "Current branch is codex/graph-six-layer-architecture with no unrelated worktree changes.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "git status --short --branch -> ## codex/graph-six-layer-architecture"
+          ]
         },
         {
           "check": "npm run test --workspace=@llm-wiki/graph-engine exits 0 before feature work begins.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "npm run test --workspace=@llm-wiki/graph-engine -> 198 tests passed, 0 failed"
+          ]
         },
         {
           "check": "The interaction risk audit names expected behavior, owner layer, verification method, and target phase for every listed risk.",
@@ -105,15 +109,28 @@
         {
           "check": "A clean-start progress commit is recorded before implementation code changes.",
           "status": "pending",
-          "evidence": []
+          "evidence": [
+            "clean-start evidence ready; commit hash will be recorded after commit"
+          ]
         }
       ],
       "tasks": [
         {
           "id": "0.1",
           "title": "Create implementation branch and clean-start progress commit",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "git status --short --branch",
+              "result": "## codex/graph-six-layer-architecture",
+              "status": "passed"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "198 tests passed, 0 failed",
+              "status": "passed"
+            }
+          ],
           "commit": null
         },
         {
@@ -564,5 +581,16 @@
     }
   ],
   "residual_risk": [],
-  "turn_log": []
+  "turn_log": [
+    {
+      "timestamp": "2026-06-16T13:31:18.728Z",
+      "phase": "phase-0",
+      "task": "0.1",
+      "action": "Created implementation branch and ran baseline smoke check",
+      "evidence": [
+        "branch: codex/graph-six-layer-architecture",
+        "npm run test --workspace=@llm-wiki/graph-engine passed: 198 tests, 0 failed"
+      ]
+    }
+  ]
 }
