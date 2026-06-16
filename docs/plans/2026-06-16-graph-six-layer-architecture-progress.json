@@ -3,8 +3,8 @@
   "status": {
     "overall": "pending",
     "phase": "phase-2",
-    "task": "2.1",
-    "next_allowed_action": "Run the baseline smoke check, then move root wheel and pointer event ownership into the GraphGestures controller for task 2.1."
+    "task": "2.2",
+    "next_allowed_action": "Run the baseline smoke check, then implement graph-owned browser default behavior policy for task 2.2."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -337,9 +337,25 @@
         {
           "id": "2.1",
           "title": "Move root wheel and pointer event ownership into GraphGestures controller",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "212 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "result": "tsc -p tsconfig.json --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "npm run build --workspace=@llm-wiki/graph-engine",
+              "result": "vite build and declaration emit exited 0",
+              "status": "passed"
+            }
+          ],
+          "commit": "1744899"
         },
         {
           "id": "2.2",
