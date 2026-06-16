@@ -2,9 +2,9 @@
   "plan": "docs/plans/2026-06-16-graph-six-layer-architecture-phased-plan.md",
   "status": {
     "overall": "pending",
-    "phase": "phase-3",
-    "task": "3.6",
-    "next_allowed_action": "Run the baseline smoke check, then verify projected overlays after zoom, pan, drag, and drawer resize for task 3.6."
+    "phase": "phase-4",
+    "task": "4.1",
+    "next_allowed_action": "Run the baseline smoke check, then begin phase 4 task 4.1."
   },
   "execution_rules": {
     "parent_branch": "codex/graph-interaction-architecture",
@@ -517,7 +517,7 @@
     {
       "id": "phase-3",
       "goal": "Close coordinate and runtime state loops through GraphViewport and GraphState.",
-      "status": "pending",
+      "status": "completed",
       "acceptance": [
         {
           "check": "No old renderer-local coordinate formulas drive graph behavior.",
@@ -821,9 +821,40 @@
         {
           "id": "3.6",
           "title": "Verify projected overlays after zoom, pan, drag, and drawer resize",
-          "status": "pending",
-          "verification": [],
-          "commit": null
+          "status": "completed",
+          "verification": [
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "235 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "node --import tsx --test packages/graph-engine/test/overlays.test.ts",
+              "result": "7 tests passed, 0 failed; covers expanded graph bounds and drawer-resized viewport projection for node and edge hover anchors",
+              "status": "passed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "result": "tsc -p tsconfig.json --noEmit exited 0",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "result": "PASS: graph workbench interaction regression; evidence shows hover offsets are stable before/after zoom and hover remains inside viewport with drawer open and narrow viewport",
+              "status": "passed"
+            },
+            {
+              "command": "bash tests/graph-offline-phase-6.regression-1.sh",
+              "result": "PASS: phase 6 offline graph regression; evidence shows offline hover before/after zoom remains anchored and inside the viewport",
+              "status": "passed"
+            },
+            {
+              "command": "git diff --check",
+              "result": "No whitespace errors",
+              "status": "passed"
+            }
+          ],
+          "commit": "f5c584e"
         }
       ]
     },
