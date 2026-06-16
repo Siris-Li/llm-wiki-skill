@@ -1,5 +1,6 @@
 import { clampAtlasViewport } from "../model";
 import {
+  GRAPH_WORLD_BOUNDS,
   GRAPH_WORLD_SIZE,
   screenPointToWorldPoint,
   visibleWorldRectForViewport,
@@ -7,6 +8,7 @@ import {
   worldPointToLayerPoint,
   worldPointToScreenPoint,
   type GraphScreenPoint,
+  type GraphWorldBounds,
   type GraphWorldPoint
 } from "./geometry";
 
@@ -34,6 +36,7 @@ export interface WheelDeltaLike {
 export interface RendererViewportOptions {
   minScale?: number;
   maxScale?: number;
+  worldBounds?: GraphWorldBounds;
 }
 
 export interface RafScheduler {
@@ -55,7 +58,8 @@ const COMFORTABLE_ANCHOR_MIN_Y = 0.18;
 const COMFORTABLE_ANCHOR_MAX_Y = 0.82;
 const DEFAULT_VIEWPORT_OPTIONS: Required<RendererViewportOptions> = {
   minScale: 0.5,
-  maxScale: 4
+  maxScale: 4,
+  worldBounds: GRAPH_WORLD_BOUNDS
 };
 
 export interface RendererViewportResizeOptions extends RendererViewportOptions {
@@ -105,8 +109,8 @@ export function viewportAfterWheelZoom(
   const point = clampScreenPointToViewport(screenPoint, size);
   const opts = viewportOptions(options);
   const nextScale = clamp(safe.scale * zoomFactor, opts.minScale, opts.maxScale);
-  const anchorWorld = screenPointToWorldPoint(point, safe, size);
-  const anchorLayer = worldPointToLayerPoint(anchorWorld, size);
+  const anchorWorld = screenPointToWorldPoint(point, safe, size, opts.worldBounds);
+  const anchorLayer = worldPointToLayerPoint(anchorWorld, size, opts.worldBounds);
 
   return clampAtlasViewport({
     x: point.x - nextScale * anchorLayer.x,
@@ -143,8 +147,8 @@ export function fitRendererViewportToPoints(
   const opts = viewportOptions(options);
   const scale = clamp(
     Math.min(
-      GRAPH_WORLD_SIZE.width * 0.82 / Math.max(1, bounds.width || 1),
-      GRAPH_WORLD_SIZE.height * 0.82 / Math.max(1, bounds.height || 1)
+      opts.worldBounds.width * 0.82 / Math.max(1, bounds.width || 1),
+      opts.worldBounds.height * 0.82 / Math.max(1, bounds.height || 1)
     ),
     opts.minScale,
     opts.maxScale
@@ -153,7 +157,7 @@ export function fitRendererViewportToPoints(
     x: (bounds.minX + bounds.maxX) / 2,
     y: (bounds.minY + bounds.maxY) / 2
   };
-  const centerLayer = worldPointToLayerPoint(center, size);
+  const centerLayer = worldPointToLayerPoint(center, size, opts.worldBounds);
 
   return clampAtlasViewport({
     x: size.width / 2 - scale * centerLayer.x,
@@ -172,7 +176,7 @@ export function centerRendererViewportOnPoint(
   const size = normalizeViewportSize(viewportSize);
   const opts = viewportOptions(options);
   const scale = clamp(safe.scale, opts.minScale, opts.maxScale);
-  const layerPoint = worldPointToLayerPoint(point, size);
+  const layerPoint = worldPointToLayerPoint(point, size, opts.worldBounds);
 
   return clampAtlasViewport({
     x: size.width / 2 - scale * layerPoint.x,
@@ -190,25 +194,28 @@ export function viewportAfterResize(
   const safe = normalizeRendererViewport(viewport);
   const previous = normalizeViewportSize(previousSize);
   const next = normalizeViewportSize(nextSize);
-  const anchorPoint = options.anchorPoint || viewportCenterPoint(safe, previous);
-  const previousScreen = worldPointToScreenPoint(anchorPoint, safe, previous);
+  const opts = viewportOptions(options);
+  const anchorPoint = options.anchorPoint || viewportCenterPoint(safe, previous, opts.worldBounds);
+  const previousScreen = worldPointToScreenPoint(anchorPoint, safe, previous, opts.worldBounds);
   const desiredXRatio = clamp(previousScreen.x / previous.width, COMFORTABLE_ANCHOR_MIN_X, COMFORTABLE_ANCHOR_MAX_X);
   const desiredYRatio = clamp(previousScreen.y / previous.height, COMFORTABLE_ANCHOR_MIN_Y, COMFORTABLE_ANCHOR_MAX_Y);
-  const nextAnchorLayer = worldPointToLayerPoint(anchorPoint, next);
+  const nextAnchorLayer = worldPointToLayerPoint(anchorPoint, next, opts.worldBounds);
 
   return clampAtlasViewport({
     x: next.width * desiredXRatio - safe.scale * nextAnchorLayer.x,
     y: next.height * desiredYRatio - safe.scale * nextAnchorLayer.y,
     scale: safe.scale
-  }, next, viewportOptions(options)) as RendererViewport;
+  }, next, opts) as RendererViewport;
 }
 
 export function rendererViewportToMinimapRect(
   viewport: Partial<RendererViewport> | null | undefined,
-  viewportSize: RendererViewportSize
+  viewportSize: RendererViewportSize,
+  options: RendererViewportOptions = {}
 ): { x: number; y: number; width: number; height: number } {
-  const worldRect = visibleWorldRectForViewport(normalizeRendererViewport(viewport), normalizeViewportSize(viewportSize));
-  const minimapRect = visibleWorldRectToMinimapRect(worldRect);
+  const opts = viewportOptions(options);
+  const worldRect = visibleWorldRectForViewport(normalizeRendererViewport(viewport), normalizeViewportSize(viewportSize), opts.worldBounds);
+  const minimapRect = visibleWorldRectToMinimapRect(worldRect, undefined, opts.worldBounds);
   return {
     x: minimapRect.x,
     y: minimapRect.y,
@@ -249,11 +256,11 @@ function normalizeViewportSize(size: RendererViewportSize): RendererViewportSize
   };
 }
 
-function viewportCenterPoint(viewport: RendererViewport, size: RendererViewportSize): GraphWorldPoint {
-  const center = screenPointToWorldPoint({ x: size.width / 2, y: size.height / 2 }, viewport, size);
+function viewportCenterPoint(viewport: RendererViewport, size: RendererViewportSize, worldBounds: GraphWorldBounds): GraphWorldPoint {
+  const center = screenPointToWorldPoint({ x: size.width / 2, y: size.height / 2 }, viewport, size, worldBounds);
   return {
-    x: clamp(center.x, 0, GRAPH_WORLD_SIZE.width),
-    y: clamp(center.y, 0, GRAPH_WORLD_SIZE.height)
+    x: clamp(center.x, worldBounds.minX, worldBounds.maxX),
+    y: clamp(center.y, worldBounds.minY, worldBounds.maxY)
   };
 }
 
@@ -275,7 +282,8 @@ function round(value: number): number {
 function viewportOptions(options: RendererViewportOptions): Required<RendererViewportOptions> {
   return {
     minScale: finiteNumber(options.minScale, DEFAULT_VIEWPORT_OPTIONS.minScale),
-    maxScale: finiteNumber(options.maxScale, DEFAULT_VIEWPORT_OPTIONS.maxScale)
+    maxScale: finiteNumber(options.maxScale, DEFAULT_VIEWPORT_OPTIONS.maxScale),
+    worldBounds: options.worldBounds || DEFAULT_VIEWPORT_OPTIONS.worldBounds
   };
 }
 

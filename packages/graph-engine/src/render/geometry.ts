@@ -10,6 +10,13 @@ export interface GraphWorldSize {
   height: number;
 }
 
+export interface GraphWorldBounds extends GraphWorldSize {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
 export interface GraphScreenPoint {
   x: number;
   y: number;
@@ -66,6 +73,15 @@ export const GRAPH_WORLD_SIZE = {
   height: 680
 } as const;
 
+export const GRAPH_WORLD_BOUNDS: GraphWorldBounds = {
+  minX: 0,
+  minY: 0,
+  maxX: GRAPH_WORLD_SIZE.width,
+  maxY: GRAPH_WORLD_SIZE.height,
+  width: GRAPH_WORLD_SIZE.width,
+  height: GRAPH_WORLD_SIZE.height
+} as const;
+
 export const GRAPH_MINIMAP_VIEWBOX: GraphMinimapViewBox = {
   x: 5,
   y: 3,
@@ -80,36 +96,47 @@ export function rootClientPointToScreenPoint(clientPoint: GraphClientPoint, root
   };
 }
 
-export function worldPointToLayerPoint(worldPoint: GraphWorldPoint, viewportSize: RendererViewportSize): GraphLayerPoint {
+export function worldPointToLayerPoint(
+  worldPoint: GraphWorldPoint,
+  viewportSize: RendererViewportSize,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
+): GraphLayerPoint {
   const size = normalizeViewportSize(viewportSize);
+  const bounds = normalizeWorldBounds(worldBounds);
   return {
-    x: finiteNumber(worldPoint.x, 0) / GRAPH_WORLD_SIZE.width * size.width,
-    y: finiteNumber(worldPoint.y, 0) / GRAPH_WORLD_SIZE.height * size.height
+    x: (finiteNumber(worldPoint.x, bounds.minX) - bounds.minX) / bounds.width * size.width,
+    y: (finiteNumber(worldPoint.y, bounds.minY) - bounds.minY) / bounds.height * size.height
   };
 }
 
-export function worldPointToCssPercentPoint(worldPoint: GraphWorldPoint, worldSize: GraphWorldSize = GRAPH_WORLD_SIZE): GraphCssPercentPoint {
-  const size = normalizeWorldSize(worldSize);
+export function worldPointToCssPercentPoint(worldPoint: GraphWorldPoint, worldSize: GraphWorldSize | GraphWorldBounds = GRAPH_WORLD_BOUNDS): GraphCssPercentPoint {
+  const size = normalizeWorldBounds(worldSize);
   return {
-    x: finiteNumber(worldPoint.x, 0) / size.width * 100,
-    y: finiteNumber(worldPoint.y, 0) / size.height * 100
+    x: (finiteNumber(worldPoint.x, size.minX) - size.minX) / size.width * 100,
+    y: (finiteNumber(worldPoint.y, size.minY) - size.minY) / size.height * 100
   };
 }
 
-export function layerPointToWorldPoint(layerPoint: GraphLayerPoint, viewportSize: RendererViewportSize): GraphWorldPoint {
+export function layerPointToWorldPoint(
+  layerPoint: GraphLayerPoint,
+  viewportSize: RendererViewportSize,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
+): GraphWorldPoint {
   const size = normalizeViewportSize(viewportSize);
+  const bounds = normalizeWorldBounds(worldBounds);
   return {
-    x: finiteNumber(layerPoint.x, 0) / size.width * GRAPH_WORLD_SIZE.width,
-    y: finiteNumber(layerPoint.y, 0) / size.height * GRAPH_WORLD_SIZE.height
+    x: bounds.minX + finiteNumber(layerPoint.x, 0) / size.width * bounds.width,
+    y: bounds.minY + finiteNumber(layerPoint.y, 0) / size.height * bounds.height
   };
 }
 
 export function worldPointToScreenPoint(
   worldPoint: GraphWorldPoint,
   viewport: RendererViewport,
-  viewportSize: RendererViewportSize
+  viewportSize: RendererViewportSize,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
 ): GraphScreenPoint {
-  const layerPoint = worldPointToLayerPoint(worldPoint, viewportSize);
+  const layerPoint = worldPointToLayerPoint(worldPoint, viewportSize, worldBounds);
   const safe = normalizeViewport(viewport);
   return {
     x: safe.x + safe.scale * layerPoint.x,
@@ -120,40 +147,52 @@ export function worldPointToScreenPoint(
 export function screenPointToWorldPoint(
   screenPoint: GraphScreenPoint,
   viewport: RendererViewport,
-  viewportSize: RendererViewportSize
+  viewportSize: RendererViewportSize,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
 ): GraphWorldPoint {
   const safe = normalizeViewport(viewport);
   const scale = Math.max(0.000001, safe.scale);
   return layerPointToWorldPoint({
     x: (finiteNumber(screenPoint.x, 0) - safe.x) / scale,
     y: (finiteNumber(screenPoint.y, 0) - safe.y) / scale
-  }, viewportSize);
+  }, viewportSize, worldBounds);
 }
 
-export function worldDeltaToLayerDelta(worldDelta: GraphWorldPoint, viewportSize: RendererViewportSize): GraphLayerPoint {
+export function worldDeltaToLayerDelta(
+  worldDelta: GraphWorldPoint,
+  viewportSize: RendererViewportSize,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
+): GraphLayerPoint {
   const size = normalizeViewportSize(viewportSize);
+  const bounds = normalizeWorldBounds(worldBounds);
   return {
-    x: finiteNumber(worldDelta.x, 0) / GRAPH_WORLD_SIZE.width * size.width,
-    y: finiteNumber(worldDelta.y, 0) / GRAPH_WORLD_SIZE.height * size.height
+    x: finiteNumber(worldDelta.x, 0) / bounds.width * size.width,
+    y: finiteNumber(worldDelta.y, 0) / bounds.height * size.height
   };
 }
 
 export function worldPointDeltaToLayerDelta(
   previousWorldPoint: GraphWorldPoint,
   nextWorldPoint: GraphWorldPoint,
-  viewportSize: RendererViewportSize
+  viewportSize: RendererViewportSize,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
 ): GraphLayerPoint {
   return worldDeltaToLayerDelta({
     x: finiteNumber(nextWorldPoint.x, 0) - finiteNumber(previousWorldPoint.x, 0),
     y: finiteNumber(nextWorldPoint.y, 0) - finiteNumber(previousWorldPoint.y, 0)
-  }, viewportSize);
+  }, viewportSize, worldBounds);
 }
 
-export function layerDeltaToWorldDelta(layerDelta: GraphLayerPoint, viewportSize: RendererViewportSize): GraphWorldPoint {
+export function layerDeltaToWorldDelta(
+  layerDelta: GraphLayerPoint,
+  viewportSize: RendererViewportSize,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
+): GraphWorldPoint {
   const size = normalizeViewportSize(viewportSize);
+  const bounds = normalizeWorldBounds(worldBounds);
   return {
-    x: finiteNumber(layerDelta.x, 0) / size.width * GRAPH_WORLD_SIZE.width,
-    y: finiteNumber(layerDelta.y, 0) / size.height * GRAPH_WORLD_SIZE.height
+    x: finiteNumber(layerDelta.x, 0) / size.width * bounds.width,
+    y: finiteNumber(layerDelta.y, 0) / size.height * bounds.height
   };
 }
 
@@ -173,54 +212,62 @@ export function svgPointToWorldPoint(svgPoint: GraphSvgPoint): GraphWorldPoint {
 
 export function worldPointToMinimapPoint(
   worldPoint: GraphWorldPoint,
-  viewBox: GraphMinimapViewBox = GRAPH_MINIMAP_VIEWBOX
+  viewBox: GraphMinimapViewBox = GRAPH_MINIMAP_VIEWBOX,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
 ): GraphMinimapPoint {
   const box = normalizeMinimapViewBox(viewBox);
+  const bounds = normalizeWorldBounds(worldBounds);
   return {
-    x: box.x + clamp(finiteNumber(worldPoint.x, 0), 0, GRAPH_WORLD_SIZE.width) / GRAPH_WORLD_SIZE.width * box.width,
-    y: box.y + clamp(finiteNumber(worldPoint.y, 0), 0, GRAPH_WORLD_SIZE.height) / GRAPH_WORLD_SIZE.height * box.height
+    x: box.x + (clamp(finiteNumber(worldPoint.x, bounds.minX), bounds.minX, bounds.maxX) - bounds.minX) / bounds.width * box.width,
+    y: box.y + (clamp(finiteNumber(worldPoint.y, bounds.minY), bounds.minY, bounds.maxY) - bounds.minY) / bounds.height * box.height
   };
 }
 
 export function minimapPointToWorldPoint(
   minimapPoint: GraphMinimapPoint,
-  viewBox: GraphMinimapViewBox = GRAPH_MINIMAP_VIEWBOX
+  viewBox: GraphMinimapViewBox = GRAPH_MINIMAP_VIEWBOX,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
 ): GraphWorldPoint {
   const box = normalizeMinimapViewBox(viewBox);
+  const bounds = normalizeWorldBounds(worldBounds);
   return {
-    x: clamp((finiteNumber(minimapPoint.x, box.x) - box.x) / box.width * GRAPH_WORLD_SIZE.width, 0, GRAPH_WORLD_SIZE.width),
-    y: clamp((finiteNumber(minimapPoint.y, box.y) - box.y) / box.height * GRAPH_WORLD_SIZE.height, 0, GRAPH_WORLD_SIZE.height)
+    x: clamp(bounds.minX + (finiteNumber(minimapPoint.x, box.x) - box.x) / box.width * bounds.width, bounds.minX, bounds.maxX),
+    y: clamp(bounds.minY + (finiteNumber(minimapPoint.y, box.y) - box.y) / box.height * bounds.height, bounds.minY, bounds.maxY)
   };
 }
 
 export function visibleWorldRectForViewport(
   viewport: RendererViewport,
-  viewportSize: RendererViewportSize
+  viewportSize: RendererViewportSize,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
 ): GraphWorldRect {
-  const topLeft = screenPointToWorldPoint({ x: 0, y: 0 }, viewport, viewportSize);
+  const bounds = normalizeWorldBounds(worldBounds);
+  const topLeft = screenPointToWorldPoint({ x: 0, y: 0 }, viewport, viewportSize, bounds);
   const size = normalizeViewportSize(viewportSize);
   const bottomRight = screenPointToWorldPoint(
     { x: size.width, y: size.height },
     viewport,
-    viewportSize
+    viewportSize,
+    bounds
   );
   return {
-    x: clamp(topLeft.x, 0, GRAPH_WORLD_SIZE.width),
-    y: clamp(topLeft.y, 0, GRAPH_WORLD_SIZE.height),
-    width: Math.max(0, clamp(bottomRight.x, 0, GRAPH_WORLD_SIZE.width) - clamp(topLeft.x, 0, GRAPH_WORLD_SIZE.width)),
-    height: Math.max(0, clamp(bottomRight.y, 0, GRAPH_WORLD_SIZE.height) - clamp(topLeft.y, 0, GRAPH_WORLD_SIZE.height))
+    x: clamp(topLeft.x, bounds.minX, bounds.maxX),
+    y: clamp(topLeft.y, bounds.minY, bounds.maxY),
+    width: Math.max(0, clamp(bottomRight.x, bounds.minX, bounds.maxX) - clamp(topLeft.x, bounds.minX, bounds.maxX)),
+    height: Math.max(0, clamp(bottomRight.y, bounds.minY, bounds.maxY) - clamp(topLeft.y, bounds.minY, bounds.maxY))
   };
 }
 
 export function visibleWorldRectToMinimapRect(
   worldRect: GraphWorldRect,
-  viewBox: GraphMinimapViewBox = GRAPH_MINIMAP_VIEWBOX
+  viewBox: GraphMinimapViewBox = GRAPH_MINIMAP_VIEWBOX,
+  worldBounds: GraphWorldBounds | GraphWorldSize = GRAPH_WORLD_BOUNDS
 ): { x: number; y: number; width: number; height: number } {
-  const topLeft = worldPointToMinimapPoint({ x: worldRect.x, y: worldRect.y }, viewBox);
+  const topLeft = worldPointToMinimapPoint({ x: worldRect.x, y: worldRect.y }, viewBox, worldBounds);
   const bottomRight = worldPointToMinimapPoint({
     x: worldRect.x + worldRect.width,
     y: worldRect.y + worldRect.height
-  }, viewBox);
+  }, viewBox, worldBounds);
   return {
     x: topLeft.x,
     y: topLeft.y,
@@ -243,13 +290,35 @@ export function defaultGraphViewportSize(): RendererViewportSize {
   };
 }
 
-export function sideExitWorldAnchor(worldPoint: GraphWorldPoint, margin = 80, worldSize: GraphWorldSize = GRAPH_WORLD_SIZE): GraphWorldPoint {
-  const size = normalizeWorldSize(worldSize);
+export function sideExitWorldAnchor(worldPoint: GraphWorldPoint, margin = 80, worldSize: GraphWorldSize | GraphWorldBounds = GRAPH_WORLD_BOUNDS): GraphWorldPoint {
+  const size = normalizeWorldBounds(worldSize);
   const safeMargin = Math.max(0, finiteNumber(margin, 80));
   return {
-    x: finiteNumber(worldPoint.x, 0) < size.width / 2 ? -safeMargin : size.width + safeMargin,
-    y: clamp(finiteNumber(worldPoint.y, 0), safeMargin, Math.max(safeMargin, size.height - safeMargin))
+    x: finiteNumber(worldPoint.x, size.minX) < size.minX + size.width / 2 ? size.minX - safeMargin : size.maxX + safeMargin,
+    y: clamp(finiteNumber(worldPoint.y, size.minY), size.minY + safeMargin, Math.max(size.minY + safeMargin, size.maxY - safeMargin))
   };
+}
+
+export function worldBoundsForPoints(
+  points: GraphWorldPoint[],
+  options: { padding?: number; minWidth?: number; minHeight?: number } = {}
+): GraphWorldBounds {
+  const padding = Math.max(0, finiteNumber(options.padding, 80));
+  const minWidth = Math.max(1, finiteNumber(options.minWidth, GRAPH_WORLD_SIZE.width));
+  const minHeight = Math.max(1, finiteNumber(options.minHeight, GRAPH_WORLD_SIZE.height));
+  let minX = 0;
+  let minY = 0;
+  let maxX = minWidth;
+  let maxY = minHeight;
+  for (const point of points) {
+    const x = finiteNumber(point.x, 0);
+    const y = finiteNumber(point.y, 0);
+    minX = Math.min(minX, x - padding);
+    minY = Math.min(minY, y - padding);
+    maxX = Math.max(maxX, x + padding);
+    maxY = Math.max(maxY, y + padding);
+  }
+  return normalizeWorldBounds({ minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY });
 }
 
 function normalizeViewport(viewport: RendererViewport): RendererViewport {
@@ -267,8 +336,27 @@ function normalizeViewportSize(size: RendererViewportSize): RendererViewportSize
   };
 }
 
-function normalizeWorldSize(size: GraphWorldSize): GraphWorldSize {
+function normalizeWorldBounds(size: GraphWorldSize | GraphWorldBounds): GraphWorldBounds {
+  if ("minX" in size || "maxX" in size || "minY" in size || "maxY" in size) {
+    const raw = size as Partial<GraphWorldBounds>;
+    const minX = finiteNumber(raw.minX, 0);
+    const minY = finiteNumber(raw.minY, 0);
+    const maxX = Math.max(minX + 1, finiteNumber(raw.maxX, minX + finiteNumber(raw.width, GRAPH_WORLD_SIZE.width)));
+    const maxY = Math.max(minY + 1, finiteNumber(raw.maxY, minY + finiteNumber(raw.height, GRAPH_WORLD_SIZE.height)));
+    return {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY)
+    };
+  }
   return {
+    minX: 0,
+    minY: 0,
+    maxX: Math.max(1, finiteNumber(size.width, GRAPH_WORLD_SIZE.width)),
+    maxY: Math.max(1, finiteNumber(size.height, GRAPH_WORLD_SIZE.height)),
     width: Math.max(1, finiteNumber(size.width, GRAPH_WORLD_SIZE.width)),
     height: Math.max(1, finiteNumber(size.height, GRAPH_WORLD_SIZE.height))
   };

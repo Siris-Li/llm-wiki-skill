@@ -104,6 +104,7 @@ export type {
   GraphRuntimeStateSnapshot
 } from "./state";
 export {
+  GRAPH_WORLD_BOUNDS,
   GRAPH_MINIMAP_VIEWBOX,
   GRAPH_WORLD_SIZE,
   defaultGraphViewportSize,
@@ -123,7 +124,8 @@ export {
   worldPointToLayerPoint,
   worldPointToMinimapPoint,
   worldPointToScreenPoint,
-  worldPointToSvgPoint
+  worldPointToSvgPoint,
+  worldBoundsForPoints
 } from "./geometry";
 export type {
   GraphClientPoint,
@@ -135,6 +137,7 @@ export type {
   GraphScreenPoint,
   GraphSvgPoint,
   GraphWorldPoint,
+  GraphWorldBounds,
   GraphWorldRect,
   GraphWorldSize
 } from "./geometry";

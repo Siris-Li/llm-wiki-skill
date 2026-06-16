@@ -9,7 +9,7 @@ import {
 import { wikiPathForGraphNode } from "../graph-node";
 import { getCommunityColor } from "../themes";
 import { computeCommunityWash } from "./community-wash";
-import { GRAPH_WORLD_SIZE, worldPointToCssPercentPoint, worldPointToMinimapPoint } from "./geometry";
+import { GRAPH_WORLD_SIZE, worldBoundsForPoints, worldPointToCssPercentPoint, worldPointToMinimapPoint, type GraphWorldBounds } from "./geometry";
 
 export type DensityMode = "card" | "compact-card" | "point-plus-focus" | "overview";
 export type NodeDisplayMode = "card" | "compact-card" | "point" | "overview";
@@ -18,6 +18,7 @@ export type NodeVisualRole = "landmark" | "index-slip" | "cinnabar-note" | "map-
 export interface RenderableGraph {
   model: Record<string, unknown>;
   layout: Record<string, unknown>;
+  worldBounds: GraphWorldBounds;
   selectedNodeId: string | null;
   focus: GraphFocusInput;
   typeFilters: GraphTypeFilters;
@@ -165,8 +166,7 @@ export function createRenderPathCache(): RenderPathCache {
 
 export function buildRenderableGraph(data: GraphData, options: BuildRenderableGraphOptions = {}): RenderableGraph {
   const theme = options.theme || "shan-shui";
-  const dataWithPins = applyPinsToGraphData(data, options.pins || {});
-  const model = buildAtlasModel(dataWithPins) as {
+  const model = buildAtlasModel(data) as {
     nodes: AtlasNode[];
     edges: AtlasEdge[];
     byId: Record<string, AtlasNode>;
@@ -215,13 +215,17 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     total_communities: visible.counts.total_communities
   };
 
+  const allFilteredNodes = applyNodeTypeFilters(model.nodes, typeFilters);
+  const pointById = new Map(allFilteredNodes.map((node) => [node.id, renderPointForNode(node, options)]));
+  const worldBounds = worldBoundsForPoints([...pointById.values()]);
+
   const nodes = filteredVisibleNodes.map((node) => {
     const isSelected = selectedNodeSet.has(node.id);
     const displayMode = isSelected
       ? "card"
       : nodeDisplayMode(node, filteredDensityMode, selectedNodeId, previewNodeId, labelIds, importantIds);
-    const point = renderPointForNode(node, options.positions);
-    const cssPoint = worldPointToCssPercentPoint(point);
+    const point = pointById.get(node.id) || renderPointForNode(node, options);
+    const cssPoint = worldPointToCssPercentPoint(point, worldBounds);
     return {
       id: node.id,
       label: node.label,
@@ -250,7 +254,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     const source = nodeById.get(edge.source);
     const target = nodeById.get(edge.target);
     if (!source || !target) return [];
-    const curveOffset = options.pathCache?.getEdgeCurve(edge, source.point, target.point) ?? edgeCurveOffset(source.point, target.point, edge);
+    const curveOffset = options.pathCache?.getEdgeCurve(edge, source.point, target.point) ?? edgeCurveOffset(source.point, target.point, edge, worldBounds);
     const confidence = normalizeEdgeConfidence(edge);
     const relationType = normalizeEdgeRelationType(edge);
     return [{
@@ -269,7 +273,6 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     }];
   });
 
-  const allFilteredNodes = applyNodeTypeFilters(model.nodes, typeFilters);
   const communities = model.communities.map((community, index) => {
     const communityNodes = nodes.filter((node) => node.community === community.id);
     const allCommunityNodes = allFilteredNodes.filter((node) => node.community === community.id);
@@ -286,6 +289,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   return {
     model,
     layout,
+    worldBounds,
     selectedNodeId,
     focus,
     typeFilters,
@@ -303,7 +307,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     minimap: {
       path: MINIMAP_PATH,
       nodes: nodes.slice(0, 60).map((node) => {
-        const point = worldPointToMinimapPoint(node.point);
+        const point = worldPointToMinimapPoint(node.point, undefined, worldBounds);
         return {
           id: node.id,
           x: point.x,
@@ -386,22 +390,6 @@ export function nodeDisplayModeForDensity(
   return shouldShowLabel ? "compact-card" : "overview";
 }
 
-function applyPinsToGraphData(data: GraphData, pins: PinMap): GraphData {
-  if (!Object.keys(pins).length) return data;
-  return {
-    ...data,
-    nodes: data.nodes.map((node) => {
-      const pin = pins[pinKeyForNode(node)];
-      if (!pin) return node;
-      return {
-        ...node,
-        x: normalizePinnedX(pin.x),
-        y: normalizePinnedY(pin.y)
-      };
-    })
-  };
-}
-
 function normalizeGraphFocus(
   focus: GraphFocusInput | undefined,
   model: { communityById: Record<string, AtlasCommunity> }
@@ -442,29 +430,45 @@ function pinKeyForNode(node: { source_path?: unknown; path?: unknown; source?: u
   return wikiPathForGraphNode(node);
 }
 
-function renderPointForNode(node: AtlasNode, positions?: RenderPositionMap): RenderPosition {
-  const position = positions?.[node.id];
+function renderPointForNode(node: AtlasNode, options: Pick<BuildRenderableGraphOptions, "positions" | "pins">): RenderPosition {
+  const position = options.positions?.[node.id];
   if (position) {
     return {
       x: finitePositionCoordinate(position.x),
       y: finitePositionCoordinate(position.y)
     };
   }
+  const pin = options.pins?.[pinKeyForNode(node)];
+  if (pin) {
+    return {
+      x: normalizePinnedWorldX(pin.x),
+      y: normalizePinnedWorldY(pin.y)
+    };
+  }
   return atlasNodePoint(node) as RenderPosition;
 }
 
-function edgeCurveOffset(sourcePoint: RenderPosition, targetPoint: RenderPosition, edge: { weight?: number }): number {
-  const sourceYPercent = sourcePoint.y / GRAPH_WORLD_SIZE.height * 100;
-  const targetYPercent = targetPoint.y / GRAPH_WORLD_SIZE.height * 100;
+function edgeCurveOffset(sourcePoint: RenderPosition, targetPoint: RenderPosition, edge: { weight?: number }, worldBounds: GraphWorldBounds = {
+  minX: 0,
+  minY: 0,
+  maxX: GRAPH_WORLD_SIZE.width,
+  maxY: GRAPH_WORLD_SIZE.height,
+  width: GRAPH_WORLD_SIZE.width,
+  height: GRAPH_WORLD_SIZE.height
+}): number {
+  const sourceYPercent = (sourcePoint.y - worldBounds.minY) / worldBounds.height * 100;
+  const targetYPercent = (targetPoint.y - worldBounds.minY) / worldBounds.height * 100;
   return Math.max(-76, Math.min(76, (sourceYPercent - targetYPercent) * 1.8 + (clampWeight(edge.weight) - 0.5) * 24));
 }
 
-function normalizePinnedX(value: number): number {
-  return value > 100 ? clamp(value / GRAPH_WORLD_SIZE.width * 100, 0, 100) : clamp(value, 0, 100);
+function normalizePinnedWorldX(value: number): number {
+  const numeric = finitePositionCoordinate(value);
+  return numeric > 100 ? numeric : numeric / 100 * GRAPH_WORLD_SIZE.width;
 }
 
-function normalizePinnedY(value: number): number {
-  return value > 100 ? clamp(value / GRAPH_WORLD_SIZE.height * 100, 0, 100) : clamp(value, 0, 100);
+function normalizePinnedWorldY(value: number): number {
+  const numeric = finitePositionCoordinate(value);
+  return numeric > 100 ? numeric : numeric / 100 * GRAPH_WORLD_SIZE.height;
 }
 
 function finitePositionCoordinate(value: unknown): number {

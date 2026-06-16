@@ -1,4 +1,4 @@
-import type { GraphScreenPoint, GraphWorldPoint } from "./geometry";
+import type { GraphScreenPoint, GraphWorldBounds, GraphWorldPoint } from "./geometry";
 import { screenPointToWorldPoint } from "./geometry";
 import type { RendererViewport, RendererViewportSize } from "./viewport";
 
@@ -7,12 +7,14 @@ export interface GraphNodeDragStartInput {
   pointerScreenPoint: GraphScreenPoint;
   viewport: RendererViewport;
   viewportSize: RendererViewportSize;
+  worldBounds?: GraphWorldBounds;
 }
 
 export interface GraphNodeDragMoveInput {
   pointerScreenPoint: GraphScreenPoint;
   viewport: RendererViewport;
   viewportSize: RendererViewportSize;
+  worldBounds?: GraphWorldBounds;
   grabOffset: GraphWorldPoint;
 }
 
@@ -23,7 +25,7 @@ export interface GraphNodeDragStartState {
 }
 
 export function beginGraphNodeDrag(input: GraphNodeDragStartInput): GraphNodeDragStartState {
-  const pointerWorldPoint = screenPointToWorldPoint(input.pointerScreenPoint, input.viewport, input.viewportSize);
+  const pointerWorldPoint = screenPointToWorldPoint(input.pointerScreenPoint, input.viewport, input.viewportSize, input.worldBounds);
   const nodeWorldPoint = normalizeWorldPoint(input.nodeWorldPoint);
   const grabOffset = {
     x: pointerWorldPoint.x - nodeWorldPoint.x,
@@ -37,7 +39,7 @@ export function beginGraphNodeDrag(input: GraphNodeDragStartInput): GraphNodeDra
 }
 
 export function resolveGraphNodeDragTarget(input: GraphNodeDragMoveInput): GraphWorldPoint {
-  const pointerWorldPoint = screenPointToWorldPoint(input.pointerScreenPoint, input.viewport, input.viewportSize);
+  const pointerWorldPoint = screenPointToWorldPoint(input.pointerScreenPoint, input.viewport, input.viewportSize, input.worldBounds);
   const grabOffset = normalizeWorldPoint(input.grabOffset);
   return {
     x: pointerWorldPoint.x - grabOffset.x,

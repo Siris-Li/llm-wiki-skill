@@ -295,9 +295,28 @@ describe("buildRenderableGraph", () => {
 
     assert.ok(outlier);
     assert.deepEqual(outlier.point, { x: 1240, y: 816 });
-    assert.equal(outlier.x, 124);
-    assert.equal(outlier.y, 120);
+    assert.equal(outlier.x, 93.939);
+    assert.equal(outlier.y, 91.071);
+    assert.equal(graph.worldBounds.maxX, 1320);
+    assert.equal(graph.worldBounds.maxY, 896);
     assert.equal(outlier.community, "c1");
+  });
+
+  it("preserves pinned positions outside the old default world by expanding render bounds", () => {
+    const graph = buildRenderableGraph(outlierCommunityGraph(), {
+      theme: "shan-shui",
+      pins: {
+        "wiki/outlier.md": { x: 1240, y: 816 }
+      }
+    });
+    const outlier = graph.nodes.find((node) => node.id === "outlier");
+
+    assert.ok(outlier);
+    assert.deepEqual(outlier.point, { x: 1240, y: 816 });
+    assert.equal(outlier.x, 93.939);
+    assert.equal(outlier.y, 91.071);
+    assert.equal(graph.worldBounds.width, 1320);
+    assert.equal(graph.worldBounds.height, 896);
   });
 });
 

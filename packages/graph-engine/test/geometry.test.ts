@@ -100,6 +100,18 @@ describe("graph geometry projection", () => {
     assertPointNear(cssPoint, { x: 124, y: 120 });
   });
 
+  it("maps expanded world bounds without clamping or drifting coordinates", () => {
+    const bounds = { minX: -200, minY: 0, maxX: 1320, maxY: 896, width: 1520, height: 896 };
+    const worldPoint = { x: 1240, y: 816 };
+    const layerPoint = worldPointToLayerPoint(worldPoint, VIEWPORT_SIZE, bounds);
+    const cssPoint = worldPointToCssPercentPoint(worldPoint, bounds);
+    const minimapPoint = worldPointToMinimapPoint(worldPoint, undefined, bounds);
+
+    assertPointNear(layerPointToWorldPoint(layerPoint, VIEWPORT_SIZE, bounds), worldPoint);
+    assertPointNear(cssPoint, { x: 94.737, y: 91.071 });
+    assertPointNear(minimapPointToWorldPoint(minimapPoint, undefined, bounds), worldPoint);
+  });
+
   it("keeps svg point naming explicit even while svg and world share the same domain", () => {
     const worldPoint = { x: 220.5, y: 410.25 };
     const svgPoint = worldPointToSvgPoint(worldPoint);

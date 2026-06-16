@@ -163,6 +163,25 @@ describe("renderer viewport state", () => {
     assertPointNear(rect, geometryRect);
   });
 
+  it("maps viewport and minimap rectangles through expanded world bounds", () => {
+    const viewport = centerRendererViewportOnPoint(
+      { x: 1240, y: 816 },
+      { x: 0, y: 0, scale: 2 },
+      { width: 1000, height: 680 },
+      { worldBounds: { minX: 0, minY: 0, maxX: 1320, maxY: 896, width: 1320, height: 896 } }
+    );
+    const rect = rendererViewportToMinimapRect(
+      viewport,
+      { width: 1000, height: 680 },
+      { worldBounds: { minX: 0, minY: 0, maxX: 1320, maxY: 896, width: 1320, height: 896 } }
+    );
+
+    assert.ok(rect.x > 90, `expanded-world minimap rect should move near the outlier, got ${rect.x}`);
+    assert.ok(rect.y > 30, `expanded-world minimap rect should move near the outlier, got ${rect.y}`);
+    assert.ok(rect.width > 2);
+    assert.ok(rect.height > 2);
+  });
+
   it("coalesces viewport writes to one requestAnimationFrame callback", () => {
     const callbacks: Array<() => void> = [];
     const writes: Array<{ x: number; y: number; scale: number }> = [];

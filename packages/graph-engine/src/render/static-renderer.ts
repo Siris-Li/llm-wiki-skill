@@ -113,6 +113,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 interface PaintedGraphDom {
   contentLayer: HTMLElement | null;
+  svgElement: SVGSVGElement | null;
   edgeElements: Map<string, SVGPathElement>;
   communityWashElements: Map<string, SVGEllipseElement>;
   nodeElements: Map<string, HTMLButtonElement>;
@@ -481,7 +482,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const node = graph.nodes.find((item) => item.id === next.id);
     if (node) {
       setViewportAnimating(true);
-      viewportCommitter.schedule(centerRendererViewportOnPoint(node.point, runtimeState.snapshot().viewport, viewportSize()));
+      viewportCommitter.schedule(centerRendererViewportOnPoint(node.point, runtimeState.snapshot().viewport, viewportSize(), { worldBounds: graph.worldBounds }));
     }
     applySearchQuery(searchQuery);
   }
@@ -571,7 +572,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const points = graph.nodes.map((node) => node.point);
     if (!points.length) return;
     setViewportAnimating(true);
-    viewportCommitter.schedule(fitRendererViewportToPoints(points, viewportSize(), { maxScale: FOCUS_FIT_MAX_SCALE }));
+    viewportCommitter.schedule(fitRendererViewportToPoints(points, viewportSize(), { maxScale: FOCUS_FIT_MAX_SCALE, worldBounds: graph.worldBounds }));
   }
 
   function resetViewState(): void {
@@ -581,7 +582,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     options.onSelectionClear?.();
     render();
     setViewportAnimating(true);
-    viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize()));
+    viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize(), { worldBounds: graph.worldBounds }));
   }
 
   function retreatFocusedView(): void {
@@ -635,6 +636,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (destroyed) return;
     const snapshot = runtimeState.setPositions(positions);
     const renderSelection = rendererSelectionFromRuntimeState(snapshot);
+    const previousWorldBounds = graph.worldBounds;
     graph = buildRenderableGraph(data, {
       pins: snapshot.pins,
       theme,
@@ -645,14 +647,23 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       positions: snapshot.positions,
       pathCache
     });
+    const worldBoundsChanged = !sameWorldBounds(previousWorldBounds, graph.worldBounds);
+    if (worldBoundsChanged && dom.svgElement) setGraphSvgViewBox(dom.svgElement, graph);
     const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
     const size = viewportSize();
     for (const node of graph.nodes) {
       const element = dom.nodeElements.get(node.id);
       const base = dom.basePoints.get(node.id);
       if (!element || !base) continue;
-      const layerDelta = worldPointDeltaToLayerDelta(base, node.point, size);
-      element.style.translate = `calc(-50% + ${round(layerDelta.x)}px) calc(-50% + ${round(layerDelta.y)}px)`;
+      if (worldBoundsChanged) {
+        element.style.left = `${node.x}%`;
+        element.style.top = `${node.y}%`;
+        element.style.translate = "calc(-50% + 0px) calc(-50% + 0px)";
+        dom.basePoints.set(node.id, node.point);
+      } else {
+        const layerDelta = worldPointDeltaToLayerDelta(base, node.point, size, graph.worldBounds);
+        element.style.translate = `calc(-50% + ${round(layerDelta.x)}px) calc(-50% + ${round(layerDelta.y)}px)`;
+      }
       element.dataset.liveX = String(round(node.point.x));
       element.dataset.liveY = String(round(node.point.y));
     }
@@ -703,7 +714,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
           runtimeState.snapshot().viewport,
           { deltaY: event.deltaY, deltaMode: event.deltaMode },
           screenPoint,
-          viewportSize()
+          viewportSize(),
+          { worldBounds: graph.worldBounds }
         ));
       },
       onPointerDown: (event, decision) => {
@@ -751,7 +763,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
           break;
         case "blank-pan-move":
           root.dataset.viewportDragging = "true";
-          viewportCommitter.schedule(panRendererViewport(runtimeState.snapshot().viewport, intent.delta, viewportSize()));
+          viewportCommitter.schedule(panRendererViewport(runtimeState.snapshot().viewport, intent.delta, viewportSize(), { worldBounds: graph.worldBounds }));
           break;
         case "blank-pan-end":
         case "blank-pan-cancel":
@@ -971,7 +983,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       nodeWorldPoint: node.point,
       pointerScreenPoint: active.startScreenPoint,
       viewport: runtimeState.snapshot().viewport,
-      viewportSize: viewportSize()
+      viewportSize: viewportSize(),
+      worldBounds: graph.worldBounds
     });
     const pinnedStartPoint = pinsToPositions(graph, runtimeState.snapshot().pins)[active.nodeId];
     return {
@@ -992,6 +1005,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       pointerScreenPoint: graphScreenPointFromPointerEvent(event),
       viewport: runtimeState.snapshot().viewport,
       viewportSize: viewportSize(),
+      worldBounds: graph.worldBounds,
       grabOffset
     });
   }
@@ -1010,7 +1024,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         ? graph.nodes.find((node) => node.id === selectedReaderNodeId)?.point ?? null
         : null;
       setViewportAnimating(false);
-      commitViewport(viewportAfterResize(runtimeState.snapshot().viewport, previous, next, { anchorPoint }));
+      commitViewport(viewportAfterResize(runtimeState.snapshot().viewport, previous, next, { anchorPoint, worldBounds: graph.worldBounds }));
     });
     resizeObserver.observe(root);
   }
@@ -1048,7 +1062,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function updateMinimapViewport(): void {
     if (!dom.miniViewportElement) return;
-    const rect = rendererViewportToMinimapRect(runtimeState.snapshot().viewport, viewportSize());
+    const rect = rendererViewportToMinimapRect(runtimeState.snapshot().viewport, viewportSize(), { worldBounds: graph.worldBounds });
     dom.miniViewportElement.setAttribute("x", String(round(rect.x)));
     dom.miniViewportElement.setAttribute("y", String(round(rect.y)));
     dom.miniViewportElement.setAttribute("width", String(round(rect.width)));
@@ -1166,7 +1180,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       .find((candidate) => candidate !== id);
     const neighbor = neighborId ? graph.nodes.find((item) => item.id === neighborId) : null;
     if (neighbor) return neighbor.point;
-    return sideExitWorldAnchor(node.point);
+    return sideExitWorldAnchor(node.point, 80, graph.worldBounds);
   }
 
   function renderReader(): void {
@@ -1351,7 +1365,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const previewRect = preview.getBoundingClientRect();
     const size = viewportSize();
     const position = resolveGraphHoverPreviewPosition({
-      anchorScreenPoint: graphNodeHoverAnchor(node, runtimeState.snapshot().viewport, size),
+      anchorScreenPoint: graphNodeHoverAnchor(node, runtimeState.snapshot().viewport, size, graph.worldBounds),
       previewSize: { width: previewRect.width, height: previewRect.height },
       viewportSize: size,
       offset: { x: 18, y: -previewRect.height - 24 },
@@ -1367,7 +1381,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const target = graph.nodes.find((node) => node.id === edge.target);
     const size = viewportSize();
     const position = resolveGraphHoverPreviewPosition({
-      anchorScreenPoint: graphEdgeHoverAnchor({ source, target }, runtimeState.snapshot().viewport, size),
+      anchorScreenPoint: graphEdgeHoverAnchor({ source, target }, runtimeState.snapshot().viewport, size, graph.worldBounds),
       previewSize: { width: previewRect.width, height: previewRect.height },
       viewportSize: size,
       offset: { x: 16, y: -previewRect.height - 16 },
@@ -1404,9 +1418,10 @@ function paint(
 
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("class", "llm-wiki-graph-svg");
-  svg.setAttribute("viewBox", "0 0 1000 680");
+  setGraphSvgViewBox(svg, graph);
   svg.setAttribute("preserveAspectRatio", "none");
   svg.setAttribute("aria-hidden", "true");
+  painted.svgElement = svg;
 
   const washLayer = document.createElementNS(SVG_NS, "g");
   washLayer.setAttribute("class", "community-wash-layer");
@@ -2032,6 +2047,7 @@ function createSearchControl(
 function emptyPaintedDom(): PaintedGraphDom {
   return {
     contentLayer: null,
+    svgElement: null,
     edgeElements: new Map(),
     communityWashElements: new Map(),
     nodeElements: new Map(),
@@ -2049,6 +2065,22 @@ function emptyPaintedDom(): PaintedGraphDom {
     legendRows: new Map(),
     previewElement: null
   };
+}
+
+function setGraphSvgViewBox(svg: SVGSVGElement, graph: RenderableGraph): void {
+  svg.setAttribute(
+    "viewBox",
+    `${round(graph.worldBounds.minX)} ${round(graph.worldBounds.minY)} ${round(graph.worldBounds.width)} ${round(graph.worldBounds.height)}`
+  );
+}
+
+function sameWorldBounds(left: RenderableGraph["worldBounds"], right: RenderableGraph["worldBounds"]): boolean {
+  return left.minX === right.minX
+    && left.minY === right.minY
+    && left.maxX === right.maxX
+    && left.maxY === right.maxY
+    && left.width === right.width
+    && left.height === right.height;
 }
 
 const COMMUNITY_LEGEND_COLLAPSED_KEY = "llm-wiki:graph:community-legend:collapsed";

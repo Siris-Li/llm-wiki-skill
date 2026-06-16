@@ -1,4 +1,4 @@
-import { worldPointToScreenPoint, type GraphScreenPoint, type GraphWorldPoint } from "./geometry";
+import { worldPointToScreenPoint, type GraphScreenPoint, type GraphWorldBounds, type GraphWorldPoint } from "./geometry";
 import type { RendererViewport, RendererViewportSize } from "./viewport";
 
 export interface GraphOverlayNodeLike {
@@ -26,15 +26,17 @@ export interface GraphPreviewPositionInput {
 export function graphNodeHoverAnchor(
   node: GraphOverlayNodeLike,
   viewport: RendererViewport,
-  viewportSize: RendererViewportSize
+  viewportSize: RendererViewportSize,
+  worldBounds?: GraphWorldBounds
 ): GraphScreenPoint {
-  return worldPointToScreenPoint(node.point, viewport, viewportSize);
+  return worldPointToScreenPoint(node.point, viewport, viewportSize, worldBounds);
 }
 
 export function graphEdgeHoverAnchor(
   edge: GraphOverlayEdgeLike,
   viewport: RendererViewport,
-  viewportSize: RendererViewportSize
+  viewportSize: RendererViewportSize,
+  worldBounds?: GraphWorldBounds
 ): GraphScreenPoint {
   if (!edge.source || !edge.target) {
     return {
@@ -42,8 +44,8 @@ export function graphEdgeHoverAnchor(
       y: viewportSize.height / 2
     };
   }
-  const source = worldPointToScreenPoint(edge.source.point, viewport, viewportSize);
-  const target = worldPointToScreenPoint(edge.target.point, viewport, viewportSize);
+  const source = worldPointToScreenPoint(edge.source.point, viewport, viewportSize, worldBounds);
+  const target = worldPointToScreenPoint(edge.target.point, viewport, viewportSize, worldBounds);
   return {
     x: (source.x + target.x) / 2,
     y: (source.y + target.y) / 2
