@@ -38,6 +38,14 @@ export {
 export type { GraphToolbarPanelState, GraphToolbarStorage } from "./toolbar";
 export { createStaticGraphRenderer } from "./static-renderer";
 export type { StaticGraphRenderer } from "./static-renderer";
+export { classifyGraphEventTarget, classifyGraphPointerDownTarget, classifyGraphWheelTarget } from "./gestures";
+export type {
+  GraphGestureTarget,
+  GraphGestureTargetKind,
+  GraphGestureTargetLike,
+  GraphPointerDownTargetDecision,
+  GraphWheelTargetDecision
+} from "./gestures";
 export { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
 export type { GraphSearchFocus, GraphSearchNodeState, GraphSearchNodeView, GraphSearchState } from "./search";
 export { buildHoverPreview, firstUsefulParagraph, previewSummary } from "./preview";
