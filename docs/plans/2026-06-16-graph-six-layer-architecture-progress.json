@@ -103,8 +103,11 @@
         },
         {
           "check": "The interaction risk audit names expected behavior, owner layer, verification method, and target phase for every listed risk.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "docs/graph/2026-06-16-interaction-risk-audit.md covers trackpad zoom, browser zoom, native selection, fast release, pointer cancel, toolbar/search/drawer/minimap boundaries, hover anchor, data refresh, keyboard, and touch.",
+            "rg coverage check found all required risk labels in docs/graph/2026-06-16-interaction-risk-audit.md"
+          ]
         },
         {
           "check": "A clean-start progress commit is recorded before implementation code changes.",
@@ -136,8 +139,19 @@
         {
           "id": "0.2",
           "title": "Write the graph interaction risk audit",
-          "status": "pending",
-          "verification": [],
+          "status": "completed",
+          "verification": [
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "result": "198 tests passed, 0 failed",
+              "status": "passed"
+            },
+            {
+              "command": "rg -n \"Trackpad|ctrl/meta|native selection|快速|pointer cancel|lost pointer|Toolbar|Search|Drawer|Minimap|Hover|数据刷新|Keyboard|Touch|SpatialIndex|static-renderer\" docs/graph/2026-06-16-interaction-risk-audit.md",
+              "result": "Required risk labels are present in the audit document.",
+              "status": "passed"
+            }
+          ],
           "commit": null
         },
         {
@@ -599,6 +613,17 @@
       "action": "Recorded clean-start progress commit hash",
       "evidence": [
         "commit: f827f01 docs: record graph six-layer clean start"
+      ]
+    },
+    {
+      "timestamp": "2026-06-16T14:02:00.000Z",
+      "phase": "phase-0",
+      "task": "0.2",
+      "action": "Wrote graph interaction risk audit",
+      "evidence": [
+        "docs/graph/2026-06-16-interaction-risk-audit.md",
+        "npm run test --workspace=@llm-wiki/graph-engine passed: 198 tests, 0 failed",
+        "risk label coverage checked with rg"
       ]
     }
   ]
