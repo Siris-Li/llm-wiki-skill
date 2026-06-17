@@ -43,6 +43,10 @@ export interface RafScheduler {
   requestAnimationFrame(callback: () => void): number;
 }
 
+export interface ViewportFrameCommitOptions {
+  lightweight?: boolean;
+}
+
 export const DEFAULT_RENDERER_VIEWPORT: RendererViewport = {
   x: 0,
   y: 0,
@@ -225,21 +229,29 @@ export function rendererViewportToMinimapRect(
 }
 
 export function createViewportFrameCommitter(
-  commit: (viewport: RendererViewport) => void,
+  commit: (viewport: RendererViewport, options?: ViewportFrameCommitOptions) => void,
   scheduler: RafScheduler = defaultScheduler()
-): { schedule(viewport: Partial<RendererViewport>): void } {
+): { schedule(viewport: Partial<RendererViewport>, options?: ViewportFrameCommitOptions): void } {
   let queued = false;
   let pending: RendererViewport | null = null;
+  let pendingOptions: ViewportFrameCommitOptions | null = null;
   return {
-    schedule(viewport): void {
+    schedule(viewport, options = {}): void {
       pending = normalizeRendererViewport(viewport);
+      pendingOptions = {
+        lightweight: pendingOptions === null
+          ? Boolean(options.lightweight)
+          : Boolean(pendingOptions.lightweight && options.lightweight)
+      };
       if (queued) return;
       queued = true;
       scheduler.requestAnimationFrame(() => {
         queued = false;
         const next = pending;
+        const nextOptions = pendingOptions || {};
         pending = null;
-        if (next) commit(next);
+        pendingOptions = null;
+        if (next) commit(next, nextOptions);
       });
     }
   };

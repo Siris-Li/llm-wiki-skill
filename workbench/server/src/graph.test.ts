@@ -34,6 +34,7 @@ test("graph layout read/write roundtrip stores kb-local pins", async () => {
 		});
 		assert.equal(written.layout.version, 2);
 		assert.deepEqual(written.layout.pins["wiki/topics/agent.md"], { x: 412.5, y: -88.2, coordinateSpace: "world" });
+		assert.deepEqual(written.layout.pins["wiki/entities/tool.md"], { x: 130, y: 245.7, coordinateSpace: "world" });
 		assert.ok(written.layout.updatedAt);
 
 		const stored = JSON.parse(await readFile(graphLayoutPath(kbPath), "utf8"));
@@ -72,7 +73,7 @@ test("graph layout filters unsafe keys and invalid positions", async () => {
 			},
 		});
 		assert.deepEqual(result.layout.pins, {
-			"wiki/valid.md": { x: 1, y: 2 },
+			"wiki/valid.md": { x: 1, y: 2, coordinateSpace: "world" },
 		});
 	} finally {
 		await rm(kbPath, { recursive: true, force: true });
@@ -97,10 +98,10 @@ test("graph layout keeps old percent pins readable and preserves explicit world 
 		const readBack = await readGraphLayout(kbPath);
 		assert.equal(readBack.layout.version, 2);
 		assert.deepEqual(readBack.layout.pins, {
-			"wiki/old-percent.md": { x: 80, y: 50 },
+			"wiki/old-percent.md": { x: 80, y: 50, coordinateSpace: "legacy-percent" },
 			"wiki/new-world.md": { x: 8, y: -12, coordinateSpace: "world" },
 			"wiki/legacy-explicit.md": { x: 13, y: 44, coordinateSpace: "legacy-percent" },
-			"wiki/bad-space.md": { x: 1, y: 2 },
+			"wiki/bad-space.md": { x: 1, y: 2, coordinateSpace: "legacy-percent" },
 		});
 	} finally {
 		await rm(kbPath, { recursive: true, force: true });

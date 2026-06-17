@@ -51,6 +51,25 @@ describe("graph node drag lifecycle", () => {
     simulation.destroy();
   });
 
+  it("commits a drag outside the old default world instead of clamping it back", () => {
+    const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
+    const simulation = createLiveGraphSimulation(graph);
+    const pinState = new PinState(graph);
+
+    simulation.beginDrag("drag");
+    simulation.dragTo("drag", { x: 1240, y: 816 });
+
+    const result = commitGraphNodeDrag({ nodeId: "drag", simulation, pinState });
+
+    assert.deepEqual(result.pinPosition, { x: 1240, y: 816 });
+    assert.deepEqual(result.pins, {
+      "wiki/drag.md": { x: 1240, y: 816, coordinateSpace: "world" }
+    });
+    assert.equal(simulation.nodes.find((node) => node.id === "drag")?.fx, 1240);
+    assert.equal(simulation.nodes.find((node) => node.id === "drag")?.fy, 816);
+    simulation.destroy();
+  });
+
   it("cancels an unpinned drag by restoring the start position without writing a pin", () => {
     const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
     const simulation = createLiveGraphSimulation(graph);

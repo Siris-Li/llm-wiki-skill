@@ -36,6 +36,7 @@ export interface LiveGraphSimulationOptions {
   alphaMin?: number;
   alphaDecay?: number;
   velocityDecay?: number;
+  dragBounds?: GraphLayoutBounds;
   onTick?: (snapshot: LiveGraphSimulationSnapshot) => void;
 }
 
@@ -66,12 +67,15 @@ export const DEFAULT_GRAPH_LAYOUT_BOUNDS: GraphLayoutBounds = {
   maxY: 680
 };
 
+const DRAG_BOUNDS_OVERSCAN_RATIO = 4;
+
 export class LiveGraphSimulation {
   readonly nodes: LiveSimulationNode[];
 
   private readonly simulation: Simulation<LiveSimulationNode, LiveSimulationLink>;
   private readonly nodeById: Map<NodeId, LiveSimulationNode>;
   private readonly directNeighbors: Map<NodeId, Set<NodeId>>;
+  private readonly dragBounds: GraphLayoutBounds;
   private readonly onTick?: (snapshot: LiveGraphSimulationSnapshot) => void;
   private draggedNodeId: NodeId | null = null;
   private destroyed = false;
@@ -80,6 +84,7 @@ export class LiveGraphSimulation {
     this.nodes = graph.nodes.map((node) => toSimulationNode(node));
     this.nodeById = new Map(this.nodes.map((node) => [node.id, node]));
     this.directNeighbors = buildNeighborMap(graph);
+    this.dragBounds = normalizeLayoutBounds(options.dragBounds || dragBoundsForGraph(graph));
     this.onTick = options.onTick;
 
     const links: LiveSimulationLink[] = graph.edges
@@ -173,6 +178,7 @@ export class LiveGraphSimulation {
     this.assertActive();
     const node = this.requireNode(id);
     const bounded = constrainDragTargetToLayoutBounds(position, {
+      bounds: this.dragBounds,
       fallback: { x: node.baseX, y: node.baseY }
     });
     node.fx = bounded.x;
@@ -294,6 +300,18 @@ export function constrainDragTargetToLayoutBounds(
   return {
     x: clampNumber(position.x, fallback.x, bounds.minX, bounds.maxX),
     y: clampNumber(position.y, fallback.y, bounds.minY, bounds.maxY)
+  };
+}
+
+function dragBoundsForGraph(graph: RenderableGraph): GraphLayoutBounds {
+  const bounds = normalizeLayoutBounds(graph.worldBounds);
+  const width = Math.max(DEFAULT_GRAPH_LAYOUT_BOUNDS.maxX - DEFAULT_GRAPH_LAYOUT_BOUNDS.minX, bounds.maxX - bounds.minX, 1);
+  const height = Math.max(DEFAULT_GRAPH_LAYOUT_BOUNDS.maxY - DEFAULT_GRAPH_LAYOUT_BOUNDS.minY, bounds.maxY - bounds.minY, 1);
+  return {
+    minX: bounds.minX - width * DRAG_BOUNDS_OVERSCAN_RATIO,
+    minY: bounds.minY - height * DRAG_BOUNDS_OVERSCAN_RATIO,
+    maxX: bounds.maxX + width * DRAG_BOUNDS_OVERSCAN_RATIO,
+    maxY: bounds.maxY + height * DRAG_BOUNDS_OVERSCAN_RATIO
   };
 }
 

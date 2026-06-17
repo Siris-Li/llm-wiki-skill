@@ -41,6 +41,7 @@ async function runDesktopChecks(browser) {
     hover: {},
     drawer: {},
     communityDrag: {},
+    dragRefreshRace: {},
     rootScroll: {},
     panAndReset: {}
   };
@@ -82,6 +83,7 @@ async function runDesktopChecks(browser) {
   await resetGraphView(page);
   evidence.communityDrag = await runCommunityDragCheck(page);
   evidence.panAndReset = await runPanMinimapResetCheck(page);
+  evidence.dragRefreshRace = await runDragRefreshRaceCheck(page);
 
   if (artifactDir) {
     await page.screenshot({ path: path.join(artifactDir, "phase-6-workbench-desktop.png"), fullPage: true });
@@ -92,17 +94,21 @@ async function runDesktopChecks(browser) {
 
 async function runNarrowChecks(browser) {
   const page = await openWorkbenchGraphPage(browser, { width: 390, height: 844 }, "light");
+  const communityId = await firstCommunityWashId(page);
+  const nodeId = await ensureAnyNodeInteractable(page, ["A", "B", "C"]);
   const evidence = {
     viewport: "390x844",
     wheelTargets: {},
     hover: {},
-    drawer: {}
+    drawer: {},
+    communityId,
+    nodeId
   };
-  evidence.wheelTargets.node = await assertWheelZoomsFromReset(page, () => nodeCenter(page, "A"), "narrow node");
-  evidence.wheelTargets.communityWash = await assertWheelZoomsFromReset(page, () => findCommunityWashPoint(page, "t1"), "narrow community wash");
-  evidence.hover.node = await hoverNodeAndMeasure(page, "A");
+  evidence.wheelTargets.node = await assertWheelZoomsFromReset(page, () => nodeCenter(page, nodeId), "narrow node");
+  evidence.wheelTargets.communityWash = await assertWheelZoomsFromReset(page, () => findCommunityWashPoint(page, communityId), "narrow community wash");
+  evidence.hover.node = await hoverNodeAndMeasure(page, nodeId);
   await assertBoxInsideViewport(page, ".graph-hover-preview", "narrow hover preview");
-  await page.locator(".node[data-id='A']").click();
+  await page.locator(`.node[data-id="${cssString(nodeId)}"]`).click();
   await page.waitForSelector(".drawer-panel-open");
   evidence.drawer = await drawerAndGraphSnapshot(page);
   await assertBoxInsideViewport(page, ".drawer-panel-open", "narrow drawer");
@@ -173,13 +179,16 @@ async function openWorkbenchGraphPage(browser, viewport, theme) {
   }
   await page.waitForSelector("[data-llm-wiki-graph-root='true']");
   await page.waitForSelector("[data-viewport-layer='true']");
-  await page.waitForSelector(".node[data-id='A']");
-  await page.waitForSelector(".community-wash[data-community-id='t1']");
+  await page.waitForSelector(".node[data-id='A']", { state: "attached" });
+  await page.waitForSelector(".community-wash", { state: "attached" });
   const expectedGraphTheme = theme === "dark" ? "mo-ye" : "shan-shui";
   await page.waitForFunction((expectedGraphTheme) => {
     return document.querySelector(".graph-screen")?.dataset.graphTheme === expectedGraphTheme
       && document.querySelector(".llm-wiki-graph-engine")?.dataset.theme === expectedGraphTheme;
   }, expectedGraphTheme);
+  await resetGraphView(page);
+  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  await page.waitForSelector(".community-wash");
   return page;
 }
 
@@ -310,6 +319,123 @@ async function runPanMinimapResetCheck(page) {
   };
 }
 
+async function runDragRefreshRaceCheck(page) {
+  await resetGraphView(page);
+  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  const nodeId = await ensureAnyNodeInteractable(page, ["B", "C", "A"]);
+  const before = await nodeSnapshot(page, nodeId);
+  const target = { x: before.center.x + 260, y: before.center.y + 18 };
+
+  await page.mouse.move(before.center.x, before.center.y);
+  await page.mouse.down();
+  await page.mouse.move(before.center.x + 72, before.center.y + 8, { steps: 3 });
+  await page.waitForFunction((nodeId) => {
+    const root = document.querySelector("[data-llm-wiki-graph-root='true']");
+    return root?.dataset.dragging === nodeId;
+  }, nodeId);
+
+  const refreshStart = await startGraphRefreshProbe(page);
+  await page.mouse.move(target.x, target.y, { steps: 1 });
+  await page.mouse.up();
+  await page.waitForSelector(`.node[data-id="${cssString(nodeId)}"][data-pinned="true"]`);
+  const refresh = await waitForGraphRefreshProbe(page);
+  await page.waitForTimeout(360);
+  const after = await nodeSnapshot(page, nodeId);
+  const pointerDistance = Math.hypot(after.center.x - target.x, after.center.y - target.y);
+
+  assert.equal(after.pinned, "true", "dragged node should remain pinned after a graph refresh");
+  assert.equal(after.dragging, "", "drag refresh should not leave node dragging active");
+  assert.ok(pointerDistance <= 72, `dragged node should stay near release after refresh, distance=${pointerDistance.toFixed(1)}`);
+
+  return roundObject({
+    nodeId,
+    refreshStart,
+    refresh,
+    before,
+    target,
+    after,
+    pointerDistance
+  });
+}
+
+async function nodeSnapshot(page, id) {
+  return page.locator(`.node[data-id="${cssString(id)}"]`).evaluate((node) => {
+    const root = document.querySelector("[data-llm-wiki-graph-root='true']");
+    const rect = node.getBoundingClientRect();
+    return {
+      id: node.dataset.id || "",
+      center: {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2
+      },
+      pinned: node.dataset.pinned || "",
+      dragging: root?.dataset.dragging || ""
+    };
+  });
+}
+
+async function startGraphRefreshProbe(page) {
+  return page.evaluate(async () => {
+    const activeResponse = await fetch("/api/knowledge-base");
+    const active = await activeResponse.json();
+    const kbPath = active?.active?.kb?.path;
+    if (!kbPath) throw new Error("No active knowledge base for graph refresh probe");
+    const source = new EventSource("/api/events");
+    window.__graphRefreshRace = {
+      kbPath,
+      response: null,
+      event: null,
+      error: null
+    };
+    await new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error("Timed out waiting for graph event stream")), 4000);
+      source.addEventListener("ready", () => {
+        window.clearTimeout(timer);
+        resolve();
+      }, { once: true });
+      source.addEventListener("error", () => {
+        window.clearTimeout(timer);
+        reject(new Error("Graph event stream failed before ready"));
+      }, { once: true });
+    });
+    source.addEventListener("graph_updated", (message) => {
+      const event = JSON.parse(message.data);
+      if (event.kbPath !== kbPath) return;
+      window.__graphRefreshRace.event = event;
+      source.close();
+    });
+    source.addEventListener("graph_error", (message) => {
+      const event = JSON.parse(message.data);
+      if (event.kbPath !== kbPath) return;
+      window.__graphRefreshRace.error = event.message || "graph_error";
+      window.__graphRefreshRace.event = event;
+      source.close();
+    });
+    fetch(`/api/graph/rebuild?kb=${encodeURIComponent(kbPath)}`, { method: "POST" })
+      .then((response) => response.json())
+      .then((json) => {
+        window.__graphRefreshRace.response = json;
+      })
+      .catch((err) => {
+        window.__graphRefreshRace.error = err instanceof Error ? err.message : String(err);
+        source.close();
+      });
+    return { kbPath };
+  });
+}
+
+async function waitForGraphRefreshProbe(page) {
+  await page.waitForFunction(() => {
+    const state = window.__graphRefreshRace;
+    return Boolean(state?.event || state?.error);
+  }, undefined, { timeout: 15000 });
+  const state = await page.evaluate(() => window.__graphRefreshRace);
+  assert.equal(state.error, null, `graph refresh probe should not error: ${state.error}`);
+  assert.ok(state.response?.ok, `graph refresh trigger should return ok: ${JSON.stringify(state.response)}`);
+  assert.equal(state.event?.type, "graph_updated", "graph refresh probe should receive graph_updated");
+  return state;
+}
+
 async function resetGraphView(page) {
   const before = await layerTransform(page);
   await page.locator("[data-llm-wiki-graph-root='true']").getByRole("button", { name: "回全图" }).click();
@@ -380,7 +506,46 @@ async function graphRootScroll(page) {
 }
 
 async function ensureNodeInteractable(page, id) {
-  const isInteractable = async () => page.locator(`.node[data-id="${cssString(id)}"]`).evaluate((node) => {
+  if (await isNodeInteractable(page, id)) return;
+  await resetGraphView(page);
+  await page.waitForTimeout(180);
+  assert.equal(await isNodeInteractable(page, id), true, `node ${id} should be interactable after reset`);
+}
+
+async function ensureAnyNodeInteractable(page, ids) {
+  for (const id of ids) {
+    if (await isNodeInteractable(page, id)) return id;
+  }
+  await resetGraphView(page);
+  await page.waitForTimeout(180);
+  for (const id of ids) {
+    if (await isNodeInteractable(page, id)) return id;
+  }
+  const diagnostics = await page.evaluate((ids) => {
+    return ids.map((id) => {
+      const node = document.querySelector(`.node[data-id="${CSS.escape(id)}"]`);
+      if (!node) return { id, present: false };
+      const rect = node.getBoundingClientRect();
+      const center = {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2
+      };
+      const hit = document.elementFromPoint(center.x, center.y);
+      return {
+        id,
+        present: true,
+        center,
+        hitTag: hit?.tagName || "",
+        hitClass: hit instanceof Element ? hit.className : "",
+        hitNodeId: hit instanceof Element ? hit.closest(".node")?.getAttribute("data-id") || "" : ""
+      };
+    });
+  }, ids);
+  assert.fail(`expected at least one interactable node after reset: ${JSON.stringify(diagnostics)}`);
+}
+
+async function isNodeInteractable(page, id) {
+  return page.locator(`.node[data-id="${cssString(id)}"]`).evaluate((node) => {
     const rect = node.getBoundingClientRect();
     const center = {
       x: rect.left + rect.width / 2,
@@ -389,10 +554,6 @@ async function ensureNodeInteractable(page, id) {
     const hit = document.elementFromPoint(center.x, center.y);
     return Boolean(hit?.closest?.(`.node[data-id="${CSS.escape(node.dataset.id || "")}"]`));
   });
-  if (await isInteractable()) return;
-  await resetGraphView(page);
-  await page.waitForTimeout(180);
-  assert.equal(await isInteractable(), true, `node ${id} should be interactable after reset`);
 }
 
 function assertStableHoverOffset(before, after, message) {
@@ -530,6 +691,15 @@ async function findCommunityWashPoint(page, communityId) {
     }
     throw new Error("Could not find exposed community wash point");
   }, communityId);
+}
+
+async function firstCommunityWashId(page) {
+  return page.evaluate(() => {
+    const wash = document.querySelector(".community-wash[data-community-id]");
+    const id = wash?.getAttribute("data-community-id") || "";
+    if (!id) throw new Error("Missing community wash id");
+    return id;
+  });
 }
 
 async function findBlankPoint(page) {

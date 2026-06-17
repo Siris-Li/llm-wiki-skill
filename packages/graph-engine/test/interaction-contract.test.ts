@@ -54,12 +54,23 @@ describe("graph interaction contract", () => {
     });
   });
 
-  it("keeps community and blank intents available through the same spatial target path", () => {
+  it("keeps edge, community, and blank intents available through the same spatial target path", () => {
     const index = createGraphSpatialIndex({
-      nodes: [{ id: "node-a", point: { x: 100, y: 100 }, hitBounds: { x: 80, y: 80, width: 40, height: 40 } }],
+      nodes: [
+        { id: "node-a", point: { x: 100, y: 100 }, hitBounds: { x: 80, y: 80, width: 40, height: 40 } },
+        { id: "node-b", point: { x: 220, y: 100 }, hitBounds: { x: 200, y: 80, width: 40, height: 40 } }
+      ],
+      edges: [{ id: "edge-a", source: "node-a", target: "node-b" }],
       communities: [{ id: "community-a", wash: { cx: 260, cy: 180, rx: 80, ry: 44 } }]
     });
 
+    assert.deepEqual(
+      classifyGraphPointerDownTargetFromGraphTarget(graphSpatialHitToGestureTarget(index.hitTest({ x: 160, y: 90 }))),
+      {
+        intent: "blank-pan-candidate",
+        target: { kind: "edge", id: "edge-a" }
+      }
+    );
     assert.deepEqual(
       classifyGraphPointerDownTargetFromGraphTarget(graphSpatialHitToGestureTarget(index.hitTest({ x: 260, y: 180 }))),
       {

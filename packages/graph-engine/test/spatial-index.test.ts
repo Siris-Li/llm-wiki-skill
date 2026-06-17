@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createGraphSpatialIndex } from "../src/layout";
+import { GraphSpatialIndex, createGraphSpatialIndex } from "../src/layout";
 import type { GraphSpatialNodeLike } from "../src/layout";
 
 function baseNodes(): GraphSpatialNodeLike[] {
@@ -115,4 +115,108 @@ describe("GraphSpatialIndex", () => {
     assert.deepEqual(rebuilt.hitTest({ x: 500, y: 460 }), { kind: "node", id: "a" });
     assert.deepEqual(rebuilt.hitTest({ x: 100, y: 100 }), { kind: "graph-blank" });
   });
+
+  it("keeps dense node lookup on the spatial index path", () => {
+    const nodes = denseNodes(1000);
+    const edges = nodes.slice(1).map((node, index) => ({
+      id: `edge-${index}`,
+      source: nodes[index].id,
+      target: node.id
+    }));
+    const index = createGraphSpatialIndex({ nodes, edges });
+
+    assert.deepEqual(index.hitTest({ x: 520, y: 328 }), { kind: "node", id: "node-500" });
+    assert.deepEqual(index.hitTest({ x: 40, y: 40 }), { kind: "node", id: "node-0" });
+  });
+
+  it("prefilters dense edge lookups without losing edge hits", () => {
+    const nodes = denseNodes(1000);
+    const edges = nodes.slice(1).map((node, index) => ({
+      id: `edge-${index}`,
+      source: nodes[index].id,
+      target: node.id
+    }));
+    const index = createGraphSpatialIndex({ nodes, edges });
+
+    assert.deepEqual(index.hitTest({ x: 52, y: 29 }), { kind: "edge", id: "edge-0" });
+    assert.deepEqual(index.hitTest({ x: 5000, y: 5000 }), { kind: "graph-blank" });
+  });
+
+  it("uses the edge spatial index before curved-edge distance checks", () => {
+    const nodes = denseNodes(1200);
+    const edges = nodes.slice(1).map((node, index) => ({
+      id: `edge-${index}`,
+      source: nodes[index].id,
+      target: node.id
+    }));
+    const index = new GraphSpatialIndex({ nodes, edges });
+
+    assert.equal(index.edgeCandidateCount({ x: 5000, y: 5000 }), 0);
+    assert.deepEqual(index.hitTest({ x: 5000, y: 5000 }), { kind: "graph-blank" });
+
+    const nearCandidateCount = index.edgeCandidateCount({ x: 52, y: 29 });
+    assert.ok(
+      nearCandidateCount > 0 && nearCandidateCount < edges.length / 5,
+      `dense edge lookup should visit a bounded candidate set, visited ${nearCandidateCount} of ${edges.length}`
+    );
+    assert.deepEqual(index.hitTest({ x: 52, y: 29 }), { kind: "edge", id: "edge-0" });
+  });
+
+  it("keeps local edge candidates bounded when a long edge is present", () => {
+    const localNodes = denseNodes(600);
+    const farNodes = Array.from({ length: 600 }, (_, index) => {
+      const x = 8000 + index % 30 * 36;
+      const y = 8000 + Math.floor(index / 30) * 36;
+      return {
+        id: `far-${index}`,
+        label: `Far ${index}`,
+        type: "entity",
+        point: { x, y },
+        hitBounds: { x: x - 8, y: y - 8, width: 16, height: 16 }
+      };
+    });
+    const nodes = [
+      ...localNodes,
+      ...farNodes,
+      { id: "long-a", point: { x: -5000, y: -5000 }, hitBounds: { x: -5010, y: -5010, width: 20, height: 20 } },
+      { id: "long-b", point: { x: 12000, y: 12000 }, hitBounds: { x: 11990, y: 11990, width: 20, height: 20 } }
+    ];
+    const localEdges = localNodes.slice(1).map((node, index) => ({
+      id: `local-edge-${index}`,
+      source: localNodes[index].id,
+      target: node.id
+    }));
+    const farEdges = farNodes.slice(1).map((node, index) => ({
+      id: `far-edge-${index}`,
+      source: farNodes[index].id,
+      target: node.id
+    }));
+    const edges = [
+      ...localEdges,
+      ...farEdges,
+      { id: "long-edge", source: "long-a", target: "long-b" }
+    ];
+    const index = new GraphSpatialIndex({ nodes, edges });
+
+    const candidateCount = index.edgeCandidateCount({ x: 52, y: 29 });
+    assert.ok(
+      candidateCount > 0 && candidateCount < 20,
+      `long edge should not force unrelated edges into a local lookup, visited ${candidateCount} of ${edges.length}`
+    );
+    assert.deepEqual(index.hitTest({ x: 52, y: 29 }), { kind: "edge", id: "local-edge-0" });
+  });
 });
+
+function denseNodes(count: number): GraphSpatialNodeLike[] {
+  return Array.from({ length: count }, (_, index) => {
+    const x = 40 + index % 40 * 24;
+    const y = 40 + Math.floor(index / 40) * 24;
+    return {
+      id: `node-${index}`,
+      label: `Node ${index}`,
+      type: index % 5 === 0 ? "topic" : "entity",
+      point: { x, y },
+      hitBounds: { x: x - 12, y: y - 10, width: 24, height: 20 }
+    };
+  });
+}

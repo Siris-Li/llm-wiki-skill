@@ -168,7 +168,6 @@ export function GraphPanel({
 			}
 			setData(result.data);
 			setDataKnowledgeBasePath(kbPath);
-			if (engineKbPathRef.current === kbPath) engineRef.current?.setData(result.data, nextPins);
 			onGraphDataChangeRef.current?.(result.data);
 			onSelectionChangeRef.current?.(null);
 			setStatus("ready");

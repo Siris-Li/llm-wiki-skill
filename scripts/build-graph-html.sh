@@ -363,6 +363,12 @@ cat >> "$output_tmp" <<'HTML_BOOT'
           if (window.localStorage) window.localStorage.setItem(key, JSON.stringify(pins || {}));
         } catch (_) {}
       }
+      function normalizeBakedPins(layout) {
+        return window.LlmWikiGraphEngine.normalizeGraphLayoutFile(layout).pins;
+      }
+      function normalizeStoredPins(rawPins) {
+        return window.LlmWikiGraphEngine.normalizeGraphPinMap(rawPins);
+      }
       if (!root || !dataEl || !window.LlmWikiGraphEngine || !window.LlmWikiGraphEngine.createGraphEngine) {
         showError("图谱引擎加载失败。请确认 HTML 文件完整生成。");
         return;
@@ -375,7 +381,7 @@ cat >> "$output_tmp" <<'HTML_BOOT'
       var bakedLayout = parseJson(layoutEl, { pins: {} });
       var key = storageNamespace(graphData.meta || {}, window.location && window.location.pathname) + ":graph-pins";
       var themeKey = storageNamespace(graphData.meta || {}, window.location && window.location.pathname) + ":graph-theme";
-      var pins = Object.assign({}, bakedLayout && bakedLayout.pins ? bakedLayout.pins : {}, readStoredPins(key));
+      var pins = Object.assign({}, normalizeBakedPins(bakedLayout), normalizeStoredPins(readStoredPins(key)));
       var themeToggle = document.querySelector("[data-testid='offline-theme-toggle']");
       function readStoredTheme() {
         try {

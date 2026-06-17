@@ -6,6 +6,7 @@ import {
   getAtlasDensityMode,
   resolveAtlasVisibleSnapshot
 } from "../model";
+import { graphEdgeControlPoint } from "../layout/edge-geometry";
 import { wikiPathForGraphNode } from "../graph-node";
 import { getCommunityColor } from "../themes";
 import { computeCommunityWash } from "./community-wash";
@@ -333,9 +334,8 @@ export function makeEdgePathFromPoints(sourcePoint: RenderPosition, targetPoint:
   const y1 = sourcePoint.y;
   const x2 = targetPoint.x;
   const y2 = targetPoint.y;
-  const mx = (x1 + x2) / 2;
-  const my = (y1 + y2) / 2;
-  return `M ${round(x1)} ${round(y1)} Q ${round(mx + curveOffset)} ${round(my - 22)} ${round(x2)} ${round(y2)}`;
+  const control = graphEdgeControlPoint(sourcePoint, targetPoint, curveOffset);
+  return `M ${round(x1)} ${round(y1)} Q ${round(control.x)} ${round(control.y)} ${round(x2)} ${round(y2)}`;
 }
 
 export function edgeStrokeWidth(edge: { weight?: number }): number {

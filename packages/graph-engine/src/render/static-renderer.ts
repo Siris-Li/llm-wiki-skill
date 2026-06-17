@@ -36,7 +36,8 @@ import {
   rendererViewportToMinimapRect,
   viewportAfterResize,
   viewportAfterWheelZoom,
-  type RendererViewport
+  type RendererViewport,
+  type ViewportFrameCommitOptions
 } from "./viewport";
 import { createGraphRuntimeState, type GraphRuntimeStateSnapshot } from "./state";
 import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
@@ -59,6 +60,7 @@ import { createCommunityLegend, createGraphToolbar, createSearchControl } from "
 import { renderOfflineReader, renderOfflineSelectionPanel } from "./offline-reader";
 import { classifyGraphKeyboardIntent, isTextEditingElement } from "./keyboard";
 import { createGraphRootElement, resetGraphRootScroll } from "./host-dom";
+import { createGraphHitTargetResolver } from "./hit-testing";
 import {
   GraphGestureController,
   GraphGestureStateMachine,
@@ -236,6 +238,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     selectionSurface: null,
     focus: initialFocus
   });
+  const hitTargetResolver = createGraphHitTargetResolver({
+    graph: () => graph,
+    viewport: () => runtimeState.snapshot().viewport,
+    viewportSize
+  });
   let pinState = new PinState(graph, runtimeState.snapshot().pins);
   gestureController = bindViewportHandlers();
   bindResizeObserver();
@@ -269,6 +276,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     availableTypeFilters = graph.typeFilters;
     searchIndex = undefined;
     pinState = new PinState(graph, runtimeState.snapshot().pins);
+    hitTargetResolver.refresh();
     applyTheme(root, theme);
     dom = paint(root, graph, theme, Boolean(options.onNodeOpen), {
       onNodeClick: (id, additive) => {
@@ -673,6 +681,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       positions: snapshot.positions,
       pathCache
     });
+    hitTargetResolver.refresh();
     const worldBoundsChanged = !sameWorldBounds(previousWorldBounds, graph.worldBounds);
     if (worldBoundsChanged && dom.svgElement) setGraphSvgViewBox(dom.svgElement, graph);
     const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
@@ -692,6 +701,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       }
       element.dataset.liveX = String(round(node.point.x));
       element.dataset.liveY = String(round(node.point.y));
+      element.dataset.worldX = String(round(node.point.x));
+      element.dataset.worldY = String(round(node.point.y));
     }
     for (const edge of graph.edges) {
       const element = dom.edgeElements.get(edge.id);
@@ -731,8 +742,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     return new GraphGestureController(root, {
       stateMachine: gestureMachine,
       targetFromEventTarget: graphGestureTarget,
+      graphTargetFromScreenPoint: hitTargetResolver.targetFromScreenPoint,
       onWheelZoom: (event, _decision, screenPoint) => {
-        event.preventDefault();
         setViewportAnimating(false);
         viewportCommitter.schedule(viewportAfterWheelZoom(
           runtimeState.snapshot().viewport,
@@ -740,7 +751,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
           screenPoint,
           viewportSize(),
           { worldBounds: graph.worldBounds }
-        ));
+        ), { lightweight: true });
       },
       onPointerDown: (event, decision) => {
         if (decision.intent !== "node-drag-candidate") root.focus({ preventScroll: true });
@@ -749,7 +760,6 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       onGestureIntents: applyGestureIntents,
       onActiveStateChange: syncRuntimeGestureState,
       onBlankDoubleClick: (event) => {
-        event.preventDefault();
         resetViewState();
       }
     });
@@ -787,7 +797,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
           break;
         case "blank-pan-move":
           root.dataset.viewportDragging = "true";
-          viewportCommitter.schedule(panRendererViewport(runtimeState.snapshot().viewport, intent.delta, viewportSize(), { worldBounds: graph.worldBounds }));
+          viewportCommitter.schedule(panRendererViewport(runtimeState.snapshot().viewport, intent.delta, viewportSize(), { worldBounds: graph.worldBounds }), { lightweight: true });
           break;
         case "blank-pan-end":
         case "blank-pan-cancel":
@@ -1031,15 +1041,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     resizeObserver.observe(root);
   }
 
-  function commitViewport(nextViewport: RendererViewport): void {
+  function commitViewport(nextViewport: RendererViewport, options: ViewportFrameCommitOptions = {}): void {
     resetRootScroll();
     const snapshot = runtimeState.setViewport(nextViewport);
     const next = snapshot.viewport;
     root.dataset.viewportScale = String(round(next.scale));
     if (dom.contentLayer) applyRendererViewportTransform(dom.contentLayer, next);
-    updateEffectiveDensity();
+    if (!options.lightweight) updateEffectiveDensity();
     updateMinimapViewport();
-    renderMotionOverlays();
+    if (!options.lightweight) renderMotionOverlays();
   }
 
   function updateEffectiveDensity(): void {

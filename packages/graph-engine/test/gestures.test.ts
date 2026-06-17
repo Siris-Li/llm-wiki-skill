@@ -151,7 +151,7 @@ describe("graph gesture target classifier", () => {
     }
   });
 
-  it("classifies pointerdown candidates for node drag, community click, and blank pan", () => {
+  it("classifies pointerdown candidates for node drag, community click, and graph pan", () => {
     assert.deepEqual(classifyGraphPointerDownTarget(nodeTarget("node-a")), {
       intent: "node-drag-candidate",
       target: { kind: "node", id: "node-a" }
@@ -163,6 +163,10 @@ describe("graph gesture target classifier", () => {
     assert.deepEqual(classifyGraphPointerDownTarget(blankTarget()), {
       intent: "blank-pan-candidate",
       target: { kind: "graph-blank" }
+    });
+    assert.deepEqual(classifyGraphPointerDownTarget(edgeTarget("edge-a")), {
+      intent: "blank-pan-candidate",
+      target: { kind: "edge", id: "edge-a" }
     });
   });
 
@@ -392,6 +396,78 @@ describe("graph gesture controller", () => {
     controller.destroy();
   });
 
+  it("uses spatial graph targets for graph-owned DOM instead of DOM stacking order", () => {
+    const root = new FakeGestureRoot();
+    const zoomed: GraphGestureTarget[] = [];
+    const pointerDecisions: GraphGestureTarget[] = [];
+    const controller = new GraphGestureController(root as unknown as HTMLElement, {
+      targetFromEventTarget: (target) => target as GraphGestureTargetLike | null,
+      graphTargetFromScreenPoint: () => ({ kind: "node", id: "node-from-spatial-index" }),
+      onWheelZoom: (_event, decision) => {
+        zoomed.push(decision.target);
+      },
+      onPointerDown: (_event, decision) => {
+        pointerDecisions.push(decision.target);
+      },
+      onGestureIntents: () => {}
+    });
+
+    const stackedCommunity = communityWashTarget("community-from-dom");
+    const wheel = wheelDomEvent(stackedCommunity, -20);
+    root.dispatch("wheel", wheel);
+    assert.equal(wheel.defaultPrevented, true);
+
+    const pointerDown = pointerDomEvent(stackedCommunity, 51, 260, 220);
+    root.dispatch("pointerdown", pointerDown);
+    assert.equal(pointerDown.defaultPrevented, true);
+    assert.equal(root.hasPointerCapture(51), true);
+
+    assert.deepEqual(zoomed, [{ kind: "node", id: "node-from-spatial-index" }]);
+    assert.deepEqual(pointerDecisions, [{ kind: "node", id: "node-from-spatial-index" }]);
+
+    controller.destroy();
+  });
+
+  it("uses spatial graph targets for blank double-click while blockers keep browser defaults", () => {
+    const root = new FakeGestureRoot();
+    let resetCount = 0;
+    const controller = new GraphGestureController(root as unknown as HTMLElement, {
+      targetFromEventTarget: (target) => target as GraphGestureTargetLike | null,
+      graphTargetFromScreenPoint: (screenPoint) => {
+        if (screenPoint.x === 10) return { kind: "graph-blank" };
+        if (screenPoint.x === 20) return { kind: "edge", id: "edge-from-spatial-index" };
+        return { kind: "node", id: "node-from-spatial-index" };
+      },
+      onWheelZoom: () => {},
+      onGestureIntents: () => {},
+      onBlankDoubleClick: () => {
+        resetCount += 1;
+      }
+    });
+
+    const blankDoubleClick = mouseDomEvent(communityWashTarget("community-from-dom"), 10, 40);
+    root.dispatch("dblclick", blankDoubleClick);
+    assert.equal(blankDoubleClick.defaultPrevented, true);
+    assert.equal(resetCount, 1);
+
+    const edgeDoubleClick = mouseDomEvent(edgeTarget("edge-from-dom"), 20, 40);
+    root.dispatch("dblclick", edgeDoubleClick);
+    assert.equal(edgeDoubleClick.defaultPrevented, true);
+    assert.equal(resetCount, 2);
+
+    const nodeDoubleClick = mouseDomEvent(blankTarget(), 30, 40);
+    root.dispatch("dblclick", nodeDoubleClick);
+    assert.equal(nodeDoubleClick.defaultPrevented, false);
+    assert.equal(resetCount, 2);
+
+    const searchDoubleClick = mouseDomEvent(controlTarget(".graph-search"), 10, 40);
+    root.dispatch("dblclick", searchDoubleClick);
+    assert.equal(searchDoubleClick.defaultPrevented, false);
+    assert.equal(resetCount, 2);
+
+    controller.destroy();
+  });
+
   it("does not prevent browser defaults over gesture blocker pointer targets", () => {
     const root = new FakeGestureRoot();
     const intents: GraphGestureIntent[] = [];
@@ -581,6 +657,25 @@ function pointerDomEvent(
       return defaultPrevented;
     }
   } as PointerEvent & { defaultPrevented: boolean };
+}
+
+function mouseDomEvent(
+  target: GraphGestureTargetLike,
+  clientX: number,
+  clientY: number
+): MouseEvent & { defaultPrevented: boolean } {
+  let defaultPrevented = false;
+  return {
+    target,
+    clientX,
+    clientY,
+    preventDefault: () => {
+      defaultPrevented = true;
+    },
+    get defaultPrevented() {
+      return defaultPrevented;
+    }
+  } as MouseEvent & { defaultPrevented: boolean };
 }
 
 function matchesSelf(target: FakeTarget, selector: string): boolean {

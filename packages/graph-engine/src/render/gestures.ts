@@ -70,8 +70,8 @@ export type GraphWheelTargetDecision =
 export type GraphPointerDownTargetDecision =
   | { intent: "node-drag-candidate"; target: Extract<GraphGestureTarget, { kind: "node" }> }
   | { intent: "community-click-candidate"; target: Extract<GraphGestureTarget, { kind: "community-wash" }> }
-  | { intent: "blank-pan-candidate"; target: Extract<GraphGestureTarget, { kind: "graph-blank" }> }
-  | { intent: "blocked"; target: Exclude<GraphGestureTarget, { kind: "node" | "community-wash" | "graph-blank" }> };
+  | { intent: "blank-pan-candidate"; target: Extract<GraphGestureTarget, { kind: "graph-blank" | "edge" }> }
+  | { intent: "blocked"; target: Exclude<GraphGestureTarget, { kind: "node" | "community-wash" | "graph-blank" | "edge" }> };
 
 export interface GraphWheelEventLike {
   ctrlKey?: boolean;
@@ -91,6 +91,7 @@ export interface GraphGestureStateMachineOptions {
 export interface GraphGestureControllerOptions {
   stateMachine?: GraphGestureStateMachine;
   targetFromEventTarget?: (target: EventTarget | null) => GraphGestureTargetLike | null;
+  graphTargetFromScreenPoint?: (screenPoint: { x: number; y: number }) => GraphGestureTarget;
   onWheelZoom: (event: WheelEvent, decision: Extract<GraphWheelTargetDecision, { intent: "zoom" }>, screenPoint: { x: number; y: number }) => void;
   onPointerDown?: (event: PointerEvent, decision: Exclude<GraphPointerDownTargetDecision, { intent: "blocked" }>) => void;
   onGestureIntents: (intents: GraphGestureIntent[], event: PointerEvent | null) => void;
@@ -215,6 +216,8 @@ export function classifyGraphPointerDownTargetFromGraphTarget(graphTarget: Graph
       return { intent: "node-drag-candidate", target: graphTarget };
     case "community-wash":
       return { intent: "community-click-candidate", target: graphTarget };
+    case "edge":
+      return { intent: "blank-pan-candidate", target: graphTarget };
     case "graph-blank":
       return { intent: "blank-pan-candidate", target: graphTarget };
     default:
@@ -449,14 +452,18 @@ export class GraphGestureController {
   }
 
   private readonly handleWheel = (event: WheelEvent): void => {
-    const decision = classifyGraphWheelTarget(this.eventTarget(event.target), event);
+    const screenPoint = this.screenPointFromMouseEvent(event);
+    const decision = classifyGraphWheelTargetFromGraphTarget(this.graphTargetForEvent(event.target, screenPoint), event);
     if (decision.intent !== "zoom") return;
-    this.options.onWheelZoom(event, decision, this.screenPointFromMouseEvent(event));
+    event.preventDefault();
+    this.options.onWheelZoom(event, decision, screenPoint);
   };
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return;
-    const decision = classifyGraphPointerDownTarget(this.eventTarget(event.target));
+    const decision = classifyGraphPointerDownTargetFromGraphTarget(
+      this.graphTargetForEvent(event.target, this.screenPointFromMouseEvent(event))
+    );
     if (decision.intent === "blocked") return;
     event.preventDefault();
     this.options.onPointerDown?.(event, decision);
@@ -489,8 +496,11 @@ export class GraphGestureController {
   };
 
   private readonly handleDoubleClick = (event: MouseEvent): void => {
-    const decision = classifyGraphPointerDownTarget(this.eventTarget(event.target));
+    const decision = classifyGraphPointerDownTargetFromGraphTarget(
+      this.graphTargetForEvent(event.target, this.screenPointFromMouseEvent(event))
+    );
     if (decision.intent !== "blank-pan-candidate") return;
+    event.preventDefault();
     this.options.onBlankDoubleClick?.(event);
   };
 
@@ -505,6 +515,12 @@ export class GraphGestureController {
 
   private eventTarget(target: EventTarget | null): GraphGestureTargetLike | null {
     return this.options.targetFromEventTarget ? this.options.targetFromEventTarget(target) : target as GraphGestureTargetLike | null;
+  }
+
+  private graphTargetForEvent(target: EventTarget | null, screenPoint: { x: number; y: number }): GraphGestureTarget {
+    const domTarget = classifyGraphEventTarget(this.eventTarget(target));
+    if (isGraphGestureBlockerTarget(domTarget)) return domTarget;
+    return this.options.graphTargetFromScreenPoint?.(screenPoint) || domTarget;
   }
 
   private pointerEventFromPointerEvent(event: PointerEvent): GraphPointerEventLike {

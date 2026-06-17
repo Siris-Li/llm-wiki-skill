@@ -1,8 +1,10 @@
-import type { PinCoordinateSpace, PinPosition } from "../types";
+import {
+  isPinCoordinateSpace,
+  LEGACY_PERCENT_PIN_COORDINATE_SPACE,
+  WORLD_PIN_COORDINATE_SPACE,
+  type PinPosition
+} from "../types";
 import { GRAPH_WORLD_SIZE } from "./geometry";
-
-export const WORLD_PIN_COORDINATE_SPACE = "world";
-export const LEGACY_PERCENT_PIN_COORDINATE_SPACE = "legacy-percent";
 
 export interface WorldPinPoint {
   x: number;
@@ -30,7 +32,7 @@ export function normalizeWorldPinPosition(position: PinPosition): PinPosition {
 
 export function pinPositionToWorldPoint(position: PinPosition): WorldPinPoint {
   const normalized = normalizeStoredPinPosition(position);
-  const coordinateSpace = normalized.coordinateSpace || inferLegacyCoordinateSpace(normalized);
+  const coordinateSpace = normalized.coordinateSpace || WORLD_PIN_COORDINATE_SPACE;
   if (coordinateSpace === LEGACY_PERCENT_PIN_COORDINATE_SPACE) {
     return {
       x: normalized.x / 100 * GRAPH_WORLD_SIZE.width,
@@ -41,17 +43,6 @@ export function pinPositionToWorldPoint(position: PinPosition): WorldPinPoint {
     x: normalized.x,
     y: normalized.y
   };
-}
-
-export function isPinCoordinateSpace(value: unknown): value is PinCoordinateSpace {
-  return value === WORLD_PIN_COORDINATE_SPACE || value === LEGACY_PERCENT_PIN_COORDINATE_SPACE;
-}
-
-function inferLegacyCoordinateSpace(position: PinPosition): PinCoordinateSpace {
-  if (position.x >= 0 && position.x <= 100 && position.y >= 0 && position.y <= 100) {
-    return LEGACY_PERCENT_PIN_COORDINATE_SPACE;
-  }
-  return WORLD_PIN_COORDINATE_SPACE;
 }
 
 function finitePositionCoordinate(value: unknown): number {

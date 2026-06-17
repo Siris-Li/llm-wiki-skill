@@ -24,21 +24,13 @@ const HOST_CALLBACK_IDENTIFIERS = [
 ];
 
 const HOST_CALLBACK_ALLOWED_FILES = new Set(["facade.ts", "types.ts"]);
-const RAW_GRAPH_EVENT_ALLOWED_FILES = new Set([
-  "render/gestures.ts",
-  "render/keyboard.ts",
-  "render/host-dom.ts",
-  "render/static-renderer.ts",
-  "render/controls.ts",
-  "render/offline-reader.ts"
-]);
+const RAW_GRAPH_EVENT_ALLOWED_FILES = new Set(["render/gestures.ts"]);
 const RAW_GRAPH_EVENT_PATTERNS = [
   /\baddEventListener\s*\(\s*["'](?:wheel|pointerdown|pointermove|pointerup|pointercancel|lostpointercapture)["']/,
   /\bremoveEventListener\s*\(\s*["'](?:wheel|pointerdown|pointermove|pointerup|pointercancel|lostpointercapture)["']/,
   /\bsetPointerCapture\s*\(/,
   /\breleasePointerCapture\s*\(/,
-  /\bclassifyGraph(?:EventTarget|WheelTarget|WheelTargetFromGraphTarget|PointerDownTarget|PointerDownTargetFromGraphTarget)\s*\(/,
-  /\bpreventDefault\s*\(/
+  /\bclassifyGraph(?:EventTarget|WheelTarget|WheelTargetFromGraphTarget|PointerDownTarget|PointerDownTargetFromGraphTarget)\s*\(/
 ];
 const DRAWING_MODULES = [
   "render/nodes.ts",
@@ -119,6 +111,13 @@ describe("renderer and facade boundary contract", () => {
     }
 
     assert.deepEqual(violations, []);
+  });
+
+  it("keeps blank double-click ownership out of the static renderer", async () => {
+    const rendererText = await readFile(join(SRC, "render/static-renderer.ts"), "utf8");
+
+    assert.equal(/\baddEventListener\s*\(\s*["']dblclick["']/.test(rendererText), false);
+    assert.equal(/\bremoveEventListener\s*\(\s*["']dblclick["']/.test(rendererText), false);
   });
 
   it("keeps browser pointer coordinate normalization inside GraphGestures", async () => {

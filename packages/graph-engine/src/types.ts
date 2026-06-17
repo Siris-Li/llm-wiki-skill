@@ -182,7 +182,14 @@ export interface Community {
   members?: NodeId[];
 }
 
-export type PinCoordinateSpace = "world" | "legacy-percent";
+export const WORLD_PIN_COORDINATE_SPACE = "world";
+export const LEGACY_PERCENT_PIN_COORDINATE_SPACE = "legacy-percent";
+
+export type PinCoordinateSpace = typeof WORLD_PIN_COORDINATE_SPACE | typeof LEGACY_PERCENT_PIN_COORDINATE_SPACE;
+
+export function isPinCoordinateSpace(value: unknown): value is PinCoordinateSpace {
+  return value === WORLD_PIN_COORDINATE_SPACE || value === LEGACY_PERCENT_PIN_COORDINATE_SPACE;
+}
 
 export interface PinPosition {
   x: number;

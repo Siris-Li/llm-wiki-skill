@@ -68,9 +68,19 @@ describe("LiveGraphSimulation", () => {
     simulation.beginDrag("drag");
     const dragged = simulation.dragTo("drag", { x: 1200, y: -250 });
 
-    assert.equal(dragged.fx, 1000);
-    assert.equal(dragged.fy, 0);
+    assert.equal(dragged.fx, 1200);
+    assert.equal(dragged.fy, -250);
     simulation.destroy();
+
+    const boundedSimulation = createLiveGraphSimulation(graph, {
+      dragBounds: { minX: 0, minY: 0, maxX: 1000, maxY: 680 }
+    });
+    boundedSimulation.beginDrag("drag");
+    const boundedDrag = boundedSimulation.dragTo("drag", { x: 1200, y: -250 });
+
+    assert.equal(boundedDrag.fx, 1000);
+    assert.equal(boundedDrag.fy, 0);
+    boundedSimulation.destroy();
   });
 });
 
@@ -139,16 +149,27 @@ describe("PinState", () => {
     const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
     const pins = new PinState(graph, {
       "wiki/drag.md": { x: 8, y: 12, coordinateSpace: "world" },
-      "wiki/near.md": { x: 13, y: 50 }
+      "wiki/near.md": { x: 13, y: 50, coordinateSpace: "legacy-percent" }
     }).snapshot();
 
     assert.deepEqual(pins.pins, {
       "wiki/drag.md": { x: 8, y: 12, coordinateSpace: "world" },
-      "wiki/near.md": { x: 13, y: 50 }
+      "wiki/near.md": { x: 13, y: 50, coordinateSpace: "legacy-percent" }
     });
     assert.deepEqual(pinsToPositions(graph, pins.pins), {
       drag: { x: 8, y: 12 },
       near: { x: 130, y: 340 }
+    });
+  });
+
+  it("treats unmarked small pin values as world coordinates instead of guessing percent", () => {
+    const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
+    const pins = new PinState(graph, {
+      "wiki/drag.md": { x: 8, y: 12 }
+    }).snapshot();
+
+    assert.deepEqual(pinsToPositions(graph, pins.pins), {
+      drag: { x: 8, y: 12 }
     });
   });
 });

@@ -1,6 +1,7 @@
 import { quadtree } from "d3-quadtree";
 import { cardDims } from "../model/labels";
 import type { Quadtree, QuadtreeLeaf, QuadtreeNode } from "d3-quadtree";
+import { graphEdgeControlPoint } from "./edge-geometry";
 
 export type GraphSpatialHitKind = "node" | "edge" | "community-wash" | "graph-blank";
 
@@ -72,6 +73,7 @@ interface SpatialEdgeEntry {
   source: GraphSpatialPoint;
   target: GraphSpatialPoint;
   curveOffset: number;
+  bounds: GraphSpatialRect;
   order: number;
 }
 
@@ -92,6 +94,7 @@ export class GraphSpatialIndex {
   private readonly edges: SpatialEdgeEntry[];
   private readonly communities: SpatialCommunityEntry[];
   private readonly nodeTree: Quadtree<SpatialNodeEntry>;
+  private readonly edgeGrid: SpatialEdgeGrid;
   private readonly maxNodeRadius: number;
   private readonly edgeHitTolerance: number;
   private readonly nodeFallbackRadius: number;
@@ -108,7 +111,8 @@ export class GraphSpatialIndex {
     );
 
     const nodeById = new Map(this.nodes.map((node) => [node.id, node]));
-    this.edges = normalizeEdges(input.edges || [], nodeById);
+    this.edges = normalizeEdges(input.edges || [], nodeById, this.edgeHitTolerance);
+    this.edgeGrid = new SpatialEdgeGrid(this.edges, this.edgeHitTolerance);
     this.communities = normalizeCommunities(input.communities || []);
   }
 
@@ -144,14 +148,17 @@ export class GraphSpatialIndex {
 
   findEdge(point: GraphSpatialPoint): SpatialEdgeEntry | null {
     const safePoint = normalizePoint(point);
-    const candidates = this.edges
-      .map((edge) => ({
-        edge,
-        distance: distanceToCurvedEdge(safePoint, edge.source, edge.target, edge.curveOffset)
-      }))
-      .filter((candidate) => candidate.distance <= this.edgeHitTolerance)
-      .sort((left, right) => left.distance - right.distance || left.edge.order - right.edge.order);
-    return candidates[0]?.edge || null;
+    let bestEdge: SpatialEdgeEntry | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    this.visitEdgeCandidates(safePoint, (edge) => {
+      const distance = distanceToCurvedEdge(safePoint, edge.source, edge.target, edge.curveOffset);
+      if (distance > this.edgeHitTolerance) return;
+      if (!bestEdge || distance < bestDistance || (distance === bestDistance && edge.order < bestEdge.order)) {
+        bestEdge = edge;
+        bestDistance = distance;
+      }
+    });
+    return bestEdge;
   }
 
   findCommunity(point: GraphSpatialPoint): SpatialCommunityEntry | null {
@@ -168,6 +175,15 @@ export class GraphSpatialIndex {
 
   nearestNode(point: GraphSpatialPoint, radius = this.maxNodeRadius): SpatialNodeEntry | null {
     return this.nodeTree.find(finiteNumber(point.x, 0), finiteNumber(point.y, 0), finitePositiveNumber(radius, this.maxNodeRadius)) || null;
+  }
+
+  edgeCandidateCount(point: GraphSpatialPoint): number {
+    const safePoint = normalizePoint(point);
+    let count = 0;
+    this.visitEdgeCandidates(safePoint, () => {
+      count += 1;
+    });
+    return count;
   }
 
   private collectNodeCandidates(point: GraphSpatialPoint): SpatialNodeEntry[] {
@@ -187,6 +203,10 @@ export class GraphSpatialIndex {
       return false;
     });
     return candidates;
+  }
+
+  private visitEdgeCandidates(point: GraphSpatialPoint, visitor: (edge: SpatialEdgeEntry) => void): void {
+    this.edgeGrid.visit(point, visitor);
   }
 }
 
@@ -209,16 +229,21 @@ function normalizeNodes(nodes: readonly GraphSpatialNodeLike[], fallbackRadius: 
   });
 }
 
-function normalizeEdges(edges: readonly GraphSpatialEdgeLike[], nodeById: Map<string, SpatialNodeEntry>): SpatialEdgeEntry[] {
+function normalizeEdges(edges: readonly GraphSpatialEdgeLike[], nodeById: Map<string, SpatialNodeEntry>, edgeHitTolerance: number): SpatialEdgeEntry[] {
   return edges.flatMap((edge, index) => {
     const source = nodeById.get(String(edge.source));
     const target = nodeById.get(String(edge.target));
     if (!source || !target) return [];
+    const sourcePoint = clonePoint(source.point);
+    const targetPoint = clonePoint(target.point);
+    const curveOffset = finiteNumber(edge.curveOffset, 0);
+    const bounds = edgeSearchBounds(sourcePoint, targetPoint, curveOffset, edgeHitTolerance);
     return [{
       id: String(edge.id),
-      source: clonePoint(source.point),
-      target: clonePoint(target.point),
-      curveOffset: finiteNumber(edge.curveOffset, 0),
+      source: sourcePoint,
+      target: targetPoint,
+      curveOffset,
+      bounds,
       order: index
     }];
   });
@@ -303,10 +328,7 @@ function rectRadius(rect: GraphSpatialRect, point: GraphSpatialPoint): number {
 }
 
 function distanceToCurvedEdge(point: GraphSpatialPoint, source: GraphSpatialPoint, target: GraphSpatialPoint, curveOffset: number): number {
-  const control = {
-    x: (source.x + target.x) / 2 + curveOffset,
-    y: (source.y + target.y) / 2 - 22
-  };
+  const control = graphEdgeControlPoint(source, target, curveOffset);
   let previous = source;
   let minDistance = Number.POSITIVE_INFINITY;
   for (let step = 1; step <= 24; step += 1) {
@@ -316,6 +338,21 @@ function distanceToCurvedEdge(point: GraphSpatialPoint, source: GraphSpatialPoin
     previous = current;
   }
   return minDistance;
+}
+
+function edgeSearchBounds(source: GraphSpatialPoint, target: GraphSpatialPoint, curveOffset: number, edgeHitTolerance: number): GraphSpatialRect {
+  const control = graphEdgeControlPoint(source, target, curveOffset);
+  const padding = edgeHitTolerance + Math.abs(curveOffset) + 24;
+  const minX = Math.min(source.x, target.x, control.x) - padding;
+  const maxX = Math.max(source.x, target.x, control.x) + padding;
+  const minY = Math.min(source.y, target.y, control.y) - padding;
+  const maxY = Math.max(source.y, target.y, control.y) + padding;
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
 }
 
 function quadraticBezierPoint(start: GraphSpatialPoint, control: GraphSpatialPoint, end: GraphSpatialPoint, t: number): GraphSpatialPoint {
@@ -370,4 +407,52 @@ function finiteNumber(value: unknown, fallback: number): number {
 
 function distance(left: GraphSpatialPoint, right: GraphSpatialPoint): number {
   return Math.hypot(right.x - left.x, right.y - left.y);
+}
+
+const DEFAULT_EDGE_GRID_CELL_SIZE = 96;
+
+class SpatialEdgeGrid {
+  private readonly cellSize: number;
+  private readonly buckets = new Map<string, SpatialEdgeEntry[]>();
+
+  constructor(edges: readonly SpatialEdgeEntry[], edgeHitTolerance: number) {
+    this.cellSize = Math.max(DEFAULT_EDGE_GRID_CELL_SIZE, finitePositiveNumber(edgeHitTolerance, DEFAULT_GRAPH_EDGE_HIT_TOLERANCE) * 8);
+    for (const edge of edges) {
+      this.add(edge);
+    }
+  }
+
+  visit(point: GraphSpatialPoint, visitor: (edge: SpatialEdgeEntry) => void): void {
+    const bucket = this.buckets.get(this.key(this.cellCoord(point.x), this.cellCoord(point.y)));
+    if (!bucket?.length) return;
+    const seen = new Set<string>();
+    for (const edge of bucket) {
+      if (seen.has(edge.id)) continue;
+      seen.add(edge.id);
+      if (rectContainsPoint(edge.bounds, point)) visitor(edge);
+    }
+  }
+
+  private add(edge: SpatialEdgeEntry): void {
+    const minCellX = this.cellCoord(edge.bounds.x);
+    const maxCellX = this.cellCoord(edge.bounds.x + edge.bounds.width);
+    const minCellY = this.cellCoord(edge.bounds.y);
+    const maxCellY = this.cellCoord(edge.bounds.y + edge.bounds.height);
+    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+      for (let cellY = minCellY; cellY <= maxCellY; cellY += 1) {
+        const key = this.key(cellX, cellY);
+        const bucket = this.buckets.get(key);
+        if (bucket) bucket.push(edge);
+        else this.buckets.set(key, [edge]);
+      }
+    }
+  }
+
+  private cellCoord(value: number): number {
+    return Math.floor(finiteNumber(value, 0) / this.cellSize);
+  }
+
+  private key(x: number, y: number): string {
+    return `${x}:${y}`;
+  }
 }

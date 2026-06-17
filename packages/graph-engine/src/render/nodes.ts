@@ -26,6 +26,8 @@ export function createGraphNodeElement(
   button.dataset.visualRole = node.visualRole;
   button.dataset.startNode = node.startNode ? "true" : "false";
   button.dataset.previewStart = node.previewStart ? "true" : "false";
+  button.dataset.worldX = String(node.point.x);
+  button.dataset.worldY = String(node.point.y);
   button.style.left = `${node.x}%`;
   button.style.top = `${node.y}%`;
   button.title = node.label;

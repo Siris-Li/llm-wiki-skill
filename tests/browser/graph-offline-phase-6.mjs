@@ -294,7 +294,37 @@ async function assertPinPersistsAfterReload(page, id) {
   await page.waitForSelector(`.node[data-id="${cssString(id)}"][data-pinned="true"]`);
   const pinnedCount = await page.locator("[data-llm-wiki-graph-root='true']").evaluate((root) => root.dataset.pinnedCount || "");
   assert.equal(pinnedCount, "1", "offline pin should survive reload");
-  return { key, storedPins: before, pinnedCount };
+  const unmarkedWorldPin = { x: 333, y: 222 };
+  const pinKey = await nodePinKey(page, id);
+  await page.evaluate(({ key, id, pin }) => {
+    window.localStorage.setItem(key, JSON.stringify({
+      [id]: pin
+    }));
+  }, { key, id: pinKey, pin: unmarkedWorldPin });
+  await page.reload();
+  await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+  await page.waitForSelector(`.node[data-id="${cssString(id)}"][data-pinned="true"]`);
+  await resetGraphView(page);
+  await page.waitForTimeout(120);
+  const unmarkedWorldCenter = await page.locator(`.node[data-id="${cssString(id)}"]`).evaluate((node) => {
+    return {
+      worldPoint: {
+        x: Number(node.dataset.worldX || node.dataset.liveX || Number.NaN),
+        y: Number(node.dataset.worldY || node.dataset.liveY || Number.NaN)
+      },
+      pinned: node.dataset.pinned || ""
+    };
+  });
+  assert.equal(unmarkedWorldCenter.pinned, "true", "offline unmarked localStorage pin should reload as pinned");
+  const worldDistance = Math.hypot(
+    unmarkedWorldCenter.worldPoint.x - unmarkedWorldPin.x,
+    unmarkedWorldCenter.worldPoint.y - unmarkedWorldPin.y
+  );
+  assert.ok(
+    worldDistance <= 0.01,
+    `offline unmarked localStorage pin should stay in world coordinates, distance=${worldDistance.toFixed(2)}`
+  );
+  return { key, storedPins: before, pinnedCount, unmarkedWorldPin, pinKey, unmarkedWorldCenter, worldDistance };
 }
 
 async function assertBuiltInReader(page, id) {
@@ -374,6 +404,32 @@ async function nodeCenter(page, id) {
       y: rect.top + rect.height / 2
     };
   });
+}
+
+async function nodePinKey(page, id) {
+  return page.evaluate((id) => {
+    const dataEl = document.getElementById("graph-data");
+    const graphData = dataEl?.textContent ? JSON.parse(dataEl.textContent) : null;
+    const node = graphData?.nodes?.find((item) => item.id === id);
+    if (!node) return id;
+    const existing = node.source_path || node.path || node.source;
+    if (existing) return String(existing);
+    const nodeId = String(node.id || id);
+    const baseId = nodeId.endsWith(".md") ? nodeId.slice(0, -3) : nodeId;
+    const type = String(node.type || "");
+    const directory = type === "topic"
+      ? "topics"
+      : type === "source"
+        ? "sources"
+        : type === "comparison"
+          ? "comparisons"
+          : type === "synthesis"
+            ? "synthesis"
+            : type === "query"
+              ? "queries"
+              : "entities";
+    return `wiki/${directory}/${baseId}.md`;
+  }, id);
 }
 
 async function visibleNodeCenter(page, preferredId = null, options = {}) {

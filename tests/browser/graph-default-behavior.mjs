@@ -68,13 +68,44 @@ async function assertShortcutWheelZoomsGraph(page, point, label, options) {
   const afterTransform = await waitForLayerTransform(page, beforeTransform);
   const afterMetrics = await pageMetrics(page);
   assert.deepEqual(afterMetrics, beforeMetrics, `shortcut wheel over ${label} should not zoom the page`);
+  const realWheel = await assertModifiedMouseWheelZoomsGraph(page, point, label, options);
   return {
     point: roundedPoint(point),
     beforeTransform,
     afterTransform,
     beforeMetrics,
     afterMetrics,
-    eventResult
+    eventResult,
+    realWheel
+  };
+}
+
+async function assertModifiedMouseWheelZoomsGraph(page, point, label, options) {
+  const beforeMetrics = await pageMetrics(page);
+  const beforeTransform = await layerTransform(page);
+  const modifier = options.metaKey === true ? "Meta" : "Control";
+  const client = await page.context().newCDPSession(page);
+  try {
+    await client.send("Input.dispatchMouseEvent", {
+      type: "mouseWheel",
+      x: point.x,
+      y: point.y,
+      deltaX: 0,
+      deltaY: -420,
+      modifiers: options.metaKey === true ? 4 : 2
+    });
+  } finally {
+    await client.detach().catch(() => {});
+  }
+  const afterTransform = await waitForLayerTransform(page, beforeTransform);
+  const afterMetrics = await pageMetrics(page);
+  assert.deepEqual(afterMetrics, beforeMetrics, `real modified wheel over ${label} should not zoom the page`);
+  return {
+    modifier,
+    beforeTransform,
+    afterTransform,
+    beforeMetrics,
+    afterMetrics
   };
 }
 

@@ -146,11 +146,11 @@ describe("buildRenderableGraph", () => {
     assert.ok(graph.worldBounds.minY < 0);
   });
 
-  it("continues to read old percent pins without a coordinate-space marker", () => {
+  it("continues to read migrated old percent pins with an explicit coordinate-space marker", () => {
     const graph = buildRenderableGraph(sampleGraph(), {
       theme: "shan-shui",
       pins: {
-        "wiki/entity.md": { x: 80, y: 50 }
+        "wiki/entity.md": { x: 80, y: 50, coordinateSpace: "legacy-percent" }
       }
     });
 

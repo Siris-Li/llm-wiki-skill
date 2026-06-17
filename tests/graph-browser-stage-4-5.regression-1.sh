@@ -148,6 +148,12 @@ export GRAPH_STAGE_4_5_DENSE_HTML="$dense_dir/knowledge-graph.html"
 export GRAPH_STAGE_4_5_ARTIFACT_DIR="$artifact_dir"
 export GRAPH_STAGE_4_5_WORKBENCH_URL="http://127.0.0.1:5180"
 
+chrome_executable="${GRAPH_STAGE_4_5_CHROME_EXECUTABLE:-}"
+if [ -z "$chrome_executable" ] && [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
+  chrome_executable="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+fi
+export GRAPH_STAGE_4_5_CHROME_EXECUTABLE="$chrome_executable"
+
 cd "$REPO_ROOT"
 playwright_node_path="$(
   npx --yes -p playwright -c 'node -e "const path=require(\"path\"); console.log(path.dirname(process.env.PATH.split(\":\")[0]))"'
