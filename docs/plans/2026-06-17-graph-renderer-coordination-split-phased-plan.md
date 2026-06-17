@@ -39,10 +39,10 @@ L 级 phased plan。理由：跨多个新模块 + 一次大文件改名 + 共享
 ## 执行规则
 
 - 每个工作单元开始前跑基线 smoke check。
-- 每完成一个**已验证**工作单元就提交一次，并把提交哈希记进 progress 文件。
+- 完成并验证每个工作单元后，把代码改动和 progress 文件更新放进同一个提交，提交信息里带任务号（例如 `feat: split controller [task 1.2]`）。不要把具体提交编号记进 progress 文件；`git log` 按任务号就是审计记录。这样每个工作单元只产生一个提交，不再有配对的记账提交。
 - 验证失败不提交。
 - 阶段验收通过后直接进入下一阶段，不要求用户逐阶段确认。
-- 执行者只能更新 progress 文件的 `status` / `verification` / `evidence` / `commit` / `decision_log` / `turn_log`；不能改写任务定义、验收标准、范围边界。
+- 执行者只能更新 progress 文件的 `status` / `baseline` / `verification` / `evidence` / `decision_log` / `turn_log` / `residual_risk`；不能改写任务定义、验收标准、范围边界。
 - 不引入新 npm 依赖、新测试框架。
 - 不改 `facade.ts` 公开 API 形状（只更新它对内部函数/类型的引用名）。
 - 不动画图零件模块、`gestures.ts`、`viewport.ts`、`state.ts`、`spatial-index.ts`、`hit-testing.ts` 的行为。
@@ -55,7 +55,7 @@ L 级 phased plan。理由：跨多个新模块 + 一次大文件改名 + 共享
 1. 读 progress 文件，确认当前 phase/task。
 2. 跑 `git log --oneline -15` 和基线 smoke check；先修复破损状态再开新工作。
 3. 只处理当前工作单元。
-4. 验证通过后更新 progress、提交该单元、记录哈希。
+4. 验证通过后更新 progress，并把代码改动和这次 progress 更新放进同一个提交，提交信息带任务号。
 5. 阶段验收全部通过后记录并自动进入下一阶段，不询问。
 
 ## Progress 文件
@@ -197,7 +197,7 @@ graph-renderer-root: 组装 + 委派; facade: 公开 API + host 回调
 
 - 当前分支为 `feat/graph-renderer-coordination-split`，工作区无未分离的用户改动。
 - `npm run test --workspace=@llm-wiki/graph-engine` exits 0（265 通过）。
-- progress 记录 clean-start commit hash 与基线 fps（应 ≈ 50，记录实测值作为后续门槛参照）。
+- progress 记录基线 fps（应 ≈ 50，记录实测值作为后续门槛参照）；验证证明完成，`git log` 按任务号显示哪个提交完成该项。
 
 自动前进：记录后进入 Phase 1。
 
@@ -289,7 +289,7 @@ graph-renderer-root: 组装 + 委派; facade: 公开 API + host 回调
 任务：
 
 1. `5.1` 扩展 `renderer-boundary.test.ts`（或新增边界测试）：① `controller.ts` 不引用画图零件 `create*`、不调用 `paint`/`mount*`、不计算渲染模型（**允许** `is-dragging`/`focus` 附着、允许写 pinState/驱动 simulation）；② `render-pipeline.ts`/`overlays-presenter.ts` 不调用 gesture 分类、不写 selection/focus/pin；③ **[eng-review C3]** 运行时探针为**强制**（不再"尽量"），至少覆盖"mutation 所有权"与"拆卸"；④ **[eng-review Test4]** 命令注入接线单测：用 fake `GraphCommands` mount 控件，断言 reset/search/社区选择回调到正确命令；⑤ **[eng-review C2]** 生命周期测试：重复 mount/destroy 不泄漏监听器与定时器、`applyDiff` 与 `setData` 竞态、hover 定时器未到期就 destroy。
-2. `5.2` 跑完整验收命令集 + 帧率捕获，记录输出摘要、实测 fps、残余风险；progress 标记 overall completed，记录最后提交哈希。不 push/merge/amend。
+2. `5.2` 跑完整验收命令集 + 帧率捕获，记录输出摘要、实测 fps、残余风险；progress 标记 overall completed；验证证明完成，`git log` 按任务号显示哪个提交完成该项。不 push/merge/amend。
 
 验收：
 
@@ -353,12 +353,12 @@ graph-renderer-root: 组装 + 委派; facade: 公开 API + host 回调
 | 生命周期守护（eng-review C2） | 显式 render-epoch + 拆卸契约 + 对应测试 | render 再入 / animateDiff 竞态 / destroy 顺序都是静默失败缝 | 仅靠现有测试与人工小心 |
 | 公开面改名（eng-review C3） | `createStaticGraphRenderer` 经 `export * from './render'` 在包公开面但无外部消费者（已核），接受干净改名、保留 rg-零检查、不留兼容别名 | 无消费者，别名只会被 rg 检查拦；干净更清楚 | 留兼容别名（与 rg-零检查冲突） |
 | 帧率门槛 | stage-4.5 offline exits 0 且实测 fps ≥ 45 | 设计要求"≥ 基线（~50）留 10%"；脚本内置相对下限 + 捕获绝对值双保险 | 仅靠脚本相对下限（可能在基线下滑时仍通过） |
-| 进度记录粒度 | 按 phase 记一次 | 上一轮逐提交记账过重（115 提交含 58 记账） | 逐提交配 docs progress 提交 |
+| 进度记录粒度 | 每个已验证工作单元更新一次，且和代码改动放进同一个提交 | 上一轮逐提交配套记账过重；0.3 规则改为任务提交本身带进度更新 | 单独配套进度提交 |
 
 ## 提交规则
 
 - Phase 0.1 做 clean-start commit（仅基线 progress，无功能代码）。
-- 每个已验证工作单元提交一次，progress 记哈希。
+- 完成并验证每个工作单元后，把代码改动和 progress 文件更新放进同一个提交，提交信息里带任务号（例如 `feat: split controller [task 1.2]`）。不要把具体提交编号记进 progress 文件；`git log` 按任务号就是审计记录。这样每个工作单元只产生一个提交，不再有配对的记账提交。
 - 验证失败不提交。
 - 不自动 push / merge / amend；合并 main 需用户复核。
 
@@ -371,7 +371,7 @@ Each turn:
 1. Read docs/plans/2026-06-17-graph-renderer-coordination-split-progress.json, then the current task in the plan.
 2. Run `git log --oneline -15` and `npm run test --workspace=@llm-wiki/graph-engine`; repair a broken state before starting new work.
 3. Work only on the current work unit. This is a pure code-move: never change user-visible behavior.
-4. After verification passes: update the progress file (status, verification, evidence, commit, log fields only); commit that unit; record the commit hash. Never commit on failed verification. Never push, merge, or amend.
+4. After verification passes: update the progress file (status, baseline when relevant, verification/evidence, log fields, and residual risk when relevant) and commit the code change and that update together in one commit, with the task id in the message. Never commit on failed verification. Never push, merge, or amend.
 5. When a phase's acceptance checks all pass, record it and continue to the next phase without asking for approval.
 
 Done when every item in the plan is complete, every acceptance check is proven, fps >= 45, and the progress file records final status and residual risk.
