@@ -1,0 +1,138 @@
+{
+  "plan": "docs/plans/2026-06-17-graph-renderer-coordination-split-phased-plan.md",
+  "spec": "docs/spark/2026-06-17-static-renderer-coordination-split-design.md",
+  "status": {
+    "overall": "not_started",
+    "phase": "phase-0",
+    "task": "0.1",
+    "next_allowed_action": "Create feat/graph-renderer-coordination-split from spark/static-renderer-coordination-split, run baseline smoke check, commit clean-start progress."
+  },
+  "execution_rules": {
+    "branch": "feat/graph-renderer-coordination-split",
+    "branch_from": "spark/static-renderer-coordination-split",
+    "smoke_check": "npm run test --workspace=@llm-wiki/graph-engine",
+    "pure_code_move_no_behavior_change": true,
+    "commit_each_verified_task": true,
+    "no_commit_on_failed_verification": true,
+    "never_push_merge_or_amend": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "only_flip_status_fields": true,
+    "no_new_dependency_or_test_framework": true,
+    "fps_floor": 45,
+    "browser_regression_needs": "Chrome + Playwright; workbench target also needs free ports 8787/5180; mark blocked (never skip-as-pass) if unavailable"
+  },
+  "baseline": {
+    "recorded": false,
+    "unit_tests": "265 pass expected (confirm in 0.2)",
+    "dense_wheel_fps": null,
+    "commands": "fill in task 0.2"
+  },
+  "decision_log": [
+    { "decision": "implementation branch feat/graph-renderer-coordination-split from spark branch", "reason": "carry spec+plan into impl branch; repo rule: code changes on feat/ branch", "source": "plan" },
+    { "decision": "add controller layer id to architecture.ts owner map", "reason": "controller is a distinct owner per spec core principle", "source": "plan" },
+    { "decision": "split render() into applyOptionChanges + rebuildAndPaint before extraction", "reason": "state-apply belongs to command side, rebuild/paint to pipeline", "source": "plan" },
+    { "decision": "explicit GraphRenderContext held by root; pipeline writes graph/dom/pinState, others read-only", "reason": "multi-file split needs shared connective state without parallel state islands", "source": "spec self-review" },
+    { "decision": "controller may toggle is-dragging/focus affordances on painted elements; forbidden to build/paint graph DOM", "reason": "matches real code; hard ban would over-indirect", "source": "spec self-review" }
+  ],
+  "phases": [
+    {
+      "id": "phase-0",
+      "goal": "Record green baseline on the implementation branch; no feature code.",
+      "acceptance": [
+        "current branch is feat/graph-renderer-coordination-split with no unseparated user changes",
+        "npm run test --workspace=@llm-wiki/graph-engine exits 0 (265 pass)",
+        "progress records clean-start commit hash and baseline fps"
+      ],
+      "status": "pending",
+      "tasks": [
+        { "id": "0.1", "title": "Create impl branch + clean-start commit + baseline smoke check", "status": "pending", "verification": [], "commit": null },
+        { "id": "0.2", "title": "Run full acceptance set + fps capture, record baseline numbers", "status": "pending", "verification": [], "commit": null }
+      ]
+    },
+    {
+      "id": "phase-1",
+      "goal": "Introduce GraphRenderContext and extract controller.ts (decisions/commands/keyboard).",
+      "acceptance": [
+        "npm run test --workspace=@llm-wiki/graph-engine exits 0",
+        "npm run typecheck --workspace=@llm-wiki/graph-engine exits 0",
+        "bash tests/graph-workbench-interactions.regression-1.sh exits 0",
+        "bash tests/graph-offline-phase-6.regression-1.sh exits 0",
+        "controller.ts has no paint/mount* calls, no drawing-piece create* imports, no render-model computation"
+      ],
+      "status": "pending",
+      "tasks": [
+        { "id": "1.1", "title": "Define GraphRenderContext; switch static-renderer internals from closure vars to the context object (behavior-preserving)", "status": "pending", "verification": [], "commit": null },
+        { "id": "1.2", "title": "Extract controller.ts: gesture intent dispatch, handleNode*/handleBlankClick, node-drag helpers, bindViewportHandlers wiring", "status": "pending", "verification": [], "commit": null },
+        { "id": "1.3", "title": "Move semantic commands + keyboard routing into controller", "status": "pending", "verification": [], "commit": null }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "goal": "Extract render-pipeline.ts; split render() into state-apply + rebuild/paint.",
+      "acceptance": [
+        "npm run test --workspace=@llm-wiki/graph-engine exits 0",
+        "npm run typecheck --workspace=@llm-wiki/graph-engine exits 0",
+        "bash tests/graph-workbench-interactions.regression-1.sh exits 0",
+        "bash tests/graph-offline-phase-6.regression-1.sh exits 0",
+        "stage-4.5 offline exits 0 and captured fps >= 45 (recorded)",
+        "render-pipeline.ts does not call gesture classification or write semantic state"
+      ],
+      "status": "pending",
+      "tasks": [
+        { "id": "2.1", "title": "Split render() into applyOptionChanges (state) + rebuildAndPaint (draw), behavior-preserving", "status": "pending", "verification": [], "commit": null },
+        { "id": "2.2", "title": "Extract render-pipeline.ts: rebuildAndPaint/paint/mount*/viewport commit/diff animation/sim frame, writing context graph/dom/pinState", "status": "pending", "verification": [], "commit": null }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "goal": "Extract overlays-presenter.ts (hover/edge preview/reader/selection panel).",
+      "acceptance": [
+        "npm run test --workspace=@llm-wiki/graph-engine exits 0 (incl overlays/preview tests)",
+        "npm run typecheck --workspace=@llm-wiki/graph-engine exits 0",
+        "bash tests/graph-workbench-interactions.regression-1.sh exits 0",
+        "bash tests/graph-offline-phase-6.regression-1.sh exits 0",
+        "overlays-presenter.ts does not call gesture classification or write semantic state"
+      ],
+      "status": "pending",
+      "tasks": [
+        { "id": "3.1", "title": "Extract overlays-presenter.ts: hover/edge preview + reader + selection panel via viewport anchors, read-only state", "status": "pending", "verification": [], "commit": null }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "goal": "Rename static-renderer.ts to graph-renderer-root.ts, slim it to assembly+delegation, update architecture owner map.",
+      "acceptance": [
+        "npm run test --workspace=@llm-wiki/graph-engine exits 0 (incl architecture.test.ts, renderer-boundary.test.ts)",
+        "npm run typecheck --workspace=@llm-wiki/graph-engine exits 0",
+        "npm run build --workspace=@llm-wiki/graph-engine exits 0",
+        "npm run typecheck --workspace=@llm-wiki-agent/web exits 0",
+        "rg -n 'static-renderer|createStaticGraphRenderer' packages/graph-engine/src packages/graph-engine/test prints nothing",
+        "bash tests/graph-workbench-interactions.regression-1.sh and bash tests/graph-offline-phase-6.regression-1.sh exit 0"
+      ],
+      "status": "pending",
+      "tasks": [
+        { "id": "4.1", "title": "Rename file + createGraphRenderer + public types; update facade.ts, render/index.ts, renderer-boundary.test.ts path strings; confirm root is assembly+delegation only", "status": "pending", "verification": [], "commit": null },
+        { "id": "4.2", "title": "Update architecture.ts owner map: add controller layer, point renderer entrypoints at render-pipeline/overlays-presenter", "status": "pending", "verification": [], "commit": null }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "goal": "Lock boundaries with tests and run final dual-target acceptance.",
+      "acceptance": [
+        "full acceptance command set all exit 0",
+        "fps >= 45 and >= baseline*0.9 (recorded)",
+        "old-name cleanup grep prints nothing; new-name presence grep prints matches",
+        "new boundary test passes",
+        "progress overall status = completed with residual risk recorded"
+      ],
+      "status": "pending",
+      "tasks": [
+        { "id": "5.1", "title": "Extend renderer-boundary.test.ts: prove controller doesn't draw (allows affordance), pipeline/presenter don't decide; include a runtime probe", "status": "pending", "verification": [], "commit": null },
+        { "id": "5.2", "title": "Run full acceptance + fps capture, record evidence and residual risk, mark complete", "status": "pending", "verification": [], "commit": null }
+      ]
+    }
+  ],
+  "residual_risk": [],
+  "turn_log": []
+}
