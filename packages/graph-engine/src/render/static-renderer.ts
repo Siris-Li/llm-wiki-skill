@@ -11,7 +11,7 @@ import type {
   ThemeId,
   WikiPath
 } from "../types";
-import { createLiveGraphSimulation, PinState, pinsToPositions, type LiveGraphSimulation } from "../sim";
+import { createLiveGraphSimulation, PinState, pinsToPositions } from "../sim";
 import { resolveSelectionForCapabilities } from "../select";
 import { getCommunityColor, getThemeTokens, themeTokensToCssVars } from "../themes";
 import {
@@ -20,7 +20,6 @@ import {
   makeEdgePathFromPoints,
   nodeDisplayModeForDensity,
   screenEffectiveDensityMode,
-  type DensityMode,
   type RenderableGraph,
   type RenderableNode,
   type RenderPositionMap
@@ -32,10 +31,8 @@ import {
   centerRendererViewportOnPoint,
   createViewportFrameCommitter,
   fitRendererViewportToPoints,
-  panRendererViewport,
   rendererViewportToMinimapRect,
   viewportAfterResize,
-  viewportAfterWheelZoom,
   type RendererViewport,
   type ViewportFrameCommitOptions
 } from "./viewport";
@@ -45,11 +42,8 @@ import { buildHoverPreview } from "./preview";
 import {
   defaultGraphViewportSize,
   sideExitWorldAnchor,
-  worldPointDeltaToLayerDelta,
-  type GraphWorldPoint
+  worldPointDeltaToLayerDelta
 } from "./geometry";
-import { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
-import { cancelGraphNodeDrag, commitGraphNodeDrag, type GraphNodeDragSession } from "./node-drag-lifecycle";
 import { graphEdgeHoverAnchor, graphNodeHoverAnchor, resolveGraphHoverPreviewPosition } from "./overlays";
 import { applyGraphNodeDisplayMode, createGraphNodeElement, type GraphNodeElementHandlers } from "./nodes";
 import { createGraphEdgeElement, type GraphEdgeElementHandlers } from "./edges";
@@ -62,20 +56,17 @@ import { classifyGraphKeyboardIntent, isTextEditingElement } from "./keyboard";
 import { createGraphRootElement, resetGraphRootScroll } from "./host-dom";
 import { createGraphHitTargetResolver } from "./hit-testing";
 import {
-  GraphGestureController,
-  GraphGestureStateMachine,
-  type GraphGestureActiveState,
-  type GraphGestureIntent,
-  type GraphGestureTargetLike
+  GraphGestureStateMachine
 } from "./gestures";
 import {
   nextToolbarPanelState,
   readToolbarPanelState,
   shouldBlankClickCloseToolbar,
   toolbarPanelStateAfterBlankClick,
-  writeToolbarPanelState,
-  type GraphToolbarPanelState
+  writeToolbarPanelState
 } from "./toolbar";
+import type { GraphRenderContext, PaintedGraphDom } from "./render-context";
+import { createGraphController, type GraphController } from "./controller";
 
 // 聚焦单个社区时，子集包围盒常很小；用默认 4× fit 会把少量节点放大成糊屏巨卡。
 // 聚焦 fit 限制到适度放大，让节点保持可读、社区居中留白（镜头推进而非贴脸）。
@@ -119,71 +110,6 @@ export interface StaticGraphRenderer {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-interface PaintedGraphDom {
-  contentLayer: HTMLElement | null;
-  svgElement: SVGSVGElement | null;
-  edgeElements: Map<string, SVGPathElement>;
-  communityWashElements: Map<string, SVGEllipseElement>;
-  nodeElements: Map<string, HTMLButtonElement>;
-  miniNodeElements: Map<string, SVGCircleElement>;
-  miniViewportElement: SVGRectElement | null;
-  basePoints: Map<string, { x: number; y: number }>;
-  readerElement: HTMLElement | null;
-  selectionElement: HTMLElement | null;
-  searchElement: HTMLElement | null;
-  searchInput: HTMLInputElement | null;
-  searchStatusElement: HTMLElement | null;
-  toolbarElement: HTMLElement | null;
-  toolbarPanelElement: HTMLElement | null;
-  legendElement: HTMLElement | null;
-  legendRows: Map<string, HTMLButtonElement>;
-  previewElement: HTMLElement | null;
-}
-
-interface GraphRendererCallbacks {
-  onNodeOpen?: (nodeId: NodeId) => void;
-  onSelectionInput?: (selection: SelectionInput) => void;
-  onSelectionClearRequested?: () => void;
-  onPinsChanged?: (pins: PinMap) => void;
-  onDragActiveChange?: (dragging: boolean) => void;
-}
-
-interface GraphRenderContext {
-  data: GraphData;
-  theme: ThemeId;
-  destroyed: boolean;
-  simulation: LiveGraphSimulation | null;
-  dom: PaintedGraphDom;
-  activeDiff: GraphDiff | null;
-  searchOpen: boolean;
-  searchQuery: string;
-  searchFocusedNodeId: NodeId | null;
-  typeFilters: GraphTypeFilters;
-  availableTypeFilters: GraphTypeFilters;
-  searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
-  previewTimer: ReturnType<typeof setTimeout> | null;
-  pathCache: ReturnType<typeof createRenderPathCache>;
-  root: HTMLElement;
-  toolbarContainer: HTMLElement;
-  hasExternalToolbarContainer: boolean;
-  ownerDocument: Document;
-  legendCollapsed: boolean;
-  toolbarPanelState: GraphToolbarPanelState;
-  viewportCommitter: ReturnType<typeof createViewportFrameCommitter>;
-  gestureMachine: GraphGestureStateMachine;
-  gestureController: GraphGestureController | null;
-  viewportAnimationTimer: ReturnType<typeof setTimeout> | null;
-  lastEffectiveDensityMode: DensityMode | null;
-  lastViewportSize: { width: number; height: number };
-  resizeObserver: ResizeObserver | null;
-  graph: RenderableGraph;
-  runtimeState: ReturnType<typeof createGraphRuntimeState>;
-  hitTargetResolver: ReturnType<typeof createGraphHitTargetResolver>;
-  pinState: PinState;
-  renderEpoch: number;
-  callbacks: GraphRendererCallbacks;
-}
-
 export function createStaticGraphRenderer(container: HTMLElement, options: StaticRendererOptions): StaticGraphRenderer {
   const initialPins = options.pins || {};
   const initialFocus = options.focus || null;
@@ -194,6 +120,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   ensureStaticRendererStyles(container.ownerDocument || document);
   const ownerDocument = container.ownerDocument || document;
   let context: GraphRenderContext;
+  let controller: GraphController;
   root.addEventListener("scroll", resetRootScroll, { passive: true });
   const handleDocumentKeydown = (event: KeyboardEvent) => {
     const keyboardIntent = classifyGraphKeyboardIntent({
@@ -230,8 +157,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (keyboardIntent === "cancel-active-gesture") {
       const intents = context.gestureMachine.escape();
       if (intents.length) {
-        applyGestureIntents(intents, null);
-        syncRuntimeGestureState();
+        controller.onGestureIntents(intents, null);
+        controller.syncRuntimeGestureState();
       }
       return;
     }
@@ -307,7 +234,18 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       onDragActiveChange: options.onDragActiveChange
     }
   };
-  context.gestureController = bindViewportHandlers();
+  controller = createGraphController(context, {
+    render,
+    viewportSize,
+    setViewportAnimating,
+    resetViewState,
+    selectCommunity,
+    closeToolbarPanel,
+    retreatFocusedView,
+    applyMotionFrame,
+    markPinnedNodes
+  });
+  context.gestureController = controller.bindViewportHandlers();
   bindResizeObserver();
 
   function render(next: Partial<StaticRendererOptions> & { selectedNodeId?: string | null; selection?: SelectionInput | null } = {}): void {
@@ -343,16 +281,10 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     applyTheme(context.root, context.theme);
     context.dom = paint(context.root, context.graph, context.theme, Boolean(context.callbacks.onNodeOpen), {
       onNodeClick: (id, additive) => {
-        handleNodeClick(id, additive);
+        controller.handleNodeClick(id, additive);
       },
       onNodeDoubleClick: (id) => {
-        if (!context.pinState.isPinned(id)) return false;
-        const nextState = context.pinState.unpin(id);
-        context.runtimeState.setPins(nextState.pins);
-        context.simulation?.setFixed(id, null);
-        markPinnedNodes(nextState.pinnedNodeIds);
-        context.callbacks.onPinsChanged?.(nextState.pins);
-        return true;
+        return controller.handleNodeDoubleClick(id);
       },
       onNodePreviewEnter: (id) => {
         scheduleHoverPreview(id);
@@ -801,290 +733,6 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     }
   }
 
-  function bindViewportHandlers(): GraphGestureController {
-    return new GraphGestureController(context.root, {
-      stateMachine: context.gestureMachine,
-      targetFromEventTarget: graphGestureTarget,
-      graphTargetFromScreenPoint: context.hitTargetResolver.targetFromScreenPoint,
-      onWheelZoom: (event, _decision, screenPoint) => {
-        setViewportAnimating(false);
-        context.viewportCommitter.schedule(viewportAfterWheelZoom(
-          context.runtimeState.snapshot().viewport,
-          { deltaY: event.deltaY, deltaMode: event.deltaMode },
-          screenPoint,
-          viewportSize(),
-          { worldBounds: context.graph.worldBounds }
-        ), { lightweight: true });
-      },
-      onPointerDown: (event, decision) => {
-        if (decision.intent !== "node-drag-candidate") context.root.focus({ preventScroll: true });
-        setViewportAnimating(false);
-      },
-      onGestureIntents: applyGestureIntents,
-      onActiveStateChange: syncRuntimeGestureState,
-      onBlankDoubleClick: (event) => {
-        resetViewState();
-      }
-    });
-  }
-
-  function applyGestureIntents(intents: GraphGestureIntent[], event: PointerEvent | null): void {
-    for (const intent of intents) {
-      switch (intent.kind) {
-        case "node-click":
-          if (intent.nodeId) context.dom.nodeElements.get(intent.nodeId)?.focus({ preventScroll: true });
-          if (intent.nodeId) handleNodeClick(intent.nodeId, intent.additive);
-          break;
-        case "node-drag-start":
-          if (intent.nodeId) handleNodeDragStart(intent.nodeId, intent.screenPoint);
-          break;
-        case "node-drag-move":
-          if (intent.nodeId) handleNodeDragMove(intent.nodeId, intent.pointerId, intent.screenPoint);
-          break;
-        case "node-drag-end":
-          if (intent.nodeId) handleNodeDragEnd(intent.nodeId, intent.pointerId, intent.screenPoint);
-          break;
-        case "node-drag-cancel":
-          if (intent.nodeId) handleNodeDragCancel(intent.nodeId, intent.pointerId);
-          break;
-        case "community-click":
-          if (intent.communityId) selectCommunity(intent.communityId);
-          break;
-        case "community-click-cancelled":
-          break;
-        case "blank-click":
-          handleBlankClick();
-          break;
-        case "blank-pan-start":
-          context.root.dataset.viewportDragging = "true";
-          break;
-        case "blank-pan-move":
-          context.root.dataset.viewportDragging = "true";
-          context.viewportCommitter.schedule(panRendererViewport(context.runtimeState.snapshot().viewport, intent.delta, viewportSize(), { worldBounds: context.graph.worldBounds }), { lightweight: true });
-          break;
-        case "blank-pan-end":
-        case "blank-pan-cancel":
-          delete context.root.dataset.viewportDragging;
-          break;
-      }
-    }
-  }
-
-  function handleNodeClick(id: NodeId, additive: boolean): void {
-    if (!additive) {
-      context.runtimeState.setSelection({ kind: "node", id }, "reader");
-      context.callbacks.onNodeOpen?.(id);
-      render();
-      focusRenderedNode(id);
-      return;
-    }
-    const nextSelection = shiftSelection(id, selectedNodeIds(context.runtimeState.snapshot().selection));
-    context.runtimeState.setSelection(nextSelection, "selection-panel");
-    context.callbacks.onSelectionInput?.(nextSelection);
-    render();
-    focusRenderedNode(id);
-  }
-
-  function focusRenderedNode(id: NodeId): void {
-    context.dom.nodeElements.get(id)?.focus({ preventScroll: true });
-  }
-
-  function handleNodeDragStart(id: NodeId, screenPoint: { x: number; y: number }): void {
-    if (!context.simulation) {
-      context.runtimeState.setActiveGesture(null);
-      return;
-    }
-    const active = context.runtimeState.snapshot().activeGesture;
-    if (active?.kind !== "node-drag" || active.nodeId !== id) return;
-    const grabOffset = active.grabOffset;
-    context.dom.nodeElements.get(id)?.classList.add("is-dragging");
-    context.simulation.beginDrag(id);
-    context.simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, grabOffset));
-    context.root.dataset.dragging = id;
-      context.callbacks.onDragActiveChange?.(true);
-  }
-
-  function handleNodeDragMove(id: NodeId, pointerId: number, screenPoint: { x: number; y: number }): void {
-    if (!context.simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
-    context.simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId)));
-  }
-
-  function handleNodeDragEnd(id: NodeId, pointerId: number, screenPoint: { x: number; y: number }): void {
-    if (!context.simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
-    const result = commitGraphNodeDrag({
-      nodeId: id,
-      simulation: context.simulation,
-      pinState: context.pinState,
-      finalWorldPoint: nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId))
-    });
-    context.runtimeState.setPins(result.pins);
-    applyMotionFrame(result.positions);
-    markPinnedNodes(result.pinnedNodeIds);
-    context.callbacks.onPinsChanged?.(result.pins);
-    context.dom.nodeElements.get(id)?.classList.remove("is-dragging");
-    delete context.root.dataset.dragging;
-    context.runtimeState.setActiveGesture(null);
-    context.callbacks.onDragActiveChange?.(false);
-  }
-
-  function handleNodeDragCancel(id: NodeId, pointerId: number): void {
-    if (!context.simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
-    const session = nodeDragSession(id, pointerId);
-    const result = cancelGraphNodeDrag({ session, simulation: context.simulation, pinState: context.pinState });
-    context.runtimeState.setPins(result.pins);
-    applyMotionFrame(result.positions);
-    markPinnedNodes(result.pinnedNodeIds);
-    context.dom.nodeElements.get(id)?.classList.remove("is-dragging");
-    delete context.root.dataset.dragging;
-    context.runtimeState.setActiveGesture(null);
-    context.callbacks.onDragActiveChange?.(false);
-  }
-
-  function handleBlankClick(): void {
-    delete context.root.dataset.viewportDragging;
-    // 真·单击空白（按下到抬起没拖动）：关弹层 → 退一层（聚焦态），与拖动平移互不冲突
-    if (shouldBlankClickCloseToolbar(context.toolbarPanelState)) {
-      closeToolbarPanel();
-      return;
-    }
-    if (context.runtimeState.snapshot().focus) retreatFocusedView();
-  }
-
-  function syncRuntimeGestureState(): void {
-    const active = context.gestureMachine.snapshot();
-    context.runtimeState.setActiveGesture(runtimeGestureFromActiveGesture(active));
-  }
-
-  function runtimeGestureFromActiveGesture(active: GraphGestureActiveState): GraphRuntimeStateSnapshot["activeGesture"] {
-    if (!active) return null;
-    if (active.kind === "node") {
-      return active.nodeId
-        ? {
-            kind: "node-drag",
-            pointerId: active.pointerId,
-            nodeId: active.nodeId,
-            grabOffset: nodeDragGrabOffsetFromActive(active),
-            startWorldPoint: nodeDragStartWorldPoint(active.nodeId),
-            wasPinned: nodeDragWasPinned(active.nodeId),
-            locked: active.locked
-          }
-        : null;
-    }
-    if (active.kind === "community-wash") {
-      return active.communityId
-        ? {
-            kind: "community-click",
-            pointerId: active.pointerId,
-            communityId: active.communityId,
-            locked: active.locked
-          }
-        : null;
-    }
-    return {
-      kind: "viewport-pan",
-      pointerId: active.pointerId,
-      lastScreenPoint: active.lastScreenPoint,
-      locked: active.locked
-    };
-  }
-
-  function graphGestureTarget(target: EventTarget | null): GraphGestureTargetLike | null {
-    return target instanceof Element ? target as Element & GraphGestureTargetLike : null;
-  }
-
-  function nodeDragSession(nodeId: NodeId, pointerId: number): GraphNodeDragSession {
-    const active = context.runtimeState.snapshot().activeGesture;
-    if (active?.kind === "node-drag" && active.nodeId === nodeId && active.pointerId === pointerId) {
-      return {
-        pointerId,
-        nodeId,
-        startWorldPoint: active.startWorldPoint,
-        wasPinned: active.wasPinned
-      };
-    }
-    const node = context.graph.nodes.find((item) => item.id === nodeId);
-    return {
-      pointerId,
-      nodeId,
-      startWorldPoint: node?.point || { x: 0, y: 0 },
-      wasPinned: context.pinState.isPinned(nodeId)
-    };
-  }
-
-  function nodeDragGrabOffset(nodeId: NodeId, pointerId: number): GraphWorldPoint {
-    const active = context.runtimeState.snapshot().activeGesture;
-    if (active?.kind === "node-drag" && active.nodeId === nodeId && active.pointerId === pointerId) {
-      return active.grabOffset;
-    }
-    return { x: 0, y: 0 };
-  }
-
-  function nodeDragGrabOffsetFromActive(active: NonNullable<Extract<GraphGestureActiveState, { kind: "node" }>>): GraphWorldPoint {
-    const existing = context.runtimeState.snapshot().activeGesture;
-    if (existing?.kind === "node-drag" && existing.nodeId === active.nodeId && existing.pointerId === active.pointerId) {
-      return existing.grabOffset;
-    }
-    if (!active.nodeId) return { x: 0, y: 0 };
-    return nodeDragStartSnapshot(active).grabOffset;
-  }
-
-  function nodeDragStartWorldPoint(nodeId: NodeId): GraphWorldPoint {
-    const existing = context.runtimeState.snapshot().activeGesture;
-    if (existing?.kind === "node-drag" && existing.nodeId === nodeId) return existing.startWorldPoint;
-    const pinnedStartPoint = pinsToPositions(context.graph, context.runtimeState.snapshot().pins)[nodeId];
-    if (pinnedStartPoint) return pinnedStartPoint;
-    return context.graph.nodes.find((item) => item.id === nodeId)?.point || { x: 0, y: 0 };
-  }
-
-  function nodeDragWasPinned(nodeId: NodeId): boolean {
-    const existing = context.runtimeState.snapshot().activeGesture;
-    if (existing?.kind === "node-drag" && existing.nodeId === nodeId) return existing.wasPinned;
-    return Boolean(pinsToPositions(context.graph, context.runtimeState.snapshot().pins)[nodeId]) || context.pinState.isPinned(nodeId);
-  }
-
-  function nodeDragStartSnapshot(active: NonNullable<Extract<GraphGestureActiveState, { kind: "node" }>>): {
-    grabOffset: GraphWorldPoint;
-    startWorldPoint: GraphWorldPoint;
-    wasPinned: boolean;
-  } {
-    if (!active.nodeId) {
-      return { grabOffset: { x: 0, y: 0 }, startWorldPoint: { x: 0, y: 0 }, wasPinned: false };
-    }
-    const node = context.graph.nodes.find((item) => item.id === active.nodeId);
-    if (!node) {
-      return { grabOffset: { x: 0, y: 0 }, startWorldPoint: { x: 0, y: 0 }, wasPinned: false };
-    }
-    const drag = beginGraphNodeDrag({
-      nodeWorldPoint: node.point,
-      pointerScreenPoint: active.startScreenPoint,
-      viewport: context.runtimeState.snapshot().viewport,
-      viewportSize: viewportSize(),
-      worldBounds: context.graph.worldBounds
-    });
-    const pinnedStartPoint = pinsToPositions(context.graph, context.runtimeState.snapshot().pins)[active.nodeId];
-    return {
-      grabOffset: drag.grabOffset,
-      startWorldPoint: pinnedStartPoint || drag.targetWorldPoint,
-      wasPinned: Boolean(pinnedStartPoint) || context.pinState.isPinned(active.nodeId)
-    };
-  }
-
-  function isRuntimeNodeDrag(nodeId: NodeId, pointerId: number, locked?: boolean): boolean {
-    const active = context.runtimeState.snapshot().activeGesture;
-    if (active?.kind !== "node-drag" || active.nodeId !== nodeId || active.pointerId !== pointerId) return false;
-    return locked === undefined ? true : active.locked === locked;
-  }
-
-  function nodeDragTargetFromScreenPoint(screenPoint: { x: number; y: number }, grabOffset: GraphWorldPoint): GraphWorldPoint {
-    return resolveGraphNodeDragTarget({
-      pointerScreenPoint: screenPoint,
-      viewport: context.runtimeState.snapshot().viewport,
-      viewportSize: viewportSize(),
-      worldBounds: context.graph.worldBounds,
-      grabOffset
-    });
-  }
-
   function bindResizeObserver(): void {
     const ViewResizeObserver = context.root.ownerDocument.defaultView?.ResizeObserver;
     if (!ViewResizeObserver) return;
@@ -1479,22 +1127,6 @@ function initialViewportSize(root: HTMLElement): { width: number; height: number
   const rect = root.getBoundingClientRect();
   const fallback = defaultGraphViewportSize();
   return { width: rect.width || fallback.width, height: rect.height || fallback.height };
-}
-
-function selectedNodeIds(selection: SelectionInput | null): NodeId[] {
-  if (!selection) return [];
-  if (selection.kind === "node" || selection.kind === "neighbors") return [selection.id];
-  if (selection.kind === "nodes") return selection.ids;
-  return [];
-}
-
-function shiftSelection(id: NodeId, current: NodeId[]): SelectionInput {
-  const selected = new Set(current);
-  if (selected.has(id)) selected.delete(id);
-  else selected.add(id);
-  const ids = Array.from(selected);
-  if (ids.length === 1) return { kind: "node", id: ids[0] };
-  return { kind: "nodes", ids };
 }
 
 function emptyPaintedDom(): PaintedGraphDom {

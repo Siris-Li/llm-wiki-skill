@@ -4,8 +4,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-1",
-    "task": "1.2",
-    "next_allowed_action": "Extract controller.ts for gesture intent dispatch, node/blank handlers, drag helpers, and viewport handler wiring."
+    "task": "1.3",
+    "next_allowed_action": "Move semantic commands and keyboard routing into controller; search-state fields are already in context."
   },
   "execution_rules": {
     "branch": "feat/graph-renderer-coordination-split",
@@ -179,7 +179,48 @@
             }
           ]
         },
-        { "id": "1.2", "title": "Extract controller.ts: gesture intent dispatch, handleNode*/handleBlankClick, node-drag helpers, bindViewportHandlers wiring; writes pinState/drives simulation/toggles is-dragging+focus; no paint/mount, no render-model computation", "status": "pending", "verification": [] },
+        {
+          "id": "1.2",
+          "title": "Extract controller.ts: gesture intent dispatch, handleNode*/handleBlankClick, node-drag helpers, bindViewportHandlers wiring; writes pinState/drives simulation/toggles is-dragging+focus; no paint/mount, no render-model computation",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "git log --oneline -15",
+              "exit": 0,
+              "evidence": "task 1.1 commit present: db6070b refactor: introduce graph render context [task 1.1]"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "265 tests passed, 0 failed before starting 1.2 and after controller extraction"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "tsc --noEmit completed after controller extraction"
+            },
+            {
+              "command": "bash -lc '! rg -n \"\\\\bpaint\\\\b|mount[A-Z]|createGraphNodeElement|createGraphEdgeElement|createCommunityWashElement|buildRenderableGraph|createGraphMinimap\" packages/graph-engine/src/render/controller.ts'",
+              "exit": 0,
+              "evidence": "controller.ts has no paint/mount calls, drawing-piece create imports, or render-model build call matches"
+            },
+            {
+              "command": "git diff --check",
+              "exit": 0,
+              "evidence": "no whitespace errors"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: graph workbench interaction regression"
+            },
+            {
+              "command": "bash tests/graph-offline-phase-6.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: phase 6 offline graph regression"
+            }
+          ]
+        },
         { "id": "1.3", "title": "Move semantic commands + keyboard routing into controller; search-state fields move into context", "status": "pending", "verification": [] }
       ]
     },
@@ -270,6 +311,11 @@
       "task": "1.1",
       "status": "completed",
       "notes": "Introduced root-owned GraphRenderContext in static-renderer.ts and moved context-owned closure state access behind the context object without user-visible behavior changes."
+    },
+    {
+      "task": "1.2",
+      "status": "completed",
+      "notes": "Extracted controller.ts for gesture intent dispatch, viewport handler wiring, node click/drag, blank click, and node-drag helpers; static-renderer now creates and delegates to the controller."
     }
   ]
 }
