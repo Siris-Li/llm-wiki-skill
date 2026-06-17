@@ -4,7 +4,6 @@ import type {
   GraphTypeFilters,
   GraphData,
   GraphDiff,
-  GraphNode,
   NodeId,
   PinMap,
   SelectionInput,
@@ -12,22 +11,16 @@ import type {
   WikiPath
 } from "../types";
 import { PinState } from "../sim";
-import { resolveSelectionForCapabilities } from "../select";
 import {
   buildRenderableGraph,
   createRenderPathCache,
-  type RenderableGraph,
-  type RenderableNode
+  type RenderableGraph
 } from "./model";
 import {
   DEFAULT_RENDERER_VIEWPORT,
   createViewportFrameCommitter
 } from "./viewport";
-import { createGraphRuntimeState, type GraphRuntimeStateSnapshot } from "./state";
-import { buildHoverPreview } from "./preview";
-import { graphEdgeHoverAnchor, graphNodeHoverAnchor, resolveGraphHoverPreviewPosition } from "./overlays";
-import { createEdgeHoverPreviewContent, createHoverPreviewContent } from "./hover-card";
-import { renderOfflineReader, renderOfflineSelectionPanel } from "./offline-reader";
+import { createGraphRuntimeState } from "./state";
 import { createGraphRootElement } from "./host-dom";
 import { createGraphHitTargetResolver } from "./hit-testing";
 import {
@@ -44,6 +37,7 @@ import {
   readLegendCollapsed,
   type GraphRenderPipeline
 } from "./render-pipeline";
+import { createGraphOverlaysPresenter, type GraphOverlaysPresenter } from "./overlays-presenter";
 
 // 聚焦单个社区时，子集包围盒常很小；用默认 4× fit 会把少量节点放大成糊屏巨卡。
 // 聚焦 fit 限制到适度放大，让节点保持可读、社区居中留白（镜头推进而非贴脸）。
@@ -101,6 +95,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   let context: GraphRenderContext;
   let controller: GraphController;
   let pipeline: GraphRenderPipeline;
+  let presenter: GraphOverlaysPresenter;
   const initialGraph = buildRenderableGraph(options.data, {
     pins: initialPins,
     theme: options.theme,
@@ -166,11 +161,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       onDragActiveChange: options.onDragActiveChange
     }
   };
+  presenter = createGraphOverlaysPresenter(context, {
+    viewportSize: () => pipeline.viewportSize(),
+    clearInteractionState: () => controller.clearInteractionState()
+  });
   controller = createGraphController(context, {
     render,
     viewportSize: () => pipeline.viewportSize(),
     setViewportAnimating: (enabled) => pipeline.setViewportAnimating(enabled),
-    setGraphHover,
+    setGraphHover: (hover) => presenter.setGraphHover(hover),
     applyMotionFrame: (positions) => pipeline.applyMotionFrame(positions),
     markPinnedNodes: (pinnedNodeIds) => pipeline.markPinnedNodes(pinnedNodeIds),
     focusFitMaxScale: FOCUS_FIT_MAX_SCALE
@@ -188,14 +187,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       selectCommunity: (id) => controller.selectCommunity(id),
       handleNodeClick: (id, additive) => controller.handleNodeClick(id, additive),
       handleNodeDoubleClick: (id) => controller.handleNodeDoubleClick(id),
-      scheduleHoverPreview,
-      showEdgeHoverPreview,
-      clearHoverPreview
+      scheduleHoverPreview: (id) => presenter.scheduleHoverPreview(id),
+      showEdgeHoverPreview: (id) => presenter.showEdgeHoverPreview(id),
+      clearHoverPreview: () => presenter.clearHoverPreview()
     },
     overlays: {
-      renderReader,
-      renderSelectionPanel,
-      renderHoverPreview
+      renderReader: () => presenter.renderReader(),
+      renderSelectionPanel: () => presenter.renderSelectionPanel(),
+      renderHoverPreview: () => presenter.renderHoverPreview()
     }
   });
   context.root.addEventListener("scroll", pipeline.resetRootScroll, { passive: true });
@@ -281,12 +280,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       if (context.destroyed) return;
       context.destroyed = true;
       pipeline.destroy();
+      presenter.destroy();
       context.root.removeEventListener("scroll", pipeline.resetRootScroll);
       context.ownerDocument.removeEventListener("keydown", controller.handleDocumentKeydown);
       context.gestureController?.destroy();
       context.gestureController = null;
-      if (context.previewTimer) clearTimeout(context.previewTimer);
-      context.previewTimer = null;
       context.pathCache.clear();
       context.root.remove();
       if (context.hasExternalToolbarContainer && context.dom.toolbarElement && context.toolbarContainer.contains(context.dom.toolbarElement)) {
@@ -295,138 +293,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     }
   };
 
-  function panelSelection(snapshot: GraphRuntimeStateSnapshot = context.runtimeState.snapshot()): SelectionInput | null {
-    return snapshot.selectionSurface === "selection-panel" ? snapshot.selection : null;
-  }
-
-  function readerNodeId(snapshot: GraphRuntimeStateSnapshot = context.runtimeState.snapshot()): NodeId | null {
-    return snapshot.selectionSurface === "reader" && snapshot.selection?.kind === "node" ? snapshot.selection.id : null;
-  }
-
   function assertActive(): void {
     if (context.destroyed) throw new Error("Graph renderer has been destroyed");
-  }
-
-  function renderReader(): void {
-    const reader = context.dom.readerElement;
-    if (!reader) return;
-    const selected = context.graph.selectedNodeId ? context.graph.nodes.find((node) => node.id === context.graph.selectedNodeId) : null;
-    const rawNode = selected ? context.data.nodes.find((node) => node.id === selected.id) : null;
-    renderOfflineReader(context.ownerDocument, reader, {
-      selected: selected
-        ? {
-            id: selected.id,
-            label: selected.label,
-            type: selected.type,
-            content: rawNode?.content ? String(rawNode.content) : undefined,
-            summary: rawNode?.summary ? String(rawNode.summary) : undefined
-          }
-        : null,
-      rawNode: rawNode || null,
-      onClose: () => controller.clearInteractionState()
-    });
-  }
-
-  function renderSelectionPanel(): void {
-    const panel = context.dom.selectionElement;
-    if (!panel) return;
-    const selection = panelSelection();
-    const resolved = selection ? resolveSelectionForCapabilities(context.data, selection, { canAsk: false }) : null;
-    const selectedNodes = resolved
-      ? resolved.nodeIds
-      .map((id) => context.data.nodes.find((node) => node.id === id))
-      .filter((node): node is GraphNode => Boolean(node))
-      : [];
-    renderOfflineSelectionPanel(context.ownerDocument, panel, {
-      selection,
-      selectedNodes,
-      facts: resolved?.facts || null,
-      onClose: () => controller.clearInteractionState()
-    });
-  }
-
-  function scheduleHoverPreview(id: NodeId): void {
-    if (context.previewTimer) clearTimeout(context.previewTimer);
-    context.previewTimer = setTimeout(() => {
-      context.previewTimer = null;
-      setGraphHover({ kind: "node", id });
-      renderHoverPreview();
-    }, 300);
-  }
-
-  function showEdgeHoverPreview(id: string): void {
-    if (context.previewTimer) {
-      clearTimeout(context.previewTimer);
-      context.previewTimer = null;
-    }
-    setGraphHover({ kind: "edge", id });
-    renderHoverPreview();
-  }
-
-  function clearHoverPreview(): void {
-    if (context.previewTimer) {
-      clearTimeout(context.previewTimer);
-      context.previewTimer = null;
-    }
-    const hover = context.runtimeState.snapshot().hover;
-    if (hover?.kind !== "node" && hover?.kind !== "edge") return;
-    setGraphHover(null);
-    renderHoverPreview();
-  }
-
-  function setGraphHover(hover: GraphRuntimeStateSnapshot["hover"]): GraphRuntimeStateSnapshot {
-    return context.runtimeState.setHover(hover);
-  }
-
-  function renderHoverPreview(): void {
-    const preview = context.dom.previewElement;
-    if (!preview) return;
-    const hover = context.runtimeState.snapshot().hover;
-    const edge = hover?.kind === "edge" ? context.graph.edges.find((item) => item.id === hover.id) : null;
-    const rawNode = hover?.kind === "node" ? context.data.nodes.find((node) => node.id === hover.id) : null;
-    const renderedNode = hover?.kind === "node" ? context.graph.nodes.find((node) => node.id === hover.id) : null;
-    preview.replaceChildren();
-    preview.dataset.kind = edge ? "edge" : "node";
-    if (edge) {
-      preview.dataset.state = "open";
-      preview.append(createEdgeHoverPreviewContent(context.ownerDocument, edge.relationType, edge.confidence));
-      positionEdgeHoverPreview(preview, edge);
-      return;
-    }
-    preview.dataset.state = rawNode && renderedNode ? "open" : "closed";
-    if (!rawNode || !renderedNode) return;
-    const content = buildHoverPreview(rawNode);
-    preview.append(createHoverPreviewContent(context.ownerDocument, content));
-    positionHoverPreview(preview, renderedNode);
-  }
-
-  function positionHoverPreview(preview: HTMLElement, node: RenderableNode): void {
-    const previewRect = preview.getBoundingClientRect();
-    const size = pipeline.viewportSize();
-    const position = resolveGraphHoverPreviewPosition({
-      anchorScreenPoint: graphNodeHoverAnchor(node, context.runtimeState.snapshot().viewport, size, context.graph.worldBounds),
-      previewSize: { width: previewRect.width, height: previewRect.height },
-      viewportSize: size,
-      offset: { x: 18, y: -previewRect.height - 24 },
-      margin: 12
-    });
-    preview.style.left = `${position.x}px`;
-    preview.style.top = `${position.y}px`;
-  }
-
-  function positionEdgeHoverPreview(preview: HTMLElement, edge: RenderableGraph["edges"][number]): void {
-    const previewRect = preview.getBoundingClientRect();
-    const source = context.graph.nodes.find((node) => node.id === edge.source);
-    const target = context.graph.nodes.find((node) => node.id === edge.target);
-    const size = pipeline.viewportSize();
-    const position = resolveGraphHoverPreviewPosition({
-      anchorScreenPoint: graphEdgeHoverAnchor({ source, target }, context.runtimeState.snapshot().viewport, size, context.graph.worldBounds),
-      previewSize: { width: previewRect.width, height: previewRect.height },
-      viewportSize: size,
-      offset: { x: 16, y: -previewRect.height - 16 },
-      margin: 12
-    });
-    preview.style.left = `${position.x}px`;
-    preview.style.top = `${position.y}px`;
   }
 }
