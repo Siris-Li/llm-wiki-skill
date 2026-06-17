@@ -2,10 +2,10 @@
   "plan": "docs/plans/2026-06-17-graph-renderer-coordination-split-phased-plan.md",
   "spec": "docs/spark/2026-06-17-static-renderer-coordination-split-design.md",
   "status": {
-    "overall": "in_progress",
+    "overall": "completed",
     "phase": "phase-5",
     "task": "5.2",
-    "next_allowed_action": "Run full acceptance command set, capture fps evidence, record residual risk, and mark final status."
+    "next_allowed_action": "none; plan complete"
   },
   "execution_rules": {
     "branch": "feat/graph-renderer-coordination-split",
@@ -554,7 +554,7 @@
         "new boundary test passes",
         "progress overall status = completed with residual risk recorded"
       ],
-      "status": "in_progress",
+      "status": "completed",
       "tasks": [
         {
           "id": "5.1",
@@ -593,11 +593,89 @@
             }
           ]
         },
-        { "id": "5.2", "title": "Run full acceptance + fps capture, record evidence and residual risk, mark complete", "status": "pending", "verification": [] }
+        {
+          "id": "5.2",
+          "title": "Run full acceptance + fps capture, record evidence and residual risk, mark complete",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "git log --oneline -15",
+              "exit": 0,
+              "evidence": "task 5.1 commit present: 0926313 test: lock graph renderer boundaries [task 5.1]"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "271 tests passed, 0 failed before final acceptance"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "tsc --noEmit completed"
+            },
+            {
+              "command": "npm run build --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "vite build and declarations completed"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki-agent/web",
+              "exit": 0,
+              "evidence": "29 tests passed, 0 failed"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki-agent/web",
+              "exit": 0,
+              "evidence": "tsc -b --noEmit completed after graph-engine pretypecheck build"
+            },
+            {
+              "command": "npm run build --workspace=@llm-wiki-agent/web",
+              "exit": 0,
+              "evidence": "vite production build completed after graph-engine prebuild; emitted existing chunk-size warning only"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: graph workbench interaction regression"
+            },
+            {
+              "command": "bash tests/graph-offline-phase-6.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: phase 6 offline graph regression"
+            },
+            {
+              "command": "bash tests/graph-community-wash-interactions.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: graph community wash interaction regression"
+            },
+            {
+              "command": "bash /tmp/s45.sh --target offline",
+              "exit": 0,
+              "evidence": "PASS: stage 4.5 browser regression (offline); retained artifact reports dense wheel fps 49.3, above fps floor 45 and above baseline*0.9 = 45.18"
+            },
+            {
+              "command": "bash -lc '! rg -n \"static-renderer|createStaticGraphRenderer\" packages/graph-engine/src packages/graph-engine/test'",
+              "exit": 0,
+              "evidence": "old renderer root names absent from graph-engine source and tests"
+            },
+            {
+              "command": "rg -n \"graph-renderer-root|createGraphRenderer|GraphRenderContext|controller\\.ts|render-pipeline\\.ts|overlays-presenter\\.ts\" packages/graph-engine/src",
+              "exit": 0,
+              "evidence": "new renderer root name, factory, context, controller, pipeline, and presenter names are present in source"
+            },
+            {
+              "command": "git diff --check",
+              "exit": 0,
+              "evidence": "no whitespace errors"
+            }
+          ]
+        }
       ]
     }
   ],
-  "residual_risk": [],
+  "residual_risk": [
+    "This was a pure code-move and boundary-test hardening; no user-visible behavior changes were intended. Final acceptance passed across graph-engine, web, interaction regressions, and fps. Residual risk is limited to browser/environment variance in fps measurements; final measured dense wheel fps was 49.3 against floor 45 and baseline*0.9 = 45.18."
+  ],
   "turn_log": [
     {
       "task": "0.1",
@@ -658,6 +736,11 @@
       "task": "5.1",
       "status": "completed",
       "notes": "Expanded renderer-boundary.test.ts with controller/pipeline/presenter ownership checks, fake-event command wiring coverage, injected-command wiring guards, and lifecycle/async teardown probes; boundary test count rose to 271 pass."
+    },
+    {
+      "task": "5.2",
+      "status": "completed",
+      "notes": "Ran the full final acceptance set, confirmed old renderer names are gone and new names are present, captured dense-wheel fps 49.3, recorded residual risk, and marked the plan complete."
     }
   ]
 }
