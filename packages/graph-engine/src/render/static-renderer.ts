@@ -140,30 +140,60 @@ interface PaintedGraphDom {
   previewElement: HTMLElement | null;
 }
 
+interface GraphRendererCallbacks {
+  onNodeOpen?: (nodeId: NodeId) => void;
+  onSelectionInput?: (selection: SelectionInput) => void;
+  onSelectionClearRequested?: () => void;
+  onPinsChanged?: (pins: PinMap) => void;
+  onDragActiveChange?: (dragging: boolean) => void;
+}
+
+interface GraphRenderContext {
+  data: GraphData;
+  theme: ThemeId;
+  destroyed: boolean;
+  simulation: LiveGraphSimulation | null;
+  dom: PaintedGraphDom;
+  activeDiff: GraphDiff | null;
+  searchOpen: boolean;
+  searchQuery: string;
+  searchFocusedNodeId: NodeId | null;
+  typeFilters: GraphTypeFilters;
+  availableTypeFilters: GraphTypeFilters;
+  searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
+  previewTimer: ReturnType<typeof setTimeout> | null;
+  pathCache: ReturnType<typeof createRenderPathCache>;
+  root: HTMLElement;
+  toolbarContainer: HTMLElement;
+  hasExternalToolbarContainer: boolean;
+  ownerDocument: Document;
+  legendCollapsed: boolean;
+  toolbarPanelState: GraphToolbarPanelState;
+  viewportCommitter: ReturnType<typeof createViewportFrameCommitter>;
+  gestureMachine: GraphGestureStateMachine;
+  gestureController: GraphGestureController | null;
+  viewportAnimationTimer: ReturnType<typeof setTimeout> | null;
+  lastEffectiveDensityMode: DensityMode | null;
+  lastViewportSize: { width: number; height: number };
+  resizeObserver: ResizeObserver | null;
+  graph: RenderableGraph;
+  runtimeState: ReturnType<typeof createGraphRuntimeState>;
+  hitTargetResolver: ReturnType<typeof createGraphHitTargetResolver>;
+  pinState: PinState;
+  renderEpoch: number;
+  callbacks: GraphRendererCallbacks;
+}
+
 export function createStaticGraphRenderer(container: HTMLElement, options: StaticRendererOptions): StaticGraphRenderer {
-  let data = options.data;
   const initialPins = options.pins || {};
   const initialFocus = options.focus || null;
-  let theme = options.theme;
-  let destroyed = false;
-  let simulation: LiveGraphSimulation | null = null;
-  let dom: PaintedGraphDom = emptyPaintedDom();
-  let activeDiff: GraphDiff | null = null;
-  let searchOpen = false;
-  let searchQuery = "";
-  let searchFocusedNodeId: NodeId | null = null;
-  let typeFilters: GraphTypeFilters = options.typeFilters || {};
-  let availableTypeFilters: GraphTypeFilters = {};
-  let searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
-  let previewTimer: ReturnType<typeof setTimeout> | null = null;
   const pathCache = createRenderPathCache();
   const root = createGraphRootElement(container);
   const toolbarContainer = options.toolbarContainer || root;
   const hasExternalToolbarContainer = toolbarContainer !== root;
   ensureStaticRendererStyles(container.ownerDocument || document);
   const ownerDocument = container.ownerDocument || document;
-  let legendCollapsed = readLegendCollapsed(ownerDocument);
-  let toolbarPanelState: GraphToolbarPanelState = readToolbarPanelState(ownerDocument.defaultView?.localStorage);
+  let context: GraphRenderContext;
   root.addEventListener("scroll", resetRootScroll, { passive: true });
   const handleDocumentKeydown = (event: KeyboardEvent) => {
     const keyboardIntent = classifyGraphKeyboardIntent({
@@ -171,10 +201,10 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       ctrlKey: event.ctrlKey,
       metaKey: event.metaKey,
       graphFocused: isGraphKeyboardFocusActive(),
-      activeGesture: Boolean(gestureMachine.snapshot()),
-      textEditingTarget: isTextEditingElement(ownerDocument.activeElement),
-      searchActive: Boolean(searchOpen || searchQuery || searchFocusedNodeId),
-      toolbarOpen: shouldBlankClickCloseToolbar(toolbarPanelState),
+      activeGesture: Boolean(context.gestureMachine.snapshot()),
+      textEditingTarget: isTextEditingElement(context.ownerDocument.activeElement),
+      searchActive: Boolean(context.searchOpen || context.searchQuery || context.searchFocusedNodeId),
+      toolbarOpen: shouldBlankClickCloseToolbar(context.toolbarPanelState),
       interactionActive: hasInteractionState()
     });
 
@@ -198,7 +228,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       return;
     }
     if (keyboardIntent === "cancel-active-gesture") {
-      const intents = gestureMachine.escape();
+      const intents = context.gestureMachine.escape();
       if (intents.length) {
         applyGestureIntents(intents, null);
         syncRuntimeGestureState();
@@ -206,89 +236,122 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       return;
     }
 
-    if (runtimeState.snapshot().focus) {
+    if (context.runtimeState.snapshot().focus) {
       resetViewState();
       return;
     }
     clearInteractionState();
   };
   ownerDocument.addEventListener("keydown", handleDocumentKeydown);
-  const viewportCommitter = createViewportFrameCommitter(commitViewport, root.ownerDocument.defaultView || undefined);
-  const gestureMachine = new GraphGestureStateMachine({ dragThreshold: 4 });
-  let gestureController: GraphGestureController | null = null;
-  let viewportAnimationTimer: ReturnType<typeof setTimeout> | null = null;
-  let lastEffectiveDensityMode: DensityMode | null = null;
-  let lastViewportSize = viewportSize();
-  let resizeObserver: ResizeObserver | null = null;
 
-  let graph = buildRenderableGraph(data, {
+  const initialGraph = buildRenderableGraph(options.data, {
     pins: initialPins,
-    theme,
+    theme: options.theme,
     selectedNodeId: null,
     selection: null,
     focus: initialFocus,
-    typeFilters,
+    typeFilters: options.typeFilters || {},
     pathCache
   });
   const runtimeState = createGraphRuntimeState({
     viewport: DEFAULT_RENDERER_VIEWPORT,
-    positions: positionsFromRenderableGraph(graph),
+    positions: positionsFromRenderableGraph(initialGraph),
     pins: initialPins,
     selection: null,
     selectionSurface: null,
     focus: initialFocus
   });
   const hitTargetResolver = createGraphHitTargetResolver({
-    graph: () => graph,
-    viewport: () => runtimeState.snapshot().viewport,
+    graph: () => context.graph,
+    viewport: () => context.runtimeState.snapshot().viewport,
     viewportSize
   });
-  let pinState = new PinState(graph, runtimeState.snapshot().pins);
-  gestureController = bindViewportHandlers();
+  context = {
+    data: options.data,
+    theme: options.theme,
+    destroyed: false,
+    simulation: null,
+    dom: emptyPaintedDom(),
+    activeDiff: null,
+    searchOpen: false,
+    searchQuery: "",
+    searchFocusedNodeId: null,
+    typeFilters: options.typeFilters || {},
+    availableTypeFilters: {},
+    searchIndex: undefined,
+    previewTimer: null,
+    pathCache,
+    root,
+    toolbarContainer,
+    hasExternalToolbarContainer,
+    ownerDocument,
+    legendCollapsed: readLegendCollapsed(ownerDocument),
+    toolbarPanelState: readToolbarPanelState(ownerDocument.defaultView?.localStorage),
+    viewportCommitter: createViewportFrameCommitter(commitViewport, root.ownerDocument.defaultView || undefined),
+    gestureMachine: new GraphGestureStateMachine({ dragThreshold: 4 }),
+    gestureController: null,
+    viewportAnimationTimer: null,
+    lastEffectiveDensityMode: null,
+    lastViewportSize: initialViewportSize(root),
+    resizeObserver: null,
+    graph: initialGraph,
+    runtimeState,
+    hitTargetResolver,
+    pinState: new PinState(initialGraph, runtimeState.snapshot().pins),
+    renderEpoch: 0,
+    callbacks: {
+      onNodeOpen: options.onNodeOpen,
+      onSelectionInput: options.onSelectionInput,
+      onSelectionClearRequested: options.onSelectionClearRequested,
+      onPinsChanged: options.onPinsChanged,
+      onDragActiveChange: options.onDragActiveChange
+    }
+  };
+  context.gestureController = bindViewportHandlers();
   bindResizeObserver();
 
   function render(next: Partial<StaticRendererOptions> & { selectedNodeId?: string | null; selection?: SelectionInput | null } = {}): void {
     assertActive();
-    data = next.data || data;
-    theme = next.theme || theme;
-    if (Object.hasOwn(next, "typeFilters")) typeFilters = next.typeFilters || {};
-    if (Object.hasOwn(next, "pins")) runtimeState.setPins(next.pins || {});
-    if (Object.hasOwn(next, "focus")) runtimeState.setFocus(next.focus || null);
+    context.data = next.data || context.data;
+    context.theme = next.theme || context.theme;
+    if (Object.hasOwn(next, "typeFilters")) context.typeFilters = next.typeFilters || {};
+    if (Object.hasOwn(next, "pins")) context.runtimeState.setPins(next.pins || {});
+    if (Object.hasOwn(next, "focus")) context.runtimeState.setFocus(next.focus || null);
     if (Object.hasOwn(next, "selectedNodeId")) {
       const id = next.selectedNodeId || null;
-      runtimeState.setSelection(id ? { kind: "node", id } : null, id ? "reader" : null);
+      context.runtimeState.setSelection(id ? { kind: "node", id } : null, id ? "reader" : null);
     }
     if (Object.hasOwn(next, "selection")) {
-      runtimeState.setSelection(next.selection || null, next.selection ? "selection-panel" : null);
+      context.runtimeState.setSelection(next.selection || null, next.selection ? "selection-panel" : null);
     }
-    const runtimeSnapshot = runtimeState.snapshot();
+    const runtimeSnapshot = context.runtimeState.snapshot();
     const renderSelection = rendererSelectionFromRuntimeState(runtimeSnapshot);
-    graph = buildRenderableGraph(data, {
+    context.graph = buildRenderableGraph(context.data, {
       pins: runtimeSnapshot.pins,
-      theme,
+      theme: context.theme,
       selectedNodeId: renderSelection.selectedNodeId,
       selection: renderSelection.selection,
       focus: runtimeSnapshot.focus,
-      typeFilters,
-      pathCache
+      typeFilters: context.typeFilters,
+      pathCache: context.pathCache
     });
-    runtimeState.setPositions(positionsFromRenderableGraph(graph));
-    availableTypeFilters = graph.typeFilters;
-    searchIndex = undefined;
-    pinState = new PinState(graph, runtimeState.snapshot().pins);
-    hitTargetResolver.refresh();
-    applyTheme(root, theme);
-    dom = paint(root, graph, theme, Boolean(options.onNodeOpen), {
+    context.runtimeState.setPositions(positionsFromRenderableGraph(context.graph));
+    context.availableTypeFilters = context.graph.typeFilters;
+    context.searchIndex = undefined;
+    context.pinState = new PinState(context.graph, context.runtimeState.snapshot().pins);
+    context.hitTargetResolver.refresh();
+    applyTheme(context.root, context.theme);
+    context.dom = paint(context.root, context.graph, context.theme, Boolean(context.callbacks.onNodeOpen), {
       onNodeClick: (id, additive) => {
         handleNodeClick(id, additive);
       },
       onNodeDoubleClick: (id) => {
-        if (!pinState.isPinned(id)) return false;
-        const nextState = pinState.unpin(id);
-        runtimeState.setPins(nextState.pins);
-        simulation?.setFixed(id, null);
+        if (!context.pinState.isPinned(id)) return false;
+        const nextState = context.pinState.unpin(id);
+        context.runtimeState.setPins(nextState.pins);
+        context.simulation?.setFixed(id, null);
         markPinnedNodes(nextState.pinnedNodeIds);
-        options.onPinsChanged?.(nextState.pins);
+        context.callbacks.onPinsChanged?.(nextState.pins);
         return true;
       },
       onNodePreviewEnter: (id) => {
@@ -304,13 +367,13 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         clearHoverPreview();
       }
     });
-    lastEffectiveDensityMode = null;
+    context.lastEffectiveDensityMode = null;
     mountSearchControl();
     mountGraphToolbar();
-    applySearchQuery(searchQuery);
+    applySearchQuery(context.searchQuery);
     applyCommunityHover();
-    commitViewport(runtimeState.snapshot().viewport);
-    if (activeDiff && root.dataset.diffState === "playing") markDiffElements(activeDiff);
+    commitViewport(context.runtimeState.snapshot().viewport);
+    if (context.activeDiff && context.root.dataset.diffState === "playing") markDiffElements(context.activeDiff);
     renderReader();
     renderSelectionPanel();
     renderHoverPreview();
@@ -320,9 +383,9 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   render();
 
   return {
-    root,
+    root: context.root,
     get graph() {
-      return graph;
+      return context.graph;
     },
     render,
     applyDiff(diff, animationOptions = {}): Promise<void> {
@@ -330,23 +393,23 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       return animateDiff(diff, animationOptions);
     },
     isDragging(): boolean {
-      return runtimeState.snapshot().activeGesture?.kind === "node-drag";
+      return context.runtimeState.snapshot().activeGesture?.kind === "node-drag";
     },
     setData(nextData: GraphData, nextPins?: PinMap): void {
       clearTransientInteractionForDataRefresh();
-      render({ data: nextData, pins: nextPins ?? runtimeState.snapshot().pins });
+      render({ data: nextData, pins: nextPins ?? context.runtimeState.snapshot().pins });
     },
     setTheme(nextTheme: ThemeId): void {
       render({ theme: nextTheme });
     },
     setPins(nextPins: PinMap): void {
-      runtimeState.setPins(nextPins);
+      context.runtimeState.setPins(nextPins);
       render();
     },
     focusNode(pathOrId: WikiPath): void {
-      const node = graph.nodes.find((item) => item.id === pathOrId || item.sourcePath === pathOrId);
+      const node = context.graph.nodes.find((item) => item.id === pathOrId || item.sourcePath === pathOrId);
       render({ selectedNodeId: node ? node.id : null });
-      root.dataset.focus = pathOrId;
+      context.root.dataset.focus = pathOrId;
     },
     focusCommunity(id: CommunityId): void {
       focusCommunity(id);
@@ -358,7 +421,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       resetViewState();
     },
     select(nextSelection: SelectionInput): void {
-      runtimeState.setSelection(nextSelection, "selection-panel");
+      context.runtimeState.setSelection(nextSelection, "selection-panel");
       render();
     },
     clearSelection(): void {
@@ -368,28 +431,28 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       clearInteractionState();
     },
     resetLayout(): void {
-      const nextState = pinState.reset();
-      runtimeState.setPins(nextState.pins);
+      const nextState = context.pinState.reset();
+      context.runtimeState.setPins(nextState.pins);
       render();
-      options.onPinsChanged?.(nextState.pins);
+      context.callbacks.onPinsChanged?.(nextState.pins);
     },
     destroy(): void {
-      if (destroyed) return;
-      destroyed = true;
-      simulation?.destroy();
-      simulation = null;
-      resizeObserver?.disconnect();
-      resizeObserver = null;
-      root.removeEventListener("scroll", resetRootScroll);
-      ownerDocument.removeEventListener("keydown", handleDocumentKeydown);
-      gestureController?.destroy();
-      gestureController = null;
-      if (previewTimer) clearTimeout(previewTimer);
-      if (viewportAnimationTimer) clearTimeout(viewportAnimationTimer);
-      pathCache.clear();
-      root.remove();
-      if (hasExternalToolbarContainer && dom.toolbarElement && toolbarContainer.contains(dom.toolbarElement)) {
-        toolbarContainer.replaceChildren();
+      if (context.destroyed) return;
+      context.destroyed = true;
+      context.simulation?.destroy();
+      context.simulation = null;
+      context.resizeObserver?.disconnect();
+      context.resizeObserver = null;
+      context.root.removeEventListener("scroll", resetRootScroll);
+      context.ownerDocument.removeEventListener("keydown", handleDocumentKeydown);
+      context.gestureController?.destroy();
+      context.gestureController = null;
+      if (context.previewTimer) clearTimeout(context.previewTimer);
+      if (context.viewportAnimationTimer) clearTimeout(context.viewportAnimationTimer);
+      context.pathCache.clear();
+      context.root.remove();
+      if (context.hasExternalToolbarContainer && context.dom.toolbarElement && context.toolbarContainer.contains(context.dom.toolbarElement)) {
+        context.toolbarContainer.replaceChildren();
       }
     }
   };
@@ -401,102 +464,102 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     return { selectedNodeId: null, selection: snapshot.selection };
   }
 
-  function panelSelection(snapshot: GraphRuntimeStateSnapshot = runtimeState.snapshot()): SelectionInput | null {
+  function panelSelection(snapshot: GraphRuntimeStateSnapshot = context.runtimeState.snapshot()): SelectionInput | null {
     return snapshot.selectionSurface === "selection-panel" ? snapshot.selection : null;
   }
 
-  function readerNodeId(snapshot: GraphRuntimeStateSnapshot = runtimeState.snapshot()): NodeId | null {
+  function readerNodeId(snapshot: GraphRuntimeStateSnapshot = context.runtimeState.snapshot()): NodeId | null {
     return snapshot.selectionSurface === "reader" && snapshot.selection?.kind === "node" ? snapshot.selection.id : null;
   }
 
   function assertActive(): void {
-    if (destroyed) throw new Error("Graph renderer has been destroyed");
+    if (context.destroyed) throw new Error("Graph renderer has been destroyed");
   }
 
   function clearInteractionState(): void {
-    searchFocusedNodeId = null;
-    if (previewTimer) {
-      clearTimeout(previewTimer);
-      previewTimer = null;
+    context.searchFocusedNodeId = null;
+    if (context.previewTimer) {
+      clearTimeout(context.previewTimer);
+      context.previewTimer = null;
     }
-    runtimeState.clearInteraction();
-    delete root.dataset.focus;
-    options.onSelectionClearRequested?.();
+    context.runtimeState.clearInteraction();
+    delete context.root.dataset.focus;
+    context.callbacks.onSelectionClearRequested?.();
     render();
   }
 
   function clearTransientInteractionForDataRefresh(): void {
-    searchFocusedNodeId = null;
-    if (previewTimer) {
-      clearTimeout(previewTimer);
-      previewTimer = null;
+    context.searchFocusedNodeId = null;
+    if (context.previewTimer) {
+      clearTimeout(context.previewTimer);
+      context.previewTimer = null;
     }
-    for (const node of dom.nodeElements.values()) node.classList.remove("is-dragging");
-    delete root.dataset.dragging;
-    delete root.dataset.viewportDragging;
-    delete root.dataset.focus;
-    simulation?.endDrag();
-    gestureMachine.escape();
-    runtimeState.clearInteraction();
-    options.onDragActiveChange?.(false);
-    options.onSelectionClearRequested?.();
+    for (const node of context.dom.nodeElements.values()) node.classList.remove("is-dragging");
+    delete context.root.dataset.dragging;
+    delete context.root.dataset.viewportDragging;
+    delete context.root.dataset.focus;
+    context.simulation?.endDrag();
+    context.gestureMachine.escape();
+    context.runtimeState.clearInteraction();
+    context.callbacks.onDragActiveChange?.(false);
+    context.callbacks.onSelectionClearRequested?.();
   }
 
   function hasInteractionState(): boolean {
-    const snapshot = runtimeState.snapshot();
-    return Boolean(snapshot.selection || snapshot.focus || root.dataset.focus);
+    const snapshot = context.runtimeState.snapshot();
+    return Boolean(snapshot.selection || snapshot.focus || context.root.dataset.focus);
   }
 
   function isGraphKeyboardFocusActive(): boolean {
-    const active = ownerDocument.activeElement;
-    if (active === root || Boolean(active && root.contains(active))) return true;
+    const active = context.ownerDocument.activeElement;
+    if (active === context.root || Boolean(active && context.root.contains(active))) return true;
     return false;
   }
 
   function openSearch(): void {
-    searchOpen = true;
-    root.dataset.searchOpen = "true";
-    if (dom.searchElement) dom.searchElement.dataset.state = "open";
-    if (dom.searchInput) {
-      dom.searchInput.focus();
-      dom.searchInput.select();
+    context.searchOpen = true;
+    context.root.dataset.searchOpen = "true";
+    if (context.dom.searchElement) context.dom.searchElement.dataset.state = "open";
+    if (context.dom.searchInput) {
+      context.dom.searchInput.focus();
+      context.dom.searchInput.select();
     }
   }
 
   function mountSearchControl(): void {
-    const control = createSearchControl(ownerDocument, {
-      open: searchOpen,
-      query: searchQuery,
+    const control = createSearchControl(context.ownerDocument, {
+      open: context.searchOpen,
+      query: context.searchQuery,
       onOpen: () => openSearch(),
       onQuery: (query) => applySearchQuery(query),
       onNext: () => focusNextSearchResult(),
       onClose: () => closeSearch()
     });
-    dom.searchElement = control.element;
-    dom.searchInput = control.input;
-    dom.searchStatusElement = control.status;
-    root.prepend(control.element);
-    root.dataset.searchOpen = searchOpen ? "true" : "false";
+    context.dom.searchElement = control.element;
+    context.dom.searchInput = control.input;
+    context.dom.searchStatusElement = control.status;
+    context.root.prepend(control.element);
+    context.root.dataset.searchOpen = context.searchOpen ? "true" : "false";
   }
 
   function applySearchQuery(query: string): void {
-    if (query !== searchQuery) searchFocusedNodeId = null;
-    searchQuery = query;
-    const state = resolveGraphSearchState(data.nodes, searchQuery, searchIndex);
-    searchIndex = state.searchIndex;
-    root.dataset.searchActive = state.query ? "true" : "false";
-    root.dataset.searchQuery = state.query;
-    if (!state.matchIds.includes(searchFocusedNodeId || "")) searchFocusedNodeId = null;
+    if (query !== context.searchQuery) context.searchFocusedNodeId = null;
+    context.searchQuery = query;
+    const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex);
+    context.searchIndex = state.searchIndex;
+    context.root.dataset.searchActive = state.query ? "true" : "false";
+    context.root.dataset.searchQuery = state.query;
+    if (!state.matchIds.includes(context.searchFocusedNodeId || "")) context.searchFocusedNodeId = null;
     for (const node of state.nodes) {
-      const element = dom.nodeElements.get(node.id);
+      const element = context.dom.nodeElements.get(node.id);
       if (!element) continue;
       element.dataset.searchState = node.searchState;
-      element.dataset.searchFocus = node.id === searchFocusedNodeId ? "true" : "false";
+      element.dataset.searchFocus = node.id === context.searchFocusedNodeId ? "true" : "false";
     }
-    if (dom.searchInput && dom.searchInput.value !== searchQuery) dom.searchInput.value = searchQuery;
-    if (dom.searchStatusElement) {
-      const focusedIndex = searchFocusedNodeId ? state.matchIds.indexOf(searchFocusedNodeId) : -1;
-      dom.searchStatusElement.textContent = state.query
+    if (context.dom.searchInput && context.dom.searchInput.value !== context.searchQuery) context.dom.searchInput.value = context.searchQuery;
+    if (context.dom.searchStatusElement) {
+      const focusedIndex = context.searchFocusedNodeId ? state.matchIds.indexOf(context.searchFocusedNodeId) : -1;
+      context.dom.searchStatusElement.textContent = state.query
         ? focusedIndex >= 0
           ? `${focusedIndex + 1}/${state.matchIds.length}`
           : `${state.matchIds.length} 个结果`
@@ -505,39 +568,39 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function focusNextSearchResult(): void {
-    const state = resolveGraphSearchState(data.nodes, searchQuery, searchIndex);
-    searchIndex = state.searchIndex;
-    const next = resolveNextGraphSearchFocus(state.matchIds, searchFocusedNodeId);
-    searchFocusedNodeId = next.id;
+    const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex);
+    context.searchIndex = state.searchIndex;
+    const next = resolveNextGraphSearchFocus(state.matchIds, context.searchFocusedNodeId);
+    context.searchFocusedNodeId = next.id;
     if (!next.id) {
-      applySearchQuery(searchQuery);
+      applySearchQuery(context.searchQuery);
       return;
     }
-    const node = graph.nodes.find((item) => item.id === next.id);
+    const node = context.graph.nodes.find((item) => item.id === next.id);
     if (node) {
       setViewportAnimating(true);
-      viewportCommitter.schedule(centerRendererViewportOnPoint(node.point, runtimeState.snapshot().viewport, viewportSize(), { worldBounds: graph.worldBounds }));
+      context.viewportCommitter.schedule(centerRendererViewportOnPoint(node.point, context.runtimeState.snapshot().viewport, viewportSize(), { worldBounds: context.graph.worldBounds }));
     }
-    applySearchQuery(searchQuery);
+    applySearchQuery(context.searchQuery);
   }
 
   function closeSearch(): void {
-    searchOpen = false;
-    searchFocusedNodeId = null;
-    if (dom.searchElement) dom.searchElement.dataset.state = "closed";
-    root.dataset.searchOpen = "false";
+    context.searchOpen = false;
+    context.searchFocusedNodeId = null;
+    if (context.dom.searchElement) context.dom.searchElement.dataset.state = "closed";
+    context.root.dataset.searchOpen = "false";
     applySearchQuery("");
-    root.focus({ preventScroll: true });
+    context.root.focus({ preventScroll: true });
   }
 
   function mountCommunityLegend(): void {
-    const rows = buildCommunityLegend(graph.communities, graph.nodes);
-    const legend = createCommunityLegend(ownerDocument, {
+    const rows = buildCommunityLegend(context.graph.communities, context.graph.nodes);
+    const legend = createCommunityLegend(context.ownerDocument, {
       rows,
-      collapsed: legendCollapsed,
+      collapsed: context.legendCollapsed,
       onToggle: () => {
-        legendCollapsed = !legendCollapsed;
-        writeLegendCollapsed(ownerDocument, legendCollapsed);
+        context.legendCollapsed = !context.legendCollapsed;
+        writeLegendCollapsed(context.ownerDocument, context.legendCollapsed);
         mountCommunityLegend();
       },
       onHover: (id) => {
@@ -546,106 +609,106 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       },
       onSelect: (id) => selectCommunity(id)
     });
-    dom.legendElement = legend.element;
-    dom.legendRows = legend.rows;
-    root.dataset.legendCollapsed = legendCollapsed ? "true" : "false";
+    context.dom.legendElement = legend.element;
+    context.dom.legendRows = legend.rows;
+    context.root.dataset.legendCollapsed = context.legendCollapsed ? "true" : "false";
   }
 
   function mountGraphToolbar(): void {
     mountCommunityLegend();
-    const toolbar = createGraphToolbar(ownerDocument, {
-      panelState: toolbarPanelState,
-      typeFilters: graph.typeFilters,
+    const toolbar = createGraphToolbar(context.ownerDocument, {
+      panelState: context.toolbarPanelState,
+      typeFilters: context.graph.typeFilters,
       onPanelToggle: (panel) => {
-        toolbarPanelState = nextToolbarPanelState(toolbarPanelState, panel);
-        writeToolbarPanelState(ownerDocument.defaultView?.localStorage, toolbarPanelState);
+        context.toolbarPanelState = nextToolbarPanelState(context.toolbarPanelState, panel);
+        writeToolbarPanelState(context.ownerDocument.defaultView?.localStorage, context.toolbarPanelState);
         render();
       },
       onTypeFilterToggle: (type, enabled) => {
-        render({ typeFilters: { ...availableTypeFilters, [type]: enabled } });
+        render({ typeFilters: { ...context.availableTypeFilters, [type]: enabled } });
       },
       onReset: () => {
         resetViewState();
       }
     });
-    if (dom.legendElement) toolbar.filtersPanel.appendChild(dom.legendElement);
-    dom.toolbarElement = toolbar.element;
-    dom.toolbarPanelElement = toolbar.panel;
-    if (hasExternalToolbarContainer) {
-      toolbarContainer.replaceChildren(toolbar.element);
+    if (context.dom.legendElement) toolbar.filtersPanel.appendChild(context.dom.legendElement);
+    context.dom.toolbarElement = toolbar.element;
+    context.dom.toolbarPanelElement = toolbar.panel;
+    if (context.hasExternalToolbarContainer) {
+      context.toolbarContainer.replaceChildren(toolbar.element);
     } else {
-      root.prepend(toolbar.element);
+      context.root.prepend(toolbar.element);
     }
-    root.dataset.toolbarPanel = toolbarPanelState;
-    root.dataset.toolbarOpen = toolbarPanelState === "closed" ? "false" : "true";
-    toolbarContainer.dataset.toolbarPanel = toolbarPanelState;
-    toolbarContainer.dataset.toolbarOpen = toolbarPanelState === "closed" ? "false" : "true";
+    context.root.dataset.toolbarPanel = context.toolbarPanelState;
+    context.root.dataset.toolbarOpen = context.toolbarPanelState === "closed" ? "false" : "true";
+    context.toolbarContainer.dataset.toolbarPanel = context.toolbarPanelState;
+    context.toolbarContainer.dataset.toolbarOpen = context.toolbarPanelState === "closed" ? "false" : "true";
   }
 
   function closeToolbarPanel(): void {
-    toolbarPanelState = toolbarPanelStateAfterBlankClick(toolbarPanelState);
-    writeToolbarPanelState(ownerDocument.defaultView?.localStorage, toolbarPanelState);
-    if (dom.toolbarPanelElement) dom.toolbarPanelElement.dataset.state = toolbarPanelState;
-    if (dom.toolbarElement) dom.toolbarElement.dataset.panel = toolbarPanelState;
-    root.dataset.toolbarPanel = toolbarPanelState;
-    root.dataset.toolbarOpen = "false";
-    toolbarContainer.dataset.toolbarPanel = toolbarPanelState;
-    toolbarContainer.dataset.toolbarOpen = "false";
+    context.toolbarPanelState = toolbarPanelStateAfterBlankClick(context.toolbarPanelState);
+    writeToolbarPanelState(context.ownerDocument.defaultView?.localStorage, context.toolbarPanelState);
+    if (context.dom.toolbarPanelElement) context.dom.toolbarPanelElement.dataset.state = context.toolbarPanelState;
+    if (context.dom.toolbarElement) context.dom.toolbarElement.dataset.panel = context.toolbarPanelState;
+    context.root.dataset.toolbarPanel = context.toolbarPanelState;
+    context.root.dataset.toolbarOpen = "false";
+    context.toolbarContainer.dataset.toolbarPanel = context.toolbarPanelState;
+    context.toolbarContainer.dataset.toolbarOpen = "false";
   }
 
   function selectCommunity(id: string): void {
     const nextSelection: SelectionInput = { kind: "community", id };
-    runtimeState.setSelection(nextSelection, "selection-panel");
-    options.onSelectionInput?.(nextSelection);
+    context.runtimeState.setSelection(nextSelection, "selection-panel");
+    context.callbacks.onSelectionInput?.(nextSelection);
     focusCommunity(id);
   }
 
   function focusCommunity(id: string): void {
-    runtimeState.setFocus({ kind: "community", id });
+    context.runtimeState.setFocus({ kind: "community", id });
     render();
-    const points = graph.nodes.map((node) => node.point);
+    const points = context.graph.nodes.map((node) => node.point);
     if (!points.length) return;
     setViewportAnimating(true);
-    viewportCommitter.schedule(fitRendererViewportToPoints(points, viewportSize(), { maxScale: FOCUS_FIT_MAX_SCALE, worldBounds: graph.worldBounds }));
+    context.viewportCommitter.schedule(fitRendererViewportToPoints(points, viewportSize(), { maxScale: FOCUS_FIT_MAX_SCALE, worldBounds: context.graph.worldBounds }));
   }
 
   function resetViewState(): void {
-    searchFocusedNodeId = null;
-    runtimeState.clearInteraction();
-    delete root.dataset.focus;
-    options.onSelectionClearRequested?.();
+    context.searchFocusedNodeId = null;
+    context.runtimeState.clearInteraction();
+    delete context.root.dataset.focus;
+    context.callbacks.onSelectionClearRequested?.();
     render();
     setViewportAnimating(true);
-    viewportCommitter.schedule(fitRendererViewportToPoints(graph.nodes.map((node) => node.point), viewportSize(), { worldBounds: graph.worldBounds }));
+    context.viewportCommitter.schedule(fitRendererViewportToPoints(context.graph.nodes.map((node) => node.point), viewportSize(), { worldBounds: context.graph.worldBounds }));
   }
 
   function retreatFocusedView(): void {
-    searchFocusedNodeId = null;
+    context.searchFocusedNodeId = null;
     setGraphHover(null);
-    runtimeState.setSelection(null);
-    delete root.dataset.focus;
-    options.onSelectionClearRequested?.();
+    context.runtimeState.setSelection(null);
+    delete context.root.dataset.focus;
+    context.callbacks.onSelectionClearRequested?.();
     render();
   }
 
   function applyCommunityHover(): void {
-    const hover = runtimeState.snapshot().hover;
+    const hover = context.runtimeState.snapshot().hover;
     const active = hover?.kind === "community" ? hover.id : null;
-    root.dataset.legendHover = active || "";
-    for (const [id, row] of dom.legendRows) {
+    context.root.dataset.legendHover = active || "";
+    for (const [id, row] of context.dom.legendRows) {
       row.dataset.communityState = active ? (id === active ? "active" : "faded") : "none";
     }
     const nodeCommunity = new Map<string, string>();
-    for (const [id, element] of dom.nodeElements) {
+    for (const [id, element] of context.dom.nodeElements) {
       const community = element.dataset.community || "";
       nodeCommunity.set(id, community);
       element.dataset.communityState = active ? (community === active ? "active" : "faded") : "none";
     }
-    for (const [id, element] of dom.communityWashElements) {
+    for (const [id, element] of context.dom.communityWashElements) {
       element.dataset.communityState = active ? (id === active ? "active" : "faded") : "none";
     }
-    for (const edge of graph.edges) {
-      const element = dom.edgeElements.get(edge.id);
+    for (const edge of context.graph.edges) {
+      const element = context.dom.edgeElements.get(edge.id);
       if (!element) continue;
       const inCommunity = nodeCommunity.get(edge.source) === active && nodeCommunity.get(edge.target) === active;
       element.dataset.communityState = active ? (inCommunity ? "active" : "faded") : "none";
@@ -653,50 +716,50 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function restartSimulation(): void {
-    simulation?.destroy();
-    simulation = null;
-    if (options.live === false || !graph.nodes.length) return;
-    simulation = createLiveGraphSimulation(graph, {
+    context.simulation?.destroy();
+    context.simulation = null;
+    if (options.live === false || !context.graph.nodes.length) return;
+    context.simulation = createLiveGraphSimulation(context.graph, {
       onTick: (snapshot) => applyMotionFrame(snapshot.positions)
     });
-    for (const [id, position] of Object.entries(pinsToPositions(graph, runtimeState.snapshot().pins))) {
-      simulation.setFixed(id, position);
+    for (const [id, position] of Object.entries(pinsToPositions(context.graph, context.runtimeState.snapshot().pins))) {
+      context.simulation.setFixed(id, position);
     }
-    simulation.startCold();
-    markPinnedNodes(pinState.snapshot().pinnedNodeIds);
+    context.simulation.startCold();
+    markPinnedNodes(context.pinState.snapshot().pinnedNodeIds);
   }
 
   function applyMotionFrame(positions: RenderPositionMap): void {
-    if (destroyed) return;
-    const snapshot = runtimeState.setPositions(positions);
+    if (context.destroyed) return;
+    const snapshot = context.runtimeState.setPositions(positions);
     const renderSelection = rendererSelectionFromRuntimeState(snapshot);
-    const previousWorldBounds = graph.worldBounds;
-    graph = buildRenderableGraph(data, {
+    const previousWorldBounds = context.graph.worldBounds;
+    context.graph = buildRenderableGraph(context.data, {
       pins: snapshot.pins,
-      theme,
+      theme: context.theme,
       selectedNodeId: renderSelection.selectedNodeId,
       selection: renderSelection.selection,
       focus: snapshot.focus,
-      typeFilters,
+      typeFilters: context.typeFilters,
       positions: snapshot.positions,
-      pathCache
+      pathCache: context.pathCache
     });
-    hitTargetResolver.refresh();
-    const worldBoundsChanged = !sameWorldBounds(previousWorldBounds, graph.worldBounds);
-    if (worldBoundsChanged && dom.svgElement) setGraphSvgViewBox(dom.svgElement, graph);
-    const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+    context.hitTargetResolver.refresh();
+    const worldBoundsChanged = !sameWorldBounds(previousWorldBounds, context.graph.worldBounds);
+    if (worldBoundsChanged && context.dom.svgElement) setGraphSvgViewBox(context.dom.svgElement, context.graph);
+    const nodeById = new Map(context.graph.nodes.map((node) => [node.id, node]));
     const size = viewportSize();
-    for (const node of graph.nodes) {
-      const element = dom.nodeElements.get(node.id);
-      const base = dom.basePoints.get(node.id);
+    for (const node of context.graph.nodes) {
+      const element = context.dom.nodeElements.get(node.id);
+      const base = context.dom.basePoints.get(node.id);
       if (!element || !base) continue;
       if (worldBoundsChanged) {
         element.style.left = `${node.x}%`;
         element.style.top = `${node.y}%`;
         element.style.translate = "calc(-50% + 0px) calc(-50% + 0px)";
-        dom.basePoints.set(node.id, node.point);
+        context.dom.basePoints.set(node.id, node.point);
       } else {
-        const layerDelta = worldPointDeltaToLayerDelta(base, node.point, size, graph.worldBounds);
+        const layerDelta = worldPointDeltaToLayerDelta(base, node.point, size, context.graph.worldBounds);
         element.style.translate = `calc(-50% + ${round(layerDelta.x)}px) calc(-50% + ${round(layerDelta.y)}px)`;
       }
       element.dataset.liveX = String(round(node.point.x));
@@ -704,15 +767,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       element.dataset.worldX = String(round(node.point.x));
       element.dataset.worldY = String(round(node.point.y));
     }
-    for (const edge of graph.edges) {
-      const element = dom.edgeElements.get(edge.id);
+    for (const edge of context.graph.edges) {
+      const element = context.dom.edgeElements.get(edge.id);
       const source = nodeById.get(edge.source);
       const target = nodeById.get(edge.target);
       if (!element || !source || !target) continue;
       element.setAttribute("d", makeEdgePathFromPoints(source.point, target.point, edge.curveOffset));
     }
-    for (const community of graph.communities) {
-      const element = dom.communityWashElements.get(community.id);
+    for (const community of context.graph.communities) {
+      const element = context.dom.communityWashElements.get(community.id);
       if (!element || !community.wash) continue;
       element.setAttribute("cx", String(community.wash.cx));
       element.setAttribute("cy", String(community.wash.cy));
@@ -720,8 +783,8 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       element.setAttribute("ry", String(community.wash.ry));
       element.setAttribute("opacity", String(community.wash.opacity));
     }
-    for (const miniNode of graph.minimap.nodes) {
-      const element = dom.miniNodeElements.get(miniNode.id);
+    for (const miniNode of context.graph.minimap.nodes) {
+      const element = context.dom.miniNodeElements.get(miniNode.id);
       if (!element) continue;
       element.setAttribute("cx", String(miniNode.x));
       element.setAttribute("cy", String(miniNode.y));
@@ -731,30 +794,30 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function markPinnedNodes(pinnedNodeIds: string[]): void {
     const pinned = new Set(pinnedNodeIds);
-    root.dataset.pinnedCount = String(pinned.size);
-    for (const [id, element] of dom.nodeElements) {
+    context.root.dataset.pinnedCount = String(pinned.size);
+    for (const [id, element] of context.dom.nodeElements) {
       element.classList.toggle("is-pinned", pinned.has(id));
       element.dataset.pinned = pinned.has(id) ? "true" : "false";
     }
   }
 
   function bindViewportHandlers(): GraphGestureController {
-    return new GraphGestureController(root, {
-      stateMachine: gestureMachine,
+    return new GraphGestureController(context.root, {
+      stateMachine: context.gestureMachine,
       targetFromEventTarget: graphGestureTarget,
-      graphTargetFromScreenPoint: hitTargetResolver.targetFromScreenPoint,
+      graphTargetFromScreenPoint: context.hitTargetResolver.targetFromScreenPoint,
       onWheelZoom: (event, _decision, screenPoint) => {
         setViewportAnimating(false);
-        viewportCommitter.schedule(viewportAfterWheelZoom(
-          runtimeState.snapshot().viewport,
+        context.viewportCommitter.schedule(viewportAfterWheelZoom(
+          context.runtimeState.snapshot().viewport,
           { deltaY: event.deltaY, deltaMode: event.deltaMode },
           screenPoint,
           viewportSize(),
-          { worldBounds: graph.worldBounds }
+          { worldBounds: context.graph.worldBounds }
         ), { lightweight: true });
       },
       onPointerDown: (event, decision) => {
-        if (decision.intent !== "node-drag-candidate") root.focus({ preventScroll: true });
+        if (decision.intent !== "node-drag-candidate") context.root.focus({ preventScroll: true });
         setViewportAnimating(false);
       },
       onGestureIntents: applyGestureIntents,
@@ -769,7 +832,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     for (const intent of intents) {
       switch (intent.kind) {
         case "node-click":
-          if (intent.nodeId) dom.nodeElements.get(intent.nodeId)?.focus({ preventScroll: true });
+          if (intent.nodeId) context.dom.nodeElements.get(intent.nodeId)?.focus({ preventScroll: true });
           if (intent.nodeId) handleNodeClick(intent.nodeId, intent.additive);
           break;
         case "node-drag-start":
@@ -793,15 +856,15 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
           handleBlankClick();
           break;
         case "blank-pan-start":
-          root.dataset.viewportDragging = "true";
+          context.root.dataset.viewportDragging = "true";
           break;
         case "blank-pan-move":
-          root.dataset.viewportDragging = "true";
-          viewportCommitter.schedule(panRendererViewport(runtimeState.snapshot().viewport, intent.delta, viewportSize(), { worldBounds: graph.worldBounds }), { lightweight: true });
+          context.root.dataset.viewportDragging = "true";
+          context.viewportCommitter.schedule(panRendererViewport(context.runtimeState.snapshot().viewport, intent.delta, viewportSize(), { worldBounds: context.graph.worldBounds }), { lightweight: true });
           break;
         case "blank-pan-end":
         case "blank-pan-cancel":
-          delete root.dataset.viewportDragging;
+          delete context.root.dataset.viewportDragging;
           break;
       }
     }
@@ -809,87 +872,87 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function handleNodeClick(id: NodeId, additive: boolean): void {
     if (!additive) {
-      runtimeState.setSelection({ kind: "node", id }, "reader");
-      options.onNodeOpen?.(id);
+      context.runtimeState.setSelection({ kind: "node", id }, "reader");
+      context.callbacks.onNodeOpen?.(id);
       render();
       focusRenderedNode(id);
       return;
     }
-    const nextSelection = shiftSelection(id, selectedNodeIds(runtimeState.snapshot().selection));
-    runtimeState.setSelection(nextSelection, "selection-panel");
-    options.onSelectionInput?.(nextSelection);
+    const nextSelection = shiftSelection(id, selectedNodeIds(context.runtimeState.snapshot().selection));
+    context.runtimeState.setSelection(nextSelection, "selection-panel");
+    context.callbacks.onSelectionInput?.(nextSelection);
     render();
     focusRenderedNode(id);
   }
 
   function focusRenderedNode(id: NodeId): void {
-    dom.nodeElements.get(id)?.focus({ preventScroll: true });
+    context.dom.nodeElements.get(id)?.focus({ preventScroll: true });
   }
 
   function handleNodeDragStart(id: NodeId, screenPoint: { x: number; y: number }): void {
-    if (!simulation) {
-      runtimeState.setActiveGesture(null);
+    if (!context.simulation) {
+      context.runtimeState.setActiveGesture(null);
       return;
     }
-    const active = runtimeState.snapshot().activeGesture;
+    const active = context.runtimeState.snapshot().activeGesture;
     if (active?.kind !== "node-drag" || active.nodeId !== id) return;
     const grabOffset = active.grabOffset;
-    dom.nodeElements.get(id)?.classList.add("is-dragging");
-    simulation.beginDrag(id);
-    simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, grabOffset));
-    root.dataset.dragging = id;
-    options.onDragActiveChange?.(true);
+    context.dom.nodeElements.get(id)?.classList.add("is-dragging");
+    context.simulation.beginDrag(id);
+    context.simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, grabOffset));
+    context.root.dataset.dragging = id;
+      context.callbacks.onDragActiveChange?.(true);
   }
 
   function handleNodeDragMove(id: NodeId, pointerId: number, screenPoint: { x: number; y: number }): void {
-    if (!simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
-    simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId)));
+    if (!context.simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
+    context.simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId)));
   }
 
   function handleNodeDragEnd(id: NodeId, pointerId: number, screenPoint: { x: number; y: number }): void {
-    if (!simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
+    if (!context.simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
     const result = commitGraphNodeDrag({
       nodeId: id,
-      simulation,
-      pinState,
+      simulation: context.simulation,
+      pinState: context.pinState,
       finalWorldPoint: nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId))
     });
-    runtimeState.setPins(result.pins);
+    context.runtimeState.setPins(result.pins);
     applyMotionFrame(result.positions);
     markPinnedNodes(result.pinnedNodeIds);
-    options.onPinsChanged?.(result.pins);
-    dom.nodeElements.get(id)?.classList.remove("is-dragging");
-    delete root.dataset.dragging;
-    runtimeState.setActiveGesture(null);
-    options.onDragActiveChange?.(false);
+    context.callbacks.onPinsChanged?.(result.pins);
+    context.dom.nodeElements.get(id)?.classList.remove("is-dragging");
+    delete context.root.dataset.dragging;
+    context.runtimeState.setActiveGesture(null);
+    context.callbacks.onDragActiveChange?.(false);
   }
 
   function handleNodeDragCancel(id: NodeId, pointerId: number): void {
-    if (!simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
+    if (!context.simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
     const session = nodeDragSession(id, pointerId);
-    const result = cancelGraphNodeDrag({ session, simulation, pinState });
-    runtimeState.setPins(result.pins);
+    const result = cancelGraphNodeDrag({ session, simulation: context.simulation, pinState: context.pinState });
+    context.runtimeState.setPins(result.pins);
     applyMotionFrame(result.positions);
     markPinnedNodes(result.pinnedNodeIds);
-    dom.nodeElements.get(id)?.classList.remove("is-dragging");
-    delete root.dataset.dragging;
-    runtimeState.setActiveGesture(null);
-    options.onDragActiveChange?.(false);
+    context.dom.nodeElements.get(id)?.classList.remove("is-dragging");
+    delete context.root.dataset.dragging;
+    context.runtimeState.setActiveGesture(null);
+    context.callbacks.onDragActiveChange?.(false);
   }
 
   function handleBlankClick(): void {
-    delete root.dataset.viewportDragging;
+    delete context.root.dataset.viewportDragging;
     // 真·单击空白（按下到抬起没拖动）：关弹层 → 退一层（聚焦态），与拖动平移互不冲突
-    if (shouldBlankClickCloseToolbar(toolbarPanelState)) {
+    if (shouldBlankClickCloseToolbar(context.toolbarPanelState)) {
       closeToolbarPanel();
       return;
     }
-    if (runtimeState.snapshot().focus) retreatFocusedView();
+    if (context.runtimeState.snapshot().focus) retreatFocusedView();
   }
 
   function syncRuntimeGestureState(): void {
-    const active = gestureMachine.snapshot();
-    runtimeState.setActiveGesture(runtimeGestureFromActiveGesture(active));
+    const active = context.gestureMachine.snapshot();
+    context.runtimeState.setActiveGesture(runtimeGestureFromActiveGesture(active));
   }
 
   function runtimeGestureFromActiveGesture(active: GraphGestureActiveState): GraphRuntimeStateSnapshot["activeGesture"] {
@@ -930,7 +993,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function nodeDragSession(nodeId: NodeId, pointerId: number): GraphNodeDragSession {
-    const active = runtimeState.snapshot().activeGesture;
+    const active = context.runtimeState.snapshot().activeGesture;
     if (active?.kind === "node-drag" && active.nodeId === nodeId && active.pointerId === pointerId) {
       return {
         pointerId,
@@ -939,17 +1002,17 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         wasPinned: active.wasPinned
       };
     }
-    const node = graph.nodes.find((item) => item.id === nodeId);
+    const node = context.graph.nodes.find((item) => item.id === nodeId);
     return {
       pointerId,
       nodeId,
       startWorldPoint: node?.point || { x: 0, y: 0 },
-      wasPinned: pinState.isPinned(nodeId)
+      wasPinned: context.pinState.isPinned(nodeId)
     };
   }
 
   function nodeDragGrabOffset(nodeId: NodeId, pointerId: number): GraphWorldPoint {
-    const active = runtimeState.snapshot().activeGesture;
+    const active = context.runtimeState.snapshot().activeGesture;
     if (active?.kind === "node-drag" && active.nodeId === nodeId && active.pointerId === pointerId) {
       return active.grabOffset;
     }
@@ -957,7 +1020,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function nodeDragGrabOffsetFromActive(active: NonNullable<Extract<GraphGestureActiveState, { kind: "node" }>>): GraphWorldPoint {
-    const existing = runtimeState.snapshot().activeGesture;
+    const existing = context.runtimeState.snapshot().activeGesture;
     if (existing?.kind === "node-drag" && existing.nodeId === active.nodeId && existing.pointerId === active.pointerId) {
       return existing.grabOffset;
     }
@@ -966,17 +1029,17 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function nodeDragStartWorldPoint(nodeId: NodeId): GraphWorldPoint {
-    const existing = runtimeState.snapshot().activeGesture;
+    const existing = context.runtimeState.snapshot().activeGesture;
     if (existing?.kind === "node-drag" && existing.nodeId === nodeId) return existing.startWorldPoint;
-    const pinnedStartPoint = pinsToPositions(graph, runtimeState.snapshot().pins)[nodeId];
+    const pinnedStartPoint = pinsToPositions(context.graph, context.runtimeState.snapshot().pins)[nodeId];
     if (pinnedStartPoint) return pinnedStartPoint;
-    return graph.nodes.find((item) => item.id === nodeId)?.point || { x: 0, y: 0 };
+    return context.graph.nodes.find((item) => item.id === nodeId)?.point || { x: 0, y: 0 };
   }
 
   function nodeDragWasPinned(nodeId: NodeId): boolean {
-    const existing = runtimeState.snapshot().activeGesture;
+    const existing = context.runtimeState.snapshot().activeGesture;
     if (existing?.kind === "node-drag" && existing.nodeId === nodeId) return existing.wasPinned;
-    return Boolean(pinsToPositions(graph, runtimeState.snapshot().pins)[nodeId]) || pinState.isPinned(nodeId);
+    return Boolean(pinsToPositions(context.graph, context.runtimeState.snapshot().pins)[nodeId]) || context.pinState.isPinned(nodeId);
   }
 
   function nodeDragStartSnapshot(active: NonNullable<Extract<GraphGestureActiveState, { kind: "node" }>>): {
@@ -987,27 +1050,27 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     if (!active.nodeId) {
       return { grabOffset: { x: 0, y: 0 }, startWorldPoint: { x: 0, y: 0 }, wasPinned: false };
     }
-    const node = graph.nodes.find((item) => item.id === active.nodeId);
+    const node = context.graph.nodes.find((item) => item.id === active.nodeId);
     if (!node) {
       return { grabOffset: { x: 0, y: 0 }, startWorldPoint: { x: 0, y: 0 }, wasPinned: false };
     }
     const drag = beginGraphNodeDrag({
       nodeWorldPoint: node.point,
       pointerScreenPoint: active.startScreenPoint,
-      viewport: runtimeState.snapshot().viewport,
+      viewport: context.runtimeState.snapshot().viewport,
       viewportSize: viewportSize(),
-      worldBounds: graph.worldBounds
+      worldBounds: context.graph.worldBounds
     });
-    const pinnedStartPoint = pinsToPositions(graph, runtimeState.snapshot().pins)[active.nodeId];
+    const pinnedStartPoint = pinsToPositions(context.graph, context.runtimeState.snapshot().pins)[active.nodeId];
     return {
       grabOffset: drag.grabOffset,
       startWorldPoint: pinnedStartPoint || drag.targetWorldPoint,
-      wasPinned: Boolean(pinnedStartPoint) || pinState.isPinned(active.nodeId)
+      wasPinned: Boolean(pinnedStartPoint) || context.pinState.isPinned(active.nodeId)
     };
   }
 
   function isRuntimeNodeDrag(nodeId: NodeId, pointerId: number, locked?: boolean): boolean {
-    const active = runtimeState.snapshot().activeGesture;
+    const active = context.runtimeState.snapshot().activeGesture;
     if (active?.kind !== "node-drag" || active.nodeId !== nodeId || active.pointerId !== pointerId) return false;
     return locked === undefined ? true : active.locked === locked;
   }
@@ -1015,86 +1078,86 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   function nodeDragTargetFromScreenPoint(screenPoint: { x: number; y: number }, grabOffset: GraphWorldPoint): GraphWorldPoint {
     return resolveGraphNodeDragTarget({
       pointerScreenPoint: screenPoint,
-      viewport: runtimeState.snapshot().viewport,
+      viewport: context.runtimeState.snapshot().viewport,
       viewportSize: viewportSize(),
-      worldBounds: graph.worldBounds,
+      worldBounds: context.graph.worldBounds,
       grabOffset
     });
   }
 
   function bindResizeObserver(): void {
-    const ViewResizeObserver = root.ownerDocument.defaultView?.ResizeObserver;
+    const ViewResizeObserver = context.root.ownerDocument.defaultView?.ResizeObserver;
     if (!ViewResizeObserver) return;
-    lastViewportSize = viewportSize();
-    resizeObserver = new ViewResizeObserver(() => {
-      const previous = lastViewportSize;
+    context.lastViewportSize = viewportSize();
+    context.resizeObserver = new ViewResizeObserver(() => {
+      const previous = context.lastViewportSize;
       const next = viewportSize();
       if (Math.abs(previous.width - next.width) < 1 && Math.abs(previous.height - next.height) < 1) return;
-      lastViewportSize = next;
+      context.lastViewportSize = next;
       const selectedReaderNodeId = readerNodeId();
       const anchorPoint = selectedReaderNodeId
-        ? graph.nodes.find((node) => node.id === selectedReaderNodeId)?.point ?? null
+        ? context.graph.nodes.find((node) => node.id === selectedReaderNodeId)?.point ?? null
         : null;
       setViewportAnimating(false);
-      commitViewport(viewportAfterResize(runtimeState.snapshot().viewport, previous, next, { anchorPoint, worldBounds: graph.worldBounds }));
+      commitViewport(viewportAfterResize(context.runtimeState.snapshot().viewport, previous, next, { anchorPoint, worldBounds: context.graph.worldBounds }));
     });
-    resizeObserver.observe(root);
+    context.resizeObserver.observe(context.root);
   }
 
   function commitViewport(nextViewport: RendererViewport, options: ViewportFrameCommitOptions = {}): void {
     resetRootScroll();
-    const snapshot = runtimeState.setViewport(nextViewport);
+    const snapshot = context.runtimeState.setViewport(nextViewport);
     const next = snapshot.viewport;
-    root.dataset.viewportScale = String(round(next.scale));
-    if (dom.contentLayer) applyRendererViewportTransform(dom.contentLayer, next);
+    context.root.dataset.viewportScale = String(round(next.scale));
+    if (context.dom.contentLayer) applyRendererViewportTransform(context.dom.contentLayer, next);
     if (!options.lightweight) updateEffectiveDensity();
     updateMinimapViewport();
     if (!options.lightweight) renderMotionOverlays();
   }
 
   function updateEffectiveDensity(): void {
-    const densityMode = screenEffectiveDensityMode(graph.counts.visibleNodes, runtimeState.snapshot().viewport.scale);
-    root.dataset.density = densityMode;
-    root.dataset.effectiveDensity = densityMode;
-    if (densityMode === lastEffectiveDensityMode) return;
-    lastEffectiveDensityMode = densityMode;
-    for (const node of graph.nodes) {
-      const element = dom.nodeElements.get(node.id);
+    const densityMode = screenEffectiveDensityMode(context.graph.counts.visibleNodes, context.runtimeState.snapshot().viewport.scale);
+    context.root.dataset.density = densityMode;
+    context.root.dataset.effectiveDensity = densityMode;
+    if (densityMode === context.lastEffectiveDensityMode) return;
+    context.lastEffectiveDensityMode = densityMode;
+    for (const node of context.graph.nodes) {
+      const element = context.dom.nodeElements.get(node.id);
       if (!element) continue;
       applyGraphNodeDisplayMode(element, nodeDisplayModeForDensity(node, densityMode));
     }
   }
 
   function renderMotionOverlays(): void {
-    if (dom.readerElement?.dataset.state === "open") renderReader();
-    if (dom.selectionElement?.dataset.state === "open") renderSelectionPanel();
-    const hover = runtimeState.snapshot().hover;
-    if (hover?.kind === "node" || hover?.kind === "edge" || dom.previewElement?.dataset.state === "open") renderHoverPreview();
+    if (context.dom.readerElement?.dataset.state === "open") renderReader();
+    if (context.dom.selectionElement?.dataset.state === "open") renderSelectionPanel();
+    const hover = context.runtimeState.snapshot().hover;
+    if (hover?.kind === "node" || hover?.kind === "edge" || context.dom.previewElement?.dataset.state === "open") renderHoverPreview();
   }
 
   function updateMinimapViewport(): void {
-    if (!dom.miniViewportElement) return;
-    const rect = rendererViewportToMinimapRect(runtimeState.snapshot().viewport, viewportSize(), { worldBounds: graph.worldBounds });
-    dom.miniViewportElement.setAttribute("x", String(round(rect.x)));
-    dom.miniViewportElement.setAttribute("y", String(round(rect.y)));
-    dom.miniViewportElement.setAttribute("width", String(round(rect.width)));
-    dom.miniViewportElement.setAttribute("height", String(round(rect.height)));
+    if (!context.dom.miniViewportElement) return;
+    const rect = rendererViewportToMinimapRect(context.runtimeState.snapshot().viewport, viewportSize(), { worldBounds: context.graph.worldBounds });
+    context.dom.miniViewportElement.setAttribute("x", String(round(rect.x)));
+    context.dom.miniViewportElement.setAttribute("y", String(round(rect.y)));
+    context.dom.miniViewportElement.setAttribute("width", String(round(rect.width)));
+    context.dom.miniViewportElement.setAttribute("height", String(round(rect.height)));
   }
 
   function setViewportAnimating(enabled: boolean): void {
-    if (viewportAnimationTimer) {
-      clearTimeout(viewportAnimationTimer);
-      viewportAnimationTimer = null;
+    if (context.viewportAnimationTimer) {
+      clearTimeout(context.viewportAnimationTimer);
+      context.viewportAnimationTimer = null;
     }
-    root.dataset.viewportAnimating = enabled ? "true" : "false";
-    dom.contentLayer?.classList.toggle("is-viewport-animating", enabled);
+    context.root.dataset.viewportAnimating = enabled ? "true" : "false";
+    context.dom.contentLayer?.classList.toggle("is-viewport-animating", enabled);
     if (enabled) {
-      viewportAnimationTimer = setTimeout(() => setViewportAnimating(false), 240);
+      context.viewportAnimationTimer = setTimeout(() => setViewportAnimating(false), 240);
     }
   }
 
   function viewportSize(): { width: number; height: number } {
-    const rect = root.getBoundingClientRect();
+    const rect = context.root.getBoundingClientRect();
     const fallback = defaultGraphViewportSize();
     return {
       width: Math.max(1, rect.width || fallback.width),
@@ -1103,28 +1166,28 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function resetRootScroll(): void {
-    resetGraphRootScroll(root);
+    resetGraphRootScroll(context.root);
   }
 
   async function animateDiff(diff: GraphDiff, animationOptions: { reducedMotion?: boolean; durationMs?: number }): Promise<void> {
-    if (destroyed) return;
-    const reducedMotion = animationOptions.reducedMotion ?? prefersReducedMotion(root.ownerDocument || document);
-    activeDiff = diff;
-    root.dataset.diffState = reducedMotion ? "settled" : "playing";
-    root.dataset.diffAddedNodes = String(diff.addedNodes.length);
-    root.dataset.diffAddedEdges = String(diff.addedEdges.length);
-    root.dataset.diffRemovedNodes = String(diff.removedNodes.length);
-    root.dataset.diffNewCommunities = String(diff.newCommunities.length);
+    if (context.destroyed) return;
+    const reducedMotion = animationOptions.reducedMotion ?? prefersReducedMotion(context.root.ownerDocument || document);
+    context.activeDiff = diff;
+    context.root.dataset.diffState = reducedMotion ? "settled" : "playing";
+    context.root.dataset.diffAddedNodes = String(diff.addedNodes.length);
+    context.root.dataset.diffAddedEdges = String(diff.addedEdges.length);
+    context.root.dataset.diffRemovedNodes = String(diff.removedNodes.length);
+    context.root.dataset.diffNewCommunities = String(diff.newCommunities.length);
     markDiffElements(diff);
     if (reducedMotion) {
-      root.dataset.diffReducedMotion = "true";
+      context.root.dataset.diffReducedMotion = "true";
       settleDiffElements();
       return;
     }
-    delete root.dataset.diffReducedMotion;
+    delete context.root.dataset.diffReducedMotion;
     const durationMs = clamp(animationOptions.durationMs ?? animationDurationMs(diff), 420, 3000);
     await wait(durationMs);
-    if (!destroyed) settleDiffElements();
+    if (!context.destroyed) settleDiffElements();
   }
 
   function markDiffElements(diff: GraphDiff): void {
@@ -1134,7 +1197,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const addedEdges = new Set(diff.addedEdges);
     const removedEdges = new Set(diff.removedEdges);
     const newCommunities = new Set(diff.newCommunities);
-    for (const [id, element] of dom.nodeElements) {
+    for (const [id, element] of context.dom.nodeElements) {
       element.classList.toggle("is-diff-added", addedNodes.has(id));
       element.classList.toggle("is-diff-removed", removedNodes.has(id));
       element.classList.toggle("is-diff-recolored", recoloredNodes.has(id));
@@ -1142,14 +1205,14 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
       element.style.setProperty("--diff-delay", delay >= 0 ? `${Math.min(delay * 55, 550)}ms` : "0ms");
       const anchor = addedNodes.has(id) ? semanticAnchorForNode(id) : null;
       if (anchor) {
-        element.style.setProperty("--diff-anchor-dx", `${round(anchor.x - (graph.nodes.find((node) => node.id === id)?.point.x ?? anchor.x))}px`);
-        element.style.setProperty("--diff-anchor-dy", `${round(anchor.y - (graph.nodes.find((node) => node.id === id)?.point.y ?? anchor.y))}px`);
+        element.style.setProperty("--diff-anchor-dx", `${round(anchor.x - (context.graph.nodes.find((node) => node.id === id)?.point.x ?? anchor.x))}px`);
+        element.style.setProperty("--diff-anchor-dy", `${round(anchor.y - (context.graph.nodes.find((node) => node.id === id)?.point.y ?? anchor.y))}px`);
       } else {
         element.style.removeProperty("--diff-anchor-dx");
         element.style.removeProperty("--diff-anchor-dy");
       }
     }
-    for (const [id, element] of dom.edgeElements) {
+    for (const [id, element] of context.dom.edgeElements) {
       element.classList.toggle("is-diff-added", addedEdges.has(id));
       element.classList.toggle("is-diff-removed", removedEdges.has(id));
       if (addedEdges.has(id)) {
@@ -1159,47 +1222,47 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
         element.style.removeProperty("--diff-edge-length");
       }
     }
-    for (const [id, element] of dom.communityWashElements) {
+    for (const [id, element] of context.dom.communityWashElements) {
       element.classList.toggle("is-diff-new-community", newCommunities.has(id));
     }
   }
 
   function settleDiffElements(): void {
-    activeDiff = null;
-    root.dataset.diffState = "settled";
-    for (const element of dom.nodeElements.values()) {
+    context.activeDiff = null;
+    context.root.dataset.diffState = "settled";
+    for (const element of context.dom.nodeElements.values()) {
       element.classList.remove("is-diff-added", "is-diff-removed", "is-diff-recolored");
       element.style.removeProperty("--diff-anchor-dx");
       element.style.removeProperty("--diff-anchor-dy");
       element.style.removeProperty("--diff-delay");
     }
-    for (const element of dom.edgeElements.values()) {
+    for (const element of context.dom.edgeElements.values()) {
       element.classList.remove("is-diff-added", "is-diff-removed");
       element.style.removeProperty("--diff-edge-length");
     }
-    for (const element of dom.communityWashElements.values()) {
+    for (const element of context.dom.communityWashElements.values()) {
       element.classList.remove("is-diff-new-community");
     }
   }
 
   function semanticAnchorForNode(id: NodeId): { x: number; y: number } | null {
-    const node = graph.nodes.find((item) => item.id === id);
+    const node = context.graph.nodes.find((item) => item.id === id);
     if (!node) return null;
-    const neighborId = graph.edges
+    const neighborId = context.graph.edges
       .filter((edge) => edge.source === id || edge.target === id)
       .map((edge) => edge.source === id ? edge.target : edge.source)
       .find((candidate) => candidate !== id);
-    const neighbor = neighborId ? graph.nodes.find((item) => item.id === neighborId) : null;
+    const neighbor = neighborId ? context.graph.nodes.find((item) => item.id === neighborId) : null;
     if (neighbor) return neighbor.point;
-    return sideExitWorldAnchor(node.point, 80, graph.worldBounds);
+    return sideExitWorldAnchor(node.point, 80, context.graph.worldBounds);
   }
 
   function renderReader(): void {
-    const reader = dom.readerElement;
+    const reader = context.dom.readerElement;
     if (!reader) return;
-    const selected = graph.selectedNodeId ? graph.nodes.find((node) => node.id === graph.selectedNodeId) : null;
-    const rawNode = selected ? data.nodes.find((node) => node.id === selected.id) : null;
-    renderOfflineReader(ownerDocument, reader, {
+    const selected = context.graph.selectedNodeId ? context.graph.nodes.find((node) => node.id === context.graph.selectedNodeId) : null;
+    const rawNode = selected ? context.data.nodes.find((node) => node.id === selected.id) : null;
+    renderOfflineReader(context.ownerDocument, reader, {
       selected: selected
         ? {
             id: selected.id,
@@ -1215,16 +1278,16 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function renderSelectionPanel(): void {
-    const panel = dom.selectionElement;
+    const panel = context.dom.selectionElement;
     if (!panel) return;
     const selection = panelSelection();
-    const resolved = selection ? resolveSelectionForCapabilities(data, selection, { canAsk: false }) : null;
+    const resolved = selection ? resolveSelectionForCapabilities(context.data, selection, { canAsk: false }) : null;
     const selectedNodes = resolved
       ? resolved.nodeIds
-      .map((id) => data.nodes.find((node) => node.id === id))
+      .map((id) => context.data.nodes.find((node) => node.id === id))
       .filter((node): node is GraphNode => Boolean(node))
       : [];
-    renderOfflineSelectionPanel(ownerDocument, panel, {
+    renderOfflineSelectionPanel(context.ownerDocument, panel, {
       selection,
       selectedNodes,
       facts: resolved?.facts || null,
@@ -1233,57 +1296,57 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
   }
 
   function scheduleHoverPreview(id: NodeId): void {
-    if (previewTimer) clearTimeout(previewTimer);
-    previewTimer = setTimeout(() => {
-      previewTimer = null;
+    if (context.previewTimer) clearTimeout(context.previewTimer);
+    context.previewTimer = setTimeout(() => {
+      context.previewTimer = null;
       setGraphHover({ kind: "node", id });
       renderHoverPreview();
     }, 300);
   }
 
   function showEdgeHoverPreview(id: string): void {
-    if (previewTimer) {
-      clearTimeout(previewTimer);
-      previewTimer = null;
+    if (context.previewTimer) {
+      clearTimeout(context.previewTimer);
+      context.previewTimer = null;
     }
     setGraphHover({ kind: "edge", id });
     renderHoverPreview();
   }
 
   function clearHoverPreview(): void {
-    if (previewTimer) {
-      clearTimeout(previewTimer);
-      previewTimer = null;
+    if (context.previewTimer) {
+      clearTimeout(context.previewTimer);
+      context.previewTimer = null;
     }
-    const hover = runtimeState.snapshot().hover;
+    const hover = context.runtimeState.snapshot().hover;
     if (hover?.kind !== "node" && hover?.kind !== "edge") return;
     setGraphHover(null);
     renderHoverPreview();
   }
 
   function setGraphHover(hover: GraphRuntimeStateSnapshot["hover"]): GraphRuntimeStateSnapshot {
-    return runtimeState.setHover(hover);
+    return context.runtimeState.setHover(hover);
   }
 
   function renderHoverPreview(): void {
-    const preview = dom.previewElement;
+    const preview = context.dom.previewElement;
     if (!preview) return;
-    const hover = runtimeState.snapshot().hover;
-    const edge = hover?.kind === "edge" ? graph.edges.find((item) => item.id === hover.id) : null;
-    const rawNode = hover?.kind === "node" ? data.nodes.find((node) => node.id === hover.id) : null;
-    const renderedNode = hover?.kind === "node" ? graph.nodes.find((node) => node.id === hover.id) : null;
+    const hover = context.runtimeState.snapshot().hover;
+    const edge = hover?.kind === "edge" ? context.graph.edges.find((item) => item.id === hover.id) : null;
+    const rawNode = hover?.kind === "node" ? context.data.nodes.find((node) => node.id === hover.id) : null;
+    const renderedNode = hover?.kind === "node" ? context.graph.nodes.find((node) => node.id === hover.id) : null;
     preview.replaceChildren();
     preview.dataset.kind = edge ? "edge" : "node";
     if (edge) {
       preview.dataset.state = "open";
-      preview.append(createEdgeHoverPreviewContent(ownerDocument, edge.relationType, edge.confidence));
+      preview.append(createEdgeHoverPreviewContent(context.ownerDocument, edge.relationType, edge.confidence));
       positionEdgeHoverPreview(preview, edge);
       return;
     }
     preview.dataset.state = rawNode && renderedNode ? "open" : "closed";
     if (!rawNode || !renderedNode) return;
     const content = buildHoverPreview(rawNode);
-    preview.append(createHoverPreviewContent(ownerDocument, content));
+    preview.append(createHoverPreviewContent(context.ownerDocument, content));
     positionHoverPreview(preview, renderedNode);
   }
 
@@ -1291,7 +1354,7 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
     const previewRect = preview.getBoundingClientRect();
     const size = viewportSize();
     const position = resolveGraphHoverPreviewPosition({
-      anchorScreenPoint: graphNodeHoverAnchor(node, runtimeState.snapshot().viewport, size, graph.worldBounds),
+      anchorScreenPoint: graphNodeHoverAnchor(node, context.runtimeState.snapshot().viewport, size, context.graph.worldBounds),
       previewSize: { width: previewRect.width, height: previewRect.height },
       viewportSize: size,
       offset: { x: 18, y: -previewRect.height - 24 },
@@ -1303,11 +1366,11 @@ export function createStaticGraphRenderer(container: HTMLElement, options: Stati
 
   function positionEdgeHoverPreview(preview: HTMLElement, edge: RenderableGraph["edges"][number]): void {
     const previewRect = preview.getBoundingClientRect();
-    const source = graph.nodes.find((node) => node.id === edge.source);
-    const target = graph.nodes.find((node) => node.id === edge.target);
+    const source = context.graph.nodes.find((node) => node.id === edge.source);
+    const target = context.graph.nodes.find((node) => node.id === edge.target);
     const size = viewportSize();
     const position = resolveGraphHoverPreviewPosition({
-      anchorScreenPoint: graphEdgeHoverAnchor({ source, target }, runtimeState.snapshot().viewport, size, graph.worldBounds),
+      anchorScreenPoint: graphEdgeHoverAnchor({ source, target }, context.runtimeState.snapshot().viewport, size, context.graph.worldBounds),
       previewSize: { width: previewRect.width, height: previewRect.height },
       viewportSize: size,
       offset: { x: 16, y: -previewRect.height - 16 },
@@ -1410,6 +1473,12 @@ function paint(
 
 function positionsFromRenderableGraph(graph: RenderableGraph): RenderPositionMap {
   return Object.fromEntries(graph.nodes.map((node) => [node.id, { x: node.point.x, y: node.point.y }]));
+}
+
+function initialViewportSize(root: HTMLElement): { width: number; height: number } {
+  const rect = root.getBoundingClientRect();
+  const fallback = defaultGraphViewportSize();
+  return { width: rect.width || fallback.width, height: rect.height || fallback.height };
 }
 
 function selectedNodeIds(selection: SelectionInput | null): NodeId[] {

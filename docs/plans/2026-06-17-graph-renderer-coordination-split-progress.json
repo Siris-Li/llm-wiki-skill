@@ -4,8 +4,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-1",
-    "task": "1.1",
-    "next_allowed_action": "Land GraphRenderContext with root ownership and switch internals from closure vars to the context object."
+    "task": "1.2",
+    "next_allowed_action": "Extract controller.ts for gesture intent dispatch, node/blank handlers, drag helpers, and viewport handler wiring."
   },
   "execution_rules": {
     "branch": "feat/graph-renderer-coordination-split",
@@ -137,7 +137,48 @@
             }
           ]
         },
-        { "id": "1.1", "title": "Land GraphRenderContext (root owns). Write-ownership [eng-review C1 corrected]: graph/dom = pipeline-written render outputs (others read); pinState/simulation = shared coordination written by BOTH controller and pipeline; runtimeState is the semantic-state authority. Switch internals from closure vars to the context object", "status": "pending", "verification": [] },
+        {
+          "id": "1.1",
+          "title": "Land GraphRenderContext (root owns). Write-ownership [eng-review C1 corrected]: graph/dom = pipeline-written render outputs (others read); pinState/simulation = shared coordination written by BOTH controller and pipeline; runtimeState is the semantic-state authority. Switch internals from closure vars to the context object",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "git log --oneline -15",
+              "exit": 0,
+              "evidence": "task 1.0 commit present: d044206 docs: define renderer split contracts [task 1.0]"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "265 tests passed, 0 failed before starting 1.1 and after GraphRenderContext refactor"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "tsc --noEmit completed after GraphRenderContext refactor"
+            },
+            {
+              "command": "context reference audit",
+              "exit": 0,
+              "evidence": "static check found no bare context-owned state references after context initialization"
+            },
+            {
+              "command": "git diff --check",
+              "exit": 0,
+              "evidence": "no whitespace errors"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: graph workbench interaction regression"
+            },
+            {
+              "command": "bash tests/graph-offline-phase-6.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: phase 6 offline graph regression"
+            }
+          ]
+        },
         { "id": "1.2", "title": "Extract controller.ts: gesture intent dispatch, handleNode*/handleBlankClick, node-drag helpers, bindViewportHandlers wiring; writes pinState/drives simulation/toggles is-dragging+focus; no paint/mount, no render-model computation", "status": "pending", "verification": [] },
         { "id": "1.3", "title": "Move semantic commands + keyboard routing into controller; search-state fields move into context", "status": "pending", "verification": [] }
       ]
@@ -224,6 +265,11 @@
       "task": "1.0",
       "status": "completed",
       "notes": "Expanded the plan with the full GraphRenderContext field set and concrete GraphController/GraphRenderPipeline/GraphOverlaysPresenter/GraphCommands signatures; no implementation code moved."
+    },
+    {
+      "task": "1.1",
+      "status": "completed",
+      "notes": "Introduced root-owned GraphRenderContext in static-renderer.ts and moved context-owned closure state access behind the context object without user-visible behavior changes."
     }
   ]
 }
