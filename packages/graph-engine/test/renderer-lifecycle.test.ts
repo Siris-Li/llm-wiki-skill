@@ -5,6 +5,34 @@ import type { GraphData, GraphDiff } from "../src";
 import { createGraphRenderer } from "../src/render";
 
 describe("graph renderer lifecycle", () => {
+  it("updates toolbar panel state without repainting the graph", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphData(["a"]),
+      theme: "shan-shui",
+      live: false
+    });
+
+    const toolbar = findByClass(renderer.root as unknown as FakeElement, "graph-toolbar")[0];
+    const filtersButton = findByText(toolbar, "筛选");
+    const legendButton = findByText(toolbar, "图例");
+    const panel = findByClass(toolbar, "graph-toolbar-panel")[0];
+    const node = nodeElement(renderer, "a");
+
+    filtersButton?.dispatch("click");
+
+    assert.equal(renderer.root.dataset.toolbarPanel, "filters");
+    assert.equal(toolbar.dataset.panel, "filters");
+    assert.equal(panel.dataset.state, "filters");
+    assert.equal(filtersButton?.dataset.active, "true");
+    assert.equal(legendButton?.dataset.active, "false");
+    assert.equal(findByClass(renderer.root as unknown as FakeElement, "graph-toolbar")[0], toolbar);
+    assert.equal(nodeElement(renderer, "a"), node);
+
+    renderer.destroy();
+  });
+
   it("does not let stale diff settlement mutate a refreshed graph", async () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");
@@ -113,6 +141,7 @@ class FakeDocument {
 
 class FakeElement {
   readonly children: FakeElement[] = [];
+  private readonly listeners = new Map<string, Array<(event: FakeEvent) => void>>();
   readonly dataset: Record<string, string | undefined> = {};
   readonly style = new FakeStyle();
   readonly classList = new FakeClassList(this);
@@ -192,9 +221,21 @@ class FakeElement {
     return value || null;
   }
 
-  addEventListener(_type: string, _listener: unknown): void {}
+  addEventListener(type: string, listener: unknown): void {
+    const listeners = this.listeners.get(type) || [];
+    listeners.push(listener as (event: FakeEvent) => void);
+    this.listeners.set(type, listeners);
+  }
 
-  removeEventListener(_type: string, _listener: unknown): void {}
+  removeEventListener(type: string, listener: unknown): void {
+    const listeners = this.listeners.get(type) || [];
+    this.listeners.set(type, listeners.filter((candidate) => candidate !== listener));
+  }
+
+  dispatch(type: string): void {
+    const event = new FakeEvent(type);
+    for (const listener of this.listeners.get(type) || []) listener(event);
+  }
 
   focus(_options?: unknown): void {}
 
@@ -202,6 +243,16 @@ class FakeElement {
 
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
     return { left: 0, top: 0, width: 960, height: 640 };
+  }
+}
+
+class FakeEvent {
+  propagationStopped = false;
+
+  constructor(readonly type: string) {}
+
+  stopPropagation(): void {
+    this.propagationStopped = true;
   }
 }
 
@@ -288,6 +339,23 @@ function findById(root: FakeElement, id: string): FakeElement | undefined {
   if (root.id === id) return root;
   for (const child of root.children) {
     const match = findById(child, id);
+    if (match) return match;
+  }
+  return undefined;
+}
+
+function findByClass(root: FakeElement, className: string): FakeElement[] {
+  const matches: FakeElement[] = [];
+  const classes = new Set(root.className.split(/\s+/).filter(Boolean));
+  if (classes.has(className)) matches.push(root);
+  for (const child of root.children) matches.push(...findByClass(child, className));
+  return matches;
+}
+
+function findByText(root: FakeElement, text: string): FakeElement | undefined {
+  if (root.textContent === text) return root;
+  for (const child of root.children) {
+    const match = findByText(child, text);
     if (match) return match;
   }
   return undefined;

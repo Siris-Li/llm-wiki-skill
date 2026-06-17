@@ -274,12 +274,16 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     if (context.runtimeState.snapshot().focus) retreatFocusedView();
   }
 
-  function clearInteractionState(): void {
+  function clearSearchAndPreviewState(): void {
     context.searchFocusedNodeId = null;
     if (context.previewTimer) {
       clearTimeout(context.previewTimer);
       context.previewTimer = null;
     }
+  }
+
+  function clearInteractionState(): void {
+    clearSearchAndPreviewState();
     context.runtimeState.clearInteraction();
     delete context.root.dataset.focus;
     context.callbacks.onSelectionClearRequested?.();
@@ -287,11 +291,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
   }
 
   function clearTransientInteractionForDataRefresh(): void {
-    context.searchFocusedNodeId = null;
-    if (context.previewTimer) {
-      clearTimeout(context.previewTimer);
-      context.previewTimer = null;
-    }
+    clearSearchAndPreviewState();
     for (const node of context.dom.nodeElements.values()) node.classList.remove("is-dragging");
     delete context.root.dataset.dragging;
     delete context.root.dataset.viewportDragging;

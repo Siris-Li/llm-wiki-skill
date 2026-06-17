@@ -281,7 +281,7 @@ export function createGraphRenderPipeline(
       onPanelToggle: (panel) => {
         context.toolbarPanelState = nextToolbarPanelState(context.toolbarPanelState, panel);
         writeToolbarPanelState(context.ownerDocument.defaultView?.localStorage, context.toolbarPanelState);
-        options.commands.render();
+        applyToolbarPanelState(toolbar);
       },
       onTypeFilterToggle: (type, enabled) => {
         options.commands.render({ typeFilters: { ...context.availableTypeFilters, [type]: enabled } });
@@ -298,10 +298,19 @@ export function createGraphRenderPipeline(
     } else {
       context.root.prepend(toolbar.element);
     }
+    applyToolbarPanelState(toolbar);
+  }
+
+  function applyToolbarPanelState(toolbar: ReturnType<typeof createGraphToolbar>): void {
+    const open = context.toolbarPanelState !== "closed";
+    toolbar.element.dataset.panel = context.toolbarPanelState;
+    toolbar.panel.dataset.state = context.toolbarPanelState;
+    toolbar.buttons.filters.dataset.active = context.toolbarPanelState === "filters" ? "true" : "false";
+    toolbar.buttons.legend.dataset.active = context.toolbarPanelState === "legend" ? "true" : "false";
     context.root.dataset.toolbarPanel = context.toolbarPanelState;
-    context.root.dataset.toolbarOpen = context.toolbarPanelState === "closed" ? "false" : "true";
+    context.root.dataset.toolbarOpen = open ? "true" : "false";
     context.toolbarContainer.dataset.toolbarPanel = context.toolbarPanelState;
-    context.toolbarContainer.dataset.toolbarOpen = context.toolbarPanelState === "closed" ? "false" : "true";
+    context.toolbarContainer.dataset.toolbarOpen = open ? "true" : "false";
   }
 
   function applyCommunityHover(): void {
@@ -528,6 +537,7 @@ export function createGraphRenderPipeline(
     const addedEdges = new Set(diff.addedEdges);
     const removedEdges = new Set(diff.removedEdges);
     const newCommunities = new Set(diff.newCommunities);
+    const nodeById = new Map(context.graph.nodes.map((node) => [node.id, node]));
     for (const [id, element] of context.dom.nodeElements) {
       element.classList.toggle("is-diff-added", addedNodes.has(id));
       element.classList.toggle("is-diff-removed", removedNodes.has(id));
@@ -535,9 +545,10 @@ export function createGraphRenderPipeline(
       const delay = diff.addedNodes.indexOf(id);
       element.style.setProperty("--diff-delay", delay >= 0 ? `${Math.min(delay * 55, 550)}ms` : "0ms");
       const anchor = addedNodes.has(id) ? semanticAnchorForNode(id) : null;
+      const node = nodeById.get(id);
       if (anchor) {
-        element.style.setProperty("--diff-anchor-dx", `${round(anchor.x - (context.graph.nodes.find((node) => node.id === id)?.point.x ?? anchor.x))}px`);
-        element.style.setProperty("--diff-anchor-dy", `${round(anchor.y - (context.graph.nodes.find((node) => node.id === id)?.point.y ?? anchor.y))}px`);
+        element.style.setProperty("--diff-anchor-dx", `${round(anchor.x - (node?.point.x ?? anchor.x))}px`);
+        element.style.setProperty("--diff-anchor-dy", `${round(anchor.y - (node?.point.y ?? anchor.y))}px`);
       } else {
         element.style.removeProperty("--diff-anchor-dx");
         element.style.removeProperty("--diff-anchor-dy");

@@ -7,6 +7,10 @@ export interface GraphToolbarDom {
   element: HTMLElement;
   panel: HTMLElement;
   filtersPanel: HTMLElement;
+  buttons: {
+    filters: HTMLButtonElement;
+    legend: HTMLButtonElement;
+  };
 }
 
 export interface CommunityLegendDom {
@@ -63,7 +67,7 @@ export function createGraphToolbar(
 
   panel.append(filtersPanel, legendPanel);
   element.append(actions, panel);
-  return { element, panel, filtersPanel };
+  return { element, panel, filtersPanel, buttons: { filters, legend } };
 }
 
 export function createCommunityLegend(
