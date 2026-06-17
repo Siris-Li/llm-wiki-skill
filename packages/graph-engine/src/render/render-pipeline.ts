@@ -55,6 +55,7 @@ export interface GraphRenderCommands {
   focusNextSearchResult(): void;
   closeSearch(): void;
   selectCommunity(id: string): void;
+  setCommunityHover(id: string | null): void;
   handleNodeClick(id: NodeId, additive: boolean): void;
   handleNodeDoubleClick(id: string): boolean;
   scheduleHoverPreview(id: NodeId): void;
@@ -262,7 +263,7 @@ export function createGraphRenderPipeline(
         mountCommunityLegend();
       },
       onHover: (id) => {
-        context.runtimeState.setHover(id ? { kind: "community", id } : null);
+        options.commands.setCommunityHover(id);
         applyCommunityHover();
       },
       onSelect: (id) => options.commands.selectCommunity(id)
@@ -500,6 +501,7 @@ export function createGraphRenderPipeline(
 
   async function animateDiff(diff: GraphDiff, animationOptions: { reducedMotion?: boolean; durationMs?: number } = {}): Promise<void> {
     if (context.destroyed) return;
+    const diffEpoch = ++context.renderEpoch;
     const reducedMotion = animationOptions.reducedMotion ?? prefersReducedMotion(context.root.ownerDocument || document);
     context.activeDiff = diff;
     context.root.dataset.diffState = reducedMotion ? "settled" : "playing";
@@ -516,7 +518,7 @@ export function createGraphRenderPipeline(
     delete context.root.dataset.diffReducedMotion;
     const durationMs = clamp(animationOptions.durationMs ?? animationDurationMs(diff), 420, 3000);
     await wait(durationMs);
-    if (!context.destroyed) settleDiffElements();
+    if (!context.destroyed && context.renderEpoch === diffEpoch) settleDiffElements();
   }
 
   function markDiffElements(diff: GraphDiff): void {

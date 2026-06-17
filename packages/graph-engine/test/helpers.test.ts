@@ -223,6 +223,18 @@ describe("module export", () => {
     assert.equal(typeof model.cardDims, "function");
     assert.equal(typeof model.createSafeStorage, "function");
   });
+
+  it("keeps legacy renderer exports available from the package entry", async () => {
+    const entry = await import("../src");
+    const render = await import("../src/render");
+
+    assert.equal(typeof entry.createGraphRenderer, "function");
+    assert.equal(entry.createStaticGraphRenderer, entry.createGraphRenderer);
+    assert.equal(typeof entry.createStaticGraphRenderer, "function");
+    assert.equal(typeof render.createGraphRenderer, "function");
+    assert.equal(render.createStaticGraphRenderer, render.createGraphRenderer);
+    assert.equal(typeof render.createStaticGraphRenderer, "function");
+  });
 });
 
 // --- createSafeStorage ---

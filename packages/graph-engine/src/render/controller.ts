@@ -41,6 +41,7 @@ export interface GraphController {
   focusNextSearchResult(): void;
   closeSearch(): void;
   selectCommunity(id: CommunityId): void;
+  setCommunityHover(id: CommunityId | null): void;
   focusCommunity(id: CommunityId): void;
   resetViewState(): void;
   retreatFocusedView(): void;
@@ -397,6 +398,10 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     focusCommunity(id);
   }
 
+  function setCommunityHover(id: CommunityId | null): void {
+    context.runtimeState.setHover(id ? { kind: "community", id } : null);
+  }
+
   function focusCommunity(id: CommunityId): void {
     context.runtimeState.setFocus({ kind: "community", id });
     delegates.render();
@@ -581,6 +586,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     focusNextSearchResult,
     closeSearch,
     selectCommunity,
+    setCommunityHover,
     focusCommunity,
     resetViewState,
     retreatFocusedView,

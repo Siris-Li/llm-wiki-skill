@@ -63,6 +63,10 @@ const RENDER_ONLY_STATE_MUTATION_PATTERNS = [
   /\bsetFocus\s*\(/,
   /\bsetPins\s*\(/
 ];
+const PIPELINE_FORBIDDEN_STATE_MUTATION_PATTERNS = [
+  ...RENDER_ONLY_STATE_MUTATION_PATTERNS,
+  /\bsetHover\s*\(/
+];
 
 describe("renderer and facade boundary contract", () => {
   it("keeps host callback names out of layout and renderer modules", async () => {
@@ -173,12 +177,15 @@ describe("renderer and facade boundary contract", () => {
   });
 
   it("keeps pipeline and presenter out of semantic selection/focus/pin ownership", async () => {
-    const files = ["render/render-pipeline.ts", "render/overlays-presenter.ts"];
+    const files: Array<[string, RegExp[]]> = [
+      ["render/render-pipeline.ts", PIPELINE_FORBIDDEN_STATE_MUTATION_PATTERNS],
+      ["render/overlays-presenter.ts", RENDER_ONLY_STATE_MUTATION_PATTERNS]
+    ];
     const violations: string[] = [];
 
-    for (const rel of files) {
+    for (const [rel, patterns] of files) {
       const text = await readFile(join(SRC, rel), "utf8");
-      for (const pattern of RENDER_ONLY_STATE_MUTATION_PATTERNS) {
+      for (const pattern of patterns) {
         if (pattern.test(text)) violations.push(`${rel}: ${pattern}`);
       }
     }
@@ -257,6 +264,7 @@ describe("renderer and facade boundary contract", () => {
     assert.match(pipelineText, /onQuery:\s*\(query\) => options\.commands\.applySearchQuery\(query\)/);
     assert.match(pipelineText, /onNext:\s*\(\) => options\.commands\.focusNextSearchResult\(\)/);
     assert.match(pipelineText, /onClose:\s*\(\) => options\.commands\.closeSearch\(\)/);
+    assert.match(pipelineText, /options\.commands\.setCommunityHover\(id\)/);
     assert.match(pipelineText, /onSelect:\s*\(id\) => options\.commands\.selectCommunity\(id\)/);
     assert.match(pipelineText, /options\.commands\.render\(\{ typeFilters: \{ \.\.\.context\.availableTypeFilters, \[type\]: enabled \} \}\)/);
     assert.match(pipelineText, /options\.commands\.resetViewState\(\)/);
@@ -285,7 +293,8 @@ describe("renderer and facade boundary contract", () => {
     const pipelineText = await readFile(join(SRC, "render/render-pipeline.ts"), "utf8");
 
     assert.match(pipelineText, /if \(context\.destroyed\) return;/);
-    assert.match(pipelineText, /if \(!context\.destroyed\) settleDiffElements\(\);/);
+    assert.match(pipelineText, /const diffEpoch = \+\+context\.renderEpoch;/);
+    assert.match(pipelineText, /context\.renderEpoch === diffEpoch/);
   });
 });
 

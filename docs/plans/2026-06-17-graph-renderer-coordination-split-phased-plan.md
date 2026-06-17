@@ -380,7 +380,7 @@ interface GraphCommands {
 
 任务：
 
-1. `4.1` 把 `static-renderer.ts` 改名为 `graph-renderer-root.ts`；导出函数 `createStaticGraphRenderer` → `createGraphRenderer`，公开类型 `StaticGraphRenderer`/`StaticRendererOptions` 一并更名为 `GraphRenderer`/`GraphRendererOptions`；同步更新 `facade.ts`、`render/index.ts`、`renderer-boundary.test.ts`（路径字符串）。**[eng-review C3]** 注意 `createStaticGraphRenderer` 经 `src/index.ts` 的 `export * from "./render"` 在包公开面上，但无外部消费者（已核：仅 `facade.ts` 内部用）——接受干净改名、不留兼容别名（与 rg-零检查一致）。确认根文件只剩组装 + 委派。
+1. `4.1` 把 `static-renderer.ts` 改名为 `graph-renderer-root.ts`；导出函数 `createStaticGraphRenderer` → `createGraphRenderer`，公开类型 `StaticGraphRenderer`/`StaticRendererOptions` 一并更名为 `GraphRenderer`/`GraphRendererOptions`；同步更新 `facade.ts`、`render/index.ts`、`renderer-boundary.test.ts`（路径字符串）。**[eng-review C3]** 注意 `createStaticGraphRenderer` 经 `src/index.ts` 的 `export * from "./render"` 在包公开面上；为避免破坏既有导入，保留兼容别名，且把旧文件名彻底清掉。确认根文件只剩组装 + 委派。
 2. `4.2` 更新 `architecture.ts`：`GraphArchitectureLayerId` 新增 `controller`；`controller` 层 entrypoints 指向 `render/controller.ts`；`renderer` 层 entrypoints 改为 `render/render-pipeline.ts`/`render/overlays-presenter.ts` 及画图零件；`facade`/root 归属相应更新。
 
 验收：
@@ -389,7 +389,7 @@ interface GraphCommands {
 - `npm run typecheck --workspace=@llm-wiki/graph-engine` exits 0。
 - `npm run build --workspace=@llm-wiki/graph-engine` exits 0。
 - `npm run typecheck --workspace=@llm-wiki-agent/web` exits 0。
-- `rg -n "static-renderer|createStaticGraphRenderer" packages/graph-engine/src packages/graph-engine/test` 无输出。
+- `rg -n "static-renderer" packages/graph-engine/src packages/graph-engine/test` 无输出；`createStaticGraphRenderer` 作为兼容别名保留，并由导出测试覆盖。
 - `bash tests/graph-workbench-interactions.regression-1.sh` 与 `bash tests/graph-offline-phase-6.regression-1.sh` exits 0。
 
 自动前进：验收通过并记录后进入 Phase 5。
@@ -463,7 +463,7 @@ interface GraphCommands {
 | apply 归属（eng-review A2+CQ3） | 单一 `root.render(opts)` = apply 到 state + pipeline 纯重画；18 调用点共用 | pipeline 不写语义状态、apply 不在 18 处重复 | apply 留 pipeline（违铁律）/ 各点各写（违 DRY） |
 | 上手前先设计接口（eng-review C1） | Phase 1.0 先列 context 全集 + 四接口签名再搬码 | 否则 Phase1 拼临时回调包、Phase2 重写 = 藏在搬家里的接口重设计 | 边做边发现（Codex 警告会返工） |
 | 生命周期守护（eng-review C2） | 显式 render-epoch + 拆卸契约 + 对应测试 | render 再入 / animateDiff 竞态 / destroy 顺序都是静默失败缝 | 仅靠现有测试与人工小心 |
-| 公开面改名（eng-review C3） | `createStaticGraphRenderer` 经 `export * from './render'` 在包公开面但无外部消费者（已核），接受干净改名、保留 rg-零检查、不留兼容别名 | 无消费者，别名只会被 rg 检查拦；干净更清楚 | 留兼容别名（与 rg-零检查冲突） |
+| 公开面改名（eng-review C3） | `createStaticGraphRenderer` 经 `export * from './render'` 在包公开面；为避免破坏现有导入，保留兼容别名，同时清掉旧文件名 | 包公开面需要向后兼容，别名是稳定入口 | 直接删别名（会破坏既有导入） |
 | 帧率门槛 | stage-4.5 offline exits 0 且实测 fps ≥ 45 | 设计要求"≥ 基线（~50）留 10%"；脚本内置相对下限 + 捕获绝对值双保险 | 仅靠脚本相对下限（可能在基线下滑时仍通过） |
 | 进度记录粒度 | 每个已验证工作单元更新一次，且和代码改动放进同一个提交 | 上一轮逐提交配套记账过重；0.3 规则改为任务提交本身带进度更新 | 单独配套进度提交 |
 

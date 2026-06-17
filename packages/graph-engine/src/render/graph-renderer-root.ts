@@ -185,6 +185,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       focusNextSearchResult: () => controller.focusNextSearchResult(),
       closeSearch: () => controller.closeSearch(),
       selectCommunity: (id) => controller.selectCommunity(id),
+      setCommunityHover: (id) => controller.setCommunityHover(id),
       handleNodeClick: (id, additive) => controller.handleNodeClick(id, additive),
       handleNodeDoubleClick: (id) => controller.handleNodeDoubleClick(id),
       scheduleHoverPreview: (id) => presenter.scheduleHoverPreview(id),
@@ -204,6 +205,14 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
 
   function render(next: RenderNextOptions = {}): void {
     assertActive();
+    context.renderEpoch += 1;
+    pipeline.settleDiffElements();
+    delete context.root.dataset.diffState;
+    delete context.root.dataset.diffAddedNodes;
+    delete context.root.dataset.diffAddedEdges;
+    delete context.root.dataset.diffRemovedNodes;
+    delete context.root.dataset.diffNewCommunities;
+    delete context.root.dataset.diffReducedMotion;
     applyOptionChanges(next);
     pipeline.rebuildAndPaint();
   }
