@@ -4,8 +4,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-4",
-    "task": "4.1",
-    "next_allowed_action": "Rename static-renderer.ts to graph-renderer-root.ts and update root/facade/export/test path references."
+    "task": "4.2",
+    "next_allowed_action": "Update architecture.ts owner map for controller layer and renderer/root entrypoints."
   },
   "execution_rules": {
     "branch": "feat/graph-renderer-coordination-split",
@@ -438,7 +438,58 @@
       ],
       "status": "pending",
       "tasks": [
-        { "id": "4.1", "title": "Rename file + createGraphRenderer + public types; update facade.ts, render/index.ts, renderer-boundary.test.ts path strings; confirm root is assembly+delegation only", "status": "pending", "verification": [] },
+        {
+          "id": "4.1",
+          "title": "Rename file + createGraphRenderer + public types; update facade.ts, render/index.ts, renderer-boundary.test.ts path strings; confirm root is assembly+delegation only",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "git log --oneline -15",
+              "exit": 0,
+              "evidence": "task 3.1 commit present: c8fa651 refactor: extract graph overlays presenter [task 3.1]"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "265 tests passed, 0 failed before starting 4.1 and after renderer root rename"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "tsc --noEmit completed after renderer root rename"
+            },
+            {
+              "command": "npm run build --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "vite build and declarations completed after renderer root rename"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki-agent/web",
+              "exit": 0,
+              "evidence": "web typecheck passed after graph-engine pretypecheck build"
+            },
+            {
+              "command": "bash -lc '! rg -n \"static-renderer|createStaticGraphRenderer|StaticGraphRenderer|StaticRendererOptions\" packages/graph-engine/src packages/graph-engine/test -g \"!architecture.ts\"'",
+              "exit": 0,
+              "evidence": "old renderer names removed from 4.1-owned source and test files; architecture.ts remains for task 4.2 owner-map update"
+            },
+            {
+              "command": "git diff --check",
+              "exit": 0,
+              "evidence": "no whitespace errors"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: graph workbench interaction regression"
+            },
+            {
+              "command": "bash tests/graph-offline-phase-6.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: phase 6 offline graph regression"
+            }
+          ]
+        },
         { "id": "4.2", "title": "Update architecture.ts owner map: add controller layer, point renderer entrypoints at render-pipeline/overlays-presenter", "status": "pending", "verification": [] }
       ]
     },
@@ -505,6 +556,11 @@
       "task": "3.1",
       "status": "completed",
       "notes": "Extracted overlays-presenter.ts for hover/edge preview, offline reader, and selection panel positioning; Phase 3 acceptance passed and execution advanced to Phase 4."
+    },
+    {
+      "task": "4.1",
+      "status": "completed",
+      "notes": "Renamed the renderer root to graph-renderer-root.ts, renamed the public root factory/types to createGraphRenderer/GraphRenderer/GraphRendererOptions, and updated facade/export/test path references without behavior changes."
     }
   ]
 }

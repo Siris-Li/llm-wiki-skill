@@ -9,7 +9,7 @@ import type {
   SelectionInput,
   ThemeId
 } from "./types";
-import { createStaticGraphRenderer } from "./render";
+import { createGraphRenderer } from "./render";
 import { resolveSelectionForCapabilities } from "./select";
 import { graphNodeTypeLabel, wikiPathForGraphNode } from "./graph-node";
 
@@ -86,7 +86,7 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
 
   const capabilities = options.capabilities;
   const facadeState: GraphFacadeState = { data: options.data };
-  const renderer = createStaticGraphRenderer(container, {
+  const renderer = createGraphRenderer(container, {
     data: options.data,
     pins: options.pins || {},
     theme: options.theme,

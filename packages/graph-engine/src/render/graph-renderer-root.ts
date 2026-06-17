@@ -44,7 +44,7 @@ import { createGraphOverlaysPresenter, type GraphOverlaysPresenter } from "./ove
 // 大社区包围盒大、fit 算出的 scale 本就 < 此上限，不受影响。
 const FOCUS_FIT_MAX_SCALE = 1.5;
 
-interface StaticRendererOptions {
+export interface GraphRendererOptions {
   data: GraphData;
   pins?: PinMap;
   theme: ThemeId;
@@ -59,12 +59,12 @@ interface StaticRendererOptions {
   live?: boolean;
 }
 
-type RenderNextOptions = Partial<StaticRendererOptions> & {
+type RenderNextOptions = Partial<GraphRendererOptions> & {
   selectedNodeId?: string | null;
   selection?: SelectionInput | null;
 };
 
-export interface StaticGraphRenderer {
+export interface GraphRenderer {
   root: HTMLElement;
   graph: RenderableGraph;
   render(next?: RenderNextOptions): void;
@@ -84,7 +84,7 @@ export interface StaticGraphRenderer {
   destroy(): void;
 }
 
-export function createStaticGraphRenderer(container: HTMLElement, options: StaticRendererOptions): StaticGraphRenderer {
+export function createGraphRenderer(container: HTMLElement, options: GraphRendererOptions): GraphRenderer {
   const initialPins = options.pins || {};
   const initialFocus = options.focus || null;
   const pathCache = createRenderPathCache();

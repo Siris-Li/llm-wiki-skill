@@ -36,8 +36,8 @@ export {
   writeToolbarPanelState
 } from "./toolbar";
 export type { GraphToolbarPanelState, GraphToolbarStorage } from "./toolbar";
-export { createStaticGraphRenderer } from "./static-renderer";
-export type { StaticGraphRenderer } from "./static-renderer";
+export { createGraphRenderer } from "./graph-renderer-root";
+export type { GraphRenderer, GraphRendererOptions } from "./graph-renderer-root";
 export {
   DEFAULT_GRAPH_EDGE_HIT_TOLERANCE,
   DEFAULT_GRAPH_NODE_FALLBACK_RADIUS,
