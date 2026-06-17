@@ -97,8 +97,8 @@ facade.focusCommunity(id)
 
 - 文件 `render/static-renderer.ts` → `render/graph-renderer-root.ts`（它以后只管组装，名字应说明这一点）。
 - 对外函数 `createStaticGraphRenderer` → `createGraphRenderer`（"static" 是早期遗留词，已无意义）。
-- 影响面约 6 处引用：`facade.ts`、`render/index.ts`、`sim/index.ts`、`sim/pins.ts`、`architecture.ts`、`renderer-boundary.test.ts`。
-- 注意：其中两处**不是"测试自动接住"，而是必须手动改**——`renderer-boundary.test.ts` 按路径字符串读 `render/static-renderer.ts`（117、124 行），`architecture.ts` 的 `entrypoints` 也写死了该路径。改名必须同步更新这两处，否则测试会因找不到文件而失败。
+- 影响面（已精确核对）：`facade.ts`（import + 调用）、`render/index.ts`（re-export `createStaticGraphRenderer` 与类型 `StaticGraphRenderer`，39/40 行）、`architecture.ts`（entrypoints 写死路径，43 行）、`renderer-boundary.test.ts`（按路径字符串读文件，117/124 行），外加文件自身。（注：`sim/index.ts`/`sim/pins.ts` 并不引用它，之前的宽松 grep 误命中，已剔除。）
+- 注意：其中两处**不是"测试自动接住"，而是必须手动改**——`renderer-boundary.test.ts` 按路径字符串读 `render/static-renderer.ts`，`architecture.ts` 的 `entrypoints` 也写死了该路径。改名必须同步更新这两处，否则测试会因找不到文件而失败。
 - `architecture.ts` 中 `renderer` 层的 `entrypoints` 需相应更新；新增 `controller` 层条目（见下）。
 
 `architecture.ts` 调整：当前六层 owner map 把 `static-renderer.ts` 归在 `renderer` 层。重组后：
