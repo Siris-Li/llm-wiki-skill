@@ -3,9 +3,9 @@
   "spec": "docs/spark/2026-06-17-static-renderer-coordination-split-design.md",
   "status": {
     "overall": "in_progress",
-    "phase": "phase-4",
-    "task": "4.2",
-    "next_allowed_action": "Update architecture.ts owner map for controller layer and renderer/root entrypoints."
+    "phase": "phase-5",
+    "task": "5.1",
+    "next_allowed_action": "Extend renderer-boundary.test.ts with ownership, command-injection, and lifecycle/runtime probes."
   },
   "execution_rules": {
     "branch": "feat/graph-renderer-coordination-split",
@@ -436,7 +436,7 @@
         "rg -n 'static-renderer|createStaticGraphRenderer' packages/graph-engine/src packages/graph-engine/test prints nothing",
         "bash tests/graph-workbench-interactions.regression-1.sh and bash tests/graph-offline-phase-6.regression-1.sh exit 0"
       ],
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         {
           "id": "4.1",
@@ -490,7 +490,58 @@
             }
           ]
         },
-        { "id": "4.2", "title": "Update architecture.ts owner map: add controller layer, point renderer entrypoints at render-pipeline/overlays-presenter", "status": "pending", "verification": [] }
+        {
+          "id": "4.2",
+          "title": "Update architecture.ts owner map: add controller layer, point renderer entrypoints at render-pipeline/overlays-presenter",
+          "status": "completed",
+          "verification": [
+            {
+              "command": "git log --oneline -15",
+              "exit": 0,
+              "evidence": "task 4.1 commit present: 238cdd6 refactor: rename graph renderer root [task 4.1]"
+            },
+            {
+              "command": "npm run test --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "265 tests passed, 0 failed after architecture owner map update"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "tsc --noEmit completed after architecture owner map update"
+            },
+            {
+              "command": "npm run build --workspace=@llm-wiki/graph-engine",
+              "exit": 0,
+              "evidence": "vite build and declarations completed after architecture owner map update"
+            },
+            {
+              "command": "npm run typecheck --workspace=@llm-wiki-agent/web",
+              "exit": 0,
+              "evidence": "web typecheck passed after graph-engine pretypecheck build"
+            },
+            {
+              "command": "bash -lc '! rg -n \"static-renderer|createStaticGraphRenderer\" packages/graph-engine/src packages/graph-engine/test'",
+              "exit": 0,
+              "evidence": "old renderer root names removed from graph-engine source and tests"
+            },
+            {
+              "command": "git diff --check",
+              "exit": 0,
+              "evidence": "no whitespace errors"
+            },
+            {
+              "command": "bash tests/graph-workbench-interactions.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: graph workbench interaction regression"
+            },
+            {
+              "command": "bash tests/graph-offline-phase-6.regression-1.sh",
+              "exit": 0,
+              "evidence": "PASS: phase 6 offline graph regression"
+            }
+          ]
+        }
       ]
     },
     {
@@ -561,6 +612,11 @@
       "task": "4.1",
       "status": "completed",
       "notes": "Renamed the renderer root to graph-renderer-root.ts, renamed the public root factory/types to createGraphRenderer/GraphRenderer/GraphRendererOptions, and updated facade/export/test path references without behavior changes."
+    },
+    {
+      "task": "4.2",
+      "status": "completed",
+      "notes": "Updated the graph architecture owner map and architecture test for the new controller layer plus graph-renderer-root/render-pipeline/overlays-presenter renderer entrypoints; Phase 4 acceptance passed."
     }
   ]
 }

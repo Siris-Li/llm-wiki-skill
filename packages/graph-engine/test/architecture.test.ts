@@ -7,18 +7,20 @@ const EXPECTED_LAYER_ORDER: GraphArchitectureLayerId[] = [
   "data",
   "layout",
   "viewport",
+  "controller",
   "renderer",
   "gestures",
   "facade"
 ];
 
 describe("graph architecture layer contract", () => {
-  it("declares the six graph owner layers in one exported contract", () => {
+  it("declares the seven graph owner layers in one exported contract", () => {
     assert.deepEqual(GRAPH_ARCHITECTURE_LAYERS.map((layer) => layer.id), EXPECTED_LAYER_ORDER);
     assert.deepEqual(GRAPH_ARCHITECTURE_LAYERS.map((layer) => layer.name), [
       "GraphData",
       "GraphLayout",
       "GraphViewport",
+      "GraphController",
       "GraphRenderer",
       "GraphGestures",
       "GraphFacade"

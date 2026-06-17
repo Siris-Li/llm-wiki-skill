@@ -2,6 +2,7 @@ export type GraphArchitectureLayerId =
   | "data"
   | "layout"
   | "viewport"
+  | "controller"
   | "renderer"
   | "gestures"
   | "facade";
@@ -37,10 +38,28 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
     mustNotOwn: ["graph data mutation", "DOM event classification", "host callbacks"]
   },
   {
+    id: "controller",
+    name: "GraphController",
+    owns: ["semantic graph commands", "keyboard routing", "node drag coordination"],
+    entrypoints: ["src/render/controller.ts"],
+    mustNotOwn: ["host callbacks", "graph drawing", "render-model computation"]
+  },
+  {
     id: "renderer",
     name: "GraphRenderer",
     owns: ["DOM/SVG drawing", "node, edge, wash, toolbar, overlay, reader painting", "render-only CSS state"],
-    entrypoints: ["src/render/", "src/render/static-renderer.ts"],
+    entrypoints: [
+      "src/render/graph-renderer-root.ts",
+      "src/render/render-pipeline.ts",
+      "src/render/overlays-presenter.ts",
+      "src/render/nodes.ts",
+      "src/render/edges.ts",
+      "src/render/community-washes.ts",
+      "src/render/minimap.ts",
+      "src/render/controls.ts",
+      "src/render/hover-card.ts",
+      "src/render/offline-reader.ts"
+    ],
     mustNotOwn: ["host callbacks", "selection semantics", "browser default policy"]
   },
   {
