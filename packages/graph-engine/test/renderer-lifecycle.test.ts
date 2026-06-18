@@ -1,10 +1,32 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import type { GraphData, GraphDiff } from "../src";
+import type { GraphData, GraphDiff, SelectionInput } from "../src";
 import { createGraphRenderer } from "../src/render";
 
 describe("graph renderer lifecycle", () => {
+  it("routes a global node click to lightweight selection instead of opening the page", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const opened: string[] = [];
+    const selections: SelectionInput[] = [];
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphData(["a"]),
+      theme: "shan-shui",
+      live: false,
+      onNodeOpen: (id) => opened.push(id),
+      onSelectionInput: (selection) => selections.push(selection)
+    });
+
+    nodeElement(renderer, "a")?.dispatch("click", { detail: 0 });
+
+    assert.deepEqual(opened, []);
+    assert.deepEqual(selections, [{ kind: "node", id: "a" }]);
+    assert.equal(nodeElement(renderer, "a")?.getAttribute("aria-pressed"), "true");
+
+    renderer.destroy();
+  });
+
   it("updates toolbar panel state without repainting the graph", () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");
@@ -232,8 +254,8 @@ class FakeElement {
     this.listeners.set(type, listeners.filter((candidate) => candidate !== listener));
   }
 
-  dispatch(type: string): void {
-    const event = new FakeEvent(type);
+  dispatch(type: string, init: Partial<FakeEvent> = {}): void {
+    const event = new FakeEvent(type, init);
     for (const listener of this.listeners.get(type) || []) listener(event);
   }
 
@@ -248,8 +270,12 @@ class FakeElement {
 
 class FakeEvent {
   propagationStopped = false;
+  detail = 1;
+  shiftKey = false;
 
-  constructor(readonly type: string) {}
+  constructor(readonly type: string, init: Partial<FakeEvent> = {}) {
+    Object.assign(this, init);
+  }
 
   stopPropagation(): void {
     this.propagationStopped = true;

@@ -19,6 +19,7 @@ import {
 	putGraphLayout,
 	rebuildGraph,
 } from "@/lib/api";
+import type { GraphSelectionCommand } from "@/lib/graph-summary-actions";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -29,7 +30,7 @@ interface Props {
 	onOpenPage?: (payload: GraphOpenPagePayload) => void;
 	onGraphDataChange?: (data: GraphData | null) => void;
 	onSelectionChange?: (selection: Selection | null) => void;
-	selectionCommand?: { id: string; type: "clear" | "clear-selection" | "neighbors" };
+	selectionCommand?: GraphSelectionCommand;
 	focusPath?: string | null;
 	pendingDiff?: GraphDiff | null;
 	refreshToken?: number;
@@ -349,6 +350,14 @@ export function GraphPanel({
 		if (selectionCommand.type === "neighbors") {
 			const selected = engineRef.current?.select({ kind: "neighbors", id: selectionCommand.id });
 			if (selected) onSelectionChangeRef.current?.(selected);
+		}
+		if (selectionCommand.type === "enter-community") {
+			const selected = engineRef.current?.focusCommunity(selectionCommand.id);
+			if (selected) onSelectionChangeRef.current?.(selected);
+		}
+		if (selectionCommand.type === "enter-community-node") {
+			engineRef.current?.focusCommunity(selectionCommand.id);
+			engineRef.current?.select({ kind: "node", id: selectionCommand.nodeId });
 		}
 	}, [selectionCommand, status]);
 

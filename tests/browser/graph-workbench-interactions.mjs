@@ -71,7 +71,16 @@ async function runDesktopChecks(browser) {
 
   await page.locator(".node[data-id='A']").click();
   await page.waitForSelector(".drawer-panel-open");
+  await page.waitForSelector('[data-testid="graph-node-summary"]');
   evidence.drawer.opened = await drawerAndGraphSnapshot(page);
+  await page.locator('[data-testid="graph-node-summary"] button', { hasText: "打开详情" }).click();
+  await page.waitForSelector(".graph-reader-drawer");
+  await page.waitForFunction(() => {
+    const host = document.querySelector(".graph-host");
+    return host?.dataset.llmWikiGraphFocus === "community:t1";
+  });
+  await page.waitForFunction(() => document.querySelector(".node[data-id='A'][aria-pressed='true']"));
+  evidence.drawer.detailRead = await drawerAndGraphSnapshot(page);
   evidence.blockedWheelTargets.drawer = await assertWheelDoesNotZoom(page, await elementCenter(page, ".drawer-panel-open"), "drawer");
   await resizeDrawer(page, -120);
   evidence.drawer.afterResize = await drawerAndGraphSnapshot(page);
@@ -110,6 +119,7 @@ async function runNarrowChecks(browser) {
   await assertBoxInsideViewport(page, ".graph-hover-preview", "narrow hover preview");
   await page.locator(`.node[data-id="${cssString(nodeId)}"]`).click();
   await page.waitForSelector(".drawer-panel-open");
+  await page.waitForSelector('[data-testid="graph-node-summary"]');
   evidence.drawer = await drawerAndGraphSnapshot(page);
   await assertBoxInsideViewport(page, ".drawer-panel-open", "narrow drawer");
 

@@ -185,14 +185,9 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
   }
 
   function handleNodeClick(id: NodeId, additive: boolean): void {
-    if (!additive) {
-      context.runtimeState.setSelection({ kind: "node", id }, "reader");
-      context.callbacks.onNodeOpen?.(id);
-      delegates.render();
-      focusRenderedNode(id);
-      return;
-    }
-    const nextSelection = shiftSelection(id, selectedNodeIds(context.runtimeState.snapshot().selection));
+    const nextSelection = additive
+      ? shiftSelection(id, selectedNodeIds(context.runtimeState.snapshot().selection))
+      : { kind: "node" as const, id };
     context.runtimeState.setSelection(nextSelection, "selection-panel");
     context.callbacks.onSelectionInput?.(nextSelection);
     delegates.render();

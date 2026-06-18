@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { resolveSelection, type GraphData, type GraphDiff, type GraphOpenPagePayload, type Selection } from "@llm-wiki/graph-engine";
+import {
+	resolveSelection,
+	type GraphData,
+	type GraphDiff,
+	type GraphOpenPagePayload,
+	type GraphSummaryCommand,
+	type Selection,
+} from "@llm-wiki/graph-engine";
 
 import { BatchDigestPanel, type BatchDigestJob } from "@/components/BatchDigestPanel";
 import { ChatPanel } from "@/components/ChatPanel";
@@ -38,7 +45,13 @@ import {
 	wikiDrawer,
 } from "@/lib/drawer-state";
 import type { GraphReaderActionId } from "@/lib/graph-reader";
-import { buildSelectionPromptPayload, selectionTitle } from "@/lib/graph-selection";
+import { buildSelectionPromptPayload } from "@/lib/graph-selection";
+import {
+	drawerForGraphSelection,
+	graphOpenPagePayloadForCommand,
+	graphSelectionCommandForOpenDetail,
+	type GraphSelectionCommand,
+} from "@/lib/graph-summary-actions";
 import { WIKI_LINK_SEEN_EVENT } from "@/lib/wiki-links";
 
 type ThemeMode = "dark" | "light";
@@ -131,7 +144,7 @@ function App() {
 	const [graphRefreshToken, setGraphRefreshToken] = useState(0);
 	const [graphHasPendingUpdate, setGraphHasPendingUpdate] = useState(false);
 	const [graphData, setGraphData] = useState<GraphData | null>(null);
-	const [selectionCommand, setSelectionCommand] = useState<{ id: string; type: "clear" | "clear-selection" | "neighbors" } | undefined>();
+	const [selectionCommand, setSelectionCommand] = useState<GraphSelectionCommand | undefined>();
 	const [mainView, setMainView] = useState<MainView>(() => {
 		if (typeof window === "undefined") return "chat";
 		return window.localStorage.getItem(MAIN_VIEW_STORAGE_KEY) === "graph" ? "graph" : "chat";
@@ -338,14 +351,10 @@ function App() {
 
 	const handleGraphSelectionChange = useCallback((selection: Selection | null) => {
 		if (!selection) {
-			setDrawer((current) => current.mode === "graph-selection" ? closedDrawer() : current);
+			setDrawer((current) => isGraphInteractionDrawer(current) ? closedDrawer() : current);
 			return;
 		}
-		setDrawer((current) => {
-			const freeText = current.mode === "graph-selection" ? current.freeText : "";
-			const title = graphData ? selectionTitle(graphData, selection) : "选区";
-			return graphSelectionDrawer(selection, title, freeText);
-		});
+		setDrawer((current) => drawerForGraphSelection(graphData, selection, current));
 	}, [graphData]);
 
 	const handleGraphSelectionTextChange = useCallback((value: string) => {
@@ -444,8 +453,9 @@ function App() {
 		}
 	};
 
-	const handleOpenGraphPage = async (payload: GraphOpenPagePayload) => {
+	const handleOpenGraphPage = async (payload: GraphOpenPagePayload, options: { syncGraphFocus?: boolean } = {}) => {
 		if (!active) return;
+		const syncGraphFocus = options.syncGraphFocus ?? true;
 		const normalizedPagePath = toRelativePagePath(payload.path, active.kb.path) ?? payload.path;
 		const normalizedPayload = {
 			...payload,
@@ -455,7 +465,7 @@ function App() {
 				sourcePath: toRelativePagePath(payload.node.sourcePath, active.kb.path) ?? payload.node.sourcePath,
 			},
 		};
-		if (normalizedPagePath.startsWith("wiki/")) setGraphFocusPath(normalizedPagePath);
+		if (syncGraphFocus && normalizedPagePath.startsWith("wiki/")) setGraphFocusPath(normalizedPagePath);
 		setDrawer(graphReaderDrawer(normalizedPayload, { loading: true }));
 		try {
 			const content = await readPage(active.kb.path, normalizedPagePath);
@@ -472,6 +482,19 @@ function App() {
 			));
 		}
 	};
+
+	const handleGraphSummaryCommand = useCallback((command: GraphSummaryCommand) => {
+		if (command.kind === "open-detail-read") {
+			const payload = graphOpenPagePayloadForCommand(graphData, command);
+			const focusCommand = graphSelectionCommandForOpenDetail(graphData, command);
+			if (focusCommand) setSelectionCommand(focusCommand);
+			if (payload) void handleOpenGraphPage(payload, { syncGraphFocus: !focusCommand });
+			return;
+		}
+		if (command.kind === "enter-community") {
+			setSelectionCommand({ id: command.communityId, type: "enter-community" });
+		}
+	}, [graphData, active]);
 
 	const handleWikiLinkSeen = useCallback((pagePath: string) => {
 		setGraphFocusPath(pagePath);
@@ -709,6 +732,7 @@ function App() {
 					onOpenPage={handleOpenPage}
 					onWikiLinkSeen={handleWikiLinkSeen}
 					onGraphReaderAction={handleGraphReaderAction}
+					onGraphSummaryCommand={handleGraphSummaryCommand}
 					onGraphSelectionTextChange={handleGraphSelectionTextChange}
 					onGraphSelectionNeighbors={handleGraphSelectionNeighbors}
 					onGraphSelectionAsk={handleGraphSelectionAsk}
@@ -744,6 +768,19 @@ function toRelativePagePath(outputPath: string, kbPath: string): string | null {
 	if (outputPath.startsWith(normalizedKb)) return outputPath.slice(normalizedKb.length);
 	if (outputPath.startsWith("wiki/")) return outputPath;
 	return null;
+}
+
+function isGraphInteractionDrawer(drawer: DrawerState): boolean {
+	return drawer.mode === "graph-selection"
+		|| drawer.mode === "graph-node-summary"
+		|| drawer.mode === "graph-community-summary"
+		|| drawer.mode === "graph-search-results"
+		|| drawer.mode === "graph-excluded-object"
+		|| drawer.mode === "graph-unavailable-object"
+		|| drawer.mode === "graph-global-overview"
+		|| drawer.mode === "graph-loading"
+		|| drawer.mode === "graph-empty"
+		|| drawer.mode === "graph-error";
 }
 
 export default App;
