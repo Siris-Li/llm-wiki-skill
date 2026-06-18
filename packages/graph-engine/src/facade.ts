@@ -5,6 +5,8 @@ import type {
   GraphEngineOptions,
   GraphData,
   GraphOpenPagePayload,
+  GraphSummaryObjectRef,
+  GraphSummaryOptions,
   Selection,
   SelectionInput,
   ThemeId
@@ -12,6 +14,14 @@ import type {
 import { createGraphRenderer } from "./render";
 import { resolveSelectionForCapabilities } from "./select";
 import { graphNodeTypeLabel, wikiPathForGraphNode } from "./graph-node";
+import {
+  summarizeExcludedGraphObject,
+  summarizeGraphCommunity,
+  summarizeGraphGlobal,
+  summarizeGraphNode,
+  summarizeGraphSearchResults,
+  summarizeUnavailableGraphObject
+} from "./summary";
 
 export type GraphFacadeHostMode = "workbench" | "offline" | "standalone";
 
@@ -77,6 +87,7 @@ interface GraphFacadeContainer {
 
 interface GraphFacadeState {
   data: GraphData;
+  pins: NonNullable<GraphEngineOptions["pins"]>;
 }
 
 export function createGraphFacade(container: HTMLElement, options: GraphEngineOptions): GraphEngine {
@@ -85,7 +96,7 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
   }
 
   const capabilities = options.capabilities;
-  const facadeState: GraphFacadeState = { data: options.data };
+  const facadeState: GraphFacadeState = { data: options.data, pins: options.pins || {} };
   const renderer = createGraphRenderer(container, {
     data: options.data,
     pins: options.pins || {},
@@ -117,7 +128,7 @@ export function createGraphFacadeFromRenderer(
   container: GraphFacadeContainer,
   renderer: GraphFacadeRenderer,
   options: GraphEngineOptions,
-  facadeState: GraphFacadeState = { data: options.data }
+  facadeState: GraphFacadeState = { data: options.data, pins: options.pins || {} }
 ): GraphEngine {
   let currentTheme: ThemeId = options.theme;
   let destroyed = false;
@@ -142,6 +153,7 @@ export function createGraphFacadeFromRenderer(
     setData(data, pins): void {
       assertActive();
       facadeState.data = data;
+      if (pins) facadeState.pins = pins;
       renderer.setData(data, pins);
     },
 
@@ -175,6 +187,44 @@ export function createGraphFacadeFromRenderer(
       return resolveForHostCapabilities(selector);
     },
 
+    summarizeNode(id, summaryOptions) {
+      assertActive();
+      return summarizeGraphNode(facadeState.data, id, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
+    summarizeCommunity(id, summaryOptions) {
+      assertActive();
+      return summarizeGraphCommunity(facadeState.data, id, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
+    summarizeGlobal(summaryOptions) {
+      assertActive();
+      return summarizeGraphGlobal(facadeState.data, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
+    summarizeSearchResults(query, resultIds, summaryOptions) {
+      assertActive();
+      return summarizeGraphSearchResults(facadeState.data, query, resultIds, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
+    summarizeExcludedObject(
+      object: GraphSummaryObjectRef,
+      reason: Parameters<GraphEngine["summarizeExcludedObject"]>[1],
+      summaryOptions?: GraphSummaryOptions
+    ) {
+      assertActive();
+      return summarizeExcludedGraphObject(facadeState.data, object, reason, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
+    summarizeUnavailableObject(
+      object: GraphSummaryObjectRef,
+      reason: Parameters<GraphEngine["summarizeUnavailableObject"]>[1],
+      summaryOptions?: GraphSummaryOptions
+    ) {
+      assertActive();
+      return summarizeUnavailableGraphObject(facadeState.data, object, reason, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
     clearSelection(): void {
       assertActive();
       renderer.clearSelection();
@@ -195,6 +245,7 @@ export function createGraphFacadeFromRenderer(
 
     setPins(pins): void {
       assertActive();
+      facadeState.pins = pins;
       renderer.setPins(pins);
     },
 
@@ -218,6 +269,13 @@ export function createGraphFacadeFromRenderer(
       throw new Error("Graph engine has been destroyed");
     }
   }
+}
+
+function summaryOptionsWithPins(state: GraphFacadeState, options: GraphSummaryOptions = {}): GraphSummaryOptions {
+  return {
+    ...options,
+    pins: options.pins ?? state.pins
+  };
 }
 
 function shouldResolveSelection(capabilities: GraphEngineOptions["capabilities"]): boolean {

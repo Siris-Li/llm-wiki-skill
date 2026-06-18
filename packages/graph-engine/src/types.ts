@@ -264,6 +264,173 @@ export type SelectionInput =
   | { kind: "neighbors"; id: NodeId }
   | { kind: "nodes"; ids: NodeId[] };
 
+export type GraphSummaryObjectRef =
+  | { kind: "node"; nodeId: NodeId }
+  | { kind: "community"; communityId: CommunityId }
+  | { kind: "aggregation"; aggregationId: string; nodeIds: NodeId[]; communityId?: CommunityId | null };
+
+export interface GraphSummarySelectionState {
+  input: SelectionInput | null;
+  selectionId: string | null;
+  selectedNodeIds: NodeId[];
+  selectedCommunityIds: CommunityId[];
+  containsCurrentObject: boolean;
+}
+
+export interface GraphPinHint {
+  nodeId: NodeId;
+  wikiPath: WikiPath;
+  pinned: boolean;
+  position: PinPosition | null;
+}
+
+export interface GraphAggregationMarker {
+  id: string;
+  label?: string;
+  communityId?: CommunityId | null;
+  nodeIds: NodeId[];
+  selectedNodeIds?: NodeId[];
+  searchResultIds?: NodeId[];
+  pinnedNodeIds?: NodeId[];
+  totalCount?: number;
+}
+
+export interface GraphRelationSummary {
+  edgeId: EdgeId;
+  fromNodeId: NodeId;
+  toNodeId: NodeId;
+  relationType: GraphRelationType | null;
+  confidence: Confidence | null;
+  weight: number;
+  bridge: boolean;
+}
+
+export type GraphSummaryCommand =
+  | {
+      kind: "enter-community";
+      communityId: CommunityId;
+      label: string;
+    }
+  | {
+      kind: "open-detail-read";
+      nodeId: NodeId;
+      path: WikiPath;
+      label: string;
+    }
+  | {
+      kind: "show-this-object";
+      object: GraphSummaryObjectRef;
+      label: string;
+    }
+  | {
+      kind: "clear-temporary-object-display";
+      label: string;
+    }
+  | {
+      kind: "set-fixed-position";
+      mode: "fix" | "unfix";
+      nodeId: NodeId;
+      wikiPath: WikiPath;
+      label: string;
+    };
+
+export interface GraphSummaryOptions {
+  selection?: SelectionInput | null;
+  searchResultIds?: NodeId[];
+  pins?: PinMap;
+  aggregationMarkers?: GraphAggregationMarker[];
+}
+
+export interface GraphNodeSummaryPayload {
+  kind: "node-summary";
+  object: { kind: "node"; nodeId: NodeId };
+  nodeId: NodeId;
+  label: string;
+  type: GraphNodeType;
+  communityId: CommunityId | null;
+  sourcePath: WikiPath;
+  summary: string | null;
+  connectionCount: number;
+  searchHit: boolean;
+  pinHint: GraphPinHint;
+  selection: GraphSummarySelectionState;
+  strongestRelations: GraphRelationSummary[];
+  bridgeRelations: GraphRelationSummary[];
+  aggregationMarkers: GraphAggregationMarker[];
+  commands: GraphSummaryCommand[];
+}
+
+export interface GraphCommunitySummaryPayload {
+  kind: "community-summary";
+  object: { kind: "community"; communityId: CommunityId };
+  communityId: CommunityId;
+  label: string;
+  nodeCount: number;
+  coreNodeIds: NodeId[];
+  searchResultIds: NodeId[];
+  pinHints: GraphPinHint[];
+  selection: GraphSummarySelectionState;
+  strongestRelations: GraphRelationSummary[];
+  bridgeRelations: GraphRelationSummary[];
+  aggregationMarkers: GraphAggregationMarker[];
+  commands: GraphSummaryCommand[];
+}
+
+export interface GraphGlobalOverviewPayload {
+  kind: "global-overview";
+  nodeCount: number;
+  edgeCount: number;
+  communityCount: number;
+  coreNodeIds: NodeId[];
+  searchResultIds: NodeId[];
+  pinHints: GraphPinHint[];
+  selection: GraphSummarySelectionState;
+  aggregationMarkers: GraphAggregationMarker[];
+  commands: GraphSummaryCommand[];
+}
+
+export interface GraphSearchResultsPayload {
+  kind: "search-results";
+  query: string;
+  searchResultIds: NodeId[];
+  visibleResultIds: NodeId[];
+  unavailableResultIds: NodeId[];
+  selection: GraphSummarySelectionState;
+  pinHints: GraphPinHint[];
+  aggregationMarkers: GraphAggregationMarker[];
+  commands: GraphSummaryCommand[];
+}
+
+export interface GraphExcludedObjectPayload {
+  kind: "excluded-object";
+  object: GraphSummaryObjectRef;
+  reason: "filter" | "aggregation" | "search" | "community-scope";
+  selection: GraphSummarySelectionState;
+  searchResultIds: NodeId[];
+  pinHints: GraphPinHint[];
+  aggregationMarkers: GraphAggregationMarker[];
+  commands: GraphSummaryCommand[];
+}
+
+export interface GraphUnavailableObjectPayload {
+  kind: "unavailable-object";
+  object: GraphSummaryObjectRef;
+  reason: "missing-node" | "missing-community" | "missing-aggregation";
+  selection: GraphSummarySelectionState;
+  searchResultIds: NodeId[];
+  pinHints: GraphPinHint[];
+  aggregationMarkers: GraphAggregationMarker[];
+  commands: GraphSummaryCommand[];
+}
+
+export type GraphSummaryPayload =
+  | GraphNodeSummaryPayload
+  | GraphCommunitySummaryPayload
+  | GraphGlobalOverviewPayload
+  | GraphSearchResultsPayload
+  | GraphExcludedObjectPayload
+  | GraphUnavailableObjectPayload;
+
 export type GraphFocusInput =
   | { kind: "community"; id: CommunityId }
   | null;
@@ -315,6 +482,23 @@ export interface GraphEngine {
   setTypeFilters(filters: GraphTypeFilters): void;
   resetView(): void;
   select(selector: SelectionInput): Selection;
+  summarizeNode(id: NodeId, options?: GraphSummaryOptions): GraphNodeSummaryPayload | GraphUnavailableObjectPayload;
+  summarizeCommunity(
+    id: CommunityId,
+    options?: GraphSummaryOptions
+  ): GraphCommunitySummaryPayload | GraphUnavailableObjectPayload;
+  summarizeGlobal(options?: GraphSummaryOptions): GraphGlobalOverviewPayload;
+  summarizeSearchResults(query: string, resultIds: NodeId[], options?: GraphSummaryOptions): GraphSearchResultsPayload;
+  summarizeExcludedObject(
+    object: GraphSummaryObjectRef,
+    reason: GraphExcludedObjectPayload["reason"],
+    options?: GraphSummaryOptions
+  ): GraphExcludedObjectPayload;
+  summarizeUnavailableObject(
+    object: GraphSummaryObjectRef,
+    reason: GraphUnavailableObjectPayload["reason"],
+    options?: GraphSummaryOptions
+  ): GraphUnavailableObjectPayload;
   clearSelection(): void;
   clearInteraction(): void;
   setTheme(theme: ThemeId): void;

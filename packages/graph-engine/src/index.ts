@@ -4,6 +4,7 @@ export * from "./layout";
 export * from "./model";
 export * from "./render";
 export * from "./select";
+export * from "./summary";
 export * from "./sim";
 export * from "./themes";
 export * from "./diff";
