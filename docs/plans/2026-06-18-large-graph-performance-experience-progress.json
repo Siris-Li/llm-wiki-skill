@@ -1,0 +1,727 @@
+{
+  "plan": "docs/plans/2026-06-18-large-graph-performance-experience-phased-plan.md",
+  "spec": "docs/spark/2026-06-18-large-graph-global-community-design.md",
+  "status": {
+    "overall": "in_progress",
+    "phase": "phase-0",
+    "task": "0.2",
+    "next_allowed_action": "Capture existing behavior and performance baseline for the current DOM/SVG graph implementation, then update the progress ledger and commit task 0.2 evidence."
+  },
+  "execution_rules": {
+    "branch": "codex/large-graph-performance-experience",
+    "prefer_branch_from_main_with_reviewed_ledger_carried_over": true,
+    "smoke_check": "npm run test --workspace=@llm-wiki/graph-engine",
+    "commit_each_verified_task": true,
+    "progress_update_in_same_commit": true,
+    "no_commit_on_failed_verification": true,
+    "never_push_merge_or_amend": true,
+    "advance_after_verified_phase": true,
+    "no_user_confirmation_between_phases": true,
+    "only_update_status_evidence_measurements_decisions_and_logs": true,
+    "trial_dependencies_allowed_when_task_requires": true,
+    "production_dependency_adoption_requires_phase_6_decision": true,
+    "do_not_execute_on_main": true,
+    "performance_phase_requires_measurement_artifacts": true,
+    "browser_plugin_allowed_as_functional_fallback": true,
+    "one_production_global_renderer_path_only": true
+  },
+  "branch_provenance": {
+    "required": true,
+    "preferred_base": "main",
+    "allowed_alternative": "current planning branch only if it contains reviewed docs/ledger changes and no unrelated code changes",
+    "status": "verified",
+    "evidence": [
+      "Current branch: codex/large-graph-performance-experience, created with `git switch -c codex/large-graph-performance-experience` from planning branch codex/graph-performance-optimization on 2026-06-18T06:34:17Z.",
+      "`git diff --name-status main...HEAD` before Phase 0.1 commit showed only reviewed docs/spark mockup/design and docs/plans context files inherited from the planning branch; no feature code changes were inherited.",
+      "`git status --short --branch --ignored docs/plans/... docs/spark/... .superpowers` showed only the existing uncommitted design-doc edit, ignored plan/progress ledger files, and unrelated .superpowers/ outside this task scope before ledger staging."
+    ]
+  },
+  "ledger_inclusion": {
+    "required": true,
+    "reason": "docs/plans is ignored by .gitignore; plan and progress must be intentionally tracked or force-added before implementation proceeds.",
+    "status": "verified_after_force_add",
+    "evidence": [
+      "`git check-ignore --no-index -q docs/plans/2026-06-18-large-graph-performance-experience-phased-plan.md` and the same command for the progress file both exit 0, confirming docs/plans remains ignored by policy even though these files are intentionally tracked.",
+      "`git add -f docs/plans/2026-06-18-large-graph-performance-experience-phased-plan.md docs/plans/2026-06-18-large-graph-performance-experience-progress.json` is required and was used for Phase 0.1.",
+      "`git ls-files --error-unmatch docs/plans/2026-06-18-large-graph-performance-experience-phased-plan.md docs/plans/2026-06-18-large-graph-performance-experience-progress.json` is the post-stage/post-commit proof required for this ledger."
+    ]
+  },
+  "baseline": {
+    "recorded": true,
+    "commands": [
+      {
+        "command": "git log --oneline -15",
+        "status": "passed",
+        "evidence": "Recent history inspected before starting Phase 0.1; latest commit was 046a778 docs: incorporate graph design review decisions."
+      },
+      {
+        "command": "npm run test --workspace=@llm-wiki/graph-engine",
+        "status": "passed",
+        "evidence": "274 tests passed across 58 suites, 0 failures, duration about 1.82s, run before Phase 0.1 edits."
+      }
+    ],
+    "artifact_paths": []
+  },
+  "disposable_validation_gate": {
+    "required": true,
+    "status": "pending",
+    "real_graph_source_policy": null,
+    "privacy_handling": null,
+    "edge_count_caps": [],
+    "browser_environment": [],
+    "trial_dependency_records": [],
+    "oversized_community_semantics": null,
+    "desktop_compatibility_guardrails": [],
+    "artifact_paths": []
+  },
+  "performance_schema": {
+    "required_fields": [
+      "phase",
+      "task",
+      "renderer",
+      "graph_shape",
+      "nodes",
+      "edges",
+      "communities",
+      "largest_community",
+      "largest_connected_density",
+      "search_hits",
+      "pin_count",
+      "oversized_community",
+      "action",
+      "duration_ms",
+      "fps",
+      "frame_p95_ms",
+      "long_task_count",
+      "dom_node_count",
+      "visible_node_count",
+      "visible_edge_count",
+      "visible_label_count",
+      "visible_card_count",
+      "memory_peak_mb",
+      "memory_after_cycles_mb",
+      "memory_growth_mb",
+      "pass",
+      "failure_class",
+      "artifact_path",
+      "measured_at"
+    ],
+    "records": []
+  },
+  "performance_thresholds": {
+    "status": "pending_phase_1_measurement",
+    "notes": [
+      "Phase 1 must write provisional pass/fail thresholds for render, pan, zoom, search, click, drawer, enter-community, return-global, and memory growth.",
+      "Thresholds may be adjusted only with measurement evidence."
+    ],
+    "values": []
+  },
+  "renderer_trial_matrix": {
+    "status": "pending_phase_2",
+    "production_rule": "Only one global large-graph renderer path may become production.",
+    "candidates": [
+      {
+        "id": "sigma-graphology",
+        "label": "Sigma/Graphology WebGL",
+        "role": "first_candidate",
+        "dependency_approval": "required_before_package_change",
+        "status": "pending",
+        "decision": null,
+        "evidence": []
+      },
+      {
+        "id": "vis-network",
+        "label": "vis-network Canvas",
+        "role": "strong_comparison",
+        "dependency_approval": "required_before_package_change",
+        "status": "pending",
+        "decision": null,
+        "evidence": []
+      },
+      {
+        "id": "aggregation-fallback",
+        "label": "No-new-dependency aggregation fallback",
+        "role": "fallback",
+        "dependency_approval": "not_required",
+        "status": "pending",
+        "decision": null,
+        "evidence": []
+      }
+    ]
+  },
+  "decision_log": [
+    {
+      "decision": "Use an L-level complete phased plan",
+      "reason": "The user explicitly rejected MVP thinking; the work spans measurement, graph-engine semantics, workbench drawer behavior, browser regressions, degradation budgets, and large-renderer trial boundaries.",
+      "source": "plan-eng-review D1",
+      "status": "recorded"
+    },
+    {
+      "decision": "Move semantic/drawer contracts before click behavior changes",
+      "reason": "Node/community click semantics cannot be cleanly verified until lightweight drawer states and commands exist.",
+      "source": "plan-eng-review D2",
+      "status": "recorded"
+    },
+    {
+      "decision": "Phase 1 must measure 5000 and 10000 graph shapes",
+      "reason": "1000 nodes are a baseline, not the large-graph target; failure at 5000/10000 is evidence and must be captured early.",
+      "source": "plan-eng-review D3",
+      "status": "recorded"
+    },
+    {
+      "decision": "Run strong-prior three-route global renderer trial",
+      "reason": "Sigma/Graphology is the first WebGL candidate, vis-network validates the Canvas route, and no-new-dependency aggregation is the fallback; only one production global route may survive.",
+      "source": "plan-eng-review D4",
+      "status": "recorded"
+    },
+    {
+      "decision": "Keep desktop-app compatibility as an architecture guardrail",
+      "reason": "Future desktop form should reuse graph semantics instead of creating a separate product logic layer.",
+      "source": "latest user-confirmed design decision",
+      "status": "recorded"
+    },
+    {
+      "decision": "Force ledger inclusion before implementation proceeds",
+      "reason": "The new plan and progress files live under ignored docs/plans, so Phase 0 must prove they are intentionally tracked.",
+      "source": "plan-eng-review D5",
+      "status": "recorded"
+    },
+    {
+      "decision": "Performance phases cannot pass without measurement artifacts",
+      "reason": "Large-graph smoothness cannot be proven by prose; browser fallback can support functional checks, not replace performance data.",
+      "source": "plan-eng-review D6",
+      "status": "recorded"
+    },
+    {
+      "decision": "Use fixed performance records in the progress ledger",
+      "reason": "Later renderer and budget decisions need comparable numbers, not only evidence links.",
+      "source": "plan-eng-review D7",
+      "status": "recorded"
+    },
+    {
+      "decision": "Add a disposable validation gate and install necessary trial dependencies when needed",
+      "reason": "Risky unknowns should be proven in isolated throwaway harnesses before product-code implementation; the user approved installing packages needed to make the plan proceed.",
+      "source": "plan-eng-review D8",
+      "status": "recorded"
+    },
+    {
+      "decision": "Allow aggregation-first only as a staged selected route",
+      "reason": "Short-term aggregation and long-term renderer integration may be a sequence, but the product must not keep two parallel global graph experiences.",
+      "source": "outside voice review",
+      "status": "recorded"
+    },
+    {
+      "decision": "Keep DOM/SVG for community reading but stop treating it as the final 10000+ global renderer",
+      "reason": "The current implementation uses button nodes and SVG path edges, which is still appropriate for reading and scoped community views but not proven for 5000+/10000+ global browsing.",
+      "source": "docs/spark/2026-06-18-large-graph-global-community-design.md",
+      "status": "recorded"
+    },
+    {
+      "decision": "First-stage fallback organization is core structure / connectivity only",
+      "reason": "Type/source/time organization can become a second graph system and depends on metadata quality.",
+      "source": "latest user-confirmed design decisions",
+      "status": "recorded"
+    },
+    {
+      "decision": "Edge click relationship inspection remains out of scope",
+      "reason": "The first stage keeps edges passive while retaining strong relationship summaries in node/community drawers.",
+      "source": "latest user-confirmed design decisions",
+      "status": "recorded"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-0",
+      "goal": "Start safely, include the ledger, and capture current behavior/performance before changing graph behavior.",
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "check": "Dedicated branch codex/large-graph-performance-experience exists and is current.",
+          "status": "passed",
+          "evidence": [
+            "`git status --short --branch` reports ## codex/large-graph-performance-experience."
+          ]
+        },
+        {
+          "check": "Branch provenance is recorded: from main with reviewed ledger carried over, or from the current planning branch with evidence that only reviewed docs/ledger changes were inherited.",
+          "status": "passed",
+          "evidence": [
+            "`git diff --name-status main...HEAD` before task commit listed only reviewed documentation artifacts inherited from codex/graph-performance-optimization: docs/plans/2026-06-17-graph-performance-optimization-context.md, docs/spark/2026-06-18-large-graph-global-community-design.md, and docs/spark/mockups/2026-06-18-large-graph-global-community-flow.html."
+          ]
+        },
+        {
+          "check": "Plan and progress files are intentionally tracked or force-added despite docs/plans ignore rules.",
+          "status": "passed",
+          "evidence": [
+            "Plan/progress ledger files were intentionally staged with git add -f because docs/plans is ignored.",
+            "`git ls-files --error-unmatch` must resolve both ledger files after this commit."
+          ]
+        },
+        {
+          "check": "Baseline graph-engine smoke check exits 0.",
+          "status": "passed",
+          "evidence": [
+            "`npm run test --workspace=@llm-wiki/graph-engine` passed: 274 tests, 58 suites, 0 failures."
+          ]
+        },
+        {
+          "check": "Baseline behavior and performance report exists and is referenced.",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "0.1",
+          "title": "Create branch and include the execution ledger",
+          "status": "completed",
+          "verification": [
+            "`git log --oneline -15` inspected before work.",
+            "`npm run test --workspace=@llm-wiki/graph-engine` passed before edits: 274 tests, 58 suites, 0 failures.",
+            "`git switch -c codex/large-graph-performance-experience` created the implementation branch.",
+            "`git diff --name-status main...HEAD` verified inherited changes are documentation only.",
+            "`git add -f` used for the ignored plan/progress ledger files.",
+            "`git ls-files --error-unmatch` used to prove both ledger files are tracked after staging."
+          ]
+        },
+        {
+          "id": "0.2",
+          "title": "Capture existing behavior and performance baseline",
+          "status": "pending",
+          "verification": []
+        }
+      ]
+    },
+    {
+      "id": "phase-1",
+      "goal": "Add reproducible large-graph fixtures, measurement runner, pass/fail table, and disposable validation gate.",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Large graph fixture generation is deterministic and records graph-shape metadata for 1000, 5000, 10000, oversized-community, many-small-communities, many-search-hits, and many-Pin cases.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Performance runner records action timings/FPS, memory, visible-object budgets, pass/fail status, and artifact paths.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Baseline measurement report names bottleneck class with evidence and writes provisional thresholds.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "5000 and 10000 graph shapes are measured as pass/fail or the phase is blocked by missing measurement environment.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Disposable validation gate defines real-graph source, privacy handling, browser environment, trial dependency path, edge caps, oversized-community semantics, and desktop guardrails.",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "1.1",
+          "title": "Add large-graph fixture generation",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "1.2",
+          "title": "Add performance measurement runner",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "1.3",
+          "title": "Write baseline performance report and provisional thresholds",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "1.4",
+          "title": "Run disposable validation gate",
+          "status": "pending",
+          "verification": []
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "goal": "Define graph semantic contracts, lightweight drawer states, shared renderer adapter, and trial matrix before click semantics change.",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Graph summary payloads and action commands preserve object ids, community ids, search hits, Pin hints, and selection state.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Workbench drawer has distinct lightweight node summary, community summary, search results, excluded object, unavailable object, global overview, loading, empty, and error states.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Shared renderer adapter and behavior-contract tests exist for DOM/SVG, future candidates, and aggregation fallback.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Renderer trial matrix records Sigma/Graphology, vis-network, and aggregation fallback with one-production-route rule.",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "2.1",
+          "title": "Add shared graph summary and command contracts",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "2.2",
+          "title": "Add drawer states for global lightweight summaries",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "2.3",
+          "title": "Define shared renderer data adapter and behavior contract",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "2.4",
+          "title": "Prepare early global-renderer trial matrix",
+          "status": "pending",
+          "verification": []
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "goal": "Make global view a lightweight inspection map with explicit deeper actions.",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Global node click opens lightweight node summary instead of full reader.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Community click opens community summary first and preserves global viewport.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Blank click, blank double click, node double click, return global, and fixed-position behavior match the design.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Full browser flow covers node summary, open detail/read, return global, community summary, enter community, blank click, and blank double click.",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "3.1",
+          "title": "Replace global node click with lightweight node summary",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "3.2",
+          "title": "Replace community click with community summary first",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "3.3",
+          "title": "Update blank click, double click, and fixed-position actions",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "3.4",
+          "title": "Preserve state on return global",
+          "status": "pending",
+          "verification": []
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "goal": "Enforce visual budgets and community scale behavior in the shared graph layer.",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Global and community views enforce label, edge, card, and interaction update budgets.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Stable importance and temporary boosts are separated by tests.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Small, medium, large, and oversized communities produce bounded output.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Interaction-time degradation preserves selected, search-hit, pinned, and core anchors.",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "4.1",
+          "title": "Add label, edge, card, and update budgets",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "4.2",
+          "title": "Split stable importance from temporary boosts",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "4.3",
+          "title": "Add community focus size bands",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "4.4",
+          "title": "Add interaction-time degradation",
+          "status": "pending",
+          "verification": []
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "goal": "Preserve user intent under search, filters, aggregation, poor community quality, loading states, and keyboard paths.",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Search/filter/drawer changes preserve layout unless the user explicitly reorganizes.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Filtered-out selected objects remain inspectable, can be temporarily shown, and can clear temporary display without clearing filters.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Aggregation containers expose selected/search/Pin markers, open summary first, and drawer lists internal hits/Pins.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Community quality fallback lowers certainty and exposes only core structure / connectivity in first stage.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Loading, slow, empty, missing, hard error, and core keyboard paths are visible and tested.",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "5.1",
+          "title": "Preserve layout for search, filter, and drawer changes",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "5.2",
+          "title": "Define filtered-out selected object behavior",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "5.3",
+          "title": "Add community aggregation container rules",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "5.4",
+          "title": "Add community quality fallback",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "5.5",
+          "title": "Add loading, slow, error, and core keyboard paths",
+          "status": "pending",
+          "verification": []
+        }
+      ]
+    },
+    {
+      "id": "phase-6",
+      "goal": "Evaluate Sigma/Graphology, vis-network, and aggregation fallback before choosing the single global large-graph path.",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Sigma/Graphology trial is measured against the same graph shapes and semantic contract.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "vis-network trial is measured against the same graph shapes and semantic contract.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Aggregation fallback trial is measured against the same graph shapes and semantic contract.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Decision log accepts or rejects each candidate with evidence and leaves at most one production global route.",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "6.1",
+          "title": "Run Sigma/Graphology WebGL trial",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "6.2",
+          "title": "Run vis-network Canvas comparison trial",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "6.3",
+          "title": "Run no-new-dependency aggregation fallback trial",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "6.4",
+          "title": "Choose or reject the global renderer path",
+          "status": "pending",
+          "verification": []
+        }
+      ]
+    },
+    {
+      "id": "phase-7",
+      "goal": "Run full regression, update documentation, and close residual risks.",
+      "status": "pending",
+      "acceptance": [
+        {
+          "check": "Full verification set is run and recorded.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Required performance artifacts are recorded with fixed fields.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Docs and user-facing notes reflect final behavior, measured budgets, and renderer route decision.",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "check": "Every design requirement is implemented, verified, deferred with rationale, or assigned to a future plan.",
+          "status": "pending",
+          "evidence": []
+        }
+      ],
+      "tasks": [
+        {
+          "id": "7.1",
+          "title": "Run full verification set",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "7.2",
+          "title": "Update docs and user-facing notes",
+          "status": "pending",
+          "verification": []
+        },
+        {
+          "id": "7.3",
+          "title": "Final self-review",
+          "status": "pending",
+          "verification": []
+        }
+      ]
+    }
+  ],
+  "residual_risk": [
+    {
+      "risk": "Exact performance budgets are provisional until Phase 1 measurement artifacts exist.",
+      "status": "open"
+    },
+    {
+      "risk": "Candidate renderer dependencies may require user approval before package changes.",
+      "status": "open"
+    },
+    {
+      "risk": "Functional browser regressions may be environment-blocked; blocked checks must be recorded rather than treated as passed.",
+      "status": "open"
+    },
+    {
+      "risk": "Performance phases cannot pass without measurement artifacts; missing measurable environment blocks the phase.",
+      "status": "open"
+    },
+    {
+      "risk": "Desktop packaging is out of scope, but graph semantics must remain reusable for a future desktop app.",
+      "status": "open"
+    }
+  ],
+  "turn_log": [
+    {
+      "timestamp": "2026-06-18",
+      "entry": "Plan and progress ledger created from the large graph global/community design. Implementation has not started."
+    },
+    {
+      "timestamp": "2026-06-18",
+      "entry": "Plan-eng-review folded into the plan: kept complete non-MVP scope, reordered phases, hardened early 5000/10000 measurement, added semantic/drawer foundation before interaction changes, added fixed performance records, and defined Sigma/Graphology + vis-network + aggregation trials with one production route."
+    },
+    {
+      "timestamp": "2026-06-18",
+      "entry": "Outside voice review folded in: added Phase 1.4 disposable validation gate, explicit real-graph source/privacy policy, browser environment proof, edge-count caps, oversized-community semantics, desktop guardrails, user-approved trial dependency installation boundary, branch provenance rule, and aggregation-first staged-route rule."
+    }
+  ],
+  "execution_log": [
+    {
+      "task": "0.1",
+      "status": "completed",
+      "summary": "Created the dedicated implementation branch, recorded branch provenance, forced inclusion of the ignored plan/progress ledger files, and captured the graph-engine smoke baseline before feature work.",
+      "evidence": [
+        "branch=codex/large-graph-performance-experience",
+        "branch provenance diff versus main contains only reviewed docs artifacts",
+        "graph-engine test passed: 274 tests, 58 suites, 0 failures",
+        "ledger files force-added from ignored docs/plans path"
+      ],
+      "measured_at": "2026-06-18T06:34:17Z"
+    }
+  ]
+}
