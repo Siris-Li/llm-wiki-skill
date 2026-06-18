@@ -72,3 +72,14 @@ These thresholds are intentionally provisional. They are gates for Phase 4/6 com
 ## Interpretation
 
 The current renderer is acceptable for small graph and community reading, but it is not a proven 10000+ global renderer. The next implementation phases should keep DOM/SVG for community/detail views while treating 5000/10000 global browsing as requiring budget enforcement, aggregation, or a different global rendering route.
+
+## Phase 4.1 Render Budgets
+
+These budgets are the first shared graph-layer caps derived from the DOM/SVG bottleneck class above. They are not the final large-graph renderer decision; they prevent the current renderer from producing card-heavy or edge-heavy global output while Phase 6 evaluates the global route.
+
+| View | Max visible nodes | Max visible edges | Max labels | Max full cards | Max interaction-time updates |
+|---|---:|---:|---:|---:|---:|
+| Global | 10000 | 1000 | 40 | 0 | 1200 |
+| Community focus | 2500 | 1500 | 120 | 60 | 1800 |
+
+Overflow is reported by the shared render model for nodes, edges, labels, cards, and interaction updates so drawer/list states can expose omitted detail without forcing it onto the canvas. Selection, search results, and Pin hints may promote priority, but they do not raise these caps.

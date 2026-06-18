@@ -4,8 +4,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-4",
-    "task": "4.1",
-    "next_allowed_action": "Add label, edge, card, and update budgets."
+    "task": "4.2",
+    "next_allowed_action": "Split stable importance from temporary boosts."
   },
   "execution_rules": {
     "branch": "codex/large-graph-performance-experience",
@@ -1902,6 +1902,28 @@
       "reason": "Candidate renderer packages need a written approval boundary before package changes land.",
       "source": "task 2.4",
       "status": "recorded"
+    },
+    {
+      "decision": "Use Phase 4.1 shared render budgets for DOM/SVG output control",
+      "reason": "Phase 1.3 measured DOM/SVG update volume as the large-graph bottleneck: 10000-node global view created about 52649 DOM nodes and timed out during pan/node click. The first budget layer must stop full-card global rendering, cap edges and labels, and expose overflow to drawer/list state without pretending DOM/SVG is the final 10000+ route.",
+      "values": {
+        "global": {
+          "max_visible_nodes": 10000,
+          "max_visible_edges": 1000,
+          "max_labels": 40,
+          "max_full_cards": 0,
+          "max_interaction_time_updates": 1200
+        },
+        "community_focus": {
+          "max_visible_nodes": 2500,
+          "max_visible_edges": 1500,
+          "max_labels": 120,
+          "max_full_cards": 60,
+          "max_interaction_time_updates": 1800
+        }
+      },
+      "source": "task 4.1 implementation and docs/graph/performance/2026-06-18-phase-1-3-dom-svg-large-baseline.md",
+      "status": "recorded"
     }
   ],
   "phases": [
@@ -2335,8 +2357,14 @@
       "acceptance": [
         {
           "check": "Global and community views enforce label, edge, card, and interaction update budgets.",
-          "status": "pending",
-          "evidence": []
+          "status": "completed",
+          "evidence": [
+            "Shared render model now exposes global/community budgets and overflow buckets for nodes, edges, labels, cards, and interaction updates.",
+            "Global budget: 10000 visible nodes, 1000 visible edges, 40 labels, 0 full cards, 1200 interaction-time updates.",
+            "Community budget: 2500 visible nodes, 1500 visible edges, 120 labels, 60 full cards, 1800 interaction-time updates.",
+            "Render-model tests prove global full-card count is 0 even under selected/search/pin priority, labels/edges/cards/interaction updates stay within budgets, and overflow is reported for drawer/list use.",
+            "Budget values are recorded in docs/graph/performance/2026-06-18-phase-1-3-dom-svg-large-baseline.md and this progress decision log."
+          ]
         },
         {
           "check": "Stable importance and temporary boosts are separated by tests.",
@@ -2358,8 +2386,14 @@
         {
           "id": "4.1",
           "title": "Add label, edge, card, and update budgets",
-          "status": "pending",
-          "verification": []
+          "status": "completed",
+          "verification": [
+            "`git log --oneline -15` inspected before task work; latest commit was cee8568 feat: preserve graph state on return global [task 3.4].",
+            "Baseline `npm run test --workspace=@llm-wiki/graph-engine` passed before task work: 295 tests, 61 suites, 0 failures.",
+            "`node --import tsx --test packages/graph-engine/test/render-model.test.ts` passed after implementation: 27 tests, 3 suites, 0 failures.",
+            "`npm run typecheck --workspace=@llm-wiki/graph-engine` passed.",
+            "`npm run test --workspace=@llm-wiki/graph-engine` passed after implementation: 298 tests, 61 suites, 0 failures."
+          ]
         },
         {
           "id": "4.2",
@@ -2624,6 +2658,10 @@
     {
       "timestamp": "2026-06-18",
       "entry": "Task 3.4 completed return-global state preservation. Return global now fits the global graph while preserving search, filters, selection, Pin/fixed positions, and lightweight node/community summary state; reset layout remains separate and only clears fixed positions."
+    },
+    {
+      "timestamp": "2026-06-18",
+      "entry": "Task 4.1 added shared global/community render budgets. Global view now renders zero full node cards, labels/edges/cards/interaction updates are capped, selected/search/Pin signals only promote priority within caps, and overflow is reported for drawer/list use."
     }
   ],
   "execution_log": [
@@ -2845,6 +2883,26 @@
         "bash tests/graph-workbench-interactions.regression-1.sh passed and emitted returnGlobalState evidence for nodeFlow, resetLayout, and communityFlow."
       ],
       "measured_at": "2026-06-18T13:40:00Z"
+    },
+    {
+      "task": "4.1",
+      "status": "completed",
+      "summary": "Added graph render budgets and overflow reporting to the shared render model, wired searchResultIds into the renderer adapter priority path, recorded budget values in the performance report, and added render-model budget tests.",
+      "evidence": [
+        "`git log --oneline -15` inspected before task work; latest commit was cee8568 feat: preserve graph state on return global [task 3.4].",
+        "Baseline `npm run test --workspace=@llm-wiki/graph-engine` passed before task work: 295 tests, 61 suites, 0 failures.",
+        "`node --import tsx --test packages/graph-engine/test/render-model.test.ts` passed after implementation: 27 tests, 3 suites, 0 failures.",
+        "`npm run typecheck --workspace=@llm-wiki/graph-engine` passed.",
+        "`npm run test --workspace=@llm-wiki/graph-engine` passed after implementation: 298 tests, 61 suites, 0 failures."
+      ],
+      "files": [
+        "packages/graph-engine/src/render/model.ts",
+        "packages/graph-engine/src/render/index.ts",
+        "packages/graph-engine/src/render/adapter.ts",
+        "packages/graph-engine/test/render-model.test.ts",
+        "docs/graph/performance/2026-06-18-phase-1-3-dom-svg-large-baseline.md",
+        "docs/plans/2026-06-18-large-graph-performance-experience-progress.json"
+      ]
     }
   ]
 }

@@ -187,7 +187,8 @@ export function buildGraphRendererAdapterData(
     selection: options.selection,
     focus: options.focus,
     typeFilters: options.typeFilters,
-    positions: options.positions
+    positions: options.positions,
+    searchResultIds: options.searchResultIds
   });
   const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
   const renderNodeById = new Map(renderable.nodes.map((node) => [node.id, node]));

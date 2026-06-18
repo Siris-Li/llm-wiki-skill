@@ -6,13 +6,20 @@ export {
   edgeStrokeWidth,
   edgeVisualOpacity,
   edgeVisualStrokeWidth,
+  GRAPH_RENDER_BUDGETS,
   makeEdgePath,
   makeEdgePathFromPoints,
   nodeDisplayModeForDensity,
+  resolveGraphRenderBudget,
   screenEffectiveDensityMode
 } from "./model";
 export type {
   DensityMode,
+  GraphRenderBudget,
+  GraphRenderBudgetLimits,
+  GraphRenderBudgetView,
+  GraphRenderOverflow,
+  GraphRenderOverflowBucket,
   NodeDisplayMode,
   NodeVisualRole,
   RenderableCommunity,

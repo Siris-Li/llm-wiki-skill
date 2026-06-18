@@ -16,6 +16,38 @@ import { pinPositionToWorldPoint } from "./pin-position";
 export type DensityMode = "card" | "compact-card" | "point-plus-focus" | "overview";
 export type NodeDisplayMode = "card" | "compact-card" | "point" | "overview";
 export type NodeVisualRole = "landmark" | "index-slip" | "cinnabar-note" | "map-pin";
+export type GraphRenderBudgetView = "global" | "community";
+
+export interface GraphRenderBudgetLimits {
+  maxVisibleNodes: number;
+  maxVisibleEdges: number;
+  maxLabels: number;
+  maxCards: number;
+  maxInteractionUpdates: number;
+}
+
+export interface GraphRenderBudget {
+  view: GraphRenderBudgetView;
+  limits: GraphRenderBudgetLimits;
+  usage: GraphRenderBudgetLimits;
+}
+
+export interface GraphRenderOverflowBucket {
+  total: number;
+  hidden: number;
+  ids: string[];
+}
+
+export interface GraphRenderOverflow {
+  nodes: GraphRenderOverflowBucket;
+  edges: GraphRenderOverflowBucket;
+  labels: GraphRenderOverflowBucket;
+  cards: GraphRenderOverflowBucket;
+  interactionUpdates: {
+    total: number;
+    hidden: number;
+  };
+}
 
 export interface RenderableGraph {
   model: Record<string, unknown>;
@@ -36,6 +68,8 @@ export interface RenderableGraph {
   edges: RenderableEdge[];
   communities: RenderableCommunity[];
   minimap: RenderableMinimap;
+  budget: GraphRenderBudget;
+  overflow: GraphRenderOverflow;
 }
 
 export interface RenderableNode {
@@ -102,6 +136,7 @@ interface BuildRenderableGraphOptions {
   typeFilters?: GraphTypeFilters;
   positions?: RenderPositionMap;
   pathCache?: RenderPathCache;
+  searchResultIds?: NodeId[];
 }
 
 type AtlasNode = {
@@ -149,6 +184,23 @@ export interface RenderPathCache {
 
 const MINIMAP_PATH = "M8 40 C34 20 54 36 76 22 C98 8 118 24 150 12";
 
+export const GRAPH_RENDER_BUDGETS: Record<GraphRenderBudgetView, GraphRenderBudgetLimits> = {
+  global: {
+    maxVisibleNodes: 10000,
+    maxVisibleEdges: 1000,
+    maxLabels: 40,
+    maxCards: 0,
+    maxInteractionUpdates: 1200
+  },
+  community: {
+    maxVisibleNodes: 2500,
+    maxVisibleEdges: 1500,
+    maxLabels: 120,
+    maxCards: 60,
+    maxInteractionUpdates: 1800
+  }
+};
+
 export function createRenderPathCache(): RenderPathCache {
   const edgeCurves = new Map<string, number>();
   return {
@@ -180,6 +232,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const selectedNodeSet = new Set(selectedNodeIds);
   const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null;
   const focus = normalizeGraphFocus(options.focus, model);
+  const budgetLimits = resolveGraphRenderBudget(focus);
+  const budgetView: GraphRenderBudgetView = focus?.kind === "community" ? "community" : "global";
   const typeFilters = normalizeGraphTypeFilters(options.typeFilters, model.nodes);
   const visible = resolveAtlasVisibleSnapshot(model, layout, {
     activeCommunityId: focus?.kind === "community" ? focus.id : "all",
@@ -220,12 +274,64 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const allFilteredNodes = applyNodeTypeFilters(model.nodes, typeFilters);
   const pointById = new Map(allFilteredNodes.map((node) => [node.id, renderPointForNode(node, options)]));
   const worldBounds = worldBoundsForPoints([...pointById.values()]);
+  const pinnedNodeSet = resolvePinnedNodeIds(model.nodes, options.pins);
+  const searchResultSet = new Set(options.searchResultIds || []);
+  const budgetedNodeIds = selectBudgetedIds(filteredVisibleNodes, budgetLimits.maxVisibleNodes, (node) =>
+    nodeRenderPriority(node, {
+      selectedNodeIds: selectedNodeSet,
+      pinnedNodeIds: pinnedNodeSet,
+      searchResultIds: searchResultSet,
+      labelNodeIds: labelIds,
+      importantNodeIds: importantIds,
+      startNodeIds: startIds,
+      previewNodeId
+    })
+  );
+  const budgetedVisibleNodes = filteredVisibleNodes.filter((node) => budgetedNodeIds.has(node.id));
+  const labelCandidateNodes = budgetedVisibleNodes.filter((node) =>
+    labelIds[node.id] === true ||
+    selectedNodeSet.has(node.id) ||
+    pinnedNodeSet.has(node.id) ||
+    searchResultSet.has(node.id) ||
+    importantIds[node.id] === true ||
+    startIds[node.id] === true ||
+    node.id === previewNodeId
+  );
+  const labelNodeSet = selectBudgetedIds(labelCandidateNodes, budgetLimits.maxLabels, (node) =>
+    nodeRenderPriority(node, {
+      selectedNodeIds: selectedNodeSet,
+      pinnedNodeIds: pinnedNodeSet,
+      searchResultIds: searchResultSet,
+      labelNodeIds: labelIds,
+      importantNodeIds: importantIds,
+      startNodeIds: startIds,
+      previewNodeId
+    })
+  );
+  const cardCandidateNodes = budgetedVisibleNodes.filter((node) =>
+    shouldPreferCard(node, budgetView, filteredDensityMode, selectedNodeSet, pinnedNodeSet, searchResultSet, importantIds, previewNodeId)
+  );
+  const cardNodeSet = selectBudgetedIds(cardCandidateNodes, budgetLimits.maxCards, (node) =>
+    nodeRenderPriority(node, {
+      selectedNodeIds: selectedNodeSet,
+      pinnedNodeIds: pinnedNodeSet,
+      searchResultIds: searchResultSet,
+      labelNodeIds: labelIds,
+      importantNodeIds: importantIds,
+      startNodeIds: startIds,
+      previewNodeId
+    })
+  );
 
-  const nodes = filteredVisibleNodes.map((node) => {
+  const nodes = budgetedVisibleNodes.map((node) => {
     const isSelected = selectedNodeSet.has(node.id);
-    const displayMode = isSelected
-      ? "card"
-      : nodeDisplayMode(node, filteredDensityMode, selectedNodeId, previewNodeId, labelIds, importantIds);
+    const displayMode = budgetedNodeDisplayMode(node, {
+      view: budgetView,
+      densityMode: filteredDensityMode,
+      selectedNodeIds: selectedNodeSet,
+      cardNodeIds: cardNodeSet,
+      labelNodeIds: labelNodeSet
+    });
     const point = pointById.get(node.id) || renderPointForNode(node, options);
     const cssPoint = worldPointToCssPercentPoint(point, worldBounds);
     return {
@@ -246,13 +352,22 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       selected: isSelected,
       startNode: startIds[node.id] === true,
       previewStart: node.id === previewNodeId,
-      labelVisible: labelIds[node.id] === true
+      labelVisible: labelNodeSet.has(node.id)
     };
   });
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const isFocusedView = focus?.kind === "community";
-  const edges = filteredVisibleEdges.flatMap((edge) => {
+  const renderableEdgeCandidates = filteredVisibleEdges.filter((edge) => nodeById.has(edge.source) && nodeById.has(edge.target));
+  const edgeIdSet = selectBudgetedIds(renderableEdgeCandidates, budgetLimits.maxVisibleEdges, (edge) =>
+    edgeRenderPriority(edge, {
+      selectedNodeIds: selectedNodeSet,
+      pinnedNodeIds: pinnedNodeSet,
+      searchResultIds: searchResultSet,
+      importantNodeIds: importantIds
+    })
+  );
+  const edges = renderableEdgeCandidates.filter((edge) => edgeIdSet.has(edge.id)).flatMap((edge) => {
     const source = nodeById.get(edge.source);
     const target = nodeById.get(edge.target);
     if (!source || !target) return [];
@@ -274,6 +389,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       simulationWeight: edgeStrokeWidth(edge)
     }];
   });
+  const renderedEdgeIds = new Set(edges.map((edge) => edge.id));
 
   const communities = model.communities.map((community, index) => {
     const communityNodes = nodes.filter((node) => node.community === community.id);
@@ -287,6 +403,11 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     };
   });
   const communityById = new Map(communities.map((community) => [community.id, community]));
+
+  const labelUsage = nodes.filter((node) => node.labelVisible).length;
+  const cardUsage = nodes.filter((node) => node.displayMode === "card").length;
+  const interactionUpdateCandidates = nodes.length + edges.length + labelUsage + cardUsage;
+  const interactionUpdateUsage = Math.min(interactionUpdateCandidates, budgetLimits.maxInteractionUpdates);
 
   return {
     model,
@@ -319,8 +440,33 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
           selected: node.selected
         };
       })
+    },
+    budget: {
+      view: budgetView,
+      limits: { ...budgetLimits },
+      usage: {
+        maxVisibleNodes: nodes.length,
+        maxVisibleEdges: edges.length,
+        maxLabels: labelUsage,
+        maxCards: cardUsage,
+        maxInteractionUpdates: interactionUpdateUsage
+      }
+    },
+    overflow: {
+      nodes: overflowBucket(filteredVisibleNodes.map((node) => node.id), new Set(nodes.map((node) => node.id))),
+      edges: overflowBucket(filteredVisibleEdges.map((edge) => edge.id), renderedEdgeIds),
+      labels: overflowBucket(labelCandidateNodes.map((node) => node.id), labelNodeSet),
+      cards: overflowBucket(cardCandidateNodes.map((node) => node.id), cardNodeSet),
+      interactionUpdates: {
+        total: interactionUpdateCandidates,
+        hidden: Math.max(0, interactionUpdateCandidates - budgetLimits.maxInteractionUpdates)
+      }
     }
   };
+}
+
+export function resolveGraphRenderBudget(focus: GraphFocusInput): GraphRenderBudgetLimits {
+  return { ...(focus?.kind === "community" ? GRAPH_RENDER_BUDGETS.community : GRAPH_RENDER_BUDGETS.global) };
 }
 
 export function makeEdgePath(source: AtlasNode, target: AtlasNode, edge: { weight?: number }): string {
@@ -502,6 +648,118 @@ function nodeDisplayMode(
   if (densityMode === "overview") return labelNodeIds[node.id] ? "compact-card" : "overview";
   if (densityMode === "point-plus-focus") return labelNodeIds[node.id] ? "compact-card" : "point";
   return densityMode;
+}
+
+function budgetedNodeDisplayMode(
+  node: AtlasNode,
+  options: {
+    view: GraphRenderBudgetView;
+    densityMode: DensityMode;
+    selectedNodeIds: Set<string>;
+    cardNodeIds: Set<string>;
+    labelNodeIds: Set<string>;
+  }
+): NodeDisplayMode {
+  if (options.cardNodeIds.has(node.id)) return "card";
+  if (options.labelNodeIds.has(node.id)) return "compact-card";
+  if (options.view === "global") return options.densityMode === "overview" ? "overview" : "point";
+  if (options.densityMode === "overview") return "overview";
+  return "point";
+}
+
+function shouldPreferCard(
+  node: AtlasNode,
+  view: GraphRenderBudgetView,
+  densityMode: DensityMode,
+  selectedNodeIds: Set<string>,
+  pinnedNodeIds: Set<string>,
+  searchResultIds: Set<string>,
+  importantNodeIds: Record<string, boolean>,
+  previewNodeId: string | null
+): boolean {
+  if (view === "global") return false;
+  return (
+    densityMode === "card" ||
+    selectedNodeIds.has(node.id) ||
+    pinnedNodeIds.has(node.id) ||
+    searchResultIds.has(node.id) ||
+    importantNodeIds[node.id] === true ||
+    node.id === previewNodeId
+  );
+}
+
+function selectBudgetedIds<T extends { id: string }>(
+  items: T[],
+  budget: number,
+  score: (item: T, index: number) => number
+): Set<string> {
+  if (budget <= 0 || items.length === 0) return new Set();
+  if (items.length <= budget) return new Set(items.map((item) => item.id));
+  return new Set(
+    items
+      .map((item, index) => ({ item, index, score: score(item, index) }))
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .slice(0, budget)
+      .map((entry) => entry.item.id)
+  );
+}
+
+function nodeRenderPriority(
+  node: AtlasNode,
+  signals: {
+    selectedNodeIds: Set<string>;
+    pinnedNodeIds: Set<string>;
+    searchResultIds: Set<string>;
+    labelNodeIds: Record<string, boolean>;
+    importantNodeIds: Record<string, boolean>;
+    startNodeIds: Record<string, boolean>;
+    previewNodeId: string | null;
+  }
+): number {
+  let score = Number(node.priority || 0) * 10 + Number(node.weight || 0);
+  if (signals.selectedNodeIds.has(node.id)) score += 100000;
+  if (signals.searchResultIds.has(node.id)) score += 50000;
+  if (signals.pinnedNodeIds.has(node.id)) score += 40000;
+  if (signals.importantNodeIds[node.id]) score += 12000;
+  if (signals.startNodeIds[node.id]) score += 9000;
+  if (signals.previewNodeId === node.id) score += 8000;
+  if (signals.labelNodeIds[node.id]) score += 5000;
+  return score;
+}
+
+function edgeRenderPriority(
+  edge: AtlasEdge,
+  signals: {
+    selectedNodeIds: Set<string>;
+    pinnedNodeIds: Set<string>;
+    searchResultIds: Set<string>;
+    importantNodeIds: Record<string, boolean>;
+  }
+): number {
+  const endpoints = [edge.source, edge.target];
+  let score = clampWeight(edge.weight) * 1000;
+  for (const id of endpoints) {
+    if (signals.selectedNodeIds.has(id)) score += 100000;
+    if (signals.searchResultIds.has(id)) score += 50000;
+    if (signals.pinnedNodeIds.has(id)) score += 40000;
+    if (signals.importantNodeIds[id]) score += 12000;
+  }
+  return score;
+}
+
+function resolvePinnedNodeIds(nodes: AtlasNode[], pins: PinMap | undefined): Set<string> {
+  if (!pins) return new Set();
+  const pinnedPaths = new Set(Object.keys(pins));
+  return new Set(nodes.filter((node) => pinnedPaths.has(pinKeyForNode(node))).map((node) => node.id));
+}
+
+function overflowBucket(ids: string[], keptIds: Set<string>): GraphRenderOverflowBucket {
+  const hiddenIds = ids.filter((id) => !keptIds.has(id));
+  return {
+    total: ids.length,
+    hidden: hiddenIds.length,
+    ids: hiddenIds
+  };
 }
 
 function nodeVisualRole(

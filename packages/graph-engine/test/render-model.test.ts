@@ -7,6 +7,7 @@ import {
   edgeStrokeWidth,
   edgeVisualOpacity,
   edgeVisualStrokeWidth,
+  GRAPH_RENDER_BUDGETS,
   makeEdgePath,
   nodeDisplayModeForDensity,
   screenEffectiveDensityMode
@@ -76,6 +77,56 @@ function outlierCommunityGraph(): GraphData {
       },
       communities: [
         { id: "c1", label: "Cluster", node_count: nodes.length, color_index: 0, recommended_start_node_id: "core-c" }
+      ]
+    }
+  };
+}
+
+function budgetGraph(nodeCount: number, edgeCount: number): GraphData {
+  const nodes = Array.from({ length: nodeCount }, (_, index) => ({
+    id: `n${index}`,
+    label: `Budget node ${index}`,
+    type: index % 7 === 0 ? "topic" : index % 11 === 0 ? "source" : "entity",
+    community: "c1",
+    source_path: `wiki/budget/n${index}.md`,
+    weight: 100 - (index % 83),
+    x: (index * 37) % 100,
+    y: (index * 53) % 100
+  }));
+  const edges: NonNullable<GraphData["edges"]> = [];
+  for (let sourceIndex = 0; sourceIndex < nodeCount && edges.length < edgeCount; sourceIndex += 1) {
+    for (let targetIndex = sourceIndex + 1; targetIndex < nodeCount && edges.length < edgeCount; targetIndex += 1) {
+      edges.push({
+        id: `e${edges.length}`,
+        from: `n${sourceIndex}`,
+        to: `n${targetIndex}`,
+        type: "EXTRACTED",
+        confidence: "EXTRACTED",
+        relation_type: edges.length % 3 === 0 ? "实现" : "依赖",
+        weight: (edges.length % 10) / 10
+      });
+    }
+  }
+
+  return {
+    meta: {
+      build_date: "2026-06-18T00:00:00.000Z",
+      wiki_title: "Budget Fixture",
+      total_nodes: nodes.length,
+      total_edges: edges.length
+    },
+    nodes,
+    edges,
+    learning: {
+      version: 1,
+      entry: { recommended_start_node_id: "n0", recommended_start_reason: "budget_fixture", default_mode: "global" },
+      views: {
+        path: { enabled: false, start_node_id: null, node_ids: [], degraded: true },
+        community: { enabled: false, community_id: null, label: null, node_ids: [], is_weak: false, degraded: true },
+        global: { enabled: true, node_ids: nodes.map((node) => node.id), degraded: false }
+      },
+      communities: [
+        { id: "c1", label: "Budget Community", node_count: nodes.length, color_index: 0, recommended_start_node_id: "n0" }
       ]
     }
   };
@@ -196,9 +247,65 @@ describe("buildRenderableGraph", () => {
 
     const selected = graph.nodes.filter((node) => node.selected).map((node) => node.id);
     assert.deepEqual(selected, ["topic", "source"]);
-    assert.equal(graph.nodes.find((node) => node.id === "topic")?.displayMode, "card");
+    assert.notEqual(graph.nodes.find((node) => node.id === "topic")?.displayMode, "card");
     assert.equal(graph.nodes.find((node) => node.id === "source")?.visualRole, "cinnabar-note");
     assert.equal(graph.minimap.nodes.filter((node) => node.selected).length, 2);
+  });
+
+  it("enforces zero full cards in global view even for selected, search, and pinned nodes", () => {
+    const data = budgetGraph(80, 1200);
+    const graph = buildRenderableGraph(data, {
+      theme: "shan-shui",
+      selection: { kind: "node", id: "n79" },
+      searchResultIds: data.nodes.map((node) => node.id),
+      pins: {
+        "wiki/budget/n79.md": { x: 900, y: 500, coordinateSpace: "world" }
+      }
+    });
+
+    assert.equal(graph.budget.view, "global");
+    assert.equal(graph.budget.limits.maxCards, GRAPH_RENDER_BUDGETS.global.maxCards);
+    assert.equal(graph.budget.usage.maxCards, 0);
+    assert.equal(graph.nodes.filter((node) => node.displayMode === "card").length, 0);
+    assert.ok(graph.nodes.find((node) => node.id === "n79")?.labelVisible, "selected and pinned node should be promoted into labels");
+  });
+
+  it("keeps global labels, edges, and interaction updates within budget and reports overflow", () => {
+    const data = budgetGraph(200, 1200);
+    const graph = buildRenderableGraph(data, {
+      theme: "shan-shui",
+      searchResultIds: data.nodes.map((node) => node.id)
+    });
+
+    assert.ok(graph.budget.usage.maxLabels <= GRAPH_RENDER_BUDGETS.global.maxLabels);
+    assert.ok(graph.budget.usage.maxVisibleEdges <= GRAPH_RENDER_BUDGETS.global.maxVisibleEdges);
+    assert.ok(graph.budget.usage.maxInteractionUpdates <= GRAPH_RENDER_BUDGETS.global.maxInteractionUpdates);
+    assert.equal(graph.nodes.filter((node) => node.labelVisible).length, GRAPH_RENDER_BUDGETS.global.maxLabels);
+    assert.equal(graph.edges.length, GRAPH_RENDER_BUDGETS.global.maxVisibleEdges);
+    assert.ok(graph.overflow.labels.hidden > 0);
+    assert.ok(graph.overflow.edges.hidden > 0);
+    assert.ok(graph.overflow.interactionUpdates.hidden > 0);
+    assert.equal(graph.overflow.labels.total, 200);
+    assert.equal(graph.overflow.edges.total, 1200);
+  });
+
+  it("caps focused community cards while allowing promoted nodes to compete for the budget", () => {
+    const data = budgetGraph(80, 1200);
+    const graph = buildRenderableGraph(data, {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      searchResultIds: data.nodes.map((node) => node.id),
+      pins: {
+        "wiki/budget/n79.md": { x: 900, y: 500, coordinateSpace: "world" }
+      }
+    });
+
+    assert.equal(graph.budget.view, "community");
+    assert.equal(graph.nodes.length, 80);
+    assert.ok(graph.budget.usage.maxCards <= GRAPH_RENDER_BUDGETS.community.maxCards);
+    assert.equal(graph.nodes.filter((node) => node.displayMode === "card").length, GRAPH_RENDER_BUDGETS.community.maxCards);
+    assert.ok(graph.overflow.cards.hidden > 0);
+    assert.equal(graph.nodes.find((node) => node.id === "n79")?.displayMode, "card");
   });
 
   it("enters a community focus view by hiding nodes outside the selected community", () => {
