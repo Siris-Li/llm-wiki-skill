@@ -84,6 +84,7 @@ export interface GraphRenderPipeline {
   renderMotionOverlays(): void;
   updateMinimapViewport(): void;
   setViewportAnimating(enabled: boolean): void;
+  setInteractionDegraded(enabled: boolean, options?: { restoreDelayMs?: number }): void;
   viewportSize(): { width: number; height: number };
   restartSimulation(): void;
   applyMotionFrame(positions: RenderPositionMap): void;
@@ -167,6 +168,11 @@ export function createGraphRenderPipeline(
     context.root.replaceChildren();
     context.root.dataset.theme = context.theme;
     context.root.dataset.baseDensity = graph.densityMode;
+    context.root.dataset.interactionMode = context.root.dataset.interactionMode || "idle";
+    context.root.dataset.interactionMaxUpdates = String(graph.interaction.maxUpdatedObjects);
+    context.root.dataset.interactionUpdatedObjects = String(graph.interaction.updatedObjects);
+    context.root.dataset.interactionHiddenObjects = String(graph.interaction.hiddenObjects);
+    context.root.dataset.interactionPreservedNodes = String(graph.interaction.preservedNodeIds.length);
     const painted = emptyPaintedDom();
     const contentLayer = context.ownerDocument.createElement("div");
     contentLayer.className = "graph-content-layer";
@@ -423,6 +429,7 @@ export function createGraphRenderPipeline(
     for (const [id, element] of context.dom.nodeElements) {
       element.classList.toggle("is-pinned", pinned.has(id));
       element.dataset.pinned = pinned.has(id) ? "true" : "false";
+      writeNodeTraceability(element);
     }
   }
 
@@ -447,6 +454,7 @@ export function createGraphRenderPipeline(
 
   function commitViewport(nextViewport: RendererViewport, commitOptions: ViewportFrameCommitOptions = {}): void {
     resetRootScroll();
+    if (commitOptions.lightweight) setInteractionDegraded(true);
     const snapshot = context.runtimeState.setViewport(nextViewport);
     const next = snapshot.viewport;
     context.root.dataset.viewportScale = String(round(next.scale));
@@ -454,6 +462,7 @@ export function createGraphRenderPipeline(
     if (!commitOptions.lightweight) updateEffectiveDensity();
     updateMinimapViewport();
     if (!commitOptions.lightweight) renderMotionOverlays();
+    for (const element of context.dom.nodeElements.values()) writeNodeTraceability(element);
   }
 
   function updateEffectiveDensity(): void {
@@ -485,6 +494,15 @@ export function createGraphRenderPipeline(
     context.dom.miniViewportElement.setAttribute("height", String(round(rect.height)));
   }
 
+  function writeNodeTraceability(element: HTMLButtonElement): void {
+    const traceable = element.dataset.coreAnchor === "true" ||
+      element.dataset.searchBoost === "true" ||
+      element.dataset.interactionLabelVisible === "true" ||
+      element.dataset.pinned === "true" ||
+      element.getAttribute("aria-pressed") === "true";
+    element.dataset.traceable = traceable ? "true" : "false";
+  }
+
   function setViewportAnimating(enabled: boolean): void {
     if (context.viewportAnimationTimer) {
       clearTimeout(context.viewportAnimationTimer);
@@ -494,6 +512,21 @@ export function createGraphRenderPipeline(
     context.dom.contentLayer?.classList.toggle("is-viewport-animating", enabled);
     if (enabled) {
       context.viewportAnimationTimer = setTimeout(() => setViewportAnimating(false), 240);
+    }
+  }
+
+  function setInteractionDegraded(enabled: boolean, options: { restoreDelayMs?: number } = {}): void {
+    if (context.interactionDegradationTimer) {
+      clearTimeout(context.interactionDegradationTimer);
+      context.interactionDegradationTimer = null;
+    }
+    context.root.dataset.interactionMode = enabled ? "active" : "idle";
+    context.root.dataset.interactionUpdatedObjects = String(context.graph.interaction.updatedObjects);
+    context.root.dataset.interactionHiddenObjects = String(context.graph.interaction.hiddenObjects);
+    context.root.dataset.interactionPreservedNodes = String(context.graph.interaction.preservedNodeIds.length);
+    if (enabled) {
+      const restoreDelayMs = options.restoreDelayMs ?? 180;
+      context.interactionDegradationTimer = setTimeout(() => setInteractionDegraded(false), restoreDelayMs);
     }
   }
 
@@ -609,6 +642,8 @@ export function createGraphRenderPipeline(
     context.resizeObserver = null;
     if (context.viewportAnimationTimer) clearTimeout(context.viewportAnimationTimer);
     context.viewportAnimationTimer = null;
+    if (context.interactionDegradationTimer) clearTimeout(context.interactionDegradationTimer);
+    context.interactionDegradationTimer = null;
   }
 
   return {
@@ -625,6 +660,7 @@ export function createGraphRenderPipeline(
     renderMotionOverlays,
     updateMinimapViewport,
     setViewportAnimating,
+    setInteractionDegraded,
     viewportSize,
     restartSimulation,
     applyMotionFrame,

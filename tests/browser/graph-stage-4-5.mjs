@@ -119,6 +119,7 @@ async function runOfflineChecks(browser) {
   await densePage.waitForSelector("[data-llm-wiki-graph-root='true']");
   await densePage.waitForSelector("[data-viewport-layer='true']");
   await densePage.bringToFront();
+  await runInteractionDegradationChecks(densePage);
 
   const denseInitial = await layerTransform(densePage);
   const denseRoot = densePage.locator("[data-llm-wiki-graph-root='true']");
@@ -189,6 +190,36 @@ async function runOfflineThemeChecks(page) {
   await page.waitForFunction(() => document.querySelector(".llm-wiki-graph-engine")?.dataset.theme === "mo-ye");
   await page.getByRole("button", { name: "切换山水主题" }).click({ force: true });
   await page.waitForFunction(() => document.querySelector(".llm-wiki-graph-engine")?.dataset.theme === "shan-shui");
+}
+
+async function runInteractionDegradationChecks(page) {
+  const root = page.locator("[data-llm-wiki-graph-root='true']");
+  await page.waitForFunction(() => {
+    const graph = document.querySelector("[data-llm-wiki-graph-root='true']");
+    return graph?.dataset.interactionMode === "idle" && Number(graph.dataset.interactionMaxUpdates || 0) > 0;
+  });
+  await root.dispatchEvent("wheel", {
+    deltaY: -180,
+    deltaMode: 0,
+    clientX: 520,
+    clientY: 420,
+    bubbles: true,
+    cancelable: true
+  });
+  const active = await root.evaluate((element) => ({
+    mode: element.dataset.interactionMode || "",
+    updated: Number(element.dataset.interactionUpdatedObjects || 0),
+    max: Number(element.dataset.interactionMaxUpdates || 0),
+    preserved: Number(element.dataset.interactionPreservedNodes || 0),
+    traceableNodes: element.querySelectorAll('.node[data-traceable="true"]').length,
+    traceableEdges: element.querySelectorAll('.edge[data-traceable="true"]').length
+  }));
+  assert.equal(active.mode, "active", "wheel interaction should switch graph into lightweight interaction mode");
+  assert.ok(active.updated <= active.max, "interaction mode should keep updated objects within budget");
+  assert.ok(active.preserved > 0, "interaction mode should preserve traceable anchors");
+  assert.ok(active.traceableNodes > 0, "interaction mode should leave traceable nodes visible");
+  assert.ok(active.traceableEdges > 0, "interaction mode should leave traceable edges visible");
+  await page.waitForFunction(() => document.querySelector("[data-llm-wiki-graph-root='true']")?.dataset.interactionMode === "idle");
 }
 
 async function layerTransform(page) {
@@ -371,21 +402,20 @@ async function runLegendChecks(page, options) {
   const focusableCommunity = await firstCommunityWithInternalEdge(page);
   const focusRow = page.locator(`.community-legend-row[data-community-id="${cssString(focusableCommunity)}"]`);
   const beforeClick = await layerTransform(page);
-  const globalEdge = await page.locator(".edge").first().evaluate((edge) => ({
-    opacity: Number((edge instanceof SVGPathElement ? edge.style.opacity : "0") || "0"),
-    strokeWidth: Number((edge instanceof SVGPathElement ? edge.style.strokeWidth : "0") || "0")
-  }));
   const initialNodes = await page.locator(".node").count();
   await focusRow.click();
-  await waitForLayerTransform(page, beforeClick);
-  const focusedNodes = await page.locator(".node").count();
-  assert.ok(focusedNodes < initialNodes, "legend click should enter a focused community view with fewer visible nodes");
-  const focusedEdge = await page.locator(".edge").first().evaluate((edge) => ({
-    opacity: Number((edge instanceof SVGPathElement ? edge.style.opacity : "0") || "0"),
-    strokeWidth: Number((edge instanceof SVGPathElement ? edge.style.strokeWidth : "0") || "0")
-  }));
-  assert.ok(focusedEdge.opacity > globalEdge.opacity, "focused community view should make relation edges more visible");
-  assert.ok(focusedEdge.strokeWidth > globalEdge.strokeWidth, "focused community view should make relation edges fuller");
+  await page.waitForFunction(() => document.querySelectorAll(".node[aria-pressed='true']").length > 0);
+  await page.waitForTimeout(120);
+  assert.equal(
+    await layerTransform(page),
+    beforeClick,
+    "legend click should keep the global viewport and show a community summary first"
+  );
+  assert.equal(
+    await page.locator(".node").count(),
+    initialNodes,
+    "legend click should not enter community focus before an explicit action"
+  );
   const selected = await page.locator(".node[aria-pressed='true']").count();
   assert.ok(selected >= 1, "legend click should select the community nodes");
 
@@ -396,10 +426,10 @@ async function runLegendChecks(page, options) {
     await page.waitForSelector(".drawer-panel-open", { state: "detached" });
     assert.equal(
       await page.locator(".node").count(),
-      focusedNodes,
-      "closing the workbench selection drawer should keep the focused community visible"
+      initialNodes,
+      "closing the workbench selection drawer should keep the global graph visible"
     );
-    await expectNoPressedNodes(page, "closing the workbench selection drawer should clear highlights but not leave community focus");
+    await expectNoPressedNodes(page, "closing the workbench selection drawer should clear highlights without changing global focus");
 
     await closeToolbarWithBlankClick(page);
     await waitForToolbarPanel(page, "closed");

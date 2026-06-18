@@ -153,7 +153,7 @@ describe("graph renderer lifecycle", () => {
     assert.deepEqual(visibleNodeIds(renderer), ["a"]);
 
     renderer.resetView();
-    await waitForViewportCommit();
+    await waitForInteractionSettle();
 
     assert.deepEqual(viewResets, [1]);
     assert.deepEqual(clearRequests, []);
@@ -216,7 +216,7 @@ describe("graph renderer lifecycle", () => {
 
     renderer.select({ kind: "community", id: "community-a" });
     renderer.resetView();
-    await waitForViewportCommit();
+    await waitForInteractionSettle();
 
     assert.deepEqual(visibleNodeIds(renderer), ["a", "b", "c"]);
     assert.equal(nodeElement(renderer, "a")?.getAttribute("aria-pressed"), "true");
@@ -250,6 +250,38 @@ describe("graph renderer lifecycle", () => {
     assert.equal(legendButton?.dataset.active, "false");
     assert.equal(findByClass(renderer.root as unknown as FakeElement, "graph-toolbar")[0], toolbar);
     assert.equal(nodeElement(renderer, "a"), node);
+
+    renderer.destroy();
+  });
+
+  it("degrades interaction detail during lightweight viewport changes and restores after settle", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: connectedGraphData(["a", "b", "c"]),
+      theme: "shan-shui",
+      live: false
+    });
+
+    const nodeBefore = nodeElement(renderer, "a");
+    const edgeBefore = edgeElement(renderer, "a-b");
+    assert.equal(renderer.root.dataset.interactionMode, "idle");
+
+    const root = renderer.root as unknown as FakeElement;
+    root.dispatch("pointerdown", { pointerId: 1, clientX: 60, clientY: 80 });
+    root.dispatch("pointermove", { pointerId: 1, clientX: 120, clientY: 120 });
+
+    assert.equal(renderer.root.dataset.interactionMode, "active");
+    assert.equal(nodeElement(renderer, "a"), nodeBefore);
+    assert.equal(edgeElement(renderer, "a-b"), edgeBefore);
+    assert.ok(Number(renderer.root.dataset.interactionUpdatedObjects || "0") <= Number(renderer.root.dataset.interactionMaxUpdates || "0"));
+    assert.equal(nodeBefore?.dataset.coreAnchor, "true");
+    assert.equal(nodeBefore?.dataset.traceable, "true");
+
+    await waitForInteractionSettle();
+    assert.equal(renderer.root.dataset.interactionMode, "idle");
+    assert.equal(nodeElement(renderer, "a"), nodeBefore);
+    assert.equal(edgeElement(renderer, "a-b"), edgeBefore);
 
     renderer.destroy();
   });
@@ -289,6 +321,18 @@ describe("graph renderer lifecycle", () => {
 
 function graphData(ids: string[]): GraphData {
   return graphDataWithCommunities(ids.map((id) => [id, "community-a"]));
+}
+
+function connectedGraphData(ids: string[]): GraphData {
+  const data = graphData(ids);
+  data.meta.total_edges = Math.max(0, ids.length - 1);
+  data.edges = ids.slice(1).map((id, index) => ({
+    id: `${ids[index]}-${id}`,
+    from: ids[index],
+    to: id,
+    type: "EXTRACTED"
+  }));
+  return data;
 }
 
 function graphDataWithCommunities(entries: Array<[string, string]>): GraphData {
@@ -345,6 +389,10 @@ async function waitForViewportCommit(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 24));
 }
 
+async function waitForInteractionSettle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 240));
+}
+
 function diff(overrides: Partial<GraphDiff> & { nodeCount: number }): GraphDiff {
   return {
     addedNodes: overrides.addedNodes || [],
@@ -363,6 +411,10 @@ function diff(overrides: Partial<GraphDiff> & { nodeCount: number }): GraphDiff 
 
 function nodeElement(renderer: { root: HTMLElement }, id: string): FakeElement | undefined {
   return findByDataset(renderer.root as unknown as FakeElement, "id", id);
+}
+
+function edgeElement(renderer: { root: HTMLElement }, id: string): FakeElement | undefined {
+  return findByDataset(renderer.root as unknown as FakeElement, "edgeId", id);
 }
 
 function findByDataset(root: FakeElement, key: string, value: string): FakeElement | undefined {

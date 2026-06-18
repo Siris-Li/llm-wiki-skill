@@ -21,6 +21,7 @@ export type {
   GraphCommunityFocusRepresentation,
   GraphCommunityFocusScale,
   GraphCommunityFocusSizeBand,
+  GraphInteractionDegradation,
   GraphRenderBudget,
   GraphRenderBudgetLimits,
   GraphRenderBudgetView,

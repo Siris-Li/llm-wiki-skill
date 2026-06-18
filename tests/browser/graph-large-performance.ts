@@ -29,6 +29,8 @@ const requestedShapes = (process.env.GRAPH_LARGE_PERF_SHAPES || [
   .map((item) => item.trim())
   .filter(Boolean) as LargeGraphFixtureId[];
 const resultPath = path.join(artifactDir, "large-graph-performance-results.json");
+const resultPhase = process.env.GRAPH_LARGE_PERF_PHASE || "phase-1";
+const resultTask = process.env.GRAPH_LARGE_PERF_TASK || "1.2";
 let fixtureRoot = "";
 
 main().catch((error) => {
@@ -370,6 +372,11 @@ async function recordFromPage(
       visible_edge_count: document.querySelectorAll(".edge").length,
       visible_label_count: document.querySelectorAll(".node:not(.is-label-hidden) .node-name").length,
       visible_card_count: document.querySelectorAll(".node:not(.is-point)").length,
+      interaction_mode: root?.dataset.interactionMode || null,
+      interaction_updated_objects: root ? Number(root.dataset.interactionUpdatedObjects || 0) : null,
+      interaction_hidden_objects: root ? Number(root.dataset.interactionHiddenObjects || 0) : null,
+      interaction_preserved_nodes: root ? Number(root.dataset.interactionPreservedNodes || 0) : null,
+      interaction_max_updates: root ? Number(root.dataset.interactionMaxUpdates || 0) : null,
       memory_peak_mb: typeof performance !== "undefined" && "memory" in performance
         ? Math.round((performance.memory?.usedJSHeapSize || 0) / 1024 / 1024 * 10) / 10
         : null,
@@ -383,8 +390,8 @@ async function recordFromPage(
     duration_ms: round(input.duration_ms ?? 0),
     fps: input.fps == null ? null : round(input.fps),
     frame_p95_ms: input.frame_p95_ms == null ? null : round(input.frame_p95_ms),
-    pass: input.pass ?? true,
-    failure_class: input.failure_class ?? null
+    pass: (input.pass ?? true) && (counts.interaction_updated_objects == null || counts.interaction_max_updates == null || counts.interaction_updated_objects <= counts.interaction_max_updates),
+    failure_class: input.failure_class ?? (counts.interaction_updated_objects != null && counts.interaction_max_updates != null && counts.interaction_updated_objects > counts.interaction_max_updates ? "interaction_updates_over_budget" : null)
   };
 }
 
@@ -403,6 +410,11 @@ function failedRecord(
     visible_edge_count: null,
     visible_label_count: null,
     visible_card_count: null,
+    interaction_mode: null,
+    interaction_updated_objects: null,
+    interaction_hidden_objects: null,
+    interaction_preserved_nodes: null,
+    interaction_max_updates: null,
     memory_peak_mb: null,
     memory_after_cycles_mb: null,
     memory_growth_mb: null,
@@ -414,8 +426,8 @@ function failedRecord(
 
 function baseRecord(metadata: LargeGraphFixtureMetadata, action: string, artifactPath: string): PerformanceRecord {
   return {
-    phase: "phase-1",
-    task: "1.2",
+    phase: resultPhase,
+    task: resultTask,
     renderer: "dom-svg-current",
     graph_shape: metadata.id,
     nodes: metadata.nodes,
@@ -436,6 +448,11 @@ function baseRecord(metadata: LargeGraphFixtureMetadata, action: string, artifac
     visible_edge_count: null,
     visible_label_count: null,
     visible_card_count: null,
+    interaction_mode: null,
+    interaction_updated_objects: null,
+    interaction_hidden_objects: null,
+    interaction_preserved_nodes: null,
+    interaction_max_updates: null,
     memory_peak_mb: null,
     memory_after_cycles_mb: null,
     memory_growth_mb: null,
@@ -645,6 +662,11 @@ interface PerformanceRecord {
   visible_edge_count: number | null;
   visible_label_count: number | null;
   visible_card_count: number | null;
+  interaction_mode: string | null;
+  interaction_updated_objects: number | null;
+  interaction_hidden_objects: number | null;
+  interaction_preserved_nodes: number | null;
+  interaction_max_updates: number | null;
   memory_peak_mb: number | null;
   memory_after_cycles_mb: number | null;
   memory_growth_mb: number | null;

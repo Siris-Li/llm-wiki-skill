@@ -51,6 +51,17 @@ export interface GraphRenderOverflow {
   };
 }
 
+export interface GraphInteractionDegradation {
+  mode: "idle" | "active";
+  maxUpdatedObjects: number;
+  updateCandidates: number;
+  updatedObjects: number;
+  hiddenObjects: number;
+  labelsVisibleDuringInteraction: number;
+  edgesVisibleDuringInteraction: number;
+  preservedNodeIds: string[];
+}
+
 export interface GraphCommunityFocusScale {
   communityId: string;
   nodeCount: number;
@@ -85,6 +96,7 @@ export interface RenderableGraph {
   minimap: RenderableMinimap;
   budget: GraphRenderBudget;
   overflow: GraphRenderOverflow;
+  interaction: GraphInteractionDegradation;
   importance: {
     stableCoreNodeIds: string[];
     stableSkeletonEdgeIds: string[];
@@ -115,6 +127,7 @@ export interface RenderableNode {
   startNode: boolean;
   previewStart: boolean;
   labelVisible: boolean;
+  interactionLabelVisible: boolean;
 }
 
 export interface RenderableEdge {
@@ -130,6 +143,8 @@ export interface RenderableEdge {
   strokeWidth: number;
   opacity: number;
   simulationWeight: number;
+  skeleton: boolean;
+  traceable: boolean;
 }
 
 export interface RenderableCommunity {
@@ -403,6 +418,27 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       coreNodeIds: stableCoreNodeSet
     })
   );
+  const traceableNodeIds = new Set([
+    ...stableCoreNodeSet,
+    ...selectedNodeSet,
+    ...pinnedNodeSet,
+    ...searchResultSet
+  ]);
+  const interactionLabelBudget = Math.max(4, Math.min(labelNodeSet.size, Math.ceil(budgetLimits.maxLabels * 0.35)));
+  const interactionLabelNodeSet = selectBudgetedIds(
+    budgetedVisibleNodes.filter((node) => traceableNodeIds.has(node.id)),
+    interactionLabelBudget,
+    (node) => nodeRenderPriority(node, {
+      selectedNodeIds: selectedNodeSet,
+      pinnedNodeIds: pinnedNodeSet,
+      searchResultIds: searchResultSet,
+      labelNodeIds: labelIds,
+      importantNodeIds: importantIds,
+      startNodeIds: startIds,
+      previewNodeId,
+      coreNodeIds: stableCoreNodeSet
+    })
+  );
 
   const nodes = budgetedVisibleNodes.map((node) => {
     const isSelected = selectedNodeSet.has(node.id);
@@ -446,7 +482,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       selected: isSelected,
       startNode: startIds[node.id] === true,
       previewStart: node.id === previewNodeId,
-      labelVisible: labelNodeSet.has(node.id)
+      labelVisible: labelNodeSet.has(node.id),
+      interactionLabelVisible: interactionLabelNodeSet.has(node.id)
     };
   });
 
@@ -455,6 +492,18 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const renderableEdgeCandidates = filteredVisibleEdges.filter((edge) => nodeById.has(edge.source) && nodeById.has(edge.target));
   const edgeIdSet = selectBudgetedIds(renderableEdgeCandidates, budgetLimits.maxVisibleEdges, (edge) =>
     edgeRenderPriority(edge, {
+      selectedNodeIds: selectedNodeSet,
+      pinnedNodeIds: pinnedNodeSet,
+      searchResultIds: searchResultSet,
+      importantNodeIds: importantIds,
+      coreNodeIds: stableCoreNodeSet
+    })
+  );
+  const interactionEdgeBudget = Math.max(8, Math.min(edgeIdSet.size, Math.ceil(budgetLimits.maxVisibleEdges * 0.22)));
+  const interactionEdgeIdSet = selectBudgetedIds(
+    renderableEdgeCandidates.filter((edge) => edgeIdSet.has(edge.id) && (traceableNodeIds.has(edge.source) || traceableNodeIds.has(edge.target) || stableSkeletonEdgeSet.has(edge.id))),
+    interactionEdgeBudget,
+    (edge) => edgeRenderPriority(edge, {
       selectedNodeIds: selectedNodeSet,
       pinnedNodeIds: pinnedNodeSet,
       searchResultIds: searchResultSet,
@@ -481,7 +530,9 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       curveOffset,
       strokeWidth: edgeVisualStrokeWidth(edge, isFocusedView),
       opacity: edgeVisualOpacity(edge, isFocusedView),
-      simulationWeight: edgeStrokeWidth(edge)
+      simulationWeight: edgeStrokeWidth(edge),
+      skeleton: stableSkeletonEdgeSet.has(edge.id),
+      traceable: interactionEdgeIdSet.has(edge.id)
     }];
   });
   const renderedEdgeIds = new Set(edges.map((edge) => edge.id));
@@ -503,6 +554,10 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const cardUsage = nodes.filter((node) => node.displayMode === "card").length;
   const interactionUpdateCandidates = nodes.length + edges.length + labelUsage + cardUsage;
   const interactionUpdateUsage = Math.min(interactionUpdateCandidates, budgetLimits.maxInteractionUpdates);
+  const activeLabels = nodes.filter((node) => node.interactionLabelVisible).length;
+  const activeEdges = edges.filter((edge) => edge.traceable).length;
+  const activeInteractionCandidates = nodes.length + activeEdges + activeLabels;
+  const activeInteractionUsage = Math.min(activeInteractionCandidates, budgetLimits.maxInteractionUpdates);
 
   return {
     model,
@@ -556,6 +611,16 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
         total: interactionUpdateCandidates,
         hidden: Math.max(0, interactionUpdateCandidates - budgetLimits.maxInteractionUpdates)
       }
+    },
+    interaction: {
+      mode: "idle",
+      maxUpdatedObjects: budgetLimits.maxInteractionUpdates,
+      updateCandidates: activeInteractionCandidates,
+      updatedObjects: activeInteractionUsage,
+      hiddenObjects: Math.max(0, activeInteractionCandidates - budgetLimits.maxInteractionUpdates),
+      labelsVisibleDuringInteraction: activeLabels,
+      edgesVisibleDuringInteraction: activeEdges,
+      preservedNodeIds: nodes.filter((node) => traceableNodeIds.has(node.id)).map((node) => node.id)
     },
     importance: {
       stableCoreNodeIds,

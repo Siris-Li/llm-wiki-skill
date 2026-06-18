@@ -290,6 +290,26 @@ describe("buildRenderableGraph", () => {
     assert.equal(graph.overflow.edges.total, 1200);
   });
 
+  it("keeps interaction-time detail updates inside budget while preserving anchors", () => {
+    const data = budgetGraph(200, 1200);
+    const graph = buildRenderableGraph(data, {
+      theme: "shan-shui",
+      selection: { kind: "node", id: "n199" },
+      searchResultIds: ["n198", "n199"],
+      pins: {
+        "wiki/budget/n197.md": { x: 850, y: 500, coordinateSpace: "world" }
+      }
+    });
+
+    assert.ok(graph.interaction.updatedObjects <= GRAPH_RENDER_BUDGETS.global.maxInteractionUpdates);
+    assert.ok(graph.interaction.updateCandidates < graph.overflow.interactionUpdates.total);
+    assert.ok(graph.interaction.edgesVisibleDuringInteraction <= graph.budget.usage.maxVisibleEdges);
+    assert.ok(graph.interaction.preservedNodeIds.includes("n199"), "selected node should stay traceable");
+    assert.ok(graph.interaction.preservedNodeIds.includes("n198"), "searched node should stay traceable");
+    assert.ok(graph.interaction.preservedNodeIds.includes("n197"), "pinned node should stay traceable");
+    assert.ok(graph.interaction.preservedNodeIds.some((id) => graph.importance.stableCoreNodeIds.includes(id)), "stable core anchors should stay traceable");
+  });
+
   it("caps focused community cards while allowing promoted nodes to compete for the budget", () => {
     const data = budgetGraph(80, 1200);
     const graph = buildRenderableGraph(data, {

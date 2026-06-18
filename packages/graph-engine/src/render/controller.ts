@@ -57,6 +57,7 @@ export interface GraphControllerDelegates {
   render(): void;
   viewportSize(): RendererViewportSize;
   setViewportAnimating(enabled: boolean): void;
+  setInteractionDegraded(enabled: boolean, options?: { restoreDelayMs?: number }): void;
   setGraphHover(hover: GraphRuntimeStateSnapshot["hover"]): GraphRuntimeStateSnapshot;
   applyMotionFrame(positions: RenderPositionMap): void;
   markPinnedNodes(pinnedNodeIds: string[]): void;
@@ -71,6 +72,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
       graphTargetFromScreenPoint: context.hitTargetResolver.targetFromScreenPoint,
       onWheelZoom: (event, _decision, screenPoint) => {
         delegates.setViewportAnimating(false);
+        delegates.setInteractionDegraded(true, { restoreDelayMs: 200 });
         context.viewportCommitter.schedule(viewportAfterWheelZoom(
           context.runtimeState.snapshot().viewport,
           { deltaY: event.deltaY, deltaMode: event.deltaMode },
@@ -82,6 +84,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
       onPointerDown: (_event, decision) => {
         if (decision.intent !== "node-drag-candidate") context.root.focus({ preventScroll: true });
         delegates.setViewportAnimating(false);
+        delegates.setInteractionDegraded(true, { restoreDelayMs: 200 });
       },
       onGestureIntents,
       onActiveStateChange: syncRuntimeGestureState,
@@ -148,15 +151,19 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
           break;
         case "node-drag-start":
           if (intent.nodeId) handleNodeDragStart(intent.nodeId, intent.screenPoint);
+          delegates.setInteractionDegraded(true, { restoreDelayMs: 220 });
           break;
         case "node-drag-move":
           if (intent.nodeId) handleNodeDragMove(intent.nodeId, intent.pointerId, intent.screenPoint);
+          delegates.setInteractionDegraded(true, { restoreDelayMs: 220 });
           break;
         case "node-drag-end":
           if (intent.nodeId) handleNodeDragEnd(intent.nodeId, intent.pointerId, intent.screenPoint);
+          delegates.setInteractionDegraded(true, { restoreDelayMs: 160 });
           break;
         case "node-drag-cancel":
           if (intent.nodeId) handleNodeDragCancel(intent.nodeId, intent.pointerId);
+          delegates.setInteractionDegraded(false);
           break;
         case "community-click":
           if (intent.communityId) selectCommunity(intent.communityId);
@@ -168,9 +175,11 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
           break;
         case "blank-pan-start":
           context.root.dataset.viewportDragging = "true";
+          delegates.setInteractionDegraded(true, { restoreDelayMs: 220 });
           break;
         case "blank-pan-move":
           context.root.dataset.viewportDragging = "true";
+          delegates.setInteractionDegraded(true, { restoreDelayMs: 220 });
           context.viewportCommitter.schedule(panRendererViewport(
             context.runtimeState.snapshot().viewport,
             intent.delta,
@@ -181,6 +190,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
         case "blank-pan-end":
         case "blank-pan-cancel":
           delete context.root.dataset.viewportDragging;
+          delegates.setInteractionDegraded(true, { restoreDelayMs: 160 });
           break;
       }
     }
@@ -346,6 +356,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
   function applySearchQuery(query: string): void {
     if (query !== context.searchQuery) context.searchFocusedNodeId = null;
     context.searchQuery = query;
+    delegates.setInteractionDegraded(Boolean(query), { restoreDelayMs: 180 });
     const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex);
     context.searchIndex = state.searchIndex;
     context.root.dataset.searchActive = state.query ? "true" : "false";
@@ -356,6 +367,8 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
       if (!element) continue;
       element.dataset.searchState = node.searchState;
       element.dataset.searchFocus = node.id === context.searchFocusedNodeId ? "true" : "false";
+      element.dataset.searchBoost = node.searchState === "match" || node.id === context.searchFocusedNodeId ? "true" : "false";
+      element.dataset.traceable = element.dataset.coreAnchor === "true" || element.dataset.temporaryBoost === "true" || element.dataset.searchBoost === "true" || element.dataset.pinned === "true" || element.getAttribute("aria-pressed") === "true" ? "true" : "false";
     }
     if (context.dom.searchInput && context.dom.searchInput.value !== context.searchQuery) context.dom.searchInput.value = context.searchQuery;
     if (context.dom.searchStatusElement) {
@@ -395,6 +408,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     context.searchFocusedNodeId = null;
     if (context.dom.searchElement) context.dom.searchElement.dataset.state = "closed";
     context.root.dataset.searchOpen = "false";
+    delegates.setInteractionDegraded(false);
     applySearchQuery("");
     context.root.focus({ preventScroll: true });
   }
