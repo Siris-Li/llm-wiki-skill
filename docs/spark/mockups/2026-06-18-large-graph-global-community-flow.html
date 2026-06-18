@@ -451,12 +451,12 @@
 </head>
 <body>
 <h2>大图谱交互方案：全局降级，社区聚焦升级</h2>
-<p class="subtitle">这不是最终视觉皮肤，是用来讨论交互边界的画板：全局只看地图，点节点轻量查看，点社区进入阅读。</p>
+<p class="subtitle">这不是最终视觉皮肤，是用来讨论交互边界的画板：全局只看地图，点节点看节点摘要，点社区看社区摘要，再通过按钮进入阅读。</p>
 
 <div class="flow-board">
   <div class="flow-note">
     <strong>主线：</strong>
-    <span>普通节点点击不跳视角；社区色块/图例点击才进入社区。这样万级全局图谱不被卡片和长文本拖慢。</span>
+    <span>普通节点点击不跳视角；社区色块/图例点击只切换抽屉内容。这样万级全局图谱不被卡片和长文本拖慢。</span>
   </div>
 
   <div class="screen">
@@ -576,9 +576,11 @@
   </div>
 
   <div class="path-line">
-    <span class="path-pill">点节点</span><span class="arrow">→</span><span>轻量抽屉</span>
+    <span class="path-pill">点节点</span><span class="arrow">→</span><span>节点摘要</span>
     <span class="arrow">/</span>
-    <span class="path-pill">点社区色块</span><span class="arrow">→</span><span>社区聚焦</span>
+    <span class="path-pill">点社区色块</span><span class="arrow">→</span><span>社区摘要</span>
+    <span class="arrow">/</span>
+    <span class="path-pill">点进入社区</span><span class="arrow">→</span><span>社区聚焦</span>
   </div>
 
   <div class="state-grid">
