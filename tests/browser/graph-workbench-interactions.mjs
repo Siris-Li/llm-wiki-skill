@@ -61,7 +61,7 @@ async function runDesktopChecks(browser) {
   await openToolbarFilters(page);
   evidence.blockedWheelTargets.toolbar = await assertWheelDoesNotZoom(page, await elementCenter(page, ".graph-toolbar-panel"), "toolbar panel");
   evidence.blockedWheelTargets.legend = await assertWheelDoesNotZoom(page, await elementCenter(page, ".community-legend-row"), "legend row");
-  await closeToolbarWithBlankClick(page);
+  await closeToolbarWithButton(page);
   await waitForToolbarPanel(page, "closed");
   evidence.blockedWheelTargets.minimap = await assertWheelDoesNotZoom(page, await elementCenter(page, ".mini-map"), "minimap");
 
@@ -187,6 +187,13 @@ async function openWorkbenchGraphPage(browser, viewport, theme) {
           width: this.round(Number(mini.getAttribute("width"))),
           height: this.round(Number(mini.getAttribute("height")))
         };
+      },
+      visibleGraphNodeIds() {
+        return [...document.querySelectorAll(".node")]
+          .filter((node) => node.getAttribute("data-filter-state") !== "hidden")
+          .map((node) => node.dataset.id)
+          .filter(Boolean)
+          .sort();
       }
     };
   });
@@ -311,7 +318,7 @@ async function runCommunityDragCheck(page) {
       },
       pinned: node.dataset.pinned,
       dragging: root.dataset.dragging || "",
-      visibleNodes: [...document.querySelectorAll(".node")].map((item) => item.dataset.id).sort(),
+      visibleNodes: window.__graphWorkbenchTest.visibleGraphNodeIds(),
       mini: window.__graphWorkbenchTest.minimapSnapshot(mini)
     };
   });
@@ -446,12 +453,19 @@ async function runNodeReturnGlobalStateCheck(page) {
   await resetGraphView(page, ["A", "B", "C"]);
 
   await openSearch(page);
+  const beforeSearchTransform = await layerTransform(page);
   await page.locator(".graph-search-input").fill("节点A");
   await page.waitForSelector(".node[data-id='A'][data-search-state='match']");
+  const afterSearchTransform = await layerTransform(page);
+  assert.equal(afterSearchTransform, beforeSearchTransform, "search highlight should not move or rebuild the graph layout");
   await openToolbarFilters(page);
-  await setTypeFilter(page, "entity", true);
-  await setTypeFilter(page, "source", false);
-  await waitForVisibleNodeIds(page, ["A", "B"], "source filter should hide C before return global");
+  const filteredNodeType = await page.locator('.node[data-id="C"]').evaluate((node) => node.getAttribute("data-type") || "");
+  assert.notEqual(filteredNodeType, "", "node C should expose a type for filter stability checks");
+  const beforeFilterTransform = await layerTransform(page);
+  await setTypeFilter(page, filteredNodeType, false);
+  await waitForVisibleNodeIds(page, ["A", "B"], `${filteredNodeType} filter should hide node C before return global`);
+  const afterFilterTransform = await layerTransform(page);
+  assert.equal(afterFilterTransform, beforeFilterTransform, "type filter changes should not move or rebuild the graph layout");
 
   await clickNodeForSummary(page, "A", "return global node setup");
   await page.locator('[data-testid="graph-node-summary"] button', { hasText: "固定位置" }).click();
@@ -472,14 +486,21 @@ async function runNodeReturnGlobalStateCheck(page) {
 
   assert.equal(returned.drawerTestId, "graph-node-summary", "selected node should still show the lightweight node summary after return global");
   assert.equal(returned.searchQuery, "节点A", "search query should remain visible after return global");
-  assert.equal(returned.sourceFilterChecked, false, "type filter should remain active after return global");
+  assert.ok(returned.disabledTypes.includes(filteredNodeType), "type filter should remain active after return global");
   assert.equal(returned.nodeA.pinned, "true", "fixed position should remain after return global");
   assert.equal(returned.nodeA.pressed, "true", "selected node should remain selected after return global");
-  assert.deepEqual(returned.visibleNodes, ["A", "B"], "active source filter should still shape the returned global view");
+  assert.deepEqual(returned.visibleNodes, ["A", "B"], "active type filter should still shape the returned global view");
 
-  await setTypeFilter(page, "source", true);
-  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
-  return { focused, returned };
+  await setTypeFilter(page, filteredNodeType, true);
+  await waitForVisibleNodeIds(page, ["A", "B", "C"], "restoring filtered type should show global nodes");
+
+  return {
+    focused,
+    returned,
+    searchLayoutStable: beforeSearchTransform === afterSearchTransform,
+    filterLayoutStable: beforeFilterTransform === afterFilterTransform,
+    filteredNodeType
+  };
 }
 
 async function runResetLayoutDistinctFromReturnGlobalCheck(page) {
@@ -712,14 +733,17 @@ async function returnGlobalStateSnapshot(page) {
         searchState: node?.getAttribute("data-search-state") || ""
       };
     };
-    const sourceFilter = document.querySelector('.graph-type-filter-option input[data-type="source"]');
     return {
       focus: document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus || "",
-      visibleNodes: [...document.querySelectorAll(".node")].map((item) => item.dataset.id).sort(),
+      visibleNodes: window.__graphWorkbenchTest.visibleGraphNodeIds(),
       drawerTestId: document.querySelector(".drawer-panel-open [data-testid]")?.getAttribute("data-testid") || "",
       readerOpen: Boolean(document.querySelector(".graph-reader-drawer")),
       searchQuery: document.querySelector(".graph-search-input")?.value || "",
-      sourceFilterChecked: sourceFilter instanceof HTMLInputElement ? sourceFilter.checked : null,
+      disabledTypes: [...document.querySelectorAll(".graph-type-filter-option input[data-type]")]
+        .filter((input) => input instanceof HTMLInputElement && !input.checked)
+        .map((input) => input.dataset.type)
+        .filter(Boolean)
+        .sort(),
       nodeA: nodeSnapshot("A"),
       nodeB: nodeSnapshot("B"),
       nodeC: nodeSnapshot("C")
@@ -877,7 +901,7 @@ async function drawerAndGraphSnapshot(page) {
       root: window.__graphWorkbenchTest.roundRect(root.getBoundingClientRect()),
       drawer: window.__graphWorkbenchTest.roundRect(drawer.getBoundingClientRect()),
       transform: document.querySelector("[data-viewport-layer='true']")?.style.transform || "",
-      visibleNodes: [...document.querySelectorAll(".node")].map((item) => item.dataset.id).sort()
+      visibleNodes: window.__graphWorkbenchTest.visibleGraphNodeIds()
     };
   });
   await assertBoxInsideViewport(page, ".drawer-panel-open", "drawer");
@@ -907,7 +931,7 @@ async function graphSnapshot(page) {
       transform: document.querySelector("[data-viewport-layer='true']")?.style.transform || "",
       root: window.__graphWorkbenchTest.roundRect(root.getBoundingClientRect()),
       mini: window.__graphWorkbenchTest.minimapSnapshot(mini),
-      visibleNodes: [...document.querySelectorAll(".node")].map((item) => item.dataset.id).sort()
+      visibleNodes: window.__graphWorkbenchTest.visibleGraphNodeIds()
     };
   }));
 }
@@ -927,7 +951,7 @@ async function waitForCommunityFocus(page, communityId, label) {
       return {
         focus: host?.dataset.llmWikiGraphFocus || "",
         engineMounted: host?.dataset.llmWikiGraphEngine || "",
-        visibleNodes: [...document.querySelectorAll(".node")].map((item) => item.dataset.id).sort(),
+        visibleNodes: window.__graphWorkbenchTest.visibleGraphNodeIds(),
         drawer: document.querySelector(".drawer-panel-open article")?.className || "",
         summaryTestId: document.querySelector(".drawer-panel-open [data-testid]")?.getAttribute("data-testid") || "",
         readerOpen: Boolean(document.querySelector(".graph-reader-drawer"))
@@ -947,7 +971,7 @@ async function waitForNoGraphFocus(page, label) {
       const host = document.querySelector(".graph-host");
       return {
         focus: host?.dataset.llmWikiGraphFocus || "",
-        visibleNodes: [...document.querySelectorAll(".node")].map((item) => item.dataset.id).sort()
+        visibleNodes: window.__graphWorkbenchTest.visibleGraphNodeIds()
       };
     });
     assert.fail(`${label}: expected no graph focus, got ${JSON.stringify(diagnostics)} (${err instanceof Error ? err.message : String(err)})`);
@@ -977,13 +1001,13 @@ async function waitForViewportAnimationIdle(page) {
 async function waitForVisibleNodeIds(page, expected, label = "visible node ids") {
   try {
     await page.waitForFunction((expected) => {
-      const actual = [...document.querySelectorAll(".node")].map((node) => node.dataset.id).sort();
+      const actual = window.__graphWorkbenchTest.visibleGraphNodeIds();
       return actual.length === expected.length && actual.every((id, index) => id === expected[index]);
     }, expected, { timeout: 5000 });
   } catch (err) {
-    const diagnostics = await page.evaluate(() => ({
+    const diagnostics = await page.evaluate((expected) => ({
       expected,
-      actual: [...document.querySelectorAll(".node")].map((node) => node.dataset.id).sort(),
+      actual: window.__graphWorkbenchTest.visibleGraphNodeIds(),
       hostFocus: document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus || "",
       rootFocus: document.querySelector("[data-llm-wiki-graph-root='true']")?.dataset.focus || "",
       drawer: document.querySelector(".drawer-panel-open")?.getAttribute("class") || ""
@@ -1042,7 +1066,7 @@ async function doubleClickBlankPointThatReturnsGlobal(page) {
     await page.mouse.dblclick(point.x, point.y);
     await page.waitForTimeout(180);
     const focus = await currentGraphFocus(page);
-    const visibleNodes = await page.evaluate(() => [...document.querySelectorAll(".node")].map((node) => node.dataset.id).sort());
+    const visibleNodes = await page.evaluate(() => window.__graphWorkbenchTest.visibleGraphNodeIds());
     if (!focus && visibleNodes.includes("C")) return point;
     diagnostics.push({ ...(await graphInteractionDiagnostics(page, point)), focus, visibleNodes });
   }
@@ -1232,6 +1256,10 @@ async function closeToolbarWithBlankClick(page) {
     buttons: 1
   });
   await root.dispatchEvent("pointerup", pointer);
+}
+
+async function closeToolbarWithButton(page) {
+  await page.locator(".graph-toolbar-button").filter({ hasText: "筛选" }).click();
 }
 
 async function waitForToolbarPanel(page, state) {

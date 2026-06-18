@@ -150,18 +150,19 @@ describe("graph renderer lifecycle", () => {
     searchInput.value = "Node a";
     searchInput.dispatch("input");
 
-    assert.deepEqual(visibleNodeIds(renderer), ["a"]);
+    assert.deepEqual(visibleNodeIds(renderer), ["a", "b"]);
+    assert.equal(nodeElement(renderer, "b")?.dataset.filterState, "hidden");
 
     renderer.resetView();
     await waitForInteractionSettle();
 
     assert.deepEqual(viewResets, [1]);
     assert.deepEqual(clearRequests, []);
-    assert.deepEqual(visibleNodeIds(renderer), ["a", "c"]);
+    assert.deepEqual(visibleNodeIds(renderer), ["a", "b", "c"]);
     assert.equal(nodeElement(renderer, "a")?.getAttribute("aria-pressed"), "true");
     assert.equal(nodeElement(renderer, "c")?.getAttribute("aria-pressed"), "false");
     assert.equal(nodeElement(renderer, "a")?.dataset.pinned, "true");
-    assert.equal(nodeElement(renderer, "b"), undefined);
+    assert.equal(nodeElement(renderer, "b")?.dataset.filterState, "hidden");
     assert.equal(findByClass(renderer.root as unknown as FakeElement, "graph-search-input")[0]?.value, "Node a");
     assert.equal(nodeElement(renderer, "a")?.dataset.searchState, "match");
     assert.equal(nodeElement(renderer, "c")?.dataset.searchState, "faded");
@@ -199,6 +200,7 @@ describe("graph renderer lifecycle", () => {
     assert.equal(nodeElement(renderer, "a")?.getAttribute("aria-pressed"), "true");
     assert.equal(nodeElement(renderer, "a")?.dataset.pinned, "false");
     assert.equal(findByClass(renderer.root as unknown as FakeElement, "graph-search-input")[0]?.value, "Node a");
+    assert.equal(nodeElement(renderer, "b")?.dataset.filterState, "visible");
     assert.equal(nodeElement(renderer, "c"), undefined);
 
     renderer.destroy();
@@ -250,6 +252,90 @@ describe("graph renderer lifecycle", () => {
     assert.equal(legendButton?.dataset.active, "false");
     assert.equal(findByClass(renderer.root as unknown as FakeElement, "graph-toolbar")[0], toolbar);
     assert.equal(nodeElement(renderer, "a"), node);
+
+    renderer.destroy();
+  });
+
+  it("updates search highlights without rebuilding graph elements or moving layout", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphDataForReturnGlobal(),
+      theme: "shan-shui",
+      live: false
+    });
+
+    const node = nodeElement(renderer, "a");
+    const otherNode = nodeElement(renderer, "b");
+    const edge = edgeElement(renderer, "a-b");
+    const contentLayer = findByClass(renderer.root as unknown as FakeElement, "graph-content-layer")[0];
+    assert.ok(node);
+    assert.ok(otherNode);
+    assert.ok(edge);
+    const nodeLeft = node.style.left;
+    const nodeTop = node.style.top;
+    const transform = contentLayer?.style.transform;
+
+    const searchInput = findByClass(renderer.root as unknown as FakeElement, "graph-search-input")[0];
+    searchInput.value = "Node a";
+    searchInput.dispatch("input");
+
+    assert.equal(nodeElement(renderer, "a"), node);
+    assert.equal(nodeElement(renderer, "b"), otherNode);
+    assert.equal(edgeElement(renderer, "a-b"), edge);
+    assert.equal(node.style.left, nodeLeft);
+    assert.equal(node.style.top, nodeTop);
+    assert.equal(contentLayer?.style.transform, transform);
+    assert.equal(node.dataset.searchState, "match");
+    assert.equal(otherNode.dataset.searchState, "faded");
+
+    renderer.destroy();
+  });
+
+  it("updates type filters without rebuilding graph elements or moving layout", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphDataForReturnGlobal(),
+      theme: "shan-shui",
+      live: false,
+      typeFilters: { entity: true, source: true }
+    });
+
+    const entityNode = nodeElement(renderer, "a");
+    const sourceNode = nodeElement(renderer, "b");
+    const edge = edgeElement(renderer, "a-b");
+    assert.ok(entityNode);
+    assert.ok(sourceNode);
+    assert.ok(edge);
+    const entityLeft = entityNode.style.left;
+    const entityTop = entityNode.style.top;
+    const sourceLeft = sourceNode.style.left;
+    const sourceTop = sourceNode.style.top;
+    const edgePath = edge.getAttribute("d");
+
+    renderer.setTypeFilters({ entity: true, source: false });
+
+    assert.equal(nodeElement(renderer, "a"), entityNode);
+    assert.equal(nodeElement(renderer, "b"), sourceNode);
+    assert.equal(edgeElement(renderer, "a-b"), edge);
+    assert.equal(entityNode.style.left, entityLeft);
+    assert.equal(entityNode.style.top, entityTop);
+    assert.equal(sourceNode.style.left, sourceLeft);
+    assert.equal(sourceNode.style.top, sourceTop);
+    assert.equal(edge.getAttribute("d"), edgePath);
+    assert.equal(entityNode.dataset.filterState, "visible");
+    assert.equal(sourceNode.dataset.filterState, "hidden");
+    assert.equal(edge.dataset.filterState, "hidden");
+
+    renderer.setTypeFilters({ entity: true, source: true });
+
+    assert.equal(nodeElement(renderer, "a"), entityNode);
+    assert.equal(nodeElement(renderer, "b"), sourceNode);
+    assert.equal(edgeElement(renderer, "a-b"), edge);
+    assert.equal(entityNode.dataset.filterState, "visible");
+    assert.equal(sourceNode.dataset.filterState, "visible");
+    assert.equal(edge.dataset.filterState, "visible");
 
     renderer.destroy();
   });
@@ -569,6 +655,15 @@ class FakeElement {
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
     return { left: 0, top: 0, width: 960, height: 640 };
   }
+
+  querySelectorAll(selector: string): FakeElement[] {
+    if (selector !== ".graph-type-filter input[data-type]") return [];
+    return collectElements(this).filter((element) =>
+      element.tagName === "input" &&
+      element.dataset.type !== undefined &&
+      hasAncestorClass(element, "graph-type-filter")
+    );
+  }
 }
 
 class FakeEvent {
@@ -643,6 +738,26 @@ class FakeStyle {
   set background(value: string) {
     this.setProperty("background", value);
   }
+
+  get left(): string {
+    return this.values.get("left") || "";
+  }
+
+  get top(): string {
+    return this.values.get("top") || "";
+  }
+
+  get transform(): string {
+    return this.values.get("transform") || "";
+  }
+
+  set transform(value: string) {
+    this.setProperty("transform", value);
+  }
+
+  set transformOrigin(value: string) {
+    this.setProperty("transform-origin", value);
+  }
 }
 
 class FakeClassList {
@@ -702,6 +817,19 @@ function findByText(root: FakeElement, text: string): FakeElement | undefined {
     if (match) return match;
   }
   return undefined;
+}
+
+function collectElements(root: FakeElement): FakeElement[] {
+  return [root, ...root.children.flatMap((child) => collectElements(child))];
+}
+
+function hasAncestorClass(element: FakeElement, className: string): boolean {
+  let current = element.parentElement;
+  while (current) {
+    if (current.classList.contains(className)) return true;
+    current = current.parentElement;
+  }
+  return false;
 }
 
 function dispatchPointerSequence(root: FakeElement, x: number, y: number): void {

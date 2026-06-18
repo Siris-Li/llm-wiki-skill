@@ -4,8 +4,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-5",
-    "task": "5.1",
-    "next_allowed_action": "Preserve layout for search, filter, and drawer changes."
+    "task": "5.2",
+    "next_allowed_action": "Define filtered-out selected object behavior."
   },
   "execution_rules": {
     "branch": "codex/large-graph-performance-experience",
@@ -1959,6 +1959,10 @@
       "reason": "Pan, zoom, drag, and search need to reduce ordinary labels, weak edges, and heavy effects while preserving selected, searched, pinned, and stable core anchors; the same semantics must remain portable to later Canvas/WebGL or desktop shells.",
       "source": "task 4.4 implementation",
       "status": "recorded"
+    },
+    {
+      "at": "2026-06-18T15:19:34Z",
+      "entry": "Task 5.1 preserved graph layout for search, type filters, and drawer/return-global flows by updating lightweight visual state instead of rebuilding layout. The ledger advanced to Phase 5 task 5.2."
     }
   ],
   "phases": [
@@ -2497,8 +2501,17 @@
       "acceptance": [
         {
           "check": "Search/filter/drawer changes preserve layout unless the user explicitly reorganizes.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "Renderer lifecycle tests prove search and type filter updates keep existing graph elements and transforms instead of rebuilding layout.",
+            "Search helpers reuse cached search indexes while updating highlight/fade state.",
+            "Type filters now update DOM filter state and visible affordances without removing nodes from the layout basis.",
+            "Workbench browser regression returnGlobalState.nodeFlow reports searchLayoutStable=true and filterLayoutStable=true after search/filter/return-global flows.",
+            "`npm run test --workspace=@llm-wiki/graph-engine` passed: 309 tests, 61 suites, 0 failures.",
+            "`npm run test --workspace=@llm-wiki-agent/web` passed: 39 tests, 14 suites, 0 failures.",
+            "`bash tests/graph-workbench-interactions.regression-1.sh` passed.",
+            "`bash tests/graph-browser-stage-4-5.regression-1.sh --target offline` passed."
+          ]
         },
         {
           "check": "Filtered-out selected objects remain inspectable, can be temporarily shown, and can clear temporary display without clearing filters.",
@@ -2525,8 +2538,22 @@
         {
           "id": "5.1",
           "title": "Preserve layout for search, filter, and drawer changes",
-          "status": "pending",
-          "verification": []
+          "status": "completed",
+          "verification": [
+            "`git status --short --branch` inspected before work; unrelated docs/plans, docs/spark, and .superpowers/ changes were left out of task scope.",
+            "`git log --oneline -15` inspected before task work; latest commit was 9efc7d3 feat: add graph interaction degradation [task 4.4].",
+            "Baseline `npm run test --workspace=@llm-wiki/graph-engine` passed before task work: 309 tests, 61 suites, 0 failures.",
+            "packages/graph-engine/test/renderer-lifecycle.test.ts covers no-rebuild/no-layout-jump behavior for search and type filter changes.",
+            "packages/graph-engine/test/renderer-boundary.test.ts covers current renderer boundary behavior after filter-state updates.",
+            "tests/browser/graph-workbench-interactions.mjs covers stable search/filter layout during return-global flows.",
+            "tests/browser/graph-stage-4-5.mjs covers filter state without node-count-driven relayout in the offline browser flow.",
+            "`npm run typecheck --workspace=@llm-wiki/graph-engine` passed.",
+            "`npm run test --workspace=@llm-wiki/graph-engine` passed after implementation: 309 tests, 61 suites, 0 failures.",
+            "`npm run test --workspace=@llm-wiki-agent/web` passed after implementation: 39 tests, 14 suites, 0 failures.",
+            "`node --check tests/browser/graph-workbench-interactions.mjs && node --check tests/browser/graph-stage-4-5.mjs` passed.",
+            "`bash tests/graph-workbench-interactions.regression-1.sh` passed and emitted returnGlobalState.nodeFlow with searchLayoutStable=true and filterLayoutStable=true.",
+            "`bash tests/graph-browser-stage-4-5.regression-1.sh --target offline` passed."
+          ]
         },
         {
           "id": "5.2",
@@ -2753,6 +2780,25 @@
     {
       "timestamp": "2026-06-18",
       "entry": "Task 4.4 added interaction-time degradation. Pan, zoom, drag, and search now enter a lightweight active mode that fades weak edges, hides ordinary labels, reduces effects, preserves selected/search/pinned/core anchors, and restores idle detail after interaction settles. Phase 4 is complete and the ledger advanced to Phase 5 task 5.1."
+    },
+    {
+      "task": "5.1",
+      "status": "completed",
+      "summary": "Preserved graph layout while search, type filters, and drawer/return-global flows update lightweight state. Search and filter changes now update highlight/fade/filter-state affordances without removing layout inputs or rebuilding graph positions; explicit reset/layout actions remain the path that may reorganize the graph.",
+      "evidence": [
+        "packages/graph-engine/src/render/render-pipeline.ts applies type filters as DOM state over the existing layout basis and leaves rebuilds for explicit structural renders.",
+        "packages/graph-engine/src/render/graph-renderer-root.ts routes setTypeFilters through the lightweight pipeline path.",
+        "packages/graph-engine/src/render/render-styles.ts fades hidden filtered nodes/edges/community washes without removing layout objects.",
+        "packages/graph-engine/test/renderer-lifecycle.test.ts proves search and filter changes do not replace existing elements or move the viewport transform.",
+        "tests/browser/graph-workbench-interactions.mjs proves search/filter state survives return-global without layout jumps.",
+        "tests/browser/graph-stage-4-5.mjs proves browser filtering preserves DOM objects while hiding filtered state.",
+        "`npm run test --workspace=@llm-wiki/graph-engine` passed: 309 tests, 61 suites, 0 failures.",
+        "`npm run test --workspace=@llm-wiki-agent/web` passed: 39 tests, 14 suites, 0 failures.",
+        "`npm run typecheck --workspace=@llm-wiki/graph-engine` passed.",
+        "`bash tests/graph-workbench-interactions.regression-1.sh` passed.",
+        "`bash tests/graph-browser-stage-4-5.regression-1.sh --target offline` passed."
+      ],
+      "measured_at": "2026-06-18T15:19:34Z"
     }
   ],
   "execution_log": [

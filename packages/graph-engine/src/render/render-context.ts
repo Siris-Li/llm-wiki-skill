@@ -49,6 +49,7 @@ export interface GraphRenderContext {
   searchQuery: string;
   searchFocusedNodeId: NodeId | null;
   typeFilters: GraphTypeFilters;
+  baseTypeFilters: GraphTypeFilters;
   availableTypeFilters: GraphTypeFilters;
   searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
   previewTimer: ReturnType<typeof setTimeout> | null;

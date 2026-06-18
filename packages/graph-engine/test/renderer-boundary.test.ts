@@ -266,7 +266,7 @@ describe("renderer and facade boundary contract", () => {
     assert.match(pipelineText, /onClose:\s*\(\) => options\.commands\.closeSearch\(\)/);
     assert.match(pipelineText, /options\.commands\.setCommunityHover\(id\)/);
     assert.match(pipelineText, /onSelect:\s*\(id\) => options\.commands\.selectCommunity\(id\)/);
-    assert.match(pipelineText, /options\.commands\.render\(\{ typeFilters: \{ \.\.\.context\.availableTypeFilters, \[type\]: enabled \} \}\)/);
+    assert.match(pipelineText, /applyTypeFilters\(\{ \.\.\.context\.typeFilters, \[type\]: enabled \}\)/);
     assert.match(pipelineText, /options\.commands\.resetViewState\(\)/);
   });
 

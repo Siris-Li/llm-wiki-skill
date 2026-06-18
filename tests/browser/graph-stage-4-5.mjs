@@ -514,13 +514,22 @@ async function runTypeFilterChecks(page) {
   const selector = `.node[data-type="${cssString(type)}"]`;
   const initialTypeNodes = await page.locator(selector).count();
   const initialNodes = await page.locator(".node").count();
+  const beforeFilterTransform = await layerTransform(page);
   await toggle.uncheck();
-  await page.waitForFunction((selector) => document.querySelectorAll(selector).length === 0, selector);
+  await page.waitForFunction((selector) => {
+    return [...document.querySelectorAll(selector)].every((node) => node.getAttribute("data-filter-state") === "hidden");
+  }, selector);
   const filteredNodes = await page.locator(".node").count();
-  assert.ok(filteredNodes < initialNodes, "turning off a node type should reduce visible graph nodes");
+  const hiddenTypeNodes = await page.locator(`${selector}[data-filter-state="hidden"]`).count();
+  assert.equal(filteredNodes, initialNodes, "turning off a node type should preserve graph node elements");
+  assert.equal(hiddenTypeNodes, initialTypeNodes, "turning off a node type should mark that type hidden");
+  assert.equal(await layerTransform(page), beforeFilterTransform, "type filter changes should not move the graph layout");
   await toggle.check();
   await page.waitForFunction(
-    ({ selector, initialTypeNodes }) => document.querySelectorAll(selector).length === initialTypeNodes,
+    ({ selector, initialTypeNodes }) => {
+      const nodes = [...document.querySelectorAll(selector)];
+      return nodes.length === initialTypeNodes && nodes.every((node) => node.getAttribute("data-filter-state") !== "hidden");
+    },
     { selector, initialTypeNodes }
   );
 }

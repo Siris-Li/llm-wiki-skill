@@ -76,6 +76,7 @@ export interface GraphRenderPipeline {
   mountSearchControl(): void;
   mountGraphToolbar(): void;
   mountCommunityLegend(): void;
+  applyTypeFilters(filters: Record<string, boolean>): void;
   applyCommunityHover(): void;
   bindResizeObserver(): void;
   commitViewport(nextViewport: RendererViewport, options?: ViewportFrameCommitOptions): void;
@@ -118,11 +119,14 @@ export function createGraphRenderPipeline(
       selectedNodeId: renderSelection.selectedNodeId,
       selection: renderSelection.selection,
       focus: runtimeSnapshot.focus,
-      typeFilters: context.typeFilters,
+      typeFilters: {},
       pathCache: context.pathCache
     });
     context.runtimeState.setPositions(positionsFromRenderableGraph(context.graph));
-    context.availableTypeFilters = context.graph.typeFilters;
+    context.baseTypeFilters = context.graph.typeFilters;
+    context.typeFilters = normalizeAvailableTypeFilters(context.typeFilters, context.baseTypeFilters);
+    context.availableTypeFilters = context.typeFilters;
+    context.graph.typeFilters = context.typeFilters;
     context.searchIndex = undefined;
     context.pinState = new PinState(context.graph, context.runtimeState.snapshot().pins);
     context.hitTargetResolver.refresh();
@@ -154,6 +158,7 @@ export function createGraphRenderPipeline(
     mountSearchControl();
     mountGraphToolbar();
     options.commands.applySearchQuery(context.searchQuery);
+    applyTypeFilters(context.typeFilters);
     applyCommunityHover();
     markPinnedNodes(context.pinState.snapshot().pinnedNodeIds);
     commitViewport(context.runtimeState.snapshot().viewport);
@@ -293,7 +298,7 @@ export function createGraphRenderPipeline(
         applyToolbarPanelState(toolbar);
       },
       onTypeFilterToggle: (type, enabled) => {
-        options.commands.render({ typeFilters: { ...context.availableTypeFilters, [type]: enabled } });
+        applyTypeFilters({ ...context.typeFilters, [type]: enabled });
       },
       onReset: () => {
         options.commands.resetViewState();
@@ -308,6 +313,43 @@ export function createGraphRenderPipeline(
       context.root.prepend(toolbar.element);
     }
     applyToolbarPanelState(toolbar);
+  }
+
+  function applyTypeFilters(filters: Record<string, boolean>): void {
+    context.typeFilters = normalizeAvailableTypeFilters(filters, context.baseTypeFilters);
+    context.graph.typeFilters = context.typeFilters;
+    const hiddenNodeIds = new Set<string>();
+    for (const [id, element] of context.dom.nodeElements) {
+      const hidden = context.typeFilters[element.dataset.type || ""] === false;
+      element.dataset.filterState = hidden ? "hidden" : "visible";
+      element.setAttribute("aria-hidden", hidden ? "true" : "false");
+      if (hidden) hiddenNodeIds.add(id);
+    }
+    for (const [id, element] of context.dom.edgeElements) {
+      const edge = context.graph.edges.find((item) => item.id === id);
+      const hidden = !edge || hiddenNodeIds.has(edge.source) || hiddenNodeIds.has(edge.target);
+      element.dataset.filterState = hidden ? "hidden" : "visible";
+      element.setAttribute("aria-hidden", hidden ? "true" : "false");
+    }
+    for (const [id, element] of context.dom.communityWashElements) {
+      const hasVisibleNode = context.graph.nodes.some((node) => node.community === id && !hiddenNodeIds.has(node.id));
+      element.dataset.filterState = hasVisibleNode ? "visible" : "hidden";
+      element.setAttribute("aria-hidden", hasVisibleNode ? "false" : "true");
+    }
+    syncTypeFilterInputs();
+    context.root.dataset.filteredNodeCount = String(hiddenNodeIds.size);
+    context.root.dataset.typeFiltersActive = Object.values(context.typeFilters).some((enabled) => enabled === false) ? "true" : "false";
+    applyCommunityHover();
+    updateMinimapViewport();
+  }
+
+  function syncTypeFilterInputs(): void {
+    if (!context.dom.toolbarElement) return;
+    const inputs = Array.from(context.dom.toolbarElement.querySelectorAll<HTMLInputElement>(".graph-type-filter input[data-type]"));
+    for (const input of inputs) {
+      const type = input.dataset.type || "";
+      input.checked = context.typeFilters[type] !== false;
+    }
   }
 
   function applyToolbarPanelState(toolbar: ReturnType<typeof createGraphToolbar>): void {
@@ -371,7 +413,7 @@ export function createGraphRenderPipeline(
       selectedNodeId: renderSelection.selectedNodeId,
       selection: renderSelection.selection,
       focus: snapshot.focus,
-      typeFilters: context.typeFilters,
+      typeFilters: {},
       positions: snapshot.positions,
       pathCache: context.pathCache
     });
@@ -652,6 +694,7 @@ export function createGraphRenderPipeline(
     mountSearchControl,
     mountGraphToolbar,
     mountCommunityLegend,
+    applyTypeFilters,
     applyCommunityHover,
     bindResizeObserver,
     commitViewport,
@@ -671,6 +714,15 @@ export function createGraphRenderPipeline(
     semanticAnchorForNode,
     destroy
   };
+}
+
+function normalizeAvailableTypeFilters(filters: Record<string, boolean>, available: Record<string, boolean>): Record<string, boolean> {
+  const normalized: Record<string, boolean> = {};
+  const knownTypes = new Set([...Object.keys(available), ...Object.keys(filters)]);
+  for (const type of knownTypes) {
+    normalized[type] = filters[type] !== false;
+  }
+  return normalized;
 }
 
 function rendererSelectionFromRuntimeState(snapshot: GraphRuntimeStateSnapshot): { selectedNodeId: NodeId | null; selection: SelectionInput | null } {

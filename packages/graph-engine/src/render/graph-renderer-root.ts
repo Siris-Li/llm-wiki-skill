@@ -105,7 +105,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     selectedNodeId: null,
     selection: null,
     focus: initialFocus,
-    typeFilters: options.typeFilters || {},
+    typeFilters: {},
     pathCache
   });
   const runtimeState = createGraphRuntimeState({
@@ -132,6 +132,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     searchQuery: "",
     searchFocusedNodeId: null,
     typeFilters: options.typeFilters || {},
+    baseTypeFilters: {},
     availableTypeFilters: {},
     searchIndex: undefined,
     previewTimer: null,
@@ -273,7 +274,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       controller.focusCommunity(id);
     },
     setTypeFilters(filters: GraphTypeFilters): void {
-      render({ typeFilters: filters });
+      pipeline.applyTypeFilters(filters);
     },
     resetView(): void {
       controller.resetViewState();

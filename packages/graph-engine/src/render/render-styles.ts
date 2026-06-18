@@ -495,6 +495,11 @@ const STATIC_RENDERER_CSS = `
   opacity: .74;
   pointer-events: stroke;
 }
+.edge[data-filter-state="hidden"],
+.community-wash[data-filter-state="hidden"] {
+  opacity: .04 !important;
+  pointer-events: none;
+}
 .edge.is-diff-added {
   stroke-dasharray: var(--diff-edge-length, 180);
   stroke-dashoffset: var(--diff-edge-length, 180);
@@ -662,6 +667,10 @@ const STATIC_RENDERER_CSS = `
 }
 .node[data-search-state="faded"] {
   opacity: .28;
+}
+.node[data-filter-state="hidden"] {
+  opacity: .08;
+  pointer-events: none;
 }
 .node[data-community-state="faded"] {
   opacity: .24;
