@@ -27,6 +27,28 @@ export type {
 export { buildCommunityLegend } from "./legend";
 export type { CommunityLegendRow } from "./legend";
 export {
+  GRAPH_RENDERER_ADAPTER_ROUTES,
+  buildGraphRendererAdapterData,
+  buildGraphRendererBehaviorContract
+} from "./adapter";
+export type {
+  GraphRendererAdapterAggregation,
+  GraphRendererAdapterCommunity,
+  GraphRendererAdapterData,
+  GraphRendererAdapterEdge,
+  GraphRendererAdapterNode,
+  GraphRendererAdapterOptions,
+  GraphRendererAdapterRoute,
+  GraphRendererBehaviorContract,
+  GraphRendererContainerSelectBehavior,
+  GraphRendererDrawerTarget,
+  GraphRendererEnterCommunityBehavior,
+  GraphRendererPinnedAggregationBehavior,
+  GraphRendererPointSelectBehavior,
+  GraphRendererSearchHighlightBehavior,
+  GraphRendererSelectedAggregationBehavior
+} from "./adapter";
+export {
   GRAPH_TOOLBAR_PANEL_KEY,
   nextToolbarPanelState,
   normalizeToolbarPanelState,
