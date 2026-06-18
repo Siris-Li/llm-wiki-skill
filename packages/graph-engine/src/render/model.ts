@@ -70,6 +70,11 @@ export interface RenderableGraph {
   minimap: RenderableMinimap;
   budget: GraphRenderBudget;
   overflow: GraphRenderOverflow;
+  importance: {
+    stableCoreNodeIds: string[];
+    stableSkeletonEdgeIds: string[];
+    temporaryBoostNodeIds: string[];
+  };
 }
 
 export interface RenderableNode {
@@ -86,6 +91,9 @@ export interface RenderableNode {
   visualRole: NodeVisualRole;
   priority: number;
   weight: number;
+  stableImportance: number;
+  temporaryBoost: number;
+  coreAnchor: boolean;
   unavailable: boolean;
   selected: boolean;
   startNode: boolean;
@@ -276,6 +284,21 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const worldBounds = worldBoundsForPoints([...pointById.values()]);
   const pinnedNodeSet = resolvePinnedNodeIds(model.nodes, options.pins);
   const searchResultSet = new Set(options.searchResultIds || []);
+  const stableCoreNodeIds = selectStableCoreNodeIds(filteredVisibleNodes, budgetLimits.maxLabels, {
+    labelNodeIds: labelIds,
+    importantNodeIds: importantIds,
+    startNodeIds: startIds,
+    previewNodeId
+  });
+  const stableCoreNodeSet = new Set(stableCoreNodeIds);
+  const stableSkeletonEdgeSet = selectBudgetedIds(filteredVisibleEdges, budgetLimits.maxVisibleEdges, (edge) =>
+    stableEdgeImportance(edge, { importantNodeIds: importantIds, coreNodeIds: stableCoreNodeSet })
+  );
+  const temporaryBoostNodeSet = new Set(
+    filteredVisibleNodes
+      .filter((node) => temporaryNodeBoost(node, { selectedNodeIds: selectedNodeSet, pinnedNodeIds: pinnedNodeSet, searchResultIds: searchResultSet }) > 0)
+      .map((node) => node.id)
+  );
   const budgetedNodeIds = selectBudgetedIds(filteredVisibleNodes, budgetLimits.maxVisibleNodes, (node) =>
     nodeRenderPriority(node, {
       selectedNodeIds: selectedNodeSet,
@@ -284,7 +307,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       labelNodeIds: labelIds,
       importantNodeIds: importantIds,
       startNodeIds: startIds,
-      previewNodeId
+      previewNodeId,
+      coreNodeIds: stableCoreNodeSet
     })
   );
   const budgetedVisibleNodes = filteredVisibleNodes.filter((node) => budgetedNodeIds.has(node.id));
@@ -305,7 +329,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       labelNodeIds: labelIds,
       importantNodeIds: importantIds,
       startNodeIds: startIds,
-      previewNodeId
+      previewNodeId,
+      coreNodeIds: stableCoreNodeSet
     })
   );
   const cardCandidateNodes = budgetedVisibleNodes.filter((node) =>
@@ -319,7 +344,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       labelNodeIds: labelIds,
       importantNodeIds: importantIds,
       startNodeIds: startIds,
-      previewNodeId
+      previewNodeId,
+      coreNodeIds: stableCoreNodeSet
     })
   );
 
@@ -348,6 +374,19 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       visualRole: nodeVisualRole(node, displayMode, isSelected ? node.id : selectedNodeId, previewNodeId, importantIds),
       priority: Number(node.priority || 0),
       weight: Number(node.weight || 0),
+      stableImportance: stableNodeImportance(node, {
+        labelNodeIds: labelIds,
+        importantNodeIds: importantIds,
+        startNodeIds: startIds,
+        previewNodeId,
+        coreNodeIds: stableCoreNodeSet
+      }),
+      temporaryBoost: temporaryNodeBoost(node, {
+        selectedNodeIds: selectedNodeSet,
+        pinnedNodeIds: pinnedNodeSet,
+        searchResultIds: searchResultSet
+      }),
+      coreAnchor: stableCoreNodeSet.has(node.id),
       unavailable: node.unavailable === true,
       selected: isSelected,
       startNode: startIds[node.id] === true,
@@ -364,7 +403,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       selectedNodeIds: selectedNodeSet,
       pinnedNodeIds: pinnedNodeSet,
       searchResultIds: searchResultSet,
-      importantNodeIds: importantIds
+      importantNodeIds: importantIds,
+      coreNodeIds: stableCoreNodeSet
     })
   );
   const edges = renderableEdgeCandidates.filter((edge) => edgeIdSet.has(edge.id)).flatMap((edge) => {
@@ -461,6 +501,11 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
         total: interactionUpdateCandidates,
         hidden: Math.max(0, interactionUpdateCandidates - budgetLimits.maxInteractionUpdates)
       }
+    },
+    importance: {
+      stableCoreNodeIds,
+      stableSkeletonEdgeIds: filteredVisibleEdges.filter((edge) => stableSkeletonEdgeSet.has(edge.id)).map((edge) => edge.id),
+      temporaryBoostNodeIds: filteredVisibleNodes.filter((node) => temporaryBoostNodeSet.has(node.id)).map((node) => node.id)
     }
   };
 }
@@ -714,17 +759,10 @@ function nodeRenderPriority(
     importantNodeIds: Record<string, boolean>;
     startNodeIds: Record<string, boolean>;
     previewNodeId: string | null;
+    coreNodeIds: Set<string>;
   }
 ): number {
-  let score = Number(node.priority || 0) * 10 + Number(node.weight || 0);
-  if (signals.selectedNodeIds.has(node.id)) score += 100000;
-  if (signals.searchResultIds.has(node.id)) score += 50000;
-  if (signals.pinnedNodeIds.has(node.id)) score += 40000;
-  if (signals.importantNodeIds[node.id]) score += 12000;
-  if (signals.startNodeIds[node.id]) score += 9000;
-  if (signals.previewNodeId === node.id) score += 8000;
-  if (signals.labelNodeIds[node.id]) score += 5000;
-  return score;
+  return stableNodeImportance(node, signals) + temporaryNodeBoost(node, signals);
 }
 
 function edgeRenderPriority(
@@ -734,15 +772,90 @@ function edgeRenderPriority(
     pinnedNodeIds: Set<string>;
     searchResultIds: Set<string>;
     importantNodeIds: Record<string, boolean>;
+    coreNodeIds: Set<string>;
   }
 ): number {
   const endpoints = [edge.source, edge.target];
-  let score = clampWeight(edge.weight) * 1000;
+  let score = stableEdgeImportance(edge, signals);
   for (const id of endpoints) {
     if (signals.selectedNodeIds.has(id)) score += 100000;
     if (signals.searchResultIds.has(id)) score += 50000;
     if (signals.pinnedNodeIds.has(id)) score += 40000;
     if (signals.importantNodeIds[id]) score += 12000;
+  }
+  return score;
+}
+
+function selectStableCoreNodeIds(
+  nodes: AtlasNode[],
+  budget: number,
+  signals: {
+    labelNodeIds: Record<string, boolean>;
+    importantNodeIds: Record<string, boolean>;
+    startNodeIds: Record<string, boolean>;
+    previewNodeId: string | null;
+  }
+): string[] {
+  if (budget <= 0) return [];
+  const representativeIds = new Set<string>();
+  const bestByCommunity = new Map<string, { node: AtlasNode; score: number; index: number }>();
+  nodes.forEach((node, index) => {
+    const score = stableNodeImportance(node, { ...signals, coreNodeIds: new Set() });
+    const existing = bestByCommunity.get(node.community);
+    if (!existing || score > existing.score || (score === existing.score && index < existing.index)) {
+      bestByCommunity.set(node.community, { node, score, index });
+    }
+  });
+  for (const entry of [...bestByCommunity.values()].sort((left, right) => right.score - left.score || left.index - right.index)) {
+    if (representativeIds.size >= budget) break;
+    representativeIds.add(entry.node.id);
+  }
+  const ranked = selectBudgetedIds(nodes, budget, (node) => stableNodeImportance(node, { ...signals, coreNodeIds: representativeIds }));
+  const ordered = new Set([...representativeIds, ...ranked]);
+  return nodes.filter((node) => ordered.has(node.id)).slice(0, budget).map((node) => node.id);
+}
+
+function stableNodeImportance(
+  node: AtlasNode,
+  signals: {
+    labelNodeIds: Record<string, boolean>;
+    importantNodeIds: Record<string, boolean>;
+    startNodeIds: Record<string, boolean>;
+    previewNodeId: string | null;
+    coreNodeIds: Set<string>;
+  }
+): number {
+  let score = Number(node.priority || 0) * 10 + Number(node.weight || 0);
+  if (signals.coreNodeIds.has(node.id)) score += 20000;
+  return score;
+}
+
+function temporaryNodeBoost(
+  node: AtlasNode,
+  signals: {
+    selectedNodeIds: Set<string>;
+    pinnedNodeIds: Set<string>;
+    searchResultIds: Set<string>;
+  }
+): number {
+  let score = 0;
+  if (signals.selectedNodeIds.has(node.id)) score += 100000;
+  if (signals.searchResultIds.has(node.id)) score += 50000;
+  if (signals.pinnedNodeIds.has(node.id)) score += 40000;
+  return score;
+}
+
+function stableEdgeImportance(
+  edge: AtlasEdge,
+  signals: {
+    importantNodeIds: Record<string, boolean>;
+    coreNodeIds: Set<string>;
+  }
+): number {
+  const endpoints = [edge.source, edge.target];
+  let score = clampWeight(edge.weight) * 1000;
+  for (const id of endpoints) {
+    if (signals.coreNodeIds.has(id)) score += 10000;
   }
   return score;
 }

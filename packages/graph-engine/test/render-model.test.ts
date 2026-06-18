@@ -308,6 +308,57 @@ describe("buildRenderableGraph", () => {
     assert.equal(graph.nodes.find((node) => node.id === "n79")?.displayMode, "card");
   });
 
+  it("keeps stable core anchors unchanged when search boosts change", () => {
+    const data = budgetGraph(200, 1200);
+    const baseline = buildRenderableGraph(data, { theme: "shan-shui" });
+    const searched = buildRenderableGraph(data, {
+      theme: "shan-shui",
+      searchResultIds: data.nodes.slice(120).map((node) => node.id)
+    });
+
+    assert.deepEqual(searched.importance.stableCoreNodeIds, baseline.importance.stableCoreNodeIds);
+    assert.deepEqual(searched.importance.stableSkeletonEdgeIds, baseline.importance.stableSkeletonEdgeIds);
+    assert.ok(searched.importance.temporaryBoostNodeIds.includes("n199"));
+    assert.equal(searched.nodes.find((node) => node.id === "n199")?.coreAnchor, baseline.nodes.find((node) => node.id === "n199")?.coreAnchor);
+  });
+
+  it("lets search and selection boost visibility without rewriting stable core identity", () => {
+    const data = budgetGraph(200, 1200);
+    const baseline = buildRenderableGraph(data, { theme: "shan-shui" });
+    const boosted = buildRenderableGraph(data, {
+      theme: "shan-shui",
+      selection: { kind: "node", id: "n199" },
+      searchResultIds: ["n199"]
+    });
+    const node = boosted.nodes.find((item) => item.id === "n199");
+
+    assert.ok(node);
+    assert.deepEqual(boosted.importance.stableCoreNodeIds, baseline.importance.stableCoreNodeIds);
+    assert.equal(node.labelVisible, true);
+    assert.ok(node.temporaryBoost > 0);
+    assert.equal(node.coreAnchor, baseline.nodes.find((item) => item.id === "n199")?.coreAnchor);
+  });
+
+  it("keeps many search hits, many pins, and a pressured selected object inside budget caps", () => {
+    const data = budgetGraph(200, 1200);
+    const pins = Object.fromEntries(
+      data.nodes.slice(80).map((node) => [node.source_path || `wiki/budget/${node.id}.md`, { x: 700, y: 420, coordinateSpace: "world" as const }])
+    );
+    const graph = buildRenderableGraph(data, {
+      theme: "shan-shui",
+      selection: { kind: "node", id: "n199" },
+      searchResultIds: data.nodes.map((node) => node.id),
+      pins
+    });
+
+    assert.ok(graph.importance.temporaryBoostNodeIds.length > GRAPH_RENDER_BUDGETS.global.maxLabels);
+    assert.ok(graph.budget.usage.maxLabels <= GRAPH_RENDER_BUDGETS.global.maxLabels);
+    assert.ok(graph.budget.usage.maxVisibleEdges <= GRAPH_RENDER_BUDGETS.global.maxVisibleEdges);
+    assert.ok(graph.budget.usage.maxInteractionUpdates <= GRAPH_RENDER_BUDGETS.global.maxInteractionUpdates);
+    assert.equal(graph.nodes.find((node) => node.id === "n199")?.labelVisible, true);
+    assert.ok(graph.overflow.labels.hidden > 0);
+  });
+
   it("enters a community focus view by hiding nodes outside the selected community", () => {
     const graph = buildRenderableGraph(sampleGraph(), {
       theme: "shan-shui",
