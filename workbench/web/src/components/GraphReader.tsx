@@ -41,7 +41,7 @@ export function GraphReader({ payload, content, loading, error, onOpenPage, onWi
 			{loading && <div className="text-muted-foreground">加载中...</div>}
 			{error && <div className="whitespace-pre-wrap text-destructive">{error}</div>}
 			{!loading && !error && (
-				<MarkdownView content={content} onOpenPage={onOpenPage} onWikiLinkSeen={onWikiLinkSeen} />
+				<MarkdownView content={content} onOpenPage={onOpenPage} onWikiLinkSeen={onWikiLinkSeen} autoEmitWikiLinks={false} />
 			)}
 		</article>
 	);

@@ -78,6 +78,9 @@ describe("GraphFacade", () => {
     assert.equal(container.dataset.llmWikiGraphFocus, undefined);
     assert.deepEqual(renderer.calls.at(-1), ["clearInteraction"]);
 
+    assert.equal(engine.setNodeFixed("a", "fix"), true);
+    assert.deepEqual(renderer.calls.at(-1), ["setNodeFixed", "a", "fix"]);
+
     await engine.applyDiff({ addedNodes: ["c"] });
     assert.deepEqual(renderer.calls.at(-1), ["applyDiff", { addedNodes: ["c"] }, undefined]);
 
@@ -184,6 +187,7 @@ describe("GraphFacade", () => {
       "onOpenPage",
       "onSelectionChange",
       "onSelectionClear",
+      "onViewReset",
       "persistPins"
     ]);
 
@@ -236,6 +240,10 @@ function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
     },
     clearInteraction() {
       calls.push(["clearInteraction"]);
+    },
+    setNodeFixed(id: string, mode: "fix" | "unfix") {
+      calls.push(["setNodeFixed", id, mode]);
+      return true;
     },
     setTheme(theme: ThemeId) {
       calls.push(["setTheme", theme]);

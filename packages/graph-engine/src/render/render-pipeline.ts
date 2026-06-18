@@ -58,6 +58,7 @@ export interface GraphRenderCommands {
   setCommunityHover(id: string | null): void;
   handleNodeClick(id: NodeId, additive: boolean): void;
   handleNodeDoubleClick(id: string): boolean;
+  setNodeFixed(id: string, mode: "fix" | "unfix"): boolean;
   scheduleHoverPreview(id: NodeId): void;
   showEdgeHoverPreview(id: string): void;
   clearHoverPreview(): void;
@@ -153,6 +154,7 @@ export function createGraphRenderPipeline(
     mountGraphToolbar();
     options.commands.applySearchQuery(context.searchQuery);
     applyCommunityHover();
+    markPinnedNodes(context.pinState.snapshot().pinnedNodeIds);
     commitViewport(context.runtimeState.snapshot().viewport);
     if (context.activeDiff && context.root.dataset.diffState === "playing") markDiffElements(context.activeDiff);
     options.overlays.renderReader();
@@ -173,6 +175,7 @@ export function createGraphRenderPipeline(
 
     const svg = context.ownerDocument.createElementNS(SVG_NS, "svg");
     svg.setAttribute("class", "llm-wiki-graph-svg");
+    svg.dataset.graphBlank = "true";
     setGraphSvgViewBox(svg, graph);
     svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("aria-hidden", "true");

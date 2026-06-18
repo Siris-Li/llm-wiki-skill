@@ -51,6 +51,7 @@ export interface GraphRendererOptions {
   onNodeOpen?: (nodeId: NodeId) => void;
   onSelectionInput?: (selection: SelectionInput) => void;
   onSelectionClearRequested?: () => void;
+  onViewReset?: () => void;
   onPinsChanged?: (pins: PinMap) => void;
   onDragActiveChange?: (dragging: boolean) => void;
   toolbarContainer?: HTMLElement | null;
@@ -82,6 +83,7 @@ export interface GraphRenderer {
   clearSelection(): void;
   clearInteraction(): void;
   resetLayout(): void;
+  setNodeFixed(id: NodeId, mode: "fix" | "unfix"): boolean;
   destroy(): void;
 }
 
@@ -158,6 +160,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       onNodeOpen: options.onNodeOpen,
       onSelectionInput: options.onSelectionInput,
       onSelectionClearRequested: options.onSelectionClearRequested,
+      onViewReset: options.onViewReset,
       onPinsChanged: options.onPinsChanged,
       onDragActiveChange: options.onDragActiveChange
     }
@@ -189,6 +192,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       setCommunityHover: (id) => controller.setCommunityHover(id),
       handleNodeClick: (id, additive) => controller.handleNodeClick(id, additive),
       handleNodeDoubleClick: (id) => controller.handleNodeDoubleClick(id),
+      setNodeFixed: (id, mode) => controller.setNodeFixed(id, mode),
       scheduleHoverPreview: (id) => presenter.scheduleHoverPreview(id),
       showEdgeHoverPreview: (id) => presenter.showEdgeHoverPreview(id),
       clearHoverPreview: () => presenter.clearHoverPreview()
@@ -284,7 +288,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       presenter.renderHoverPreview();
     },
     clearSelection(): void {
-      controller.retreatFocusedView();
+      controller.clearSelectionOnly();
     },
     clearInteraction(): void {
       controller.clearInteractionState();
@@ -293,6 +297,9 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       const nextState = context.pinState.reset();
       render({ pins: nextState.pins });
       context.callbacks.onPinsChanged?.(nextState.pins);
+    },
+    setNodeFixed(id: NodeId, mode: "fix" | "unfix"): boolean {
+      return controller.setNodeFixed(id, mode);
     },
     destroy(): void {
       if (context.destroyed) return;

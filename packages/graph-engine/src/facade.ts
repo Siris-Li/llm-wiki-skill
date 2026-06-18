@@ -39,6 +39,7 @@ export function createGraphWorkbenchCapabilities(
       onOpenPage: capabilities.onOpenPage,
       onSelectionChange: capabilities.onSelectionChange,
       onSelectionClear: capabilities.onSelectionClear,
+      onViewReset: capabilities.onViewReset,
       onAsk: capabilities.onAsk,
       persistPins: capabilities.persistPins,
       onDragStateChange: capabilities.onDragStateChange
@@ -76,6 +77,7 @@ export interface GraphFacadeRenderer {
   previewNode(id: string | null): void;
   clearSelection(): void;
   clearInteraction(): void;
+  setNodeFixed(id: string, mode: "fix" | "unfix"): boolean;
   setTheme(theme: ThemeId): void;
   setPins(pins: NonNullable<GraphEngineOptions["pins"]>): void;
   resetLayout(): void;
@@ -119,6 +121,10 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
       : undefined,
     onPinsChanged: capabilities?.persistPins ? (pins) => void capabilities.persistPins?.(pins) : undefined,
     onSelectionClearRequested: capabilities?.onSelectionClear,
+    onViewReset: () => {
+      delete container.dataset.llmWikiGraphFocus;
+      capabilities?.onViewReset?.();
+    },
     onDragActiveChange: capabilities?.onDragStateChange
   });
 
@@ -133,6 +139,7 @@ export function createGraphFacadeFromRenderer(
 ): GraphEngine {
   let currentTheme: ThemeId = options.theme;
   let destroyed = false;
+  const capabilities = options.capabilities;
   const canAsk = Boolean(options.capabilities?.onAsk);
   const resolveForHostCapabilities = (input: SelectionInput): Selection =>
     resolveSelectionForCapabilities(facadeState.data, input, { canAsk });
@@ -180,6 +187,7 @@ export function createGraphFacadeFromRenderer(
       assertActive();
       delete container.dataset.llmWikiGraphFocus;
       renderer.resetView();
+      capabilities?.onViewReset?.();
     },
 
     select(selector: SelectionInput): Selection {
@@ -240,6 +248,11 @@ export function createGraphFacadeFromRenderer(
       assertActive();
       renderer.clearInteraction();
       delete container.dataset.llmWikiGraphFocus;
+    },
+
+    setNodeFixed(id: string, mode: "fix" | "unfix"): boolean {
+      assertActive();
+      return renderer.setNodeFixed(id, mode);
     },
 
     setTheme(theme: ThemeId): void {

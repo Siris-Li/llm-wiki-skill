@@ -460,6 +460,7 @@ export interface GraphEngineCapabilities {
   onOpenPage?: (payload: GraphOpenPagePayload) => void;
   onSelectionChange?: (selection: Selection) => void;
   onSelectionClear?: () => void;
+  onViewReset?: () => void;
   onDragStateChange?: (dragging: boolean) => void;
 }
 
@@ -502,6 +503,7 @@ export interface GraphEngine {
   ): GraphUnavailableObjectPayload;
   clearSelection(): void;
   clearInteraction(): void;
+  setNodeFixed(id: NodeId, mode: "fix" | "unfix"): boolean;
   setTheme(theme: ThemeId): void;
   setPins(pins: PinMap): void;
   resetLayout(): void;

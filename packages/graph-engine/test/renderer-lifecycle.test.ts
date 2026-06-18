@@ -50,6 +50,84 @@ describe("graph renderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("clears selection on a blank click without leaving community focus", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const clearRequests: number[] = [];
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphDataWithCommunities([
+        ["a", "community-a"],
+        ["b", "community-a"],
+        ["c", "community-b"]
+      ]),
+      theme: "shan-shui",
+      live: false,
+      focus: { kind: "community", id: "community-a" },
+      onSelectionClearRequested: () => clearRequests.push(1)
+    });
+
+    renderer.select({ kind: "node", id: "a" });
+    dispatchPointerSequence(renderer.root as unknown as FakeElement, 20, 20);
+
+    assert.equal(clearRequests.length, 1);
+    assert.equal(nodeElement(renderer, "a")?.getAttribute("aria-pressed"), "false");
+    assert.ok(nodeElement(renderer, "a"));
+    assert.ok(nodeElement(renderer, "b"));
+    assert.equal(nodeElement(renderer, "c"), undefined);
+
+    renderer.destroy();
+  });
+
+  it("keeps node double click from silently unpinning or changing focus", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const pinsChanged: unknown[] = [];
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphDataWithCommunities([
+        ["a", "community-a"],
+        ["b", "community-a"],
+        ["c", "community-b"]
+      ]),
+      pins: { "wiki/a.md": { x: 120, y: 140, coordinateSpace: "world" } },
+      theme: "shan-shui",
+      live: false,
+      focus: { kind: "community", id: "community-a" },
+      onPinsChanged: (pins) => pinsChanged.push(pins)
+    });
+
+    nodeElement(renderer, "a")?.dispatch("dblclick");
+
+    assert.deepEqual(pinsChanged, []);
+    assert.equal(nodeElement(renderer, "a")?.dataset.pinned, "true");
+    assert.ok(nodeElement(renderer, "a"));
+    assert.ok(nodeElement(renderer, "b"));
+    assert.equal(nodeElement(renderer, "c"), undefined);
+
+    renderer.destroy();
+  });
+
+  it("fixes and unfixes node position only through the explicit renderer action", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const pinsChanged: unknown[] = [];
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphData(["a"]),
+      theme: "shan-shui",
+      live: false,
+      onPinsChanged: (pins) => pinsChanged.push(pins)
+    });
+
+    assert.equal(renderer.setNodeFixed("a", "fix"), true);
+    assert.equal(nodeElement(renderer, "a")?.dataset.pinned, "true");
+    assert.deepEqual(Object.keys(pinsChanged.at(-1) as Record<string, unknown>), ["wiki/a.md"]);
+
+    assert.equal(renderer.setNodeFixed("a", "unfix"), true);
+    assert.equal(nodeElement(renderer, "a")?.dataset.pinned, "false");
+    assert.deepEqual(pinsChanged.at(-1), {});
+
+    renderer.destroy();
+  });
+
   it("updates toolbar panel state without repainting the graph", () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");
@@ -208,6 +286,7 @@ class FakeElement {
   scrollLeft = 0;
   scrollTop = 0;
   id = "";
+  private capturedPointerId: number | null = null;
 
   constructor(readonly tagName: string, ownerDocument: FakeDocument) {
     this.ownerDocument = ownerDocument;
@@ -282,13 +361,25 @@ class FakeElement {
   }
 
   dispatch(type: string, init: Partial<FakeEvent> = {}): void {
-    const event = new FakeEvent(type, init);
+    const event = new FakeEvent(type, { ...init, target: init.target || this });
     for (const listener of this.listeners.get(type) || []) listener(event);
   }
 
   focus(_options?: unknown): void {}
 
   select(): void {}
+
+  setPointerCapture(pointerId: number): void {
+    this.capturedPointerId = pointerId;
+  }
+
+  releasePointerCapture(pointerId: number): void {
+    if (this.capturedPointerId === pointerId) this.capturedPointerId = null;
+  }
+
+  hasPointerCapture(pointerId: number): boolean {
+    return this.capturedPointerId === pointerId;
+  }
 
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
     return { left: 0, top: 0, width: 960, height: 640 };
@@ -297,8 +388,18 @@ class FakeElement {
 
 class FakeEvent {
   propagationStopped = false;
+  defaultPrevented = false;
   detail = 1;
   shiftKey = false;
+  button = 0;
+  pointerId = 1;
+  clientX = 0;
+  clientY = 0;
+  deltaY = 0;
+  deltaMode = 0;
+  ctrlKey = false;
+  metaKey = false;
+  target: FakeElement | null = null;
 
   constructor(readonly type: string, init: Partial<FakeEvent> = {}) {
     Object.assign(this, init);
@@ -306,6 +407,10 @@ class FakeEvent {
 
   stopPropagation(): void {
     this.propagationStopped = true;
+  }
+
+  preventDefault(): void {
+    this.defaultPrevented = true;
   }
 }
 
@@ -412,6 +517,11 @@ function findByText(root: FakeElement, text: string): FakeElement | undefined {
     if (match) return match;
   }
   return undefined;
+}
+
+function dispatchPointerSequence(root: FakeElement, x: number, y: number): void {
+  root.dispatch("pointerdown", { pointerId: 1, clientX: x, clientY: y });
+  root.dispatch("pointerup", { pointerId: 1, clientX: x, clientY: y });
 }
 
 function dataKey(attribute: string): string {

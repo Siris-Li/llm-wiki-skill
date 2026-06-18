@@ -41,6 +41,7 @@ async function runDesktopChecks(browser) {
     hover: {},
     drawer: {},
     communitySummary: {},
+    blankAndDoubleClick: {},
     communityDrag: {},
     dragRefreshRace: {},
     rootScroll: {},
@@ -95,6 +96,9 @@ async function runDesktopChecks(browser) {
   await closeDrawerIfOpen(page);
   await resetGraphView(page, ["A", "B", "C"]);
   evidence.communitySummary.coreList = await runCommunitySummaryCoreListFlow(page);
+  await closeDrawerIfOpen(page);
+  await resetGraphView(page, ["A", "B", "C"]);
+  evidence.blankAndDoubleClick = await runBlankAndDoubleClickCheck(page);
   await closeDrawerIfOpen(page);
   await resetGraphView(page, ["A", "B", "C"]);
   evidence.communityDrag = await runCommunityDragCheck(page);
@@ -352,11 +356,86 @@ async function runCommunitySummaryCoreListFlow(page) {
   return { summary, hover, nodeSummary, focused };
 }
 
+async function runBlankAndDoubleClickCheck(page) {
+  const blockers = {};
+
+  await openCommunitySummaryFromWash(page, "t1");
+  await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
+  await waitForVisibleNodeIds(page, ["A", "B"]);
+  await waitForCommunityFocus(page, "t1", "blank click setup should focus the community");
+  await page.locator(".node[data-id='A']").click();
+  await page.waitForSelector('[data-testid="graph-node-summary"]');
+  const beforeBlankClick = await graphSnapshot(page);
+  const blankClickPoint = await clickBlankPointThatClearsSelection(page, "A");
+  await waitForCommunityFocus(page, "t1", "blank click should not leave community focus");
+  const afterBlankClick = await graphSnapshot(page);
+  assert.deepEqual(afterBlankClick.visibleNodes, ["A", "B"], "single blank click should preserve community visible nodes");
+
+  const beforeBlankDouble = await graphSnapshot(page);
+  const blankDoubleClickPoint = await doubleClickBlankPointThatReturnsGlobal(page);
+  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  await waitForNoGraphFocus(page, "true blank double click should return global");
+  const afterBlankDouble = await graphSnapshot(page);
+  assert.notDeepEqual(afterBlankDouble.visibleNodes, beforeBlankDouble.visibleNodes, "true blank double click should leave focused community");
+
+  await openCommunitySummaryFromWash(page, "t1");
+  await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
+  await waitForCommunityFocus(page, "t1", "node double-click setup should focus the community");
+  await waitForVisibleNodeIds(page, ["A", "B"]);
+  await page.locator(".node[data-id='A']").dblclick();
+  await page.waitForTimeout(160);
+  await waitForCommunityFocus(page, "t1", "node double-click should not return global");
+  assert.equal(await nodePinnedState(page, "A"), "false", "node double-click should not silently pin or unpin");
+  blockers.node = await graphSnapshot(page);
+
+  await resetGraphView(page, ["A", "B", "C"]);
+  blockers.communityWash = await assertDoubleClickDoesNotReturnGlobal(page, () => findCommunityWashPoint(page, "t1"), "community wash");
+  blockers.edge = await assertDoubleClickDoesNotReturnGlobal(page, () => firstEdgeMidpoint(page), "edge");
+
+  await openToolbarFilters(page);
+  blockers.toolbar = await assertDoubleClickDoesNotReturnGlobal(page, () => elementCenter(page, ".graph-toolbar-panel"), "toolbar panel");
+  blockers.legend = await assertDoubleClickDoesNotReturnGlobal(page, () => elementCenter(page, ".community-legend-row"), "legend row");
+  await closeToolbarWithBlankClick(page);
+  await waitForToolbarPanel(page, "closed");
+
+  await openSearch(page);
+  blockers.search = await assertDoubleClickDoesNotReturnGlobal(page, () => elementCenter(page, ".graph-search-input"), "search input");
+  await page.keyboard.press("Escape");
+  await waitForSearchState(page, "closed");
+
+  await closeDrawerIfOpen(page);
+  await resetGraphView(page, ["A", "B", "C"]);
+  await clickNodeForSummary(page, "A", "drawer blocker setup");
+  blockers.drawer = await assertDoubleClickDoesNotReturnGlobal(page, () => elementCenter(page, ".drawer-panel-open"), "right drawer");
+
+  await closeDrawerIfOpen(page);
+  await resetGraphView(page, ["A", "B", "C"]);
+  await clickNodeForSummary(page, "A", "fixed action setup");
+  await page.locator('[data-testid="graph-node-summary"] button', { hasText: "固定位置" }).click();
+  await page.waitForSelector(".node[data-id='A'][data-pinned='true']");
+  await page.waitForSelector('[data-testid="graph-node-summary"] button:has-text("取消固定位置")');
+  const fixed = await nodeSnapshot(page, "A");
+  await page.locator('[data-testid="graph-node-summary"] button', { hasText: "取消固定位置" }).click();
+  await page.waitForSelector(".node[data-id='A'][data-pinned='false']");
+  await page.waitForSelector('[data-testid="graph-node-summary"] button:has-text("固定位置")');
+  const unfixed = await nodeSnapshot(page, "A");
+
+  return {
+    beforeBlankClick: { ...beforeBlankClick, point: roundedPoint(blankClickPoint) },
+    afterBlankClick,
+    afterBlankDouble: { ...afterBlankDouble, point: roundedPoint(blankDoubleClickPoint) },
+    blockers,
+    explicitFixedAction: { fixed, unfixed }
+  };
+}
+
 async function openCommunitySummaryFromWash(page, communityId) {
+  await closeDrawerIfOpen(page);
+  await resetGraphView(page, ["A", "B", "C"]);
   const before = await graphSnapshot(page);
   await clickCommunityWash(page, communityId);
   await page.waitForSelector('[data-testid="graph-community-summary"]');
-  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  await waitForVisibleNodeIds(page, ["A", "B", "C"], "community summary wash click should stay global");
   const after = await graphSnapshot(page);
   assert.equal(transformScale(after.transform), transformScale(before.transform), "community wash click should preserve the global zoom scale");
   assert.deepEqual(after.visibleNodes, ["A", "B", "C"], "community wash click should keep the global node set visible");
@@ -742,6 +821,23 @@ async function waitForCommunityFocus(page, communityId, label) {
   }
 }
 
+async function waitForNoGraphFocus(page, label) {
+  try {
+    await page.waitForFunction(() => {
+      return !document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus;
+    }, undefined, { timeout: 5000 });
+  } catch (err) {
+    const diagnostics = await page.evaluate(() => {
+      const host = document.querySelector(".graph-host");
+      return {
+        focus: host?.dataset.llmWikiGraphFocus || "",
+        visibleNodes: [...document.querySelectorAll(".node")].map((item) => item.dataset.id).sort()
+      };
+    });
+    assert.fail(`${label}: expected no graph focus, got ${JSON.stringify(diagnostics)} (${err instanceof Error ? err.message : String(err)})`);
+  }
+}
+
 async function layerTransform(page) {
   return page.locator("[data-viewport-layer='true']").evaluate((element) => element.style.transform);
 }
@@ -762,16 +858,111 @@ async function waitForViewportAnimationIdle(page) {
   }, undefined, { timeout: 3000 });
 }
 
-async function waitForVisibleNodeIds(page, expected) {
-  await page.waitForFunction((expected) => {
-    const actual = [...document.querySelectorAll(".node")].map((node) => node.dataset.id).sort();
-    return actual.length === expected.length && actual.every((id, index) => id === expected[index]);
-  }, expected);
+async function waitForVisibleNodeIds(page, expected, label = "visible node ids") {
+  try {
+    await page.waitForFunction((expected) => {
+      const actual = [...document.querySelectorAll(".node")].map((node) => node.dataset.id).sort();
+      return actual.length === expected.length && actual.every((id, index) => id === expected[index]);
+    }, expected, { timeout: 5000 });
+  } catch (err) {
+    const diagnostics = await page.evaluate(() => ({
+      expected,
+      actual: [...document.querySelectorAll(".node")].map((node) => node.dataset.id).sort(),
+      hostFocus: document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus || "",
+      rootFocus: document.querySelector("[data-llm-wiki-graph-root='true']")?.dataset.focus || "",
+      drawer: document.querySelector(".drawer-panel-open")?.getAttribute("class") || ""
+    }), expected);
+    assert.fail(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(diagnostics)} (${err instanceof Error ? err.message : String(err)})`);
+  }
 }
 
 async function clickCommunityWash(page, communityId) {
   const point = await findCommunityWashPoint(page, communityId);
   await page.mouse.click(point.x, point.y);
+}
+
+async function clickBlankPoint(page) {
+  const point = await findBlankPoint(page);
+  await page.mouse.click(point.x, point.y);
+  return point;
+}
+
+async function doubleClickBlankPoint(page) {
+  const point = await findBlankPoint(page);
+  await page.mouse.dblclick(point.x, point.y);
+  return point;
+}
+
+async function clickBlankPointThatClearsSelection(page, nodeId) {
+  const candidates = await findBlankPointCandidates(page);
+  const diagnostics = [];
+  const root = page.locator("[data-llm-wiki-graph-root='true']");
+  for (const point of candidates) {
+    const pointer = {
+      button: 0,
+      pointerId: 1,
+      clientX: point.x,
+      clientY: point.y,
+      bubbles: true,
+      cancelable: true
+    };
+    await root.dispatchEvent("pointerdown", {
+      ...pointer,
+      buttons: 1
+    });
+    await root.dispatchEvent("pointerup", pointer);
+    await page.waitForTimeout(120);
+    const selected = await page.locator(`.node[data-id="${cssString(nodeId)}"]`).evaluate((node) => node.getAttribute("aria-pressed") || "");
+    if (selected === "false") return point;
+    diagnostics.push(await graphInteractionDiagnostics(page, point));
+  }
+  assert.fail(`could not find a true blank click point that clears selection: ${JSON.stringify(diagnostics)}`);
+}
+
+async function doubleClickBlankPointThatReturnsGlobal(page) {
+  const candidates = await findBlankPointCandidates(page);
+  const diagnostics = [];
+  for (const point of candidates) {
+    await page.mouse.dblclick(point.x, point.y);
+    await page.waitForTimeout(180);
+    const focus = await currentGraphFocus(page);
+    const visibleNodes = await page.evaluate(() => [...document.querySelectorAll(".node")].map((node) => node.dataset.id).sort());
+    if (!focus && visibleNodes.includes("C")) return point;
+    diagnostics.push({ ...(await graphInteractionDiagnostics(page, point)), focus, visibleNodes });
+  }
+  assert.fail(`could not find a true blank double-click point that returns global: ${JSON.stringify(diagnostics)}`);
+}
+
+async function assertDoubleClickDoesNotReturnGlobal(page, pointFactory, label) {
+  await openCommunitySummaryFromWash(page, "t1");
+  await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
+  await waitForCommunityFocus(page, "t1", `${label} setup should focus the community`);
+  await waitForVisibleNodeIds(page, ["A", "B"]);
+  const before = await graphSnapshot(page);
+  const point = await pointFactory();
+  await page.mouse.dblclick(point.x, point.y);
+  await page.waitForTimeout(180);
+  await waitForCommunityFocus(page, "t1", `${label} double click should not return global`);
+  const after = await graphSnapshot(page);
+  assert.deepEqual(after.visibleNodes, ["A", "B"], `${label} double click should preserve community focus`);
+  return { before, after, point: roundedPoint(point) };
+}
+
+async function graphInteractionDiagnostics(page, point) {
+  return page.evaluate(({ point }) => {
+    const hit = document.elementFromPoint(point.x, point.y);
+    const root = document.querySelector("[data-llm-wiki-graph-root='true']");
+    const node = document.querySelector(".node[data-id='A']");
+    return {
+      point,
+      hitTag: hit?.tagName || "",
+      hitClass: hit instanceof Element ? hit.className : "",
+      hitNodeId: hit instanceof Element ? hit.closest(".node")?.getAttribute("data-id") || "" : "",
+      rootFocus: root?.dataset.focus || "",
+      selected: node?.getAttribute("aria-pressed") || "",
+      drawer: document.querySelector(".drawer-panel-open")?.getAttribute("class") || ""
+    };
+  }, { point });
 }
 
 async function nodeCenter(page, id) {
@@ -782,6 +973,27 @@ async function nodeCenter(page, id) {
       y: rect.top + rect.height / 2
     };
   });
+}
+
+async function clickNodeForSummary(page, id, label) {
+  await ensureNodeInteractable(page, id);
+  const point = await nodeCenter(page, id);
+  await page.mouse.click(point.x, point.y);
+  try {
+    await page.waitForSelector('[data-testid="graph-node-summary"]', { timeout: 5000 });
+  } catch (err) {
+    const diagnostics = await graphInteractionDiagnostics(page, point);
+    throw new assert.AssertionError({
+      message: `${label}: node ${id} click should open node summary, got ${JSON.stringify(diagnostics)}`,
+      actual: err,
+      expected: "graph-node-summary",
+      operator: "strictEqual"
+    });
+  }
+}
+
+async function nodePinnedState(page, id) {
+  return page.locator(`.node[data-id="${cssString(id)}"]`).evaluate((node) => node.getAttribute("data-pinned") || "");
 }
 
 async function elementCenter(page, selector) {
@@ -800,13 +1012,19 @@ async function firstEdgeMidpoint(page) {
     const svg = edge.ownerSVGElement;
     if (!svg) throw new Error("edge should have an owner SVG");
     const length = edge.getTotalLength();
-    const mid = edge.getPointAtLength(length / 2);
     const rect = svg.getBoundingClientRect();
     const viewBox = svg.viewBox.baseVal;
-    return {
-      x: rect.left + (mid.x - viewBox.x) / viewBox.width * rect.width,
-      y: rect.top + (mid.y - viewBox.y) / viewBox.height * rect.height
-    };
+    const toClientPoint = (point) => ({
+      x: rect.left + (point.x - viewBox.x) / viewBox.width * rect.width,
+      y: rect.top + (point.y - viewBox.y) / viewBox.height * rect.height
+    });
+    const fractions = [0.5, 0.42, 0.58, 0.35, 0.65, 0.25, 0.75];
+    for (const fraction of fractions) {
+      const point = toClientPoint(edge.getPointAtLength(length * fraction));
+      if (document.elementFromPoint(point.x, point.y)?.closest?.(".edge") === edge) return point;
+    }
+    const mid = toClientPoint(edge.getPointAtLength(length / 2));
+    throw new Error(`Could not find exposed edge point near first edge; midpoint=${JSON.stringify(mid)}`);
   });
 }
 
@@ -845,13 +1063,26 @@ async function firstCommunityWashId(page) {
 }
 
 async function findBlankPoint(page) {
+  return (await findBlankPointCandidates(page))[0];
+}
+
+async function findBlankPointCandidates(page) {
   return page.evaluate(() => {
     const root = document.querySelector("[data-llm-wiki-graph-root='true']");
     if (!root) throw new Error("Missing graph root");
     const rect = root.getBoundingClientRect();
     const blocked = ".node,.community-wash,.edge,.graph-toolbar,.mini-map,.graph-search,.drawer-panel-open";
+    const nodes = [...document.querySelectorAll(".node")].map((node) => {
+      const box = node.getBoundingClientRect();
+      return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    });
+    const washes = [...document.querySelectorAll(".community-wash")].map((wash) => {
+      const box = wash.getBoundingClientRect();
+      return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    });
     const xs = [0.08, 0.16, 0.28, 0.42, 0.58, 0.74, 0.88];
     const ys = [0.18, 0.32, 0.48, 0.64, 0.8, 0.9];
+    const points = [];
     for (const ry of ys) {
       for (const rx of xs) {
         const x = rect.left + rect.width * rx;
@@ -859,9 +1090,12 @@ async function findBlankPoint(page) {
         const hit = document.elementFromPoint(x, y);
         if (!hit || !root.contains(hit)) continue;
         if (hit.closest(blocked)) continue;
-        return { x, y };
+        const tooClose = [...nodes, ...washes].some((point) => Math.hypot(point.x - x, point.y - y) < 120);
+        if (tooClose) continue;
+        points.push({ x, y });
       }
     }
+    if (points.length) return points;
     throw new Error("Could not find blank graph point");
   });
 }

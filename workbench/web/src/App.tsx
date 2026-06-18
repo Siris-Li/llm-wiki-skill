@@ -5,6 +5,7 @@ import {
 	type GraphDiff,
 	type GraphOpenPagePayload,
 	type GraphSummaryCommand,
+	type PinMap,
 	type Selection,
 } from "@llm-wiki/graph-engine";
 
@@ -145,6 +146,7 @@ function App() {
 	const [graphRefreshToken, setGraphRefreshToken] = useState(0);
 	const [graphHasPendingUpdate, setGraphHasPendingUpdate] = useState(false);
 	const [graphData, setGraphData] = useState<GraphData | null>(null);
+	const [graphPins, setGraphPins] = useState<PinMap>({});
 	const [selectionCommand, setSelectionCommand] = useState<GraphSelectionCommand | undefined>();
 	const [mainView, setMainView] = useState<MainView>(() => {
 		if (typeof window === "undefined") return "chat";
@@ -286,6 +288,7 @@ function App() {
 		setPendingGraphDiff(null);
 		setGraphHasPendingUpdate(false);
 		setGraphData(null);
+		setGraphPins({});
 		setSelectionCommand({ id: Math.random().toString(36).slice(2, 10), type: "clear" });
 		setGraphFocusPath(null);
 	};
@@ -355,8 +358,11 @@ function App() {
 			setDrawer((current) => isGraphInteractionDrawer(current) ? closedDrawer() : current);
 			return;
 		}
-		setDrawer((current) => drawerForGraphSelection(graphData, selection, current));
-	}, [graphData]);
+		if (drawer.mode === "graph-reader" && selection.nodeIds.length === 1 && drawer.payload.node.id === selection.nodeIds[0]) {
+			return;
+		}
+		setDrawer((current) => drawerForGraphSelection(graphData, selection, current, { pins: graphPins }));
+	}, [graphData, graphPins, drawer]);
 
 	const handleGraphSelectionTextChange = useCallback((value: string) => {
 		setDrawer((current) => (
@@ -501,12 +507,30 @@ function App() {
 		}
 		if (command.kind === "enter-community") {
 			setSelectionCommand({ id: command.communityId, type: "enter-community" });
+			return;
 		}
-	}, [graphData, active]);
+		if (command.kind === "set-fixed-position") {
+			setSelectionCommand({
+				id: `${command.mode}-${command.nodeId}-${Math.random().toString(36).slice(2, 10)}`,
+				nodeId: command.nodeId,
+				mode: command.mode,
+				type: "set-fixed-position",
+			});
+		}
+	}, [graphData, graphPins, active]);
+
+	useEffect(() => {
+		if (drawer.mode !== "graph-node-summary") return;
+		setDrawer((current) => (
+			current.mode === "graph-node-summary"
+				? drawerForGraphSummaryNode(graphData, current.payload.nodeId, current, { pins: graphPins })
+				: current
+		));
+	}, [drawer.mode, graphData, graphPins]);
 
 	const handleGraphSummaryNodeSelect = useCallback((nodeId: string) => {
-		setDrawer((current) => drawerForGraphSummaryNode(graphData, nodeId, current));
-	}, [graphData]);
+		setDrawer((current) => drawerForGraphSummaryNode(graphData, nodeId, current, { pins: graphPins }));
+	}, [graphData, graphPins]);
 
 	const handleGraphSummaryNodePreview = useCallback((nodeId: string | null) => {
 		setSelectionCommand({
@@ -714,7 +738,9 @@ function App() {
 							onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
 							onOpenPage={handleOpenGraphPage}
 							onGraphDataChange={setGraphData}
+							onGraphPinsChange={setGraphPins}
 							onSelectionChange={handleGraphSelectionChange}
+							onViewReset={() => setGraphFocusPath(null)}
 							selectionCommand={selectionCommand}
 							focusPath={graphFocusPath}
 							pendingDiff={pendingGraphDiff}

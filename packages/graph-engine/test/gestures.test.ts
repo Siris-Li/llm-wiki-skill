@@ -95,6 +95,7 @@ describe("graph gesture target classifier", () => {
 
   it("classifies graph target kinds and ids without a DOM dependency", () => {
     assert.deepEqual(classifyGraphEventTarget(blankTarget()), { kind: "graph-blank" });
+    assert.deepEqual(classifyGraphEventTarget(graphBlankTarget()), { kind: "graph-blank" });
 
     assert.deepEqual(classifyGraphEventTarget(nodeTarget("node-a")), { kind: "node", id: "node-a" });
     assert.deepEqual(classifyGraphEventTarget(communityWashTarget("community-a")), { kind: "community-wash", id: "community-a" });
@@ -428,16 +429,12 @@ describe("graph gesture controller", () => {
     controller.destroy();
   });
 
-  it("uses spatial graph targets for blank double-click while blockers keep browser defaults", () => {
+  it("uses DOM blank ownership for return-global double-click while graph objects and blockers keep defaults", () => {
     const root = new FakeGestureRoot();
     let resetCount = 0;
     const controller = new GraphGestureController(root as unknown as HTMLElement, {
       targetFromEventTarget: (target) => target as GraphGestureTargetLike | null,
-      graphTargetFromScreenPoint: (screenPoint) => {
-        if (screenPoint.x === 10) return { kind: "graph-blank" };
-        if (screenPoint.x === 20) return { kind: "edge", id: "edge-from-spatial-index" };
-        return { kind: "node", id: "node-from-spatial-index" };
-      },
+      graphTargetFromScreenPoint: () => ({ kind: "node", id: "node-from-spatial-index" }),
       onWheelZoom: () => {},
       onGestureIntents: () => {},
       onBlankDoubleClick: () => {
@@ -445,25 +442,56 @@ describe("graph gesture controller", () => {
       }
     });
 
-    const blankDoubleClick = mouseDomEvent(communityWashTarget("community-from-dom"), 10, 40);
+    const blankDoubleClick = mouseDomEvent(blankTarget(), 10, 40);
     root.dispatch("dblclick", blankDoubleClick);
     assert.equal(blankDoubleClick.defaultPrevented, true);
     assert.equal(resetCount, 1);
 
-    const edgeDoubleClick = mouseDomEvent(edgeTarget("edge-from-dom"), 20, 40);
-    root.dispatch("dblclick", edgeDoubleClick);
-    assert.equal(edgeDoubleClick.defaultPrevented, true);
+    const svgBlankDoubleClick = mouseDomEvent(graphBlankTarget(), 12, 42);
+    root.dispatch("dblclick", svgBlankDoubleClick);
+    assert.equal(svgBlankDoubleClick.defaultPrevented, true);
     assert.equal(resetCount, 2);
 
-    const nodeDoubleClick = mouseDomEvent(blankTarget(), 30, 40);
+    const blankSecondClick = mouseDomEvent(graphBlankTarget(), 12, 42, { detail: 2, timeStamp: 2000 });
+    root.dispatch("click", blankSecondClick);
+    assert.equal(blankSecondClick.defaultPrevented, true);
+    assert.equal(resetCount, 3);
+
+    const duplicateDblClick = mouseDomEvent(graphBlankTarget(), 12, 42, { detail: 2, timeStamp: 2100 });
+    root.dispatch("dblclick", duplicateDblClick);
+    assert.equal(duplicateDblClick.defaultPrevented, false);
+    assert.equal(resetCount, 3);
+
+    const communityDoubleClick = mouseDomEvent(communityWashTarget("community-from-dom"), 10, 40);
+    root.dispatch("dblclick", communityDoubleClick);
+    assert.equal(communityDoubleClick.defaultPrevented, false);
+    assert.equal(resetCount, 3);
+
+    const edgeDoubleClick = mouseDomEvent(edgeTarget("edge-from-dom"), 20, 40);
+    root.dispatch("dblclick", edgeDoubleClick);
+    assert.equal(edgeDoubleClick.defaultPrevented, false);
+    assert.equal(resetCount, 3);
+
+    const edgeThenBlankPointerDown = pointerDomEvent(edgeTarget("edge-from-dom"), 61, 24, 44, { timeStamp: 3000 });
+    root.dispatch("pointerdown", edgeThenBlankPointerDown);
+    root.dispatch("pointerup", pointerDomEvent(graphBlankTarget(), 61, 24, 44, { timeStamp: 3020 }));
+    const edgeThenBlankClick = mouseDomEvent(blankTarget(), 24, 44, { detail: 2, timeStamp: 3040 });
+    root.dispatch("click", edgeThenBlankClick);
+    const edgeThenBlankDoubleClick = mouseDomEvent(blankTarget(), 24, 44, { detail: 2, timeStamp: 3060 });
+    root.dispatch("dblclick", edgeThenBlankDoubleClick);
+    assert.equal(edgeThenBlankClick.defaultPrevented, false);
+    assert.equal(edgeThenBlankDoubleClick.defaultPrevented, false);
+    assert.equal(resetCount, 3);
+
+    const nodeDoubleClick = mouseDomEvent(nodeTarget("node-from-dom"), 30, 40);
     root.dispatch("dblclick", nodeDoubleClick);
     assert.equal(nodeDoubleClick.defaultPrevented, false);
-    assert.equal(resetCount, 2);
+    assert.equal(resetCount, 3);
 
     const searchDoubleClick = mouseDomEvent(controlTarget(".graph-search"), 10, 40);
     root.dispatch("dblclick", searchDoubleClick);
     assert.equal(searchDoubleClick.defaultPrevented, false);
-    assert.equal(resetCount, 2);
+    assert.equal(resetCount, 3);
 
     controller.destroy();
   });
@@ -547,6 +575,11 @@ describe("graph gesture controller", () => {
 
 function blankTarget(): FakeTarget {
   return new FakeTarget();
+}
+
+function graphBlankTarget(): FakeTarget {
+  const blank = new FakeTarget({ dataset: { graphBlank: "true" } });
+  return new FakeTarget({ closest: { "[data-graph-blank=\"true\"]": blank } });
 }
 
 function nodeTarget(id: string): FakeTarget {
@@ -640,7 +673,7 @@ function pointerDomEvent(
   pointerId: number,
   clientX: number,
   clientY: number,
-  options: { button?: number; shiftKey?: boolean } = {}
+  options: { button?: number; shiftKey?: boolean; timeStamp?: number } = {}
 ): PointerEvent & { defaultPrevented: boolean } {
   let defaultPrevented = false;
   return {
@@ -648,6 +681,7 @@ function pointerDomEvent(
     pointerId,
     clientX,
     clientY,
+    timeStamp: options.timeStamp ?? 0,
     button: options.button ?? 0,
     shiftKey: options.shiftKey === true,
     preventDefault: () => {
@@ -662,20 +696,30 @@ function pointerDomEvent(
 function mouseDomEvent(
   target: GraphGestureTargetLike,
   clientX: number,
-  clientY: number
-): MouseEvent & { defaultPrevented: boolean } {
+  clientY: number,
+  options: { detail?: number; timeStamp?: number } = {}
+): MouseEvent & { defaultPrevented: boolean; propagationStopped: boolean } {
   let defaultPrevented = false;
+  let propagationStopped = false;
   return {
     target,
     clientX,
     clientY,
+    detail: options.detail ?? 1,
+    timeStamp: options.timeStamp ?? 0,
     preventDefault: () => {
       defaultPrevented = true;
     },
+    stopPropagation: () => {
+      propagationStopped = true;
+    },
     get defaultPrevented() {
       return defaultPrevented;
+    },
+    get propagationStopped() {
+      return propagationStopped;
     }
-  } as MouseEvent & { defaultPrevented: boolean };
+  } as MouseEvent & { defaultPrevented: boolean; propagationStopped: boolean };
 }
 
 function matchesSelf(target: FakeTarget, selector: string): boolean {

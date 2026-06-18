@@ -35,6 +35,7 @@ export interface GraphController {
   isGraphKeyboardFocusActive(): boolean;
   handleNodeClick(id: NodeId, additive: boolean): void;
   handleNodeDoubleClick(id: NodeId): boolean;
+  setNodeFixed(id: NodeId, mode: "fix" | "unfix"): boolean;
   handleBlankClick(): void;
   openSearch(): void;
   applySearchQuery(query: string): void;
@@ -45,6 +46,7 @@ export interface GraphController {
   focusCommunity(id: CommunityId): void;
   resetViewState(): void;
   retreatFocusedView(): void;
+  clearSelectionOnly(): void;
   closeToolbarPanel(): void;
   clearInteractionState(): void;
   clearTransientInteractionForDataRefresh(): void;
@@ -195,11 +197,18 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
   }
 
   function handleNodeDoubleClick(id: NodeId): boolean {
-    if (!context.pinState.isPinned(id)) return false;
-    const nextState = context.pinState.unpin(id);
+    return Boolean(context.graph.nodes.find((node) => node.id === id));
+  }
+
+  function setNodeFixed(id: NodeId, mode: "fix" | "unfix"): boolean {
+    const node = context.graph.nodes.find((item) => item.id === id);
+    if (!node) return false;
+    const nextState = mode === "fix"
+      ? context.pinState.pin(id, currentWorldPointForNode(id) || node.point)
+      : context.pinState.unpin(id);
     context.runtimeState.setPins(nextState.pins);
-    context.simulation?.setFixed(id, null);
-    delegates.markPinnedNodes(nextState.pinnedNodeIds);
+    context.simulation?.setFixed(id, mode === "fix" ? pinsToPositions(context.graph, nextState.pins)[id] || node.point : null);
+    delegates.render();
     context.callbacks.onPinsChanged?.(nextState.pins);
     return true;
   }
@@ -261,12 +270,22 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
 
   function handleBlankClick(): void {
     delete context.root.dataset.viewportDragging;
-    // True blank clicks close toolbar popovers before retreating focus; drag-pan never reaches this path.
+    // True blank clicks close toolbar popovers before clearing selection; drag-pan never reaches this path.
     if (shouldBlankClickCloseToolbar(context.toolbarPanelState)) {
       closeToolbarPanel();
       return;
     }
-    if (context.runtimeState.snapshot().focus) retreatFocusedView();
+    if (!hasClearableSelectionState()) return;
+    clearSelectionOnly();
+  }
+
+  function clearSelectionOnly(): void {
+    clearSearchAndPreviewState();
+    delegates.setGraphHover(null);
+    context.runtimeState.setSelection(null);
+    delete context.root.dataset.focus;
+    context.callbacks.onSelectionClearRequested?.();
+    delegates.render();
   }
 
   function clearSearchAndPreviewState(): void {
@@ -301,6 +320,11 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
   function hasInteractionState(): boolean {
     const snapshot = context.runtimeState.snapshot();
     return Boolean(snapshot.selection || snapshot.focus || context.root.dataset.focus);
+  }
+
+  function hasClearableSelectionState(): boolean {
+    const snapshot = context.runtimeState.snapshot();
+    return Boolean(snapshot.selection || snapshot.hover || context.searchFocusedNodeId || context.previewTimer);
   }
 
   function isGraphKeyboardFocusActive(): boolean {
@@ -414,6 +438,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     context.runtimeState.clearInteraction();
     delete context.root.dataset.focus;
     context.callbacks.onSelectionClearRequested?.();
+    context.callbacks.onViewReset?.();
     delegates.render();
     delegates.setViewportAnimating(true);
     context.viewportCommitter.schedule(fitRendererViewportToPoints(
@@ -471,7 +496,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
   }
 
   function graphGestureTarget(target: EventTarget | null): GraphGestureTargetLike | null {
-    return target instanceof Element ? target as Element & GraphGestureTargetLike : null;
+    return isGraphGestureTargetLike(target) ? target : null;
   }
 
   function nodeDragSession(nodeId: NodeId, pointerId: number): GraphNodeDragSession {
@@ -516,6 +541,14 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     const pinnedStartPoint = pinsToPositions(context.graph, context.runtimeState.snapshot().pins)[nodeId];
     if (pinnedStartPoint) return pinnedStartPoint;
     return context.graph.nodes.find((item) => item.id === nodeId)?.point || { x: 0, y: 0 };
+  }
+
+  function currentWorldPointForNode(nodeId: NodeId): GraphWorldPoint | null {
+    const runtimePosition = context.runtimeState.snapshot().positions[nodeId];
+    if (runtimePosition) return runtimePosition;
+    const pinnedPosition = pinsToPositions(context.graph, context.runtimeState.snapshot().pins)[nodeId];
+    if (pinnedPosition) return pinnedPosition;
+    return context.graph.nodes.find((item) => item.id === nodeId)?.point || null;
   }
 
   function nodeDragWasPinned(nodeId: NodeId): boolean {
@@ -575,6 +608,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     isGraphKeyboardFocusActive,
     handleNodeClick,
     handleNodeDoubleClick,
+    setNodeFixed,
     handleBlankClick,
     openSearch,
     applySearchQuery,
@@ -585,11 +619,18 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     focusCommunity,
     resetViewState,
     retreatFocusedView,
+    clearSelectionOnly,
     closeToolbarPanel,
     clearInteractionState,
     clearTransientInteractionForDataRefresh,
     hasInteractionState
   };
+}
+
+function isGraphGestureTargetLike(target: EventTarget | null): target is EventTarget & GraphGestureTargetLike {
+  if (!target || typeof target !== "object") return false;
+  const candidate = target as GraphGestureTargetLike;
+  return typeof candidate.closest === "function" || Boolean(candidate.dataset) || typeof candidate.tagName === "string";
 }
 
 function selectedNodeIds(selection: SelectionInput | null): NodeId[] {

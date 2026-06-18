@@ -29,7 +29,9 @@ interface Props {
 	onToggleTheme?: () => void;
 	onOpenPage?: (payload: GraphOpenPagePayload) => void;
 	onGraphDataChange?: (data: GraphData | null) => void;
+	onGraphPinsChange?: (pins: PinMap) => void;
 	onSelectionChange?: (selection: Selection | null) => void;
+	onViewReset?: () => void;
 	selectionCommand?: GraphSelectionCommand;
 	focusPath?: string | null;
 	pendingDiff?: GraphDiff | null;
@@ -56,7 +58,9 @@ export function GraphPanel({
 	onToggleTheme,
 	onOpenPage,
 	onGraphDataChange,
+	onGraphPinsChange,
 	onSelectionChange,
+	onViewReset,
 	selectionCommand,
 	focusPath,
 	pendingDiff,
@@ -74,7 +78,9 @@ export function GraphPanel({
 	const loadRequestRef = useRef(0);
 	const onOpenPageRef = useRef(onOpenPage);
 	const onGraphDataChangeRef = useRef(onGraphDataChange);
+	const onGraphPinsChangeRef = useRef(onGraphPinsChange);
 	const onSelectionChangeRef = useRef(onSelectionChange);
+	const onViewResetRef = useRef(onViewReset);
 	const diffQueueRef = useRef(new GraphDiffQueue({ visible: true }));
 	const lastRefreshTokenRef = useRef(refreshToken);
 	const devGraphTestRef = useRef("");
@@ -113,11 +119,20 @@ export function GraphPanel({
 	}, [onGraphDataChange]);
 
 	useLayoutEffect(() => {
+		onGraphPinsChangeRef.current = onGraphPinsChange;
+	}, [onGraphPinsChange]);
+
+	useLayoutEffect(() => {
 		onSelectionChangeRef.current = onSelectionChange;
 	}, [onSelectionChange]);
 
+	useLayoutEffect(() => {
+		onViewResetRef.current = onViewReset;
+	}, [onViewReset]);
+
 	const applyLayoutPins = useCallback((pins: PinMap): void => {
 		layoutPinsRef.current = pins;
+		onGraphPinsChangeRef.current?.(pins);
 	}, []);
 
 	const runWhenDragIdle = useCallback((operation: () => void): () => void => {
@@ -318,6 +333,7 @@ export function GraphPanel({
 				onOpenPage: (payload) => onOpenPageRef.current?.(payload),
 				onSelectionChange: (nextSelection) => onSelectionChangeRef.current?.(nextSelection),
 				onSelectionClear: () => onSelectionChangeRef.current?.(null),
+				onViewReset: () => onViewResetRef.current?.(),
 				onAsk: (nextSelection) => onSelectionChangeRef.current?.(nextSelection),
 				persistPins,
 				onDragStateChange: (dragging) => {
@@ -362,6 +378,9 @@ export function GraphPanel({
 		}
 		if (selectionCommand.type === "preview-node") {
 			engineRef.current?.previewNode(selectionCommand.nodeId);
+		}
+		if (selectionCommand.type === "set-fixed-position") {
+			engineRef.current?.setNodeFixed(selectionCommand.nodeId, selectionCommand.mode);
 		}
 	}, [selectionCommand, status]);
 

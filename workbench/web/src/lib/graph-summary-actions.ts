@@ -6,6 +6,7 @@ import {
 	type GraphData,
 	type GraphOpenPagePayload,
 	type GraphSummaryCommand,
+	type GraphSummaryOptions,
 	type Selection,
 } from "@llm-wiki/graph-engine";
 
@@ -20,11 +21,18 @@ import { selectionTitle } from "./graph-selection";
 export type GraphSelectionCommand =
 	| { id: string; type: "clear" | "clear-selection" | "neighbors" | "enter-community" }
 	| { id: string; commandId?: string; nodeId: string; type: "enter-community-node" }
-	| { id: string; nodeId: string | null; type: "preview-node" };
+	| { id: string; nodeId: string | null; type: "preview-node" }
+	| { id: string; nodeId: string; mode: "fix" | "unfix"; type: "set-fixed-position" };
 
-export function drawerForGraphSelection(data: GraphData | null, selection: Selection, current: DrawerState): DrawerState {
+export function drawerForGraphSelection(
+	data: GraphData | null,
+	selection: Selection,
+	current: DrawerState,
+	options: GraphSummaryOptions = {},
+): DrawerState {
 	if (data && selection.nodeIds.length === 1) {
 		const summary = summarizeGraphNode(data, selection.nodeIds[0], {
+			...options,
 			selection: { kind: "node", id: selection.nodeIds[0] },
 		});
 		if (summary.kind === "node-summary") return graphNodeSummaryDrawer(summary);
@@ -32,6 +40,7 @@ export function drawerForGraphSelection(data: GraphData | null, selection: Selec
 
 	if (data && selection.nodeIds.length > 1 && selection.communityIds.length === 1) {
 		const summary = summarizeGraphCommunity(data, selection.communityIds[0], {
+			...options,
 			selection: { kind: "community", id: selection.communityIds[0] },
 		});
 		if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary);
@@ -78,9 +87,15 @@ export function graphSelectionCommandForOpenDetail(
 	return { id: node.community, nodeId: node.id, type: "enter-community-node" };
 }
 
-export function drawerForGraphSummaryNode(data: GraphData | null, nodeId: string, current: DrawerState): DrawerState {
+export function drawerForGraphSummaryNode(
+	data: GraphData | null,
+	nodeId: string,
+	current: DrawerState,
+	options: GraphSummaryOptions = {},
+): DrawerState {
 	if (!data) return current;
 	const summary = summarizeGraphNode(data, nodeId, {
+		...options,
 		selection: { kind: "node", id: nodeId },
 	});
 	if (summary.kind !== "node-summary") return current;
