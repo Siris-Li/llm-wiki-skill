@@ -1566,6 +1566,126 @@
     text-align: center;
   }
 
+  .graph-summary-drawer {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .graph-summary-kicker {
+    color: var(--app-muted);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .graph-summary-title {
+    margin: 0;
+    color: var(--app-fg);
+    font-size: 18px;
+    font-weight: 650;
+    line-height: 1.25;
+  }
+
+  .graph-summary-facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .graph-summary-fact {
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: var(--app-raised);
+    padding: 9px 10px;
+  }
+
+  .graph-summary-fact strong,
+  .graph-summary-fact span {
+    display: block;
+  }
+
+  .graph-summary-fact strong {
+    color: var(--app-fg);
+    font-size: 16px;
+    line-height: 1.1;
+  }
+
+  .graph-summary-fact span {
+    margin-top: 4px;
+    color: var(--app-muted);
+    font-size: 11px;
+  }
+
+  .graph-summary-meta,
+  .graph-summary-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .graph-summary-meta span {
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    padding: 3px 8px;
+    color: var(--app-muted);
+    font-size: 11px;
+  }
+
+  .graph-summary-excerpt {
+    margin: 0;
+    color: var(--app-muted);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .graph-summary-section h3 {
+    margin: 0 0 8px;
+    color: var(--app-muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .graph-summary-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .graph-summary-list li {
+    display: flex;
+    min-width: 0;
+    justify-content: space-between;
+    gap: 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent);
+    padding-bottom: 6px;
+    color: var(--app-fg);
+    font-size: 12px;
+  }
+
+  .graph-summary-list small,
+  .graph-summary-muted {
+    color: var(--app-muted);
+    font-size: 12px;
+  }
+
+  .graph-summary-action {
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: var(--app-raised);
+    padding: 7px 10px;
+    color: var(--app-fg);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .graph-summary-action:hover {
+    border-color: var(--app-accent);
+    color: var(--app-accent);
+  }
+
   .batch-panel {
     position: fixed;
     right: 20px;

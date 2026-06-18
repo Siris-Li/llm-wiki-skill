@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { emitWikiLinkSeen, extractWikiPageRefs, normalizeWikiLinks } from "@/lib/wiki-links";
+import { emitWikiLinkSeen, extractWikiPageRefs, normalizeWikiLinks } from "../lib/wiki-links";
 
 interface Props {
 	content: string;

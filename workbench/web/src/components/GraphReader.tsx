@@ -5,7 +5,7 @@ import {
 	graphReaderActions,
 	graphReaderMetaItems,
 	type GraphReaderActionId,
-} from "@/lib/graph-reader";
+} from "../lib/graph-reader";
 
 interface Props {
 	payload: GraphOpenPagePayload;

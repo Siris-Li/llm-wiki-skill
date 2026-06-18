@@ -1,0 +1,171 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { RightDrawer } from "../src/components/RightDrawer";
+import {
+	graphCommunitySummaryDrawer,
+	graphEmptyDrawer,
+	graphNodeSummaryDrawer,
+	graphUnavailableObjectDrawer,
+	type DrawerState,
+} from "../src/lib/drawer-state";
+import type {
+	GraphCommunitySummaryPayload,
+	GraphNodeSummaryPayload,
+	GraphSummaryCommand,
+	GraphUnavailableObjectPayload,
+} from "@llm-wiki/graph-engine";
+
+describe("RightDrawer graph lightweight summaries", () => {
+	it("renders node summary fields and actions without full reader markdown", () => {
+		const html = renderDrawer(graphNodeSummaryDrawer(nodeSummaryFixture()));
+
+		assert.match(html, /data-testid="graph-node-summary"/);
+		assert.match(html, /Alpha node/);
+		assert.match(html, /节点/);
+		assert.match(html, /连接/);
+		assert.match(html, /打开详情/);
+		assert.match(html, /固定位置/);
+		assert.doesNotMatch(html, /full markdown body should stay out of summaries/);
+		assert.doesNotMatch(html, /graph-reader-drawer/);
+	});
+
+	it("renders community summary with different fields and actions", () => {
+		const html = renderDrawer(graphCommunitySummaryDrawer(communitySummaryFixture()));
+
+		assert.match(html, /data-testid="graph-community-summary"/);
+		assert.match(html, /Alpha community/);
+		assert.match(html, /社区/);
+		assert.match(html, /核心节点/);
+		assert.match(html, /进入社区/);
+		assert.doesNotMatch(html, /打开详情/);
+		assert.doesNotMatch(html, /graph-reader-drawer/);
+	});
+
+	it("renders graph empty and unavailable states", () => {
+		const empty = renderDrawer(graphEmptyDrawer("没有搜索结果", "no-search-results", "暂无搜索结果"));
+		const unavailable = renderDrawer(graphUnavailableObjectDrawer(unavailableFixture()));
+
+		assert.match(empty, /没有搜索结果/);
+		assert.match(empty, /暂无搜索结果/);
+		assert.match(unavailable, /data-testid="graph-unavailable-object"/);
+		assert.match(unavailable, /missing-node/);
+		assert.match(unavailable, /这个节点当前不可用/);
+	});
+});
+
+function renderDrawer(drawer: DrawerState): string {
+	return renderToStaticMarkup(
+		React.createElement(RightDrawer, {
+			drawer,
+			fullscreen: false,
+			width: 420,
+			defaultWidth: 420,
+			onSelectArtifact: noopString,
+			onOpenPage: noopString,
+			onWikiLinkSeen: noopString,
+			onGraphReaderAction: noopString,
+			onGraphSummaryCommand: noopCommand,
+			onGraphSelectionTextChange: noopString,
+			onGraphSelectionNeighbors: noop,
+			onGraphSelectionAsk: noopSelectionAsk,
+			onResize: noopNumber,
+			onToggleFullscreen: noop,
+			onClose: noopClose,
+		}),
+	);
+}
+
+function nodeSummaryFixture(): GraphNodeSummaryPayload {
+	return {
+		kind: "node-summary",
+		object: { kind: "node", nodeId: "alpha-node" },
+		nodeId: "alpha-node",
+		label: "Alpha node",
+		type: "topic",
+		communityId: "alpha",
+		sourcePath: "wiki/alpha.md",
+		summary: "short excerpt only",
+		connectionCount: 3,
+		searchHit: true,
+		pinHint: { nodeId: "alpha-node", wikiPath: "wiki/alpha.md", pinned: false, position: null },
+		selection: {
+			input: { kind: "node", id: "alpha-node" },
+			selectionId: "node:alpha-node",
+			selectedNodeIds: ["alpha-node"],
+			selectedCommunityIds: ["alpha"],
+			containsCurrentObject: true,
+		},
+		strongestRelations: [
+			{
+				edgeId: "alpha-beta",
+				fromNodeId: "alpha-node",
+				toNodeId: "beta-node",
+				relationType: "依赖",
+				confidence: "EXTRACTED",
+				weight: 1,
+				bridge: false,
+			},
+		],
+		bridgeRelations: [],
+		aggregationMarkers: [],
+		commands: [
+			{ kind: "open-detail-read", nodeId: "alpha-node", path: "wiki/alpha.md", label: "打开详情" },
+			{ kind: "set-fixed-position", mode: "fix", nodeId: "alpha-node", wikiPath: "wiki/alpha.md", label: "固定位置" },
+		],
+	};
+}
+
+function communitySummaryFixture(): GraphCommunitySummaryPayload {
+	return {
+		kind: "community-summary",
+		object: { kind: "community", communityId: "alpha" },
+		communityId: "alpha",
+		label: "Alpha community",
+		nodeCount: 12,
+		coreNodeIds: ["alpha-node", "beta-node"],
+		searchResultIds: ["beta-node"],
+		pinHints: [],
+		selection: {
+			input: { kind: "community", id: "alpha" },
+			selectionId: "community:alpha",
+			selectedNodeIds: ["alpha-node", "beta-node"],
+			selectedCommunityIds: ["alpha"],
+			containsCurrentObject: true,
+		},
+		strongestRelations: [],
+		bridgeRelations: [],
+		aggregationMarkers: [],
+		commands: [
+			{ kind: "enter-community", communityId: "alpha", label: "进入社区" },
+		],
+	};
+}
+
+function unavailableFixture(): GraphUnavailableObjectPayload {
+	return {
+		kind: "unavailable-object",
+		object: { kind: "node", nodeId: "missing-node" },
+		reason: "missing-node",
+		selection: {
+			input: null,
+			selectionId: null,
+			selectedNodeIds: [],
+			selectedCommunityIds: [],
+			containsCurrentObject: false,
+		},
+		searchResultIds: [],
+		pinHints: [],
+		aggregationMarkers: [],
+		commands: [],
+	};
+}
+
+function noop() {}
+function noopString(_value: string) {}
+function noopNumber(_value: number) {}
+function noopCommand(_command: GraphSummaryCommand) {}
+function noopSelectionAsk(_actionId: string | null, _newConversation: boolean) {}
+function noopClose(_reason: "button" | "escape") {}

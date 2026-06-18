@@ -1,6 +1,6 @@
-import { HtmlRenderer } from "@/components/renderers/HtmlRenderer";
-import { DownloadOnlyRenderer } from "@/components/renderers/DownloadOnlyRenderer";
-import type { ArtifactManifest } from "@/lib/api";
+import { HtmlRenderer } from "./renderers/HtmlRenderer";
+import { DownloadOnlyRenderer } from "./renderers/DownloadOnlyRenderer";
+import type { ArtifactManifest } from "../lib/api";
 
 interface Props {
 	manifest: ArtifactManifest;

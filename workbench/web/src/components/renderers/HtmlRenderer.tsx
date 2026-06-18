@@ -1,8 +1,8 @@
 import { Download, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { getArtifactFileUrl, type ArtifactManifest } from "@/lib/api";
+import { Button } from "../ui/button";
+import { getArtifactFileUrl, type ArtifactManifest } from "../../lib/api";
 
 interface Props {
 	manifest: ArtifactManifest;
