@@ -6,15 +6,21 @@ export {
   edgeStrokeWidth,
   edgeVisualOpacity,
   edgeVisualStrokeWidth,
+  GRAPH_COMMUNITY_FOCUS_BUDGETS,
+  GRAPH_COMMUNITY_FOCUS_THRESHOLDS,
   GRAPH_RENDER_BUDGETS,
   makeEdgePath,
   makeEdgePathFromPoints,
   nodeDisplayModeForDensity,
+  resolveCommunityFocusScale,
   resolveGraphRenderBudget,
   screenEffectiveDensityMode
 } from "./model";
 export type {
   DensityMode,
+  GraphCommunityFocusRepresentation,
+  GraphCommunityFocusScale,
+  GraphCommunityFocusSizeBand,
   GraphRenderBudget,
   GraphRenderBudgetLimits,
   GraphRenderBudgetView,

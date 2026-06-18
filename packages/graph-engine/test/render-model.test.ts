@@ -7,6 +7,7 @@ import {
   edgeStrokeWidth,
   edgeVisualOpacity,
   edgeVisualStrokeWidth,
+  GRAPH_COMMUNITY_FOCUS_BUDGETS,
   GRAPH_RENDER_BUDGETS,
   makeEdgePath,
   nodeDisplayModeForDensity,
@@ -302,10 +303,73 @@ describe("buildRenderableGraph", () => {
 
     assert.equal(graph.budget.view, "community");
     assert.equal(graph.nodes.length, 80);
-    assert.ok(graph.budget.usage.maxCards <= GRAPH_RENDER_BUDGETS.community.maxCards);
-    assert.equal(graph.nodes.filter((node) => node.displayMode === "card").length, GRAPH_RENDER_BUDGETS.community.maxCards);
+    assert.ok(graph.budget.usage.maxCards <= graph.budget.limits.maxCards);
+    assert.equal(graph.nodes.filter((node) => node.displayMode === "card").length, graph.budget.limits.maxCards);
     assert.ok(graph.overflow.cards.hidden > 0);
     assert.equal(graph.nodes.find((node) => node.id === "n79")?.displayMode, "card");
+  });
+
+  it("uses the small community band for card-rich focused reading", () => {
+    const graph = buildRenderableGraph(budgetGraph(24, 120), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" }
+    });
+
+    assert.equal(graph.communityFocus?.sizeBand, "small");
+    assert.equal(graph.communityFocus?.representation, "cards-and-labels");
+    assert.equal(graph.communityFocus?.completePresence, "nodes");
+    assert.equal(graph.nodes.length, 24);
+    assert.equal(graph.nodes.filter((node) => node.displayMode === "card").length, 24);
+    assert.equal(graph.budget.limits.maxCards, GRAPH_COMMUNITY_FOCUS_BUDGETS.small.maxCards);
+  });
+
+  it("uses the medium community band with all nodes present and most nodes as points", () => {
+    const graph = buildRenderableGraph(budgetGraph(120, 600), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      searchResultIds: Array.from({ length: 120 }, (_, index) => `n${index}`)
+    });
+    const cardCount = graph.nodes.filter((node) => node.displayMode === "card").length;
+    const pointCount = graph.nodes.filter((node) => node.displayMode === "point" || node.displayMode === "overview").length;
+
+    assert.equal(graph.communityFocus?.sizeBand, "medium");
+    assert.equal(graph.communityFocus?.representation, "points-with-cards");
+    assert.equal(graph.nodes.length, 120);
+    assert.equal(cardCount, GRAPH_COMMUNITY_FOCUS_BUDGETS.medium.maxCards);
+    assert.ok(pointCount > cardCount);
+  });
+
+  it("uses the large community band with complete outline and strict card and label caps", () => {
+    const graph = buildRenderableGraph(budgetGraph(800, 1400), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      searchResultIds: Array.from({ length: 800 }, (_, index) => `n${index}`)
+    });
+
+    assert.equal(graph.communityFocus?.sizeBand, "large");
+    assert.equal(graph.communityFocus?.representation, "outline-with-caps");
+    assert.equal(graph.communityFocus?.completePresence, "outline");
+    assert.equal(graph.nodes.length, 800);
+    assert.equal(graph.nodes.filter((node) => node.displayMode === "card").length, GRAPH_COMMUNITY_FOCUS_BUDGETS.large.maxCards);
+    assert.equal(graph.nodes.filter((node) => node.labelVisible).length, GRAPH_COMMUNITY_FOCUS_BUDGETS.large.maxLabels);
+    assert.ok(graph.edges.length > 0);
+    assert.ok(graph.edges.length <= GRAPH_COMMUNITY_FOCUS_BUDGETS.large.maxVisibleEdges);
+  });
+
+  it("uses the oversized community band as an internal-map entry without rendering every member as a card", () => {
+    const graph = buildRenderableGraph(budgetGraph(3000, 1200), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      searchResultIds: Array.from({ length: 3000 }, (_, index) => `n${index}`)
+    });
+
+    assert.equal(graph.communityFocus?.sizeBand, "oversized");
+    assert.equal(graph.communityFocus?.representation, "internal-map-entry");
+    assert.equal(graph.communityFocus?.completePresence, "internal-map");
+    assert.equal(graph.nodes.length, GRAPH_COMMUNITY_FOCUS_BUDGETS.oversized.maxVisibleNodes);
+    assert.equal(graph.nodes.filter((node) => node.displayMode === "card").length, 0);
+    assert.equal(graph.nodes.filter((node) => node.labelVisible).length, GRAPH_COMMUNITY_FOCUS_BUDGETS.oversized.maxLabels);
+    assert.ok(graph.overflow.nodes.hidden > 0);
   });
 
   it("keeps stable core anchors unchanged when search boosts change", () => {

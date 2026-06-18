@@ -17,6 +17,8 @@ export type DensityMode = "card" | "compact-card" | "point-plus-focus" | "overvi
 export type NodeDisplayMode = "card" | "compact-card" | "point" | "overview";
 export type NodeVisualRole = "landmark" | "index-slip" | "cinnabar-note" | "map-pin";
 export type GraphRenderBudgetView = "global" | "community";
+export type GraphCommunityFocusSizeBand = "small" | "medium" | "large" | "oversized";
+export type GraphCommunityFocusRepresentation = "cards-and-labels" | "points-with-cards" | "outline-with-caps" | "internal-map-entry";
 
 export interface GraphRenderBudgetLimits {
   maxVisibleNodes: number;
@@ -49,6 +51,19 @@ export interface GraphRenderOverflow {
   };
 }
 
+export interface GraphCommunityFocusScale {
+  communityId: string;
+  nodeCount: number;
+  sizeBand: GraphCommunityFocusSizeBand;
+  representation: GraphCommunityFocusRepresentation;
+  completePresence: "nodes" | "outline" | "internal-map";
+  thresholds: {
+    smallMax: number;
+    mediumMax: number;
+    largeMax: number;
+  };
+}
+
 export interface RenderableGraph {
   model: Record<string, unknown>;
   layout: Record<string, unknown>;
@@ -75,6 +90,7 @@ export interface RenderableGraph {
     stableSkeletonEdgeIds: string[];
     temporaryBoostNodeIds: string[];
   };
+  communityFocus: GraphCommunityFocusScale | null;
 }
 
 export interface RenderableNode {
@@ -209,6 +225,43 @@ export const GRAPH_RENDER_BUDGETS: Record<GraphRenderBudgetView, GraphRenderBudg
   }
 };
 
+export const GRAPH_COMMUNITY_FOCUS_THRESHOLDS = {
+  smallMax: 40,
+  mediumMax: 250,
+  largeMax: 1000
+} as const;
+
+export const GRAPH_COMMUNITY_FOCUS_BUDGETS: Record<GraphCommunityFocusSizeBand, GraphRenderBudgetLimits> = {
+  small: {
+    maxVisibleNodes: 2500,
+    maxVisibleEdges: 1500,
+    maxLabels: 160,
+    maxCards: 80,
+    maxInteractionUpdates: 1800
+  },
+  medium: {
+    maxVisibleNodes: 2500,
+    maxVisibleEdges: 1500,
+    maxLabels: 60,
+    maxCards: 40,
+    maxInteractionUpdates: 1800
+  },
+  large: {
+    maxVisibleNodes: 2500,
+    maxVisibleEdges: 1200,
+    maxLabels: 80,
+    maxCards: 20,
+    maxInteractionUpdates: 1500
+  },
+  oversized: {
+    maxVisibleNodes: 2500,
+    maxVisibleEdges: 800,
+    maxLabels: 40,
+    maxCards: 0,
+    maxInteractionUpdates: 1200
+  }
+};
+
 export function createRenderPathCache(): RenderPathCache {
   const edgeCurves = new Map<string, number>();
   return {
@@ -240,7 +293,9 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const selectedNodeSet = new Set(selectedNodeIds);
   const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null;
   const focus = normalizeGraphFocus(options.focus, model);
-  const budgetLimits = resolveGraphRenderBudget(focus);
+  const focusedCommunityNodeCount = focus?.kind === "community" ? model.nodes.filter((node) => node.community === focus.id).length : 0;
+  const communityFocus = resolveCommunityFocusScale(focus, focusedCommunityNodeCount);
+  const budgetLimits = resolveGraphRenderBudget(focus, focusedCommunityNodeCount);
   const budgetView: GraphRenderBudgetView = focus?.kind === "community" ? "community" : "global";
   const typeFilters = normalizeGraphTypeFilters(options.typeFilters, model.nodes);
   const visible = resolveAtlasVisibleSnapshot(model, layout, {
@@ -506,12 +561,28 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       stableCoreNodeIds,
       stableSkeletonEdgeIds: filteredVisibleEdges.filter((edge) => stableSkeletonEdgeSet.has(edge.id)).map((edge) => edge.id),
       temporaryBoostNodeIds: filteredVisibleNodes.filter((node) => temporaryBoostNodeSet.has(node.id)).map((node) => node.id)
-    }
+    },
+    communityFocus
   };
 }
 
-export function resolveGraphRenderBudget(focus: GraphFocusInput): GraphRenderBudgetLimits {
-  return { ...(focus?.kind === "community" ? GRAPH_RENDER_BUDGETS.community : GRAPH_RENDER_BUDGETS.global) };
+export function resolveGraphRenderBudget(focus: GraphFocusInput, focusedCommunityNodeCount = 0): GraphRenderBudgetLimits {
+  if (focus?.kind !== "community") return { ...GRAPH_RENDER_BUDGETS.global };
+  return { ...GRAPH_COMMUNITY_FOCUS_BUDGETS[communityFocusSizeBand(focusedCommunityNodeCount)] };
+}
+
+export function resolveCommunityFocusScale(focus: GraphFocusInput, focusedCommunityNodeCount: number): GraphCommunityFocusScale | null {
+  if (focus?.kind !== "community") return null;
+  const nodeCount = Math.max(0, Math.floor(Number(focusedCommunityNodeCount) || 0));
+  const sizeBand = communityFocusSizeBand(nodeCount);
+  return {
+    communityId: focus.id,
+    nodeCount,
+    sizeBand,
+    representation: communityFocusRepresentation(sizeBand),
+    completePresence: communityFocusCompletePresence(sizeBand),
+    thresholds: { ...GRAPH_COMMUNITY_FOCUS_THRESHOLDS }
+  };
 }
 
 export function makeEdgePath(source: AtlasNode, target: AtlasNode, edge: { weight?: number }): string {
@@ -710,6 +781,27 @@ function budgetedNodeDisplayMode(
   if (options.view === "global") return options.densityMode === "overview" ? "overview" : "point";
   if (options.densityMode === "overview") return "overview";
   return "point";
+}
+
+function communityFocusSizeBand(nodeCount: number): GraphCommunityFocusSizeBand {
+  const count = Math.max(0, Math.floor(Number(nodeCount) || 0));
+  if (count <= GRAPH_COMMUNITY_FOCUS_THRESHOLDS.smallMax) return "small";
+  if (count <= GRAPH_COMMUNITY_FOCUS_THRESHOLDS.mediumMax) return "medium";
+  if (count <= GRAPH_COMMUNITY_FOCUS_THRESHOLDS.largeMax) return "large";
+  return "oversized";
+}
+
+function communityFocusRepresentation(sizeBand: GraphCommunityFocusSizeBand): GraphCommunityFocusRepresentation {
+  if (sizeBand === "small") return "cards-and-labels";
+  if (sizeBand === "medium") return "points-with-cards";
+  if (sizeBand === "large") return "outline-with-caps";
+  return "internal-map-entry";
+}
+
+function communityFocusCompletePresence(sizeBand: GraphCommunityFocusSizeBand): GraphCommunityFocusScale["completePresence"] {
+  if (sizeBand === "large") return "outline";
+  if (sizeBand === "oversized") return "internal-map";
+  return "nodes";
 }
 
 function shouldPreferCard(
