@@ -4,8 +4,8 @@
   "status": {
     "overall": "in_progress",
     "phase": "phase-1",
-    "task": "1.3",
-    "next_allowed_action": "Run the current DOM/SVG performance runner, write the baseline performance report, identify bottleneck class, and record provisional thresholds."
+    "task": "1.4",
+    "next_allowed_action": "Run the disposable validation gate and record real-graph source/privacy policy, browser environment, edge caps, oversized-community semantics, desktop guardrails, and trial dependency path."
   },
   "execution_rules": {
     "branch": "codex/large-graph-performance-experience",
@@ -1638,12 +1638,73 @@
     ]
   },
   "performance_thresholds": {
-    "status": "pending_phase_1_measurement",
+    "status": "provisional_phase_1_3",
     "notes": [
-      "Phase 1 must write provisional pass/fail thresholds for render, pan, zoom, search, click, drawer, enter-community, return-global, and memory growth.",
-      "Thresholds may be adjusted only with measurement evidence."
+      "Thresholds are provisional comparison gates for Phase 4/6, not final product promises.",
+      "They were derived from the current DOM/SVG large-graph runner output and may change only with measurement evidence."
     ],
-    "values": []
+    "values": [
+      {
+        "metric": "initial_render_1000_ms",
+        "pass_threshold": "<=1500",
+        "evidence": "1000 sparse 824.3 ms, 1000 dense 1012.6 ms in task 1.2 records"
+      },
+      {
+        "metric": "initial_render_5000_ms",
+        "pass_threshold": "<=5000",
+        "evidence": "5000 sparse 4144.7 ms in task 1.2 records"
+      },
+      {
+        "metric": "initial_render_10000_ms",
+        "pass_threshold": "<=8000",
+        "evidence": "10000 aggregation 10129.4 ms exceeded target in task 1.2 records"
+      },
+      {
+        "metric": "wheel_zoom_fps",
+        "pass_threshold": ">=30 FPS and frame_p95_ms <=35",
+        "evidence": "1000/5000 passed; oversized-community recorded fps_below_floor at 7 FPS in task 1.2 records"
+      },
+      {
+        "metric": "pan_ms",
+        "pass_threshold": "<=300 or recorded failure class",
+        "evidence": "10000 aggregation pan timed out in task 1.3 artifact"
+      },
+      {
+        "metric": "hover_ms",
+        "pass_threshold": "<=500",
+        "evidence": "All measured shapes in task 1.2 were below 500 ms"
+      },
+      {
+        "metric": "search_highlight_ms",
+        "pass_threshold": "<=500",
+        "evidence": "All measured shapes in task 1.2 were below 500 ms"
+      },
+      {
+        "metric": "node_click_ms",
+        "pass_threshold": "<=800 for 1000, <=1500 for 5000, <=2000 for 10000",
+        "evidence": "10000 aggregation node_click timed out in task 1.3 artifact"
+      },
+      {
+        "metric": "drawer_open_ms",
+        "pass_threshold": "<=1000 for 1000, <=2500 for 5000, <=3000 for 10000",
+        "evidence": "10000 drawer_open reached 7600.8 ms in task 1.2 records"
+      },
+      {
+        "metric": "enter_community_ms",
+        "pass_threshold": "<=1500 normal, <=3000 large/oversized",
+        "evidence": "10000 and oversized-community exceed target in task 1.2 records"
+      },
+      {
+        "metric": "return_global_ms",
+        "pass_threshold": "<=3500 for 1000, <=5000 for 5000/10000",
+        "evidence": "1000 is near limit; 10000 reached 6952 ms in task 1.2 records"
+      },
+      {
+        "metric": "repeated_cycle_memory_growth_mb",
+        "pass_threshold": "<=10 for 1000-node cycle",
+        "evidence": "1000 sparse/dense memory_growth_mb recorded 0 in task 1.2 records"
+      }
+    ]
   },
   "renderer_trial_matrix": {
     "status": "pending_phase_2",
@@ -1860,8 +1921,13 @@
         },
         {
           "check": "Baseline measurement report names bottleneck class with evidence and writes provisional thresholds.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "Baseline report exists: docs/graph/performance/2026-06-18-phase-1-3-dom-svg-large-baseline.md",
+            "Task 1.3 artifact path: /tmp/llm-wiki-graph-large-perf-task-1-3/large-graph-performance-results.json",
+            "Report names DOM/SVG update volume as the primary bottleneck class with evidence from DOM node counts, 10000-node timeouts, and oversized-community low-FPS behavior.",
+            "Provisional thresholds are recorded in performance_thresholds.values."
+          ]
         },
         {
           "check": "5000 and 10000 graph shapes are measured as pass/fail or the phase is blocked by missing measurement environment.",
@@ -1908,8 +1974,14 @@
         {
           "id": "1.3",
           "title": "Write baseline performance report and provisional thresholds",
-          "status": "pending",
-          "verification": []
+          "status": "completed",
+          "verification": [
+            "`git log --oneline -15` inspected before task work; latest commit was e612894 test: add graph performance measurement runner [task 1.2].",
+            "`npm run test --workspace=@llm-wiki/graph-engine` passed before report work: 277 tests, 59 suites, 0 failures.",
+            "`GRAPH_LARGE_PERF_ARTIFACT_DIR=/tmp/llm-wiki-graph-large-perf-task-1-3 bash tests/graph-browser-large-performance.regression-1.sh` passed and wrote 47 records across 5 graph shapes.",
+            "docs/graph/performance/2026-06-18-phase-1-3-dom-svg-large-baseline.md written with result table, bottleneck class, and provisional thresholds.",
+            "Progress file records provisional thresholds and report evidence."
+          ]
         },
         {
           "id": "1.4",
@@ -2281,6 +2353,10 @@
     {
       "timestamp": "2026-06-18",
       "entry": "Task 1.2 added the large-graph browser performance runner and regression wrapper. The runner records fixed-schema timing, FPS, DOM/visible-object, memory, pass/fail, and failure-class fields for 1000/5000/10000/oversized graph shapes."
+    },
+    {
+      "timestamp": "2026-06-18",
+      "entry": "Task 1.3 ran the current DOM/SVG large-graph performance runner, wrote the baseline report, identified DOM/SVG update volume as the main bottleneck class, and recorded provisional thresholds."
     }
   ],
   "execution_log": [
@@ -2337,6 +2413,20 @@
         "graph-engine typecheck passed"
       ],
       "measured_at": "2026-06-18T07:35:00Z"
+    },
+    {
+      "task": "1.3",
+      "status": "completed",
+      "summary": "Wrote the DOM/SVG large-graph baseline report and provisional performance thresholds using the runner artifact.",
+      "evidence": [
+        "docs/graph/performance/2026-06-18-phase-1-3-dom-svg-large-baseline.md",
+        "/tmp/llm-wiki-graph-large-perf-task-1-3/large-graph-performance-results.json",
+        "runner passed with 47 records across 1000 sparse, 1000 dense, 5000 sparse, 10000 aggregation, and oversized-community shapes",
+        "10000 aggregation recorded pan and node_click timeouts in the task 1.3 artifact",
+        "bottleneck class: DOM/SVG update volume with interaction-state churn and community focus expansion as secondary bottlenecks",
+        "graph-engine test passed: 277 tests, 59 suites, 0 failures"
+      ],
+      "measured_at": "2026-06-18T07:55:00Z"
     }
   ]
 }
