@@ -390,7 +390,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     const nextSelection: SelectionInput = { kind: "community", id };
     context.runtimeState.setSelection(nextSelection, "selection-panel");
     context.callbacks.onSelectionInput?.(nextSelection);
-    focusCommunity(id);
+    delegates.render();
   }
 
   function setCommunityHover(id: CommunityId | null): void {

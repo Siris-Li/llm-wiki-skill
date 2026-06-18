@@ -482,6 +482,7 @@ export interface GraphEngine {
   setTypeFilters(filters: GraphTypeFilters): void;
   resetView(): void;
   select(selector: SelectionInput): Selection;
+  previewNode(id: NodeId | null): void;
   summarizeNode(id: NodeId, options?: GraphSummaryOptions): GraphNodeSummaryPayload | GraphUnavailableObjectPayload;
   summarizeCommunity(
     id: CommunityId,

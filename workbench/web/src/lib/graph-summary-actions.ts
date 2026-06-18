@@ -19,7 +19,8 @@ import { selectionTitle } from "./graph-selection";
 
 export type GraphSelectionCommand =
 	| { id: string; type: "clear" | "clear-selection" | "neighbors" | "enter-community" }
-	| { id: string; nodeId: string; type: "enter-community-node" };
+	| { id: string; commandId?: string; nodeId: string; type: "enter-community-node" }
+	| { id: string; nodeId: string | null; type: "preview-node" };
 
 export function drawerForGraphSelection(data: GraphData | null, selection: Selection, current: DrawerState): DrawerState {
 	if (data && selection.nodeIds.length === 1) {
@@ -67,11 +68,23 @@ export function graphOpenPagePayloadForCommand(data: GraphData | null, command: 
 	};
 }
 
-export function graphSelectionCommandForOpenDetail(data: GraphData | null, command: GraphSummaryCommand): GraphSelectionCommand | null {
+export function graphSelectionCommandForOpenDetail(
+	data: GraphData | null,
+	command: GraphSummaryCommand,
+): Extract<GraphSelectionCommand, { type: "enter-community-node" }> | null {
 	if (command.kind !== "open-detail-read" || !data) return null;
 	const node = data.nodes.find((item) => item.id === command.nodeId);
 	if (!node?.community) return null;
 	return { id: node.community, nodeId: node.id, type: "enter-community-node" };
+}
+
+export function drawerForGraphSummaryNode(data: GraphData | null, nodeId: string, current: DrawerState): DrawerState {
+	if (!data) return current;
+	const summary = summarizeGraphNode(data, nodeId, {
+		selection: { kind: "node", id: nodeId },
+	});
+	if (summary.kind !== "node-summary") return current;
+	return graphNodeSummaryDrawer(summary);
 }
 
 function fallbackPayloadForOpenDetail(command: Extract<GraphSummaryCommand, { kind: "open-detail-read" }>): GraphOpenPagePayload {

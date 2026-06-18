@@ -48,6 +48,7 @@ import type { GraphReaderActionId } from "@/lib/graph-reader";
 import { buildSelectionPromptPayload } from "@/lib/graph-selection";
 import {
 	drawerForGraphSelection,
+	drawerForGraphSummaryNode,
 	graphOpenPagePayloadForCommand,
 	graphSelectionCommandForOpenDetail,
 	type GraphSelectionCommand,
@@ -487,7 +488,14 @@ function App() {
 		if (command.kind === "open-detail-read") {
 			const payload = graphOpenPagePayloadForCommand(graphData, command);
 			const focusCommand = graphSelectionCommandForOpenDetail(graphData, command);
-			if (focusCommand) setSelectionCommand(focusCommand);
+			if (focusCommand) {
+				setSelectionCommand({
+					commandId: `open-detail-${command.nodeId}-${Math.random().toString(36).slice(2, 10)}`,
+					id: focusCommand.id,
+					nodeId: focusCommand.nodeId,
+					type: "enter-community-node",
+				});
+			}
 			if (payload) void handleOpenGraphPage(payload, { syncGraphFocus: !focusCommand });
 			return;
 		}
@@ -495,6 +503,18 @@ function App() {
 			setSelectionCommand({ id: command.communityId, type: "enter-community" });
 		}
 	}, [graphData, active]);
+
+	const handleGraphSummaryNodeSelect = useCallback((nodeId: string) => {
+		setDrawer((current) => drawerForGraphSummaryNode(graphData, nodeId, current));
+	}, [graphData]);
+
+	const handleGraphSummaryNodePreview = useCallback((nodeId: string | null) => {
+		setSelectionCommand({
+			id: `${nodeId ?? "clear"}-${Math.random().toString(36).slice(2, 10)}`,
+			nodeId,
+			type: "preview-node",
+		});
+	}, []);
 
 	const handleWikiLinkSeen = useCallback((pagePath: string) => {
 		setGraphFocusPath(pagePath);
@@ -733,6 +753,8 @@ function App() {
 					onWikiLinkSeen={handleWikiLinkSeen}
 					onGraphReaderAction={handleGraphReaderAction}
 					onGraphSummaryCommand={handleGraphSummaryCommand}
+					onGraphSummaryNodeSelect={handleGraphSummaryNodeSelect}
+					onGraphSummaryNodePreview={handleGraphSummaryNodePreview}
 					onGraphSelectionTextChange={handleGraphSelectionTextChange}
 					onGraphSelectionNeighbors={handleGraphSelectionNeighbors}
 					onGraphSelectionAsk={handleGraphSelectionAsk}

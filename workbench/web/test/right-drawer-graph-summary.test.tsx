@@ -39,6 +39,8 @@ describe("RightDrawer graph lightweight summaries", () => {
 		assert.match(html, /Alpha community/);
 		assert.match(html, /社区/);
 		assert.match(html, /核心节点/);
+		assert.match(html, /查看全部/);
+		assert.match(html, /alpha-node/);
 		assert.match(html, /进入社区/);
 		assert.doesNotMatch(html, /打开详情/);
 		assert.doesNotMatch(html, /graph-reader-drawer/);
@@ -68,6 +70,7 @@ function renderDrawer(drawer: DrawerState): string {
 			onWikiLinkSeen: noopString,
 			onGraphReaderAction: noopString,
 			onGraphSummaryCommand: noopCommand,
+			onGraphSummaryNodePreview: noopPreviewNode,
 			onGraphSelectionTextChange: noopString,
 			onGraphSelectionNeighbors: noop,
 			onGraphSelectionAsk: noopSelectionAsk,
@@ -125,7 +128,7 @@ function communitySummaryFixture(): GraphCommunitySummaryPayload {
 		communityId: "alpha",
 		label: "Alpha community",
 		nodeCount: 12,
-		coreNodeIds: ["alpha-node", "beta-node"],
+		coreNodeIds: ["alpha-node", "beta-node", "gamma-node", "delta-node"],
 		searchResultIds: ["beta-node"],
 		pinHints: [],
 		selection: {
@@ -167,5 +170,6 @@ function noop() {}
 function noopString(_value: string) {}
 function noopNumber(_value: number) {}
 function noopCommand(_command: GraphSummaryCommand) {}
+function noopPreviewNode(_nodeId: string | null) {}
 function noopSelectionAsk(_actionId: string | null, _newConversation: boolean) {}
 function noopClose(_reason: "button" | "escape") {}

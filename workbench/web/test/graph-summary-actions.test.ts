@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
 	drawerForGraphSelection,
+	drawerForGraphSummaryNode,
 	graphOpenPagePayloadForCommand,
 	graphSelectionCommandForOpenDetail,
 } from "../src/lib/graph-summary-actions";
@@ -20,6 +21,24 @@ describe("graph summary actions", () => {
 			drawer.mode === "graph-node-summary" ? drawer.payload.commands.map((command) => command.kind) : [],
 			["open-detail-read", "set-fixed-position", "enter-community"],
 		);
+	});
+
+	it("turns a single community selection into a lightweight community summary drawer", () => {
+		const drawer = drawerForGraphSelection(graphFixture(), communitySelection(), closedDrawer());
+
+		assert.equal(drawer.mode, "graph-community-summary");
+		assert.equal(drawer.mode === "graph-community-summary" ? drawer.payload.communityId : null, "c1");
+		assert.deepEqual(
+			drawer.mode === "graph-community-summary" ? drawer.payload.commands.map((command) => command.kind) : [],
+			["enter-community"],
+		);
+	});
+
+	it("switches a community core node list click to node summary without entering community", () => {
+		const drawer = drawerForGraphSummaryNode(graphFixture(), "b", communitySummaryDrawer());
+
+		assert.equal(drawer.mode, "graph-node-summary");
+		assert.equal(drawer.mode === "graph-node-summary" ? drawer.payload.nodeId : null, "b");
 	});
 
 	it("keeps open detail/read as an explicit graph-reader payload", () => {
@@ -81,6 +100,25 @@ function nodeSelection(): Selection {
 		},
 		actions: [],
 	};
+}
+
+function communitySelection(): Selection {
+	return {
+		id: "community:a,b",
+		nodeIds: ["a", "b"],
+		communityIds: ["c1"],
+		facts: {
+			pageCount: 2,
+			internalLinkCount: 1,
+			communityCount: 1,
+			isolatedCount: 0,
+		},
+		actions: [],
+	};
+}
+
+function communitySummaryDrawer() {
+	return drawerForGraphSelection(graphFixture(), communitySelection(), closedDrawer());
 }
 
 function graphFixture(): GraphData {

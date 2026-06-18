@@ -78,6 +78,7 @@ export interface GraphRenderer {
   setTypeFilters(filters: GraphTypeFilters): void;
   resetView(): void;
   select(selection: SelectionInput): void;
+  previewNode(id: NodeId | null): void;
   clearSelection(): void;
   clearInteraction(): void;
   resetLayout(): void;
@@ -273,6 +274,14 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     },
     select(nextSelection: SelectionInput): void {
       render({ selection: nextSelection });
+    },
+    previewNode(id: NodeId | null): void {
+      if (id) {
+        presenter.setGraphHover({ kind: "node", id });
+      } else {
+        presenter.clearHoverPreview();
+      }
+      presenter.renderHoverPreview();
     },
     clearSelection(): void {
       controller.retreatFocusedView();

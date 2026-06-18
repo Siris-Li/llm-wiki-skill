@@ -219,6 +219,9 @@ function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
     focusCommunity(id: string) {
       calls.push(["focusCommunity", id]);
     },
+    previewNode(id: string | null) {
+      calls.push(["previewNode", id]);
+    },
     setTypeFilters(filters: GraphTypeFilters) {
       calls.push(["setTypeFilters", filters]);
     },

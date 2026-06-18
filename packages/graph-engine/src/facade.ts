@@ -73,6 +73,7 @@ export interface GraphFacadeRenderer {
   setTypeFilters(filters: NonNullable<GraphEngineOptions["typeFilters"]>): void;
   resetView(): void;
   select(selection: SelectionInput): void;
+  previewNode(id: string | null): void;
   clearSelection(): void;
   clearInteraction(): void;
   setTheme(theme: ThemeId): void;
@@ -185,6 +186,11 @@ export function createGraphFacadeFromRenderer(
       assertActive();
       renderer.select(selector);
       return resolveForHostCapabilities(selector);
+    },
+
+    previewNode(id): void {
+      assertActive();
+      renderer.previewNode(id);
     },
 
     summarizeNode(id, summaryOptions) {

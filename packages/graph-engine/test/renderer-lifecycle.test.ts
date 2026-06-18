@@ -5,6 +5,29 @@ import type { GraphData, GraphDiff, SelectionInput } from "../src";
 import { createGraphRenderer } from "../src/render";
 
 describe("graph renderer lifecycle", () => {
+  it("routes a community click to lightweight selection instead of focusing the community", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const selections: SelectionInput[] = [];
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphDataWithCommunities([
+        ["a", "community-a"],
+        ["b", "community-b"]
+      ]),
+      theme: "shan-shui",
+      live: false,
+      onSelectionInput: (selection) => selections.push(selection)
+    });
+
+    findByDataset(renderer.root as unknown as FakeElement, "communityId", "community-a")?.dispatch("click");
+
+    assert.deepEqual(selections, [{ kind: "community", id: "community-a" }]);
+    assert.ok(nodeElement(renderer, "a"));
+    assert.ok(nodeElement(renderer, "b"));
+
+    renderer.destroy();
+  });
+
   it("routes a global node click to lightweight selection instead of opening the page", () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");
@@ -89,18 +112,22 @@ describe("graph renderer lifecycle", () => {
 });
 
 function graphData(ids: string[]): GraphData {
+  return graphDataWithCommunities(ids.map((id) => [id, "community-a"]));
+}
+
+function graphDataWithCommunities(entries: Array<[string, string]>): GraphData {
   return {
     meta: {
       build_date: "2026-06-17",
       wiki_title: "Lifecycle graph",
-      total_nodes: ids.length,
+      total_nodes: entries.length,
       total_edges: 0
     },
-    nodes: ids.map((id) => ({
+    nodes: entries.map(([id, community]) => ({
       id,
       label: `Node ${id}`,
       type: "topic",
-      community: "community-a",
+      community,
       source_path: `wiki/${id}.md`,
       content: `Node ${id}`
     })),

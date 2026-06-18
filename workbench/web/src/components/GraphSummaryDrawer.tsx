@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 
 import type {
 	GraphCommunitySummaryPayload,
@@ -18,6 +18,8 @@ interface NodeSummaryProps {
 interface CommunitySummaryProps {
 	payload: GraphCommunitySummaryPayload;
 	onCommand: (command: GraphSummaryCommand) => void;
+	onShowNodeSummary: (nodeId: string) => void;
+	onPreviewNode: (nodeId: string | null) => void;
 }
 
 interface SimpleStateProps {
@@ -51,7 +53,9 @@ export function GraphNodeSummary({ payload, onCommand }: NodeSummaryProps) {
 	);
 }
 
-export function GraphCommunitySummary({ payload, onCommand }: CommunitySummaryProps) {
+export function GraphCommunitySummary({ payload, onCommand, onShowNodeSummary, onPreviewNode }: CommunitySummaryProps) {
+	const [coreExpanded, setCoreExpanded] = useState(false);
+	const coreIds = coreExpanded ? payload.coreNodeIds : payload.coreNodeIds.slice(0, 3);
 	return (
 		<article className="graph-summary-drawer" data-testid="graph-community-summary">
 			<div className="graph-summary-kicker">社区</div>
@@ -65,7 +69,41 @@ export function GraphCommunitySummary({ payload, onCommand }: CommunitySummaryPr
 				<span>{payload.communityId}</span>
 				<span>{payload.pinHints.length > 0 ? `${payload.pinHints.length} 个固定` : "无固定"}</span>
 			</div>
-			<IdList title="核心节点" ids={payload.coreNodeIds} emptyText="暂无核心节点" />
+			<section className="graph-summary-section">
+				<div className="graph-summary-section-header">
+					<h3>核心节点</h3>
+					{payload.coreNodeIds.length > 3 && (
+						<button
+							type="button"
+							className="graph-summary-inline-action"
+							onClick={() => setCoreExpanded((value) => !value)}
+						>
+							{coreExpanded ? "收起" : "查看全部"}
+						</button>
+					)}
+				</div>
+				{coreIds.length === 0 ? (
+					<div className="graph-summary-muted">暂无核心节点</div>
+				) : (
+					<ul className="graph-summary-list graph-summary-click-list">
+						{coreIds.map((id) => (
+							<li key={id}>
+								<button
+									type="button"
+									className="graph-summary-node-link"
+									onMouseEnter={() => onPreviewNode(id)}
+									onMouseLeave={() => onPreviewNode(null)}
+									onFocus={() => onPreviewNode(id)}
+									onBlur={() => onPreviewNode(null)}
+									onClick={() => onShowNodeSummary(id)}
+								>
+									{id}
+								</button>
+							</li>
+						))}
+					</ul>
+				)}
+			</section>
 			<IdList title="搜索命中" ids={payload.searchResultIds} emptyText="暂无搜索命中" />
 			<RelationList title="桥接关系" relations={payload.bridgeRelations} emptyText="暂无桥接关系" />
 			<CommandRow commands={payload.commands} onCommand={onCommand} />

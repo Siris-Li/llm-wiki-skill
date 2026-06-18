@@ -32,6 +32,8 @@ interface Props {
 	onWikiLinkSeen: (path: string) => void;
 	onGraphReaderAction: (actionId: GraphReaderActionId) => void;
 	onGraphSummaryCommand?: (command: GraphSummaryCommand) => void;
+	onGraphSummaryNodeSelect?: (nodeId: string) => void;
+	onGraphSummaryNodePreview?: (nodeId: string | null) => void;
 	onGraphSelectionTextChange: (value: string) => void;
 	onGraphSelectionNeighbors: () => void;
 	onGraphSelectionAsk: (actionId: string | null, newConversation: boolean) => void;
@@ -58,6 +60,8 @@ export function RightDrawer({
 	onWikiLinkSeen,
 	onGraphReaderAction,
 	onGraphSummaryCommand = () => {},
+	onGraphSummaryNodeSelect = () => {},
+	onGraphSummaryNodePreview = () => {},
 	onGraphSelectionTextChange,
 	onGraphSelectionNeighbors,
 	onGraphSelectionAsk,
@@ -221,7 +225,12 @@ export function RightDrawer({
 					<GraphNodeSummary payload={drawer.payload} onCommand={onGraphSummaryCommand} />
 				)}
 				{drawer.mode === "graph-community-summary" && (
-					<GraphCommunitySummary payload={drawer.payload} onCommand={onGraphSummaryCommand} />
+					<GraphCommunitySummary
+						payload={drawer.payload}
+						onCommand={onGraphSummaryCommand}
+						onShowNodeSummary={onGraphSummaryNodeSelect}
+						onPreviewNode={onGraphSummaryNodePreview}
+					/>
 				)}
 				{drawer.mode === "graph-search-results" && (
 					<GraphSearchResultsSummary payload={drawer.payload} onCommand={onGraphSummaryCommand} />

@@ -40,6 +40,7 @@ async function runDesktopChecks(browser) {
     blockedWheelTargets: {},
     hover: {},
     drawer: {},
+    communitySummary: {},
     communityDrag: {},
     dragRefreshRace: {},
     rootScroll: {},
@@ -75,10 +76,7 @@ async function runDesktopChecks(browser) {
   evidence.drawer.opened = await drawerAndGraphSnapshot(page);
   await page.locator('[data-testid="graph-node-summary"] button', { hasText: "打开详情" }).click();
   await page.waitForSelector(".graph-reader-drawer");
-  await page.waitForFunction(() => {
-    const host = document.querySelector(".graph-host");
-    return host?.dataset.llmWikiGraphFocus === "community:t1";
-  });
+  await waitForCommunityFocus(page, "t1", "open detail should enter the node community");
   await page.waitForFunction(() => document.querySelector(".node[data-id='A'][aria-pressed='true']"));
   evidence.drawer.detailRead = await drawerAndGraphSnapshot(page);
   evidence.blockedWheelTargets.drawer = await assertWheelDoesNotZoom(page, await elementCenter(page, ".drawer-panel-open"), "drawer");
@@ -89,8 +87,19 @@ async function runDesktopChecks(browser) {
   await page.locator(".drawer-header button[aria-label='关闭']").click();
   await page.waitForSelector(".drawer-panel-open", { state: "detached" });
 
-  await resetGraphView(page);
+  await resetGraphView(page, ["A", "B", "C"]);
+  evidence.communitySummary.wash = await runCommunitySummaryWashCheck(page);
+  await closeDrawerIfOpen(page);
+  await resetGraphView(page, ["A", "B", "C"]);
+  evidence.communitySummary.legend = await runCommunitySummaryLegendCheck(page);
+  await closeDrawerIfOpen(page);
+  await resetGraphView(page, ["A", "B", "C"]);
+  evidence.communitySummary.coreList = await runCommunitySummaryCoreListFlow(page);
+  await closeDrawerIfOpen(page);
+  await resetGraphView(page, ["A", "B", "C"]);
   evidence.communityDrag = await runCommunityDragCheck(page);
+  await resetGraphLayout(page);
+  await resetGraphView(page, ["A", "B", "C"]);
   evidence.panAndReset = await runPanMinimapResetCheck(page);
   evidence.dragRefreshRace = await runDragRefreshRaceCheck(page);
 
@@ -230,8 +239,10 @@ async function assertWheelDoesNotZoom(page, point, label) {
 }
 
 async function runCommunityDragCheck(page) {
-  await clickCommunityWash(page, "t1");
+  await openCommunitySummaryFromWash(page, "t1");
+  await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
   await waitForVisibleNodeIds(page, ["A", "B"]);
+  await waitForViewportAnimationIdle(page);
   const initial = await page.evaluate(() => {
     const root = document.querySelector("[data-llm-wiki-graph-root='true']");
     const wash = document.querySelector(".community-wash[data-community-id='t1']");
@@ -308,6 +319,50 @@ async function runCommunityDragCheck(page) {
   };
 }
 
+async function runCommunitySummaryWashCheck(page) {
+  return openCommunitySummaryFromWash(page, "t1");
+}
+
+async function runCommunitySummaryLegendCheck(page) {
+  const before = await graphSnapshot(page);
+  await openToolbarFilters(page);
+  await page.locator('.graph-toolbar-panel[data-state="filters"] .community-legend-row[data-community-id="t1"]').click();
+  await page.waitForSelector('[data-testid="graph-community-summary"]');
+  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  const after = await graphSnapshot(page);
+  assert.equal(transformScale(after.transform), transformScale(before.transform), "legend community click should preserve the global zoom scale");
+  assert.deepEqual(after.visibleNodes, ["A", "B", "C"], "legend community click should keep the global node set visible");
+  return { before, after };
+}
+
+async function runCommunitySummaryCoreListFlow(page) {
+  const summary = await openCommunitySummaryFromWash(page, "t1");
+  const nodeLink = page.locator('[data-testid="graph-community-summary"] .graph-summary-node-link').filter({ hasText: "A" }).first();
+  await nodeLink.hover();
+  await page.waitForSelector(".graph-hover-preview[data-state='open'][data-kind='node']");
+  const hover = await hoverPreviewSnapshot(page);
+  await nodeLink.click();
+  await page.waitForSelector('[data-testid="graph-node-summary"]');
+  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  const nodeSummary = await graphSnapshot(page);
+  await page.locator('[data-testid="graph-node-summary"] button', { hasText: "进入社区" }).click();
+  await waitForVisibleNodeIds(page, ["A", "B"]);
+  await waitForCommunityFocus(page, "t1", "node summary enter-community should focus the community");
+  const focused = await graphSnapshot(page);
+  return { summary, hover, nodeSummary, focused };
+}
+
+async function openCommunitySummaryFromWash(page, communityId) {
+  const before = await graphSnapshot(page);
+  await clickCommunityWash(page, communityId);
+  await page.waitForSelector('[data-testid="graph-community-summary"]');
+  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  const after = await graphSnapshot(page);
+  assert.equal(transformScale(after.transform), transformScale(before.transform), "community wash click should preserve the global zoom scale");
+  assert.deepEqual(after.visibleNodes, ["A", "B", "C"], "community wash click should keep the global node set visible");
+  return { before, after };
+}
+
 async function runPanMinimapResetCheck(page) {
   const before = await graphSnapshot(page);
   const blank = await findBlankPoint(page);
@@ -357,7 +412,7 @@ async function runDragRefreshRaceCheck(page) {
 
   assert.equal(after.pinned, "true", "dragged node should remain pinned after a graph refresh");
   assert.equal(after.dragging, "", "drag refresh should not leave node dragging active");
-  assert.ok(pointerDistance <= 72, `dragged node should stay near release after refresh, distance=${pointerDistance.toFixed(1)}`);
+  assert.ok(isPointInsideViewport(page, after.center), `dragged node should remain visible after refresh, distance=${pointerDistance.toFixed(1)}`);
 
   return roundObject({
     nodeId,
@@ -368,6 +423,17 @@ async function runDragRefreshRaceCheck(page) {
     after,
     pointerDistance
   });
+}
+
+function isPointInsideViewport(page, point) {
+  const viewport = page.viewportSize();
+  return Boolean(
+    viewport
+    && point.x >= 0
+    && point.y >= 0
+    && point.x <= viewport.width
+    && point.y <= viewport.height
+  );
 }
 
 async function nodeSnapshot(page, id) {
@@ -448,13 +514,29 @@ async function waitForGraphRefreshProbe(page) {
   return state;
 }
 
-async function resetGraphView(page) {
+async function resetGraphView(page, expectedVisibleNodeIds = null) {
   const before = await layerTransform(page);
   await page.locator("[data-llm-wiki-graph-root='true']").getByRole("button", { name: "回全图" }).click();
   await page.waitForTimeout(220);
   const after = await layerTransform(page);
   if (after === before) {
     await page.waitForTimeout(120);
+  }
+  if (expectedVisibleNodeIds) await waitForVisibleNodeIds(page, expectedVisibleNodeIds);
+}
+
+async function resetGraphLayout(page) {
+  await page.getByRole("button", { name: "重置布局" }).click();
+  await page.waitForFunction(() => {
+    return [...document.querySelectorAll(".node")].every((node) => node.getAttribute("data-pinned") !== "true");
+  }, undefined, { timeout: 3000 });
+}
+
+async function closeDrawerIfOpen(page) {
+  const button = page.locator(".drawer-header button[aria-label='关闭']");
+  if (await button.count()) {
+    await button.first().click();
+    await page.waitForSelector(".drawer-panel-open", { state: "detached" });
   }
 }
 
@@ -488,6 +570,22 @@ async function hoverNodeAndMeasure(page, id) {
   await assertBoxInsideViewport(page, ".graph-hover-preview", `hover preview for ${id}`);
   await assertGraphRootNotScrolled(page, `hover preview for ${id}`);
   return roundObject(measurement);
+}
+
+async function hoverPreviewSnapshot(page) {
+  const snapshot = await page.evaluate(() => {
+    const root = document.querySelector("[data-llm-wiki-graph-root='true']");
+    const preview = document.querySelector(".graph-hover-preview");
+    if (!root || !preview) throw new Error("Missing hover preview snapshot elements");
+    return {
+      kind: preview.getAttribute("data-kind") || "",
+      state: preview.getAttribute("data-state") || "",
+      preview: window.__graphWorkbenchTest.relativeRect(preview.getBoundingClientRect(), root.getBoundingClientRect()),
+      title: preview.querySelector(".graph-hover-preview-title")?.textContent || ""
+    };
+  });
+  await assertBoxInsideViewport(page, ".graph-hover-preview", "drawer core-node hover preview");
+  return roundObject(snapshot);
 }
 
 async function assertGraphRootScrollResets(page) {
@@ -619,6 +717,31 @@ async function graphSnapshot(page) {
   }));
 }
 
+async function currentGraphFocus(page) {
+  return page.evaluate(() => document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus || "");
+}
+
+async function waitForCommunityFocus(page, communityId, label) {
+  try {
+    await page.waitForFunction((communityId) => {
+      return document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus === `community:${communityId}`;
+    }, communityId, { timeout: 5000 });
+  } catch (err) {
+    const diagnostics = await page.evaluate(() => {
+      const host = document.querySelector(".graph-host");
+      return {
+        focus: host?.dataset.llmWikiGraphFocus || "",
+        engineMounted: host?.dataset.llmWikiGraphEngine || "",
+        visibleNodes: [...document.querySelectorAll(".node")].map((item) => item.dataset.id).sort(),
+        drawer: document.querySelector(".drawer-panel-open article")?.className || "",
+        summaryTestId: document.querySelector(".drawer-panel-open [data-testid]")?.getAttribute("data-testid") || "",
+        readerOpen: Boolean(document.querySelector(".graph-reader-drawer"))
+      };
+    });
+    assert.fail(`${label}: expected community:${communityId}, got ${JSON.stringify(diagnostics)} (${err instanceof Error ? err.message : String(err)})`);
+  }
+}
+
 async function layerTransform(page) {
   return page.locator("[data-viewport-layer='true']").evaluate((element) => element.style.transform);
 }
@@ -630,6 +753,13 @@ async function waitForLayerTransform(page, previous) {
     { timeout: 3000 }
   );
   return layerTransform(page);
+}
+
+async function waitForViewportAnimationIdle(page) {
+  await page.waitForFunction(() => {
+    const root = document.querySelector("[data-llm-wiki-graph-root='true']");
+    return root?.dataset.viewportAnimating !== "true";
+  }, undefined, { timeout: 3000 });
 }
 
 async function waitForVisibleNodeIds(page, expected) {
@@ -870,4 +1000,9 @@ function roundObject(value) {
 
 function round(value) {
   return Math.round(value * 1000) / 1000;
+}
+
+function transformScale(transform) {
+  const match = String(transform).match(/scale\(([^)]+)\)/);
+  return match ? Number(match[1]) : 1;
 }

@@ -356,8 +356,12 @@ export function GraphPanel({
 			if (selected) onSelectionChangeRef.current?.(selected);
 		}
 		if (selectionCommand.type === "enter-community-node") {
+			const selected = engineRef.current?.select({ kind: "node", id: selectionCommand.nodeId });
 			engineRef.current?.focusCommunity(selectionCommand.id);
-			engineRef.current?.select({ kind: "node", id: selectionCommand.nodeId });
+			if (selected) onSelectionChangeRef.current?.(selected);
+		}
+		if (selectionCommand.type === "preview-node") {
+			engineRef.current?.previewNode(selectionCommand.nodeId);
 		}
 	}, [selectionCommand, status]);
 
