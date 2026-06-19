@@ -137,7 +137,7 @@ export type {
   GraphWheelEventLike,
   GraphWheelTargetDecision
 } from "./gestures";
-export { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
+export { resolveGraphSearchState, resolveNextGraphSearchFocus, resolvePreviousGraphSearchFocus } from "./search";
 export type { GraphSearchFocus, GraphSearchNodeState, GraphSearchNodeView, GraphSearchState } from "./search";
 export { classifyGraphKeyboardIntent, isTextEditingElement } from "./keyboard";
 export type { GraphKeyboardIntent, GraphKeyboardIntentInput } from "./keyboard";

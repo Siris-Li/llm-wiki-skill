@@ -3,9 +3,9 @@
   "spec": "docs/spark/2026-06-18-large-graph-global-community-design.md",
   "status": {
     "overall": "in_progress",
-    "phase": "phase-5",
-    "task": "5.5",
-    "next_allowed_action": "Add loading, slow, error, and core keyboard paths."
+    "phase": "phase-6",
+    "task": "6.1",
+    "next_allowed_action": "Run Sigma/Graphology WebGL trial."
   },
   "execution_rules": {
     "branch": "codex/large-graph-performance-experience",
@@ -2497,7 +2497,7 @@
     {
       "id": "phase-5",
       "goal": "Preserve user intent under search, filters, aggregation, poor community quality, loading states, and keyboard paths.",
-      "status": "in_progress",
+      "status": "completed",
       "acceptance": [
         {
           "check": "Search/filter/drawer changes preserve layout unless the user explicitly reorganizes.",
@@ -2551,8 +2551,17 @@
         },
         {
           "check": "Loading, slow, empty, missing, hard error, and core keyboard paths are visible and tested.",
-          "status": "pending",
-          "evidence": []
+          "status": "passed",
+          "evidence": [
+            "Graph-engine keyboard tests cover Escape ownership, and renderer lifecycle tests cover real Escape priority: close search first, clear selection before return-global, then return global with no Pin/layout reset.",
+            "Graph-engine renderer lifecycle tests cover ArrowDown/ArrowUp/Enter search result navigation and lightweight node activation.",
+            "Workbench drawer tests cover loading, reader loading, reader error, empty/missing states, unavailable object, hard graph error, honest empty copy, and tabbable drawer action buttons.",
+            "Workbench browser regression proves the graph-reader drawer opens with loading visible before delayed node content resolves, then replaces loading with content.",
+            "Existing graph interaction degradation tests continue to prove the visible active/idle detail-degradation state during slow interaction paths.",
+            "`npm run test --workspace=@llm-wiki/graph-engine` passed: 321 tests, 61 suites, 0 failures.",
+            "`npm run test --workspace=@llm-wiki-agent/web` passed: 42 tests, 14 suites, 0 failures.",
+            "`bash tests/graph-workbench-interactions.regression-1.sh` passed with drawer.loadingBeforeContent evidence."
+          ]
         }
       ],
       "tasks": [
@@ -2647,15 +2656,33 @@
         {
           "id": "5.5",
           "title": "Add loading, slow, error, and core keyboard paths",
-          "status": "pending",
-          "verification": []
+          "status": "completed",
+          "verification": [
+            "`git status --short --branch` inspected before work; unrelated docs/plans, docs/spark, and .superpowers/ changes were left out of task scope.",
+            "`git log --oneline -15` inspected before task work; latest commit was 2de91f4 feat: add graph community quality fallback [task 5.4].",
+            "Baseline `npm run test --workspace=@llm-wiki/graph-engine` passed before task work: 318 tests, 61 suites, 0 failures.",
+            "Search input now supports ArrowDown, ArrowUp, and Enter result behavior through shared graph commands; Enter activates the focused result as a lightweight node selection instead of full reading.",
+            "Escape priority now closes search/tooling first, clears selection/preview/search focus before returning global, and preserves Pin/layout state.",
+            "packages/graph-engine/test/search-and-legend.test.ts covers backward search-result focus cycling.",
+            "packages/graph-engine/test/renderer-boundary.test.ts covers mounted search callbacks for next, previous, activate, and close commands.",
+            "packages/graph-engine/test/renderer-lifecycle.test.ts covers keyboard search navigation, lightweight search activation, Escape priority, and no Pin/layout reset from Escape.",
+            "workbench/web/test/right-drawer-graph-summary.test.tsx covers loading, graph-reader loading, graph-reader error, empty/missing, unavailable, hard-error, honest empty states, and tabbable drawer actions.",
+            "tests/browser/graph-workbench-interactions.mjs covers delayed graph-reader loading: loading state is visible before delayed node content, then clears when content arrives.",
+            "`node --import tsx --test packages/graph-engine/test/search-and-legend.test.ts packages/graph-engine/test/renderer-boundary.test.ts packages/graph-engine/test/renderer-lifecycle.test.ts` passed: 37 tests, 4 suites, 0 failures.",
+            "`npm run test --workspace=@llm-wiki/graph-engine` passed after implementation: 321 tests, 61 suites, 0 failures.",
+            "`npm run test --workspace=@llm-wiki-agent/web` passed after implementation: 42 tests, 14 suites, 0 failures.",
+            "`npm run typecheck --workspace=@llm-wiki/graph-engine` passed.",
+            "`npm run typecheck --workspace=@llm-wiki-agent/web` passed after graph-engine pretypecheck build.",
+            "`node --check tests/browser/graph-workbench-interactions.mjs` passed.",
+            "`bash tests/graph-workbench-interactions.regression-1.sh` passed and emitted drawer.loadingBeforeContent evidence with loadingVisible=true before content and contentVisible=true after content."
+          ]
         }
       ]
     },
     {
       "id": "phase-6",
       "goal": "Evaluate Sigma/Graphology, vis-network, and aggregation fallback before choosing the single global large-graph path.",
-      "status": "pending",
+      "status": "in_progress",
       "acceptance": [
         {
           "check": "Sigma/Graphology trial is measured against the same graph shapes and semantic contract.",
@@ -2870,6 +2897,18 @@
         "`bash tests/graph-browser-stage-4-5.regression-1.sh --target offline` passed."
       ],
       "measured_at": "2026-06-18T15:19:34Z"
+    },
+    {
+      "task": "5.5",
+      "status": "completed",
+      "summary": "Added visible loading/error drawer coverage and core keyboard behavior. Search results now support previous/next/activate keyboard paths; Escape closes search/tooling first, then clears selection, then returns global only when no selection remains. Drawer loading is proven before delayed graph-reader content appears.",
+      "evidence": [
+        "Graph-engine tests passed: 321 tests, 61 suites, 0 failures.",
+        "Workbench web tests passed: 42 tests, 14 suites, 0 failures.",
+        "Graph-engine and workbench typechecks passed.",
+        "Workbench browser regression passed with drawer.loadingBeforeContent evidence."
+      ],
+      "measured_at": "2026-06-19T00:43:09Z"
     }
   ],
   "execution_log": [

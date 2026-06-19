@@ -1,3 +1,5 @@
+import React from "react";
+
 import type { GraphOpenPagePayload } from "@llm-wiki/graph-engine";
 
 import { MarkdownView } from "./MarkdownView";
@@ -20,6 +22,7 @@ interface Props {
 export function GraphReader({ payload, content, loading, error, onOpenPage, onWikiLinkSeen, onAction }: Props) {
 	const metaItems = graphReaderMetaItems(payload);
 	return (
+		<React.Fragment>
 		<article className="graph-reader-drawer">
 			<div className="graph-reader-meta-row">
 				{metaItems.map((item) => (
@@ -44,5 +47,6 @@ export function GraphReader({ payload, content, loading, error, onOpenPage, onWi
 				<MarkdownView content={content} onOpenPage={onOpenPage} onWikiLinkSeen={onWikiLinkSeen} autoEmitWikiLinks={false} />
 			)}
 		</article>
+		</React.Fragment>
 	);
 }

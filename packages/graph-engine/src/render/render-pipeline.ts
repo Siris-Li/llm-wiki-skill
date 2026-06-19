@@ -58,6 +58,8 @@ export interface GraphRenderCommands {
   openSearch(): void;
   applySearchQuery(query: string): void;
   focusNextSearchResult(): void;
+  focusPreviousSearchResult(): void;
+  activateSearchResult(): void;
   closeSearch(): void;
   selectCommunity(id: string): void;
   setCommunityHover(id: string | null): void;
@@ -305,6 +307,8 @@ export function createGraphRenderPipeline(
       onOpen: () => options.commands.openSearch(),
       onQuery: (query) => options.commands.applySearchQuery(query),
       onNext: () => options.commands.focusNextSearchResult(),
+      onPrevious: () => options.commands.focusPreviousSearchResult(),
+      onActivate: () => options.commands.activateSearchResult(),
       onClose: () => options.commands.closeSearch()
     });
     context.dom.searchElement = control.element;

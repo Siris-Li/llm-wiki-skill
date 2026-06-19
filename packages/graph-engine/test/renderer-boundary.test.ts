@@ -203,11 +203,15 @@ describe("renderer and facade boundary contract", () => {
       onOpen: () => calls.push("openSearch"),
       onQuery: (query) => calls.push(`query:${query}`),
       onNext: () => calls.push("nextSearch"),
+      onPrevious: () => calls.push("previousSearch"),
+      onActivate: () => calls.push("activateSearch"),
       onClose: () => calls.push("closeSearch")
     });
     search.input.value = "atlas";
     (search.input as unknown as FakeElement).dispatch("focus");
     (search.input as unknown as FakeElement).dispatch("input");
+    (search.input as unknown as FakeElement).dispatch("keydown", { key: "ArrowDown" });
+    (search.input as unknown as FakeElement).dispatch("keydown", { key: "ArrowUp" });
     (search.input as unknown as FakeElement).dispatch("keydown", { key: "Enter" });
     (search.input as unknown as FakeElement).dispatch("keydown", { key: "Escape" });
 
@@ -245,6 +249,8 @@ describe("renderer and facade boundary contract", () => {
       "openSearch",
       "query:atlas",
       "nextSearch",
+      "previousSearch",
+      "activateSearch",
       "closeSearch",
       "panel:filters",
       "resetView",
@@ -263,6 +269,8 @@ describe("renderer and facade boundary contract", () => {
     assert.match(pipelineText, /onOpen:\s*\(\) => options\.commands\.openSearch\(\)/);
     assert.match(pipelineText, /onQuery:\s*\(query\) => options\.commands\.applySearchQuery\(query\)/);
     assert.match(pipelineText, /onNext:\s*\(\) => options\.commands\.focusNextSearchResult\(\)/);
+    assert.match(pipelineText, /onPrevious:\s*\(\) => options\.commands\.focusPreviousSearchResult\(\)/);
+    assert.match(pipelineText, /onActivate:\s*\(\) => options\.commands\.activateSearchResult\(\)/);
     assert.match(pipelineText, /onClose:\s*\(\) => options\.commands\.closeSearch\(\)/);
     assert.match(pipelineText, /options\.commands\.setCommunityHover\(id\)/);
     assert.match(pipelineText, /onSelect:\s*\(id\) => options\.commands\.selectCommunity\(id\)/);

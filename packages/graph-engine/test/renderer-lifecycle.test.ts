@@ -359,6 +359,84 @@ describe("graph renderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("supports keyboard search result navigation and lightweight activation", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const selections: SelectionInput[] = [];
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphDataForReturnGlobal(),
+      theme: "shan-shui",
+      live: false,
+      onSelectionInput: (selection) => selections.push(selection)
+    });
+
+    const searchInput = findByClass(renderer.root as unknown as FakeElement, "graph-search-input")[0];
+    searchInput.value = "Node";
+    searchInput.dispatch("focus");
+    searchInput.dispatch("input");
+
+    searchInput.dispatch("keydown", { key: "ArrowDown" });
+    assert.equal(nodeElement(renderer, "a")?.dataset.searchFocus, "true");
+    assert.equal(findByClass(renderer.root as unknown as FakeElement, "graph-search-status")[0]?.textContent, "1/3");
+
+    searchInput.dispatch("keydown", { key: "ArrowUp" });
+    assert.equal(nodeElement(renderer, "c")?.dataset.searchFocus, "true");
+    assert.equal(findByClass(renderer.root as unknown as FakeElement, "graph-search-status")[0]?.textContent, "3/3");
+
+    searchInput.dispatch("keydown", { key: "Enter" });
+    assert.deepEqual(selections.at(-1), { kind: "node", id: "c" });
+    assert.equal(nodeElement(renderer, "c")?.getAttribute("aria-pressed"), "true");
+
+    renderer.destroy();
+  });
+
+  it("applies Escape priority without clearing pins or resetting layout", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const clearRequests: number[] = [];
+    const viewResets: number[] = [];
+    const pinsChanged: unknown[] = [];
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphDataForReturnGlobal(),
+      pins: { "wiki/a.md": { x: 120, y: 140, coordinateSpace: "world" } },
+      theme: "shan-shui",
+      live: false,
+      focus: { kind: "community", id: "community-a" },
+      onSelectionClearRequested: () => clearRequests.push(1),
+      onViewReset: () => viewResets.push(1),
+      onPinsChanged: (pins) => pinsChanged.push(pins)
+    });
+
+    renderer.root.focus();
+    ownerDocument.dispatch("keydown", { key: "f", metaKey: true });
+    assert.equal(renderer.root.dataset.searchOpen, "true");
+
+    ownerDocument.dispatch("keydown", { key: "Escape" });
+    assert.equal(renderer.root.dataset.searchOpen, "false");
+    assert.deepEqual(viewResets, []);
+    assert.deepEqual(pinsChanged, []);
+    assert.equal(nodeElement(renderer, "a")?.dataset.pinned, "true");
+
+    renderer.select({ kind: "node", id: "a" });
+    renderer.root.focus();
+    ownerDocument.dispatch("keydown", { key: "Escape" });
+    assert.deepEqual(clearRequests, [1]);
+    assert.deepEqual(viewResets, []);
+    assert.deepEqual(visibleNodeIds(renderer), ["a", "b"]);
+    assert.equal(nodeElement(renderer, "a")?.getAttribute("aria-pressed"), "false");
+    assert.equal(nodeElement(renderer, "a")?.dataset.pinned, "true");
+
+    ownerDocument.dispatch("keydown", { key: "Escape" });
+    await waitForViewportCommit();
+
+    assert.deepEqual(viewResets, [1]);
+    assert.deepEqual(pinsChanged, []);
+    assert.deepEqual(visibleNodeIds(renderer), ["a", "b", "c"]);
+    assert.equal(nodeElement(renderer, "a")?.dataset.pinned, "true");
+
+    renderer.destroy();
+  });
+
   it("updates type filters without rebuilding graph elements or moving layout", () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");
@@ -653,6 +731,8 @@ function findByDataset(root: FakeElement, key: string, value: string): FakeEleme
 
 class FakeDocument {
   readonly head = new FakeElement("head", this);
+  activeElement: FakeElement | null = null;
+  private readonly listeners = new Map<string, Array<(event: FakeEvent) => void>>();
   readonly defaultView = {
     localStorage: null,
     matchMedia: () => ({ matches: false }),
@@ -671,9 +751,22 @@ class FakeDocument {
     return findById(this.head, id) || null;
   }
 
-  addEventListener(_type: string, _listener: unknown): void {}
+  addEventListener(type: string, listener: unknown): void {
+    const listeners = this.listeners.get(type) || [];
+    listeners.push(listener as (event: FakeEvent) => void);
+    this.listeners.set(type, listeners);
+  }
 
-  removeEventListener(_type: string, _listener: unknown): void {}
+  removeEventListener(type: string, listener: unknown): void {
+    const listeners = this.listeners.get(type) || [];
+    this.listeners.set(type, listeners.filter((candidate) => candidate !== listener));
+  }
+
+  dispatch(type: string, init: Partial<FakeEvent> = {}): FakeEvent {
+    const event = new FakeEvent(type, { ...init, target: init.target || this.activeElement });
+    for (const listener of this.listeners.get(type) || []) listener(event);
+    return event;
+  }
 }
 
 class FakeElement {
@@ -775,7 +868,9 @@ class FakeElement {
     for (const listener of this.listeners.get(type) || []) listener(event);
   }
 
-  focus(_options?: unknown): void {}
+  focus(_options?: unknown): void {
+    this.ownerDocument.activeElement = this;
+  }
 
   select(): void {}
 

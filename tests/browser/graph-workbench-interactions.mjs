@@ -93,6 +93,11 @@ async function runDesktopChecks(browser) {
   evidence.hover.afterZoom = await hoverNodeAndMeasure(page, "A");
   assertStableHoverOffset(evidence.hover.beforeZoom, evidence.hover.afterZoom, "hover should stay anchored after zoom");
 
+  await resetGraphView(page, GLOBAL_NODE_IDS);
+  evidence.drawer.loadingBeforeContent = await runDrawerLoadingBeforeContentCheck(page);
+  await closeDrawerIfOpen(page);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
+
   await clickNodeForSummary(page, "A", "drawer open setup");
   await page.waitForSelector(".drawer-panel-open");
   evidence.drawer.opened = await drawerAndGraphSnapshot(page);
@@ -877,6 +882,51 @@ async function closeDrawerIfOpen(page) {
       await page.keyboard.press("Escape");
       await page.waitForSelector(".drawer-panel-open", { state: "detached" });
     });
+  }
+}
+
+async function runDrawerLoadingBeforeContentCheck(page) {
+  let releaseRoute = null;
+  let intercepted = false;
+  const release = new Promise((resolve) => {
+    releaseRoute = resolve;
+  });
+  const handler = async (route) => {
+    const url = new URL(route.request().url());
+    if (!intercepted && url.searchParams.get("path") === "wiki/entities/A.md") {
+      intercepted = true;
+      await release;
+    }
+    await route.continue();
+  };
+
+  await page.route("**/api/page?**", handler);
+  try {
+    await clickNodeForSummary(page, "A", "drawer loading setup");
+    await page.locator('[data-testid="graph-node-summary"] button', { hasText: "打开详情" }).click();
+    await page.waitForSelector(".graph-reader-drawer");
+    const before = await page.locator(".graph-reader-drawer").evaluate((drawer) => ({
+      loadingVisible: drawer.textContent?.includes("加载中") || false,
+      contentVisible: drawer.textContent?.includes("这是节点A的正文") || false
+    }));
+    assert.equal(before.loadingVisible, true, "graph reader drawer should show loading before delayed content resolves");
+    assert.equal(before.contentVisible, false, "delayed node body should not be visible while loading");
+    releaseRoute();
+    await page.waitForFunction(() => {
+      const drawer = document.querySelector(".graph-reader-drawer");
+      return Boolean(drawer && !drawer.textContent?.includes("加载中") && drawer.textContent?.includes("这是节点A的正文"));
+    });
+    const after = await page.locator(".graph-reader-drawer").evaluate((drawer) => ({
+      loadingVisible: drawer.textContent?.includes("加载中") || false,
+      contentVisible: drawer.textContent?.includes("这是节点A的正文") || false
+    }));
+    assert.equal(intercepted, true, "graph reader page request should be intercepted for delay proof");
+    assert.equal(after.loadingVisible, false, "loading state should clear after delayed content resolves");
+    assert.equal(after.contentVisible, true, "delayed node body should appear after loading");
+    return { before, after, intercepted };
+  } finally {
+    releaseRoute?.();
+    await page.unroute("**/api/page?**", handler);
   }
 }
 

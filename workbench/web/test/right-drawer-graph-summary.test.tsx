@@ -7,8 +7,11 @@ import { RightDrawer } from "../src/components/RightDrawer";
 import {
 	graphCommunitySummaryDrawer,
 	graphEmptyDrawer,
+	graphErrorDrawer,
 	graphExcludedObjectDrawer,
+	graphLoadingDrawer,
 	graphNodeSummaryDrawer,
+	graphReaderDrawer,
 	graphUnavailableObjectDrawer,
 	type DrawerState,
 } from "../src/lib/drawer-state";
@@ -54,11 +57,17 @@ describe("RightDrawer graph lightweight summaries", () => {
 
 	it("renders graph empty, excluded, and unavailable states", () => {
 		const empty = renderDrawer(graphEmptyDrawer("没有搜索结果", "no-search-results", "暂无搜索结果"));
+		const missingNeighbors = renderDrawer(graphEmptyDrawer("没有邻居", "missing-neighbors", "暂无邻居"));
+		const missingCommunity = renderDrawer(graphEmptyDrawer("没有社区摘要", "missing-community-summary", "暂无社区摘要"));
+		const missingStrongRelations = renderDrawer(graphEmptyDrawer("没有强关系", "missing-strong-relations", "暂无强关系"));
 		const excluded = renderDrawer(graphExcludedObjectDrawer(excludedFixture()));
 		const unavailable = renderDrawer(graphUnavailableObjectDrawer(unavailableFixture()));
 
 		assert.match(empty, /没有搜索结果/);
 		assert.match(empty, /暂无搜索结果/);
+		assert.match(missingNeighbors, /暂无邻居/);
+		assert.match(missingCommunity, /暂无社区摘要/);
+		assert.match(missingStrongRelations, /暂无强关系/);
 		assert.match(excluded, /data-testid="graph-excluded-object"/);
 		assert.match(excluded, /暂不可见/);
 		assert.match(excluded, /当前筛选暂时隐藏了这个对象/);
@@ -67,6 +76,38 @@ describe("RightDrawer graph lightweight summaries", () => {
 		assert.match(unavailable, /data-testid="graph-unavailable-object"/);
 		assert.match(unavailable, /missing-node/);
 		assert.match(unavailable, /这个节点当前不可用/);
+	});
+
+	it("renders loading, reader loading, reader error, and hard error states honestly", () => {
+		const loading = renderDrawer(graphLoadingDrawer("整理图谱摘要", "正在整理当前对象"));
+		const readerLoading = renderDrawer(graphReaderDrawer(graphPayload(), { loading: true }));
+		const readerError = renderDrawer(graphReaderDrawer(graphPayload(), { error: "读取失败" }));
+		const hardError = renderDrawer(graphErrorDrawer("图谱错误", "图谱服务暂时不可用"));
+
+		assert.match(loading, /data-testid="graph-simple-state"/);
+		assert.match(loading, /整理图谱摘要/);
+		assert.match(loading, /正在整理当前对象/);
+		assert.match(readerLoading, /graph-reader-drawer/);
+		assert.match(readerLoading, /加载中/);
+		assert.doesNotMatch(readerLoading, /完整正文内容/);
+		assert.match(readerError, /读取失败/);
+		assert.doesNotMatch(readerError, /完整正文内容/);
+		assert.match(hardError, /图谱错误/);
+		assert.match(hardError, /图谱服务暂时不可用/);
+		assert.doesNotMatch(`${loading}${readerLoading}${readerError}${hardError}`, /推荐阅读|猜你喜欢|建议你打开/);
+	});
+
+	it("keeps drawer actions as tabbable buttons", () => {
+		const node = renderDrawer(graphNodeSummaryDrawer(nodeSummaryFixture()));
+		const community = renderDrawer(graphCommunitySummaryDrawer(communitySummaryFixture()));
+		const excluded = renderDrawer(graphExcludedObjectDrawer(excludedFixture()));
+
+		assert.match(node, /<button[^>]*class="graph-summary-action"[^>]*>打开详情<\/button>/);
+		assert.match(node, /<button[^>]*class="graph-summary-action"[^>]*>固定位置<\/button>/);
+		assert.match(community, /<button[^>]*class="graph-summary-inline-action"[^>]*>查看全部<\/button>/);
+		assert.match(community, /<button[^>]*class="graph-summary-action"[^>]*>进入社区<\/button>/);
+		assert.match(excluded, /<button[^>]*class="graph-summary-action"[^>]*>显示这个对象<\/button>/);
+		assert.doesNotMatch(`${node}${community}${excluded}`, /tabindex="-1"/i);
 	});
 });
 
@@ -130,6 +171,23 @@ function nodeSummaryFixture(): GraphNodeSummaryPayload {
 			{ kind: "open-detail-read", nodeId: "alpha-node", path: "wiki/alpha.md", label: "打开详情" },
 			{ kind: "set-fixed-position", mode: "fix", nodeId: "alpha-node", wikiPath: "wiki/alpha.md", label: "固定位置" },
 		],
+	};
+}
+
+function graphPayload() {
+	return {
+		path: "wiki/alpha.md",
+		node: {
+			id: "alpha-node",
+			title: "Alpha node",
+			type: "topic",
+			typeLabel: "主题",
+			sourcePath: "wiki/alpha.md",
+			community: "alpha",
+			date: "2026-06-18",
+			source: "fixture",
+			isolated: false,
+		},
 	};
 }
 

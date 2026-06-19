@@ -201,6 +201,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       openSearch: () => controller.openSearch(),
       applySearchQuery: (query) => controller.applySearchQuery(query),
       focusNextSearchResult: () => controller.focusNextSearchResult(),
+      focusPreviousSearchResult: () => controller.focusPreviousSearchResult(),
+      activateSearchResult: () => controller.activateSearchResult(),
       closeSearch: () => controller.closeSearch(),
       selectCommunity: (id) => controller.selectCommunity(id),
       selectAggregationContainer: (id) => {

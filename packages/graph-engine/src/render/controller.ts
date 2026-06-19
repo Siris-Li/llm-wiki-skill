@@ -11,7 +11,7 @@ import { classifyGraphKeyboardIntent, isTextEditingElement } from "./keyboard";
 import type { RenderPositionMap } from "./model";
 import { cancelGraphNodeDrag, commitGraphNodeDrag, type GraphNodeDragSession } from "./node-drag-lifecycle";
 import type { GraphRenderContext } from "./render-context";
-import { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
+import { resolveGraphSearchState, resolveNextGraphSearchFocus, resolvePreviousGraphSearchFocus } from "./search";
 import { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
 import type { GraphRuntimeStateSnapshot } from "./state";
 import {
@@ -40,6 +40,8 @@ export interface GraphController {
   openSearch(): void;
   applySearchQuery(query: string): void;
   focusNextSearchResult(): void;
+  focusPreviousSearchResult(): void;
+  activateSearchResult(): void;
   closeSearch(): void;
   selectCommunity(id: CommunityId): void;
   setCommunityHover(id: CommunityId | null): void;
@@ -135,7 +137,12 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
       return;
     }
 
-    if (context.runtimeState.snapshot().focus) {
+    const snapshot = context.runtimeState.snapshot();
+    if (snapshot.selection || snapshot.hover || context.searchFocusedNodeId || context.previewTimer || context.root.dataset.focus) {
+      clearSelectionOnly();
+      return;
+    }
+    if (snapshot.focus) {
       resetViewState();
       return;
     }
@@ -388,9 +395,19 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
   }
 
   function focusNextSearchResult(): void {
+    focusSearchResult("next");
+  }
+
+  function focusPreviousSearchResult(): void {
+    focusSearchResult("previous");
+  }
+
+  function focusSearchResult(direction: "next" | "previous"): void {
     const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex);
     context.searchIndex = state.searchIndex;
-    const next = resolveNextGraphSearchFocus(state.matchIds, context.searchFocusedNodeId);
+    const next = direction === "next"
+      ? resolveNextGraphSearchFocus(state.matchIds, context.searchFocusedNodeId)
+      : resolvePreviousGraphSearchFocus(state.matchIds, context.searchFocusedNodeId);
     context.searchFocusedNodeId = next.id;
     if (!next.id) {
       applySearchQuery(context.searchQuery);
@@ -407,6 +424,21 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
       ));
     }
     applySearchQuery(context.searchQuery);
+  }
+
+  function activateSearchResult(): void {
+    const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex);
+    context.searchIndex = state.searchIndex;
+    const current = context.searchFocusedNodeId && state.matchIds.includes(context.searchFocusedNodeId)
+      ? context.searchFocusedNodeId
+      : resolveNextGraphSearchFocus(state.matchIds, context.searchFocusedNodeId).id;
+    context.searchFocusedNodeId = current;
+    if (!current) {
+      applySearchQuery(context.searchQuery);
+      return;
+    }
+    applySearchQuery(context.searchQuery);
+    handleNodeClick(current, false);
   }
 
   function closeSearch(): void {
@@ -633,6 +665,8 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     openSearch,
     applySearchQuery,
     focusNextSearchResult,
+    focusPreviousSearchResult,
+    activateSearchResult,
     closeSearch,
     selectCommunity,
     setCommunityHover,

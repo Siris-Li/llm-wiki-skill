@@ -46,3 +46,10 @@ export function resolveNextGraphSearchFocus(matchIds: NodeId[], currentId: NodeI
   const nextIndex = (currentIndex + 1) % matchIds.length;
   return { id: matchIds[nextIndex], index: nextIndex };
 }
+
+export function resolvePreviousGraphSearchFocus(matchIds: NodeId[], currentId: NodeId | null | undefined): GraphSearchFocus {
+  if (!matchIds.length) return { id: null, index: -1 };
+  const currentIndex = currentId ? matchIds.indexOf(currentId) : -1;
+  const previousIndex = currentIndex <= 0 ? matchIds.length - 1 : currentIndex - 1;
+  return { id: matchIds[previousIndex], index: previousIndex };
+}
