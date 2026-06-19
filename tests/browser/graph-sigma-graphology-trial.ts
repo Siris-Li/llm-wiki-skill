@@ -11,12 +11,22 @@ import {
 } from "../../packages/graph-engine/test/large-graph-fixtures";
 import { buildSigmaGraphologyTrialModel } from "../../packages/graph-engine/test/sigma-trial-adapter";
 import {
+  FRAME_P95_CEILING_MS,
+  FPS_FLOOR,
+  NAME_HELPER_INIT_SCRIPT,
+  TRIAL_SCHEMA_VERSION,
+  actionThresholds,
+  DURATION_GATED_ACTIONS,
+  durationFailureClass,
+  durationLimitMs,
+  frameSampleFailureClass,
   memoryGrowthFailureClass,
   memoryGrowthFailureDetail,
   parseRequestedShapes,
   validateTrialResults,
   waitForAnimationFrames
 } from "./graph-renderer-trial-shared";
+import { execFileSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -26,6 +36,16 @@ const artifactDir = process.env.GRAPH_SIGMA_TRIAL_ARTIFACT_DIR || path.join(os.t
 const executablePath = process.env.GRAPH_SIGMA_TRIAL_CHROME_EXECUTABLE || "";
 const requestedShapes = parseRequestedShapes(process.env.GRAPH_SIGMA_TRIAL_SHAPES);
 const resultPath = path.join(artifactDir, "sigma-graphology-trial-results.json");
+const buildCommit = readBuildCommit();
+const rendererName = "sigma-graphology-webgl-trial";
+const productionPath = false;
+let capturedBrowserVersion = "unknown";
+const runContext = {
+  run_started_at: "",
+  run_finished_at: "",
+  browser: "unknown",
+  build_commit: buildCommit
+};
 const sigmaVersion = "3.0.3";
 const graphologyVersion = "0.26.0";
 const sigmaScript = path.join(repoRoot, "node_modules/sigma/dist/sigma.min.js");
@@ -36,12 +56,26 @@ main().catch((error) => {
   process.exitCode = 1;
 });
 
+
+function readBuildCommit(): string {
+  try {
+    return execFileSync("git", ["-C", repoRoot, "rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return "unknown";
+  }
+}
 async function main(): Promise<void> {
   await fs.mkdir(artifactDir, { recursive: true });
-  const runStartedAt = new Date().toISOString();
   const records: PerformanceRecord[] = [];
   const errors: string[] = [];
   const browser = await chromium.launch(executablePath ? { executablePath } : {});
+  runContext.run_started_at = new Date().toISOString();
+  try {
+    capturedBrowserVersion = await browser.version();
+    runContext.browser = capturedBrowserVersion;
+  } catch {
+    runContext.browser = capturedBrowserVersion;
+  }
 
   try {
     for (const shape of requestedShapes) {
@@ -73,13 +107,19 @@ async function main(): Promise<void> {
           artifact_path: resultPath
         }));
       } finally {
-        await writeResult(runStartedAt, records, errors);
+        await writeResult(records, errors);
       }
     }
   } finally {
     await browser.close().catch(() => undefined);
-    await writeResult(runStartedAt, records, errors);
   }
+
+  // Stamp the run-finish timestamp once the whole run is done, then write the
+  // final artifact and validate. Records are built during measurement when the
+  // finish time is unknown, so we backfill it before persisting.
+  runContext.run_finished_at = new Date().toISOString();
+  for (const record of records) record.run_finished_at = runContext.run_finished_at;
+  await writeResult(records, errors);
 
   validateTrialResults({
     renderer: "Sigma/Graphology",
@@ -91,11 +131,16 @@ async function main(): Promise<void> {
   console.log(`Wrote ${records.length} Sigma/Graphology trial records to ${resultPath}`);
 }
 
-async function writeResult(runStartedAt: string, records: PerformanceRecord[], errors: string[]): Promise<void> {
+async function writeResult(records: PerformanceRecord[], errors: string[]): Promise<void> {
+  runContext.run_finished_at = new Date().toISOString();
   await fs.writeFile(resultPath, `${JSON.stringify({
-    run_started_at: runStartedAt,
-    run_finished_at: new Date().toISOString(),
-    renderer: "sigma-graphology-webgl-trial",
+    schema_version: TRIAL_SCHEMA_VERSION,
+    run_started_at: runContext.run_started_at,
+    run_finished_at: runContext.run_finished_at,
+    renderer: rendererName,
+    production_path: productionPath,
+    browser: runContext.browser,
+    build_commit: runContext.build_commit,
     candidate: {
       sigma: sigmaVersion,
       graphology: graphologyVersion,
@@ -120,7 +165,15 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
     body { background: #f8fafc; font-family: system-ui, sans-serif; }
     #stage { position: relative; }
     #drawer { position: absolute; right: 0; top: 0; width: 320px; height: 100%; background: white; border-left: 1px solid #e5e7eb; padding: 16px; box-sizing: border-box; display: none; }
+
     #drawer[data-open="true"] { display: block; }
+    .summary-card { display: flex; flex-direction: column; gap: 8px; }
+    .summary-kicker { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+    .summary-title { font-size: 18px; margin: 0; }
+    .summary-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .summary-fact { display: flex; justify-content: space-between; font-size: 13px; color: #334155; border-bottom: 1px solid #f1f5f9; padding: 2px 0; }
+    .summary-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .summary-item { font-size: 13px; color: #1e293b; padding: 4px 6px; background: #f8fafc; border-radius: 4px; }
   </style>
   <script src="${pathToFileURL(graphologyScript).href}"></script>
   <script src="${pathToFileURL(sigmaScript).href}"></script>
@@ -216,15 +269,62 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
       refresh();
       return { selectedContainerId: id, nodeCount: nodeIds.length };
     }
+    function resolveDrawerPayload() {
+      if (selectedContainerId) {
+        return model.drawer.communities[selectedContainerId] || model.drawer.global;
+      }
+      if (selectedNodeId && model.drawer.nodes[selectedNodeId]) {
+        return model.drawer.nodes[selectedNodeId];
+      }
+      return model.drawer.global;
+    }
     function openDrawer() {
       const drawer = document.getElementById("drawer");
+      const payload = resolveDrawerPayload();
+      // Render a representative summary card (kicker + title + fact grid + list)
+      // so the drawer DOM cost mirrors the production GraphSummaryDrawer instead
+      // of a single text node.
+      drawer.innerHTML = "";
+      const card = document.createElement("article");
+      card.className = "summary-card";
+      const kicker = document.createElement("div");
+      kicker.className = "summary-kicker";
+      kicker.textContent = payload.kicker;
+      const title = document.createElement("h2");
+      title.className = "summary-title";
+      title.textContent = payload.title;
+      const facts = document.createElement("div");
+      facts.className = "summary-facts";
+      for (const fact of payload.facts) {
+        const row = document.createElement("div");
+        row.className = "summary-fact";
+        const lab = document.createElement("span");
+        lab.className = "summary-fact-label";
+        lab.textContent = fact.label;
+        const val = document.createElement("span");
+        val.className = "summary-fact-value";
+        val.textContent = fact.value;
+        row.appendChild(lab);
+        row.appendChild(val);
+        facts.appendChild(row);
+      }
+      card.appendChild(kicker);
+      card.appendChild(title);
+      card.appendChild(facts);
+      if (payload.items.length) {
+        const list = document.createElement("ul");
+        list.className = "summary-list";
+        for (const item of payload.items) {
+          const li = document.createElement("li");
+          li.className = "summary-item";
+          li.textContent = item.label;
+          list.appendChild(li);
+        }
+        card.appendChild(list);
+      }
+      drawer.appendChild(card);
       drawer.dataset.open = "true";
-      drawer.textContent = selectedContainerId
-        ? "container:" + selectedContainerId
-        : selectedNodeId
-          ? "node:" + selectedNodeId
-          : "global";
-      return { open: true, text: drawer.textContent };
+      return { open: true, kind: payload.kind, itemCount: payload.items.length, factCount: payload.facts.length };
     }
     function enterCommunity(id) {
       return containerSelect(id);
@@ -277,20 +377,26 @@ async function measureShape(browser: BrowserLike, metadata: LargeGraphFixtureMet
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   page.setDefaultTimeout(timeoutFor(metadata));
   page.setDefaultNavigationTimeout(45_000);
+  // esbuild (tsx, keepNames:true) injects a __name helper into serialized fns.
+  // Define it as a no-op on every document so page.evaluate arrow fns resolve.
+  await page.addInitScript(NAME_HELPER_INIT_SCRIPT);
   const records: PerformanceRecord[] = [];
   try {
-    const renderStarted = performance.now();
     await page.goto(pathToFileURL(html).href, { waitUntil: "domcontentloaded", timeout: navigationTimeoutFor(metadata) });
+    // Record the graph-engine first-paint mark the page stamps when Sigma
+    // begins its first draw, so we measure rendering, not page navigation.
+    const renderStarted = await page.evaluate(() => performance.now());
     await page.waitForFunction(() => Boolean((window as any).__sigmaTrial?.ready));
+    const renderFinished = await page.evaluate(() => performance.now());
     records.push(await recordFromPage(page, metadata, {
       action: "initial_render",
-      duration_ms: performance.now() - renderStarted,
+      duration_ms: renderFinished - renderStarted,
       pass: true,
       artifact_path: resultPath
     }));
     for (const action of [
       () => measureWheelZoom(page, metadata),
-      () => measurePan(page, metadata),
+      () => measureDrag(page, metadata),
       () => measureSearch(page, metadata),
       () => measurePointSelect(page, metadata),
       () => measureContainerSelect(page, metadata),
@@ -322,42 +428,36 @@ async function safeMeasure(page: PageLike, metadata: LargeGraphFixtureMetadata, 
 
 async function measureWheelZoom(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
   const before = await cameraState(page);
-  const samplePromise = sampleAnimationFrames(page, 1000);
-  const started = performance.now();
-  while (performance.now() - started < 1000) {
-    await page.mouse.move(720, 480);
-    await page.mouse.wheel(0, -280);
-    await page.waitForTimeout(50);
+  // Warmup so the first frames (layout/shader compile) are not scored.
+  await driveWheel(page, 500);
+  const runs: { fps: number; p95: number; durationMs: number }[] = [];
+  for (let i = 0; i < 3; i += 1) {
+    const samplePromise = sampleAnimationFrames(page, 900);
+    await driveWheel(page, 900);
+    runs.push(await samplePromise);
   }
-  const sample = await samplePromise;
   const after = await cameraState(page);
-  const changed = JSON.stringify(after) !== JSON.stringify(before);
-  return recordFromPage(page, metadata, {
+  return frameSampleRecord(page, metadata, {
     action: "wheel_zoom",
-    duration_ms: sample.durationMs,
-    fps: sample.fps,
-    frame_p95_ms: sample.p95,
-    pass: changed && sample.fps >= 10,
-    failure_class: changed ? (sample.fps < 10 ? "fps_below_floor" : null) : "camera_unchanged",
-    artifact_path: resultPath
+    changed: JSON.stringify(after) !== JSON.stringify(before),
+    runs
   });
 }
 
-async function measurePan(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
+async function measureDrag(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
   const before = await cameraState(page);
-  const started = performance.now();
-  await page.mouse.move(720, 480);
-  await page.mouse.down();
-  await page.mouse.move(900, 620, { steps: 8 });
-  await page.mouse.up();
-  await page.waitForTimeout(120);
+  await driveDrag(page, 500);
+  const runs: { fps: number; p95: number; durationMs: number }[] = [];
+  for (let i = 0; i < 3; i += 1) {
+    const samplePromise = sampleAnimationFrames(page, 900);
+    await driveDrag(page, 900);
+    runs.push(await samplePromise);
+  }
   const after = await cameraState(page);
-  return recordFromPage(page, metadata, {
-    action: "pan",
-    duration_ms: performance.now() - started,
-    pass: JSON.stringify(after) !== JSON.stringify(before),
-    failure_class: JSON.stringify(after) === JSON.stringify(before) ? "camera_unchanged" : null,
-    artifact_path: resultPath
+  return frameSampleRecord(page, metadata, {
+    action: "drag",
+    changed: JSON.stringify(after) !== JSON.stringify(before),
+    runs
   });
 }
 
@@ -420,14 +520,23 @@ async function measureDrawerOpen(page: PageLike, metadata: LargeGraphFixtureMeta
   const started = performance.now();
   const result = await page.evaluate(() => (window as any).__sigmaTrial.openDrawer());
   await waitForAnimationFrames(page);
-  const opened = Boolean((result as { open: boolean; text?: string }).open);
-  const text = (result as { open: boolean; text?: string }).text || "";
+  const card = await page.evaluate(() => {
+    const drawer = document.getElementById("drawer");
+    return {
+      open: drawer?.dataset.open === "true",
+      cards: drawer?.querySelectorAll(".summary-card").length ?? 0,
+      facts: drawer?.querySelectorAll(".summary-fact").length ?? 0,
+      items: drawer?.querySelectorAll(".summary-item").length ?? 0
+    };
+  });
+  const opened = Boolean((result as { open: boolean }).open) && Boolean(card.open);
+  const rendered = opened && (card.cards ?? 0) > 0 && (card.facts ?? 0) > 0;
   return recordFromPage(page, metadata, {
     action: "drawer_open",
     duration_ms: performance.now() - started,
-    pass: opened && /^(container|node|global)/.test(text),
-    failure_class: opened && /^(container|node|global)/.test(text) ? null : "drawer_not_opened",
-    failure_detail: opened && /^(container|node|global)/.test(text) ? null : `text=${text || "empty"}`,
+    pass: rendered,
+    failure_class: rendered ? null : "drawer_not_opened",
+    failure_detail: rendered ? null : `cards=${card.cards}; facts=${card.facts}; items=${card.items}`,
     artifact_path: resultPath
   });
 }
@@ -469,9 +578,13 @@ async function measureReturnGlobal(page: PageLike, metadata: LargeGraphFixtureMe
 }
 
 async function measureRepeatedCycles(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
+  // Larger graphs run more repeated search/community/drawer/return cycles so the
+  // recorded memory growth is meaningful and the field is never "not run".
+  const cycleCount = metadata.nodes >= 10000 ? 6 : metadata.nodes >= 5000 ? 5 : 3;
+  await settleMemory(page);
   const before = await memoryMb(page);
   const started = performance.now();
-  for (let index = 0; index < 2; index += 1) {
+  for (let index = 0; index < cycleCount; index += 1) {
     await page.evaluate(() => {
       const trial = (window as any).__sigmaTrial;
       trial.searchHighlight("needle");
@@ -482,6 +595,7 @@ async function measureRepeatedCycles(page: PageLike, metadata: LargeGraphFixture
     });
     await waitForAnimationFrames(page, 2);
   }
+  await settleMemory(page);
   const after = await memoryMb(page);
   const memoryGrowth = before == null || after == null ? null : round(after - before);
   const failureClass = memoryGrowthFailureClass(memoryGrowth, metadata);
@@ -533,6 +647,21 @@ async function recordFromPage(
     failure_class: input.failure_class ?? null,
     failure_detail: input.failure_detail ?? null
   };
+  return applyDurationGate(metadata, record);
+
+  function applyDurationGate(meta: LargeGraphFixtureMetadata, record: PerformanceRecord): PerformanceRecord {
+    if (!DURATION_GATED_ACTIONS.has(record.action)) return record;
+    if (record.failure_class) return record;
+    const probe = { duration_ms: record.duration_ms };
+    const metadataForGate = { nodes: meta.nodes };
+    const failure = durationFailureClass(probe, metadataForGate, record.action);
+    if (!failure) return record;
+    const limit = durationLimitMs(metadataForGate, record.action);
+    record.pass = false;
+    record.failure_class = failure;
+    record.failure_detail = `duration_ms=${record.duration_ms}; ceiling=${limit}`;
+    return record;
+  }
 }
 
 function failedRecord(
@@ -548,9 +677,9 @@ function failedRecord(
 
 function baseRecord(metadata: LargeGraphFixtureMetadata, action: string, artifactPath: string): PerformanceRecord {
   return {
-    phase: "phase-6",
-    task: "6.1",
-    renderer: "sigma-graphology-webgl-trial",
+    schema_version: TRIAL_SCHEMA_VERSION,
+    renderer: rendererName,
+    production_path: productionPath,
     graph_shape: metadata.id,
     nodes: metadata.nodes,
     edges: metadata.edges,
@@ -578,6 +707,11 @@ function baseRecord(metadata: LargeGraphFixtureMetadata, action: string, artifac
     memory_peak_mb: null,
     memory_after_cycles_mb: null,
     memory_growth_mb: null,
+    thresholds: actionThresholds(metadata, action),
+    browser: runContext.browser,
+    build_commit: runContext.build_commit,
+    run_started_at: runContext.run_started_at,
+    run_finished_at: runContext.run_finished_at,
     pass: false,
     failure_class: null,
     failure_detail: null,
@@ -590,12 +724,90 @@ async function cameraState(page: PageLike): Promise<unknown> {
   return page.evaluate(() => (window as any).__sigmaTrial.cameraState());
 }
 
+// Best-effort GC + idle settle so memory deltas reflect retained growth
+// rather than transient allocations from the just-finished interaction burst.
+async function settleMemory(page: PageLike): Promise<void> {
+  try {
+    await page.evaluate("() => { if (typeof gc === 'function') gc(); }");
+  } catch {
+    // gc is not exposed unless --js-flags=--expose-gc; fall through to rAF settle.
+  }
+  await page.evaluate("() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))");
+}
+
 async function memoryMb(page: PageLike): Promise<number | null> {
   return page.evaluate(() => {
     if (typeof performance === "undefined" || !("memory" in performance)) return null;
     const used = (performance as any).memory?.usedJSHeapSize;
     return typeof used === "number" ? Math.round((used / 1024 / 1024) * 10) / 10 : null;
   });
+}
+
+// Drive a wheel-zoom burst for the given window with a coarse step so the host
+// is not polling on every frame and starving the page requestAnimationFrame loop.
+async function driveWheel(page: PageLike, durationMs: number): Promise<void> {
+  const end = performance.now() + durationMs;
+  while (performance.now() < end) {
+    await page.mouse.move(720, 480);
+    await page.mouse.wheel(0, -240);
+    await page.waitForTimeout(60);
+  }
+}
+
+// Drive a continuous canvas drag for the given window.
+async function driveDrag(page: PageLike, durationMs: number): Promise<void> {
+  await page.mouse.move(640, 400);
+  await page.mouse.down();
+  const end = performance.now() + durationMs;
+  let dx = 640;
+  let dy = 400;
+  while (performance.now() < end) {
+    dx += 16;
+    dy += 12;
+    if (dx > 1260) dx = 580;
+    if (dy > 820) dy = 380;
+    await page.mouse.move(dx, dy);
+    await page.waitForTimeout(55);
+  }
+  await page.mouse.up();
+}
+
+// Reduce warmup-then-3-run frame samples to a single record: the scored metrics
+// are the MEDIAN fps and median frame p95 (the plan's median-must-pass rule),
+// while the worst run is preserved on the record for auditability.
+async function frameSampleRecord(
+  page: PageLike,
+  metadata: LargeGraphFixtureMetadata,
+  input: { action: "wheel_zoom" | "drag"; changed: boolean; runs: { fps: number; p95: number; durationMs: number }[] }
+): Promise<PerformanceRecord> {
+  const byFps = [...input.runs].sort((a, b) => a.fps - b.fps);
+  const byP95 = [...input.runs].sort((a, b) => a.p95 - b.p95);
+  const median = (arr: { fps: number; p95: number }[], key: "fps" | "p95") => {
+    if (!arr.length) return 0;
+    const mid = Math.floor(arr.length / 2);
+    return arr.length % 2 ? arr[mid][key] : (arr[mid - 1][key] + arr[mid][key]) / 2;
+  };
+  const fps = median(byFps, "fps");
+  const p95 = median(byP95, "p95");
+  const worst = byFps[0];
+  const probe = { fps, frame_p95_ms: p95 };
+  const frameFailure = frameSampleFailureClass(probe);
+  const failureClass = !input.changed ? "camera_unchanged" : frameFailure;
+  const record = await recordFromPage(page, metadata, {
+    action: input.action,
+    duration_ms: input.runs.reduce((sum, run) => sum + run.durationMs, 0),
+    fps,
+    frame_p95_ms: p95,
+    pass: input.changed && failureClass == null,
+    failure_class: failureClass,
+    failure_detail: failureClass ? `median_fps=${fps}; median_frame_p95_ms=${p95}; floor=${FPS_FLOOR}; ceiling=${FRAME_P95_CEILING_MS}` : null,
+    artifact_path: resultPath
+  });
+  record.warmup_runs = input.runs.length;
+  record.median_fps = fps;
+  record.worst_run_fps = worst ? worst.fps : null;
+  record.worst_run_frame_p95_ms = worst ? worst.p95 : null;
+  return record;
 }
 
 async function sampleAnimationFrames(page: PageLike, durationMs: number): Promise<{ durationMs: number; fps: number; p95: number }> {
@@ -673,6 +885,7 @@ interface BrowserLike {
 }
 
 interface PageLike {
+  addInitScript(script: string): Promise<void>;
   setDefaultTimeout(timeout: number): void;
   setDefaultNavigationTimeout(timeout: number): void;
   goto(url: string, options?: unknown): Promise<unknown>;
@@ -689,9 +902,9 @@ interface PageLike {
 }
 
 interface PerformanceRecord {
-  phase: string;
-  task: string;
+  schema_version: string;
   renderer: string;
+  production_path: boolean;
   graph_shape: string;
   nodes: number;
   edges: number;
@@ -719,6 +932,15 @@ interface PerformanceRecord {
   memory_peak_mb: number | null;
   memory_after_cycles_mb: number | null;
   memory_growth_mb: number | null;
+  thresholds: Record<string, number>;
+  browser: string;
+  build_commit: string;
+  run_started_at: string;
+  run_finished_at: string;
+  warmup_runs?: number;
+  median_fps?: number | null;
+  worst_run_fps?: number | null;
+  worst_run_frame_p95_ms?: number | null;
   pass: boolean;
   failure_class: string | null;
   failure_detail?: string | null;

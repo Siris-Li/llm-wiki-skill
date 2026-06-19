@@ -7,11 +7,26 @@ import type {
   GraphOpenPagePayload,
   GraphSummaryObjectRef,
   GraphSummaryOptions,
+  GraphVisibilityState,
+  PinMap,
   Selection,
   SelectionInput,
   ThemeId
 } from "./types";
-import { createGraphRenderer } from "./render";
+import {
+  buildGraphRendererAdapterData,
+  createGraphRenderer,
+  type GraphRendererAdapterData,
+  type GraphGestureTarget
+} from "./render";
+import {
+  createSigmaGlobalRenderer,
+  sigmaGlobalRendererRuntimeBoundary,
+  type SigmaGlobalRendererRuntime
+} from "./render/sigma-global-renderer";
+import { buildCommunityLegend, nextToolbarPanelState, resolveGraphSearchState, readToolbarPanelState, writeToolbarPanelState } from "./render";
+import { createCommunityLegend, createGraphToolbar, createSearchControl } from "./render/controls";
+import { ensureGraphRendererStyles } from "./render/render-styles";
 import { resolveSelectionForCapabilities } from "./select";
 import { graphNodeTypeLabel, wikiPathForGraphNode } from "./graph-node";
 import {
@@ -20,7 +35,8 @@ import {
   summarizeGraphGlobal,
   summarizeGraphNode,
   summarizeGraphSearchResults,
-  summarizeUnavailableGraphObject
+  summarizeUnavailableGraphObject,
+  buildCommunityAggregationMarkers
 } from "./summary";
 
 export type GraphFacadeHostMode = "workbench" | "offline" | "standalone";
@@ -88,13 +104,78 @@ export interface GraphFacadeRenderer {
   destroy(): void;
 }
 
+export type GraphFacadeRendererRouteId =
+  | "sigma-global"
+  | "dom-svg-community"
+  | "dom-svg-small-fallback"
+  | "aggregation-safety-fallback";
+
+export const GRAPH_FACADE_SIGMA_FALLBACK_THRESHOLDS = {
+  maxDomSvgFallbackNodes: 2000,
+  maxDomSvgFallbackEdges: 4000,
+  maxDomSvgFallbackCommunitySize: 500
+} as const;
+
+export interface GraphFacadeRouteManager extends GraphFacadeRenderer {
+  readonly routeId: GraphFacadeRendererRouteId;
+  readonly sigmaKnownUnavailable: boolean;
+  readonly sigmaAttemptCount: number;
+  retrySigma(): void;
+}
+
+export interface GraphFacadeRouteRendererOptions {
+  data: GraphData;
+  pins: NonNullable<GraphEngineOptions["pins"]>;
+  theme: ThemeId;
+  focus: GraphEngineOptions["focus"];
+  typeFilters: NonNullable<GraphEngineOptions["typeFilters"]>;
+  aggregationMarkers: NonNullable<GraphEngineOptions["aggregationMarkers"]>;
+  selection: SelectionInput | null;
+  searchQuery: string;
+  searchResultIds: string[];
+  temporaryObject: GraphSummaryObjectRef | null;
+  callbacks: GraphFacadeRendererCallbacks;
+}
+
+export interface GraphFacadeRouteRendererFactoryInput {
+  container: HTMLElement;
+  options: GraphFacadeRouteRendererOptions;
+  onSigmaUnavailable?: (error: unknown) => void;
+  onRetrySigma?: () => void;
+}
+
+export interface GraphFacadeRouteRendererFactories {
+  createSigmaGlobal: (input: GraphFacadeRouteRendererFactoryInput) => GraphFacadeRenderer;
+  createDomSvgCommunity: (input: GraphFacadeRouteRendererFactoryInput) => GraphFacadeRenderer;
+  createDomSvgSmallFallback: (input: GraphFacadeRouteRendererFactoryInput) => GraphFacadeRenderer;
+  createAggregationSafetyFallback: (input: GraphFacadeRouteRendererFactoryInput) => GraphFacadeRenderer;
+}
+
+export interface GraphFacadeRendererCallbacks {
+  onNodeOpen?: (nodeId: string) => void;
+  onSelectionInput?: (selection: SelectionInput) => void;
+  onPinsChanged?: (pins: NonNullable<GraphEngineOptions["pins"]>) => void;
+  onSelectionClearRequested?: () => void;
+  onViewReset?: () => void;
+  onDragActiveChange?: (dragging: boolean) => void;
+  onVisibilityStateChange?: (state: GraphVisibilityState) => void;
+}
+
 interface GraphFacadeContainer {
   dataset: Record<string, string | undefined>;
 }
 
-interface GraphFacadeState {
+export interface GraphFacadeState {
   data: GraphData;
   pins: NonNullable<GraphEngineOptions["pins"]>;
+  theme?: ThemeId;
+  focus?: GraphEngineOptions["focus"];
+  typeFilters?: NonNullable<GraphEngineOptions["typeFilters"]>;
+  aggregationMarkers?: NonNullable<GraphEngineOptions["aggregationMarkers"]>;
+  selection?: SelectionInput | null;
+  searchQuery?: string;
+  searchResultIds?: string[];
+  temporaryObject?: GraphSummaryObjectRef | null;
 }
 
 export function createGraphFacade(container: HTMLElement, options: GraphEngineOptions): GraphEngine {
@@ -103,15 +184,19 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
   }
 
   const capabilities = options.capabilities;
-  const facadeState: GraphFacadeState = { data: options.data, pins: options.pins || {} };
-  const renderer = createGraphRenderer(container, {
+  const facadeState: GraphFacadeState = {
     data: options.data,
     pins: options.pins || {},
     theme: options.theme,
-    toolbarContainer: options.toolbarContainer,
-    focus: options.focus,
-    typeFilters: options.typeFilters,
-    aggregationMarkers: options.aggregationMarkers,
+    focus: options.focus || null,
+    typeFilters: options.typeFilters || {},
+    aggregationMarkers: options.aggregationMarkers || [],
+    selection: null,
+    searchQuery: "",
+    searchResultIds: [],
+    temporaryObject: null
+  };
+  const rendererCallbacks: GraphFacadeRendererCallbacks = {
     onNodeOpen: capabilities?.onOpenPage
       ? (nodeId) => capabilities.onOpenPage?.(openPagePayloadForNode(facadeState.data, nodeId))
       : undefined,
@@ -134,10 +219,796 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
       capabilities?.onViewReset?.();
     },
     onDragActiveChange: capabilities?.onDragStateChange,
-    onVisibilityStateChange: capabilities?.onVisibilityStateChange
+    onVisibilityStateChange: (visibility) => {
+      facadeState.searchQuery = visibility.searchQuery;
+      facadeState.searchResultIds = visibility.searchResultIds;
+      facadeState.typeFilters = visibility.typeFilters;
+      facadeState.temporaryObject = visibility.temporaryObject;
+      capabilities?.onVisibilityStateChange?.(visibility);
+    }
+  };
+  const renderer = createGraphFacadeRouteManager(container, {
+    state: facadeState,
+    toolbarContainer: options.toolbarContainer,
+    callbacks: rendererCallbacks
   });
 
   return createGraphFacadeFromRenderer(container, renderer, options, facadeState);
+}
+
+export function createGraphFacadeRouteManager(
+  container: HTMLElement,
+  options: {
+    state: GraphFacadeState;
+    toolbarContainer?: HTMLElement | null;
+    callbacks?: GraphFacadeRendererCallbacks;
+    factories?: Partial<GraphFacadeRouteRendererFactories>;
+  }
+): GraphFacadeRouteManager {
+  const state = options.state;
+  state.theme = state.theme || "shan-shui";
+  state.focus = state.focus || null;
+  state.typeFilters = state.typeFilters || {};
+  state.aggregationMarkers = state.aggregationMarkers || [];
+  state.selection = state.selection || null;
+  state.searchQuery = state.searchQuery || "";
+  state.searchResultIds = state.searchResultIds || [];
+  state.temporaryObject = state.temporaryObject || null;
+
+  const factories: GraphFacadeRouteRendererFactories = {
+    createSigmaGlobal: options.factories?.createSigmaGlobal || createSigmaGlobalFacadeRenderer,
+    createDomSvgCommunity: options.factories?.createDomSvgCommunity || ((input) =>
+      createDomSvgFacadeRenderer(input, options.toolbarContainer, true)),
+    createDomSvgSmallFallback: options.factories?.createDomSvgSmallFallback || ((input) =>
+      createDomSvgFacadeRenderer(input, options.toolbarContainer, true)),
+    createAggregationSafetyFallback: options.factories?.createAggregationSafetyFallback || createAggregationSafetyFallbackRenderer
+  };
+  let routeId: GraphFacadeRendererRouteId = "sigma-global";
+  let sigmaKnownUnavailable = false;
+  let sigmaAttemptCount = 0;
+  let destroyed = false;
+  let active: GraphFacadeRenderer | undefined;
+
+  const manager: GraphFacadeRouteManager = {
+    get routeId() {
+      return routeId;
+    },
+    get sigmaKnownUnavailable() {
+      return sigmaKnownUnavailable;
+    },
+    get sigmaAttemptCount() {
+      return sigmaAttemptCount;
+    },
+    retrySigma() {
+      assertActive();
+      sigmaKnownUnavailable = false;
+      switchRoute("sigma-global", activateGlobalRoute);
+    },
+    applyDiff(diff, animationOptions) {
+      assertActive();
+      return currentRenderer().applyDiff(diff, animationOptions);
+    },
+    isDragging() {
+      assertActive();
+      return currentRenderer().isDragging();
+    },
+    setData(data, pins) {
+      assertActive();
+      state.data = data;
+      if (pins) state.pins = pins;
+      if (sigmaKnownUnavailable) {
+        const nextRouteId = fallbackRouteIdForData(state.data);
+        if (routeId === nextRouteId && active) {
+          currentRenderer().setData(data, pins);
+        } else {
+          switchToFallbackRoute();
+        }
+        return;
+      }
+      currentRenderer().setData(data, pins);
+    },
+    setAggregationMarkers(markers) {
+      assertActive();
+      state.aggregationMarkers = markers;
+      currentRenderer().setAggregationMarkers(markers);
+    },
+    focusNode(path) {
+      assertActive();
+      currentRenderer().focusNode(path);
+    },
+    focusCommunity(id) {
+      assertActive();
+      state.focus = { kind: "community", id };
+      switchRoute("dom-svg-community", () => factories.createDomSvgCommunity(factoryInput()));
+      currentRenderer().focusCommunity(id);
+    },
+    setTypeFilters(filters) {
+      assertActive();
+      state.typeFilters = filters;
+      currentRenderer().setTypeFilters(filters);
+    },
+    showTemporaryObject(object) {
+      assertActive();
+      state.temporaryObject = object;
+      currentRenderer().showTemporaryObject(object);
+    },
+    clearTemporaryObjectDisplay() {
+      assertActive();
+      state.temporaryObject = null;
+      currentRenderer().clearTemporaryObjectDisplay();
+    },
+    resetView() {
+      assertActive();
+      state.focus = null;
+      switchToGlobalRoute();
+      currentRenderer().resetView();
+    },
+    select(selection) {
+      assertActive();
+      state.selection = selection;
+      currentRenderer().select(selection);
+    },
+    previewNode(id) {
+      assertActive();
+      currentRenderer().previewNode(id);
+    },
+    clearSelection() {
+      assertActive();
+      state.selection = null;
+      currentRenderer().clearSelection();
+    },
+    clearInteraction() {
+      assertActive();
+      state.focus = null;
+      state.selection = null;
+      state.temporaryObject = null;
+      currentRenderer().clearInteraction();
+    },
+    setNodeFixed(id, mode) {
+      assertActive();
+      const changed = currentRenderer().setNodeFixed(id, mode);
+      if (changed && mode === "unfix") {
+        const node = state.data.nodes.find((item) => item.id === id);
+        const path = node ? wikiPathForGraphNode(node) : id;
+        if (state.pins[path]) {
+          const nextPins = { ...state.pins };
+          delete nextPins[path];
+          state.pins = nextPins;
+        }
+      }
+      return changed;
+    },
+    setTheme(theme) {
+      assertActive();
+      state.theme = theme;
+      currentRenderer().setTheme(theme);
+    },
+    setPins(pins) {
+      assertActive();
+      state.pins = pins;
+      currentRenderer().setPins(pins);
+    },
+    resetLayout() {
+      assertActive();
+      currentRenderer().resetLayout();
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      active?.destroy();
+    }
+  };
+
+  active = activateGlobalRoute();
+
+  return manager;
+
+  function switchToGlobalRoute(): void {
+    if (sigmaKnownUnavailable) {
+      switchToFallbackRoute();
+      return;
+    }
+    switchRoute("sigma-global", activateGlobalRoute);
+  }
+
+  function activateGlobalRoute(): GraphFacadeRenderer {
+    if (sigmaKnownUnavailable) {
+      return activateFallbackRoute();
+    }
+    sigmaAttemptCount += 1;
+    routeId = "sigma-global";
+    try {
+      return factories.createSigmaGlobal(factoryInput((error) => {
+        markSigmaUnavailable(error);
+      }));
+    } catch (error) {
+      sigmaKnownUnavailable = true;
+      return activateFallbackRoute();
+    }
+  }
+
+  function markSigmaUnavailable(_error: unknown): void {
+    if (destroyed || sigmaKnownUnavailable) return;
+    sigmaKnownUnavailable = true;
+    if (routeId !== "sigma-global") return;
+    switchToFallbackRoute();
+  }
+
+  function switchToFallbackRoute(): void {
+    const nextRouteId = fallbackRouteIdForData(state.data);
+    switchRoute(nextRouteId, () => activateFallbackRoute());
+  }
+
+  function activateFallbackRoute(): GraphFacadeRenderer {
+    routeId = fallbackRouteIdForData(state.data);
+    return routeId === "aggregation-safety-fallback"
+      ? factories.createAggregationSafetyFallback(factoryInput(undefined, () => manager.retrySigma()))
+      : factories.createDomSvgSmallFallback(factoryInput(undefined, () => manager.retrySigma()));
+  }
+
+  function switchRoute(nextRouteId: GraphFacadeRendererRouteId, createNext: () => GraphFacadeRenderer): void {
+    if (destroyed) return;
+    if (routeId === nextRouteId && active) return;
+    const previous = active;
+    routeId = nextRouteId;
+    active = createNext();
+    previous?.destroy();
+  }
+
+  function factoryInput(onSigmaUnavailable?: (error: unknown) => void, onRetrySigma?: () => void): GraphFacadeRouteRendererFactoryInput {
+    return {
+      container,
+      options: {
+        data: state.data,
+        pins: state.pins,
+        theme: state.theme || "shan-shui",
+        focus: state.focus || null,
+        typeFilters: state.typeFilters || {},
+        aggregationMarkers: state.aggregationMarkers || [],
+        selection: state.selection || null,
+        searchQuery: state.searchQuery || "",
+        searchResultIds: state.searchResultIds || [],
+        temporaryObject: state.temporaryObject || null,
+        callbacks: {
+          ...(options.callbacks || {}),
+          onSelectionInput: (selection) => {
+            state.selection = selection;
+            options.callbacks?.onSelectionInput?.(selection);
+          },
+          onSelectionClearRequested: () => {
+            state.selection = null;
+            state.temporaryObject = null;
+            options.callbacks?.onSelectionClearRequested?.();
+          },
+          onPinsChanged: (pins) => {
+            state.pins = pins;
+            options.callbacks?.onPinsChanged?.(pins);
+          },
+          onVisibilityStateChange: (visibility) => {
+            state.searchQuery = visibility.searchQuery;
+            state.searchResultIds = visibility.searchResultIds;
+            state.typeFilters = visibility.typeFilters;
+            state.temporaryObject = visibility.temporaryObject;
+            options.callbacks?.onVisibilityStateChange?.(visibility);
+          }
+        }
+      },
+      onSigmaUnavailable,
+      onRetrySigma
+    };
+  }
+
+  function assertActive(): void {
+    if (destroyed) {
+      throw new Error("Graph facade route manager has been destroyed");
+    }
+  }
+
+  function currentRenderer(): GraphFacadeRenderer {
+    if (!active) {
+      throw new Error("Graph facade route manager has no active renderer");
+    }
+    return active;
+  }
+}
+
+function createDomSvgFacadeRenderer(
+  input: GraphFacadeRouteRendererFactoryInput,
+  toolbarContainer: HTMLElement | null | undefined,
+  live: boolean
+): GraphFacadeRenderer {
+  const renderer = createGraphRenderer(input.container, {
+    data: input.options.data,
+    pins: input.options.pins,
+    theme: input.options.theme,
+    toolbarContainer,
+    focus: input.options.focus || undefined,
+    typeFilters: input.options.typeFilters,
+    aggregationMarkers: input.options.aggregationMarkers,
+    searchQuery: input.options.searchQuery,
+    live,
+    onNodeOpen: input.options.callbacks.onNodeOpen,
+    onSelectionInput: input.options.callbacks.onSelectionInput,
+    onPinsChanged: input.options.callbacks.onPinsChanged,
+    onSelectionClearRequested: input.options.callbacks.onSelectionClearRequested,
+    onViewReset: input.options.callbacks.onViewReset,
+    onDragActiveChange: input.options.callbacks.onDragActiveChange,
+    onVisibilityStateChange: input.options.callbacks.onVisibilityStateChange
+  });
+  if (input.options.selection) renderer.select(input.options.selection);
+  if (input.options.temporaryObject) renderer.showTemporaryObject(input.options.temporaryObject);
+  return renderer;
+}
+
+export function graphRequiresAggregationSafetyFallback(data: GraphData): boolean {
+  const nodeCount = Math.max(data.meta.total_nodes || 0, data.nodes.length);
+  const edgeCount = Math.max(data.meta.total_edges || 0, data.edges.length);
+  const communitySizes = new Map<string, number>();
+  for (const node of data.nodes) {
+    if (!node.community) continue;
+    communitySizes.set(node.community, (communitySizes.get(node.community) || 0) + 1);
+  }
+  const maxCommunitySize = Math.max(0, ...communitySizes.values());
+  return nodeCount > GRAPH_FACADE_SIGMA_FALLBACK_THRESHOLDS.maxDomSvgFallbackNodes ||
+    edgeCount > GRAPH_FACADE_SIGMA_FALLBACK_THRESHOLDS.maxDomSvgFallbackEdges ||
+    maxCommunitySize > GRAPH_FACADE_SIGMA_FALLBACK_THRESHOLDS.maxDomSvgFallbackCommunitySize;
+}
+
+function fallbackRouteIdForData(data: GraphData): Extract<GraphFacadeRendererRouteId, "dom-svg-small-fallback" | "aggregation-safety-fallback"> {
+  return graphRequiresAggregationSafetyFallback(data) ? "aggregation-safety-fallback" : "dom-svg-small-fallback";
+}
+
+function createAggregationSafetyFallbackRenderer(input: GraphFacadeRouteRendererFactoryInput): GraphFacadeRenderer {
+  let options = input.options;
+  let destroyed = false;
+  const ownerDocument = input.container.ownerDocument;
+  if (!ownerDocument) {
+    throw new Error("aggregation safety fallback requires a DOM container");
+  }
+  const root = ownerDocument.createElement("div");
+  root.className = "graph-aggregation-safety-view";
+  root.dataset.route = "aggregation-safety-fallback";
+  root.dataset.notice = "sigma-unavailable-large-graph";
+  input.container.append(root);
+  render();
+
+  return {
+    applyDiff() {
+      return Promise.resolve();
+    },
+    isDragging() {
+      return false;
+    },
+    setData(data, pins) {
+      options = { ...options, data, pins: pins || options.pins };
+      render();
+    },
+    setAggregationMarkers(markers) {
+      options = { ...options, aggregationMarkers: markers };
+      render();
+    },
+    focusNode(path) {
+      const node = options.data.nodes.find((item) => item.id === path || wikiPathForGraphNode(item) === path);
+      options = { ...options, selection: node ? { kind: "node", id: node.id } : options.selection };
+      render();
+    },
+    focusCommunity(id) {
+      options = { ...options, focus: { kind: "community", id } };
+      render();
+    },
+    setTypeFilters(filters) {
+      options = { ...options, typeFilters: filters };
+      render();
+    },
+    showTemporaryObject(object) {
+      options = { ...options, temporaryObject: object };
+      render();
+    },
+    clearTemporaryObjectDisplay() {
+      options = { ...options, temporaryObject: null };
+      render();
+    },
+    resetView() {
+      options = { ...options, focus: null };
+      render();
+    },
+    select(selection) {
+      options = { ...options, selection };
+      render();
+    },
+    previewNode() {},
+    clearSelection() {
+      options = { ...options, selection: null };
+      input.options.callbacks.onSelectionClearRequested?.();
+      render();
+    },
+    clearInteraction() {
+      options = { ...options, focus: null, selection: null, temporaryObject: null };
+      render();
+    },
+    setNodeFixed() {
+      return false;
+    },
+    setTheme(theme) {
+      options = { ...options, theme };
+      render();
+    },
+    setPins(pins) {
+      options = { ...options, pins };
+      render();
+    },
+    resetLayout() {
+      options = { ...options, pins: {} };
+      render();
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      root.remove();
+    }
+  };
+
+  function render(): void {
+    if (destroyed) return;
+    const selectedNodeIds = options.selection
+      ? resolveSelectionForCapabilities(options.data, options.selection, { canAsk: false }).nodeIds
+      : [];
+    const markers = options.aggregationMarkers.length > 0
+      ? options.aggregationMarkers
+      : buildCommunityAggregationMarkers(options.data, {
+          pins: options.pins,
+          minCommunitySize: 1
+        }).map((marker) => ({
+          ...marker,
+          selectedNodeIds: marker.nodeIds.filter((id) => selectedNodeIds.includes(id)),
+          searchResultIds: marker.nodeIds.filter((id) => options.searchResultIds.includes(id))
+        }));
+    root.replaceChildren();
+    root.dataset.nodeCount = String(options.data.meta.total_nodes || options.data.nodes.length);
+    root.dataset.edgeCount = String(options.data.meta.total_edges || options.data.edges.length);
+    root.dataset.containerCount = String(markers.length);
+    root.dataset.searchResultCount = String(options.searchResultIds.length);
+    root.dataset.selectedCount = String(selectedNodeIds.length);
+    root.dataset.pinnedCount = String(Object.keys(options.pins).length);
+    root.dataset.temporaryObject = options.temporaryObject ? options.temporaryObject.kind : "";
+
+    const notice = ownerDocument.createElement("div");
+    notice.className = "graph-aggregation-safety-notice";
+    notice.dataset.role = "fallback-notice";
+    notice.textContent = "全局图暂时使用安全视图";
+    root.append(notice);
+
+    const actions = ownerDocument.createElement("div");
+    actions.className = "graph-aggregation-safety-actions";
+    root.append(actions);
+    actions.append(button("retry-sigma", "重试全局图", () => input.onRetrySigma?.()));
+    actions.append(button("clear-selection", "清除选择", () => {
+      options = { ...options, selection: null };
+      input.options.callbacks.onSelectionClearRequested?.();
+      render();
+    }));
+
+    const list = ownerDocument.createElement("div");
+    list.className = "graph-aggregation-safety-containers";
+    root.append(list);
+    for (const marker of markers) {
+      const item = ownerDocument.createElement("button");
+      item.type = "button";
+      item.className = "graph-aggregation-safety-container";
+      item.dataset.aggregationId = marker.id;
+      item.dataset.communityId = marker.communityId || "";
+      item.dataset.nodeCount = String(marker.totalCount ?? marker.nodeIds.length);
+      item.dataset.searchHitCount = String((marker.searchResultIds || []).length);
+      item.dataset.selectedCount = String((marker.selectedNodeIds || []).length);
+      item.dataset.pinnedCount = String((marker.pinnedNodeIds || []).length);
+      item.textContent = marker.label || marker.communityId || marker.id;
+      item.addEventListener("click", () => {
+        if (marker.communityId) input.options.callbacks.onSelectionInput?.({ kind: "community", id: marker.communityId });
+      });
+      list.append(item);
+    }
+  }
+
+  function button(action: string, label: string, onClick: () => void): HTMLButtonElement {
+    const element = ownerDocument.createElement("button");
+    element.type = "button";
+    element.dataset.action = action;
+    element.textContent = label;
+    element.addEventListener("click", onClick);
+    return element;
+  }
+}
+
+function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererFactoryInput): GraphFacadeRenderer {
+  let options = input.options;
+  let destroyed = false;
+  let renderer: ReturnType<typeof createSigmaGlobalRenderer> | null = null;
+  let searchOpen = Boolean(options.searchQuery);
+  let searchFocusedNodeId: string | null = null;
+  let legendCollapsed = false;
+  let toolbarPanelState = readToolbarPanelState(input.container.ownerDocument.defaultView?.localStorage);
+  let searchStatus: HTMLElement | null = null;
+  const shell = input.container.ownerDocument.createElement("div");
+  shell.className = "sigma-global-route";
+  shell.dataset.route = "sigma-global";
+  input.container.append(shell);
+  ensureGraphRendererStyles(input.container.ownerDocument);
+  mountSigmaControls();
+
+  void sigmaGlobalRendererRuntimeBoundary()
+    .then((runtime) => {
+      if (destroyed) return;
+      try {
+        renderer = createSigmaGlobalRenderer({
+          container: shell,
+          adapterData: adapterDataForSigmaRoute(options),
+          theme: options.theme,
+          runtime: runtime as unknown as SigmaGlobalRendererRuntime,
+          onHitTarget: handleSigmaHitTarget,
+          onFatalError: (error) => input.onSigmaUnavailable?.(error)
+        });
+      } catch (error) {
+        input.onSigmaUnavailable?.(error);
+      }
+    })
+    .catch((error) => input.onSigmaUnavailable?.(error));
+
+  return {
+    applyDiff() {
+      return Promise.resolve();
+    },
+    isDragging() {
+      return false;
+    },
+    setData(data, pins) {
+      options = { ...options, data, pins: pins || options.pins };
+      syncVisibilityState();
+      mountSigmaControls();
+      updateSigmaRenderer();
+    },
+    setAggregationMarkers(markers) {
+      options = { ...options, aggregationMarkers: markers };
+      updateSigmaRenderer();
+    },
+    focusNode(path) {
+      const node = options.data.nodes.find((item) => item.id === path || wikiPathForGraphNode(item) === path);
+      options = { ...options, selection: node ? { kind: "node", id: node.id } : null };
+      updateSigmaRenderer();
+    },
+    focusCommunity() {
+      updateSigmaRenderer();
+    },
+    setTypeFilters(filters) {
+      options = { ...options, typeFilters: filters };
+      syncVisibilityState();
+      mountSigmaControls();
+      updateSigmaRenderer();
+    },
+    showTemporaryObject(object) {
+      options = { ...options, temporaryObject: object };
+      updateSigmaRenderer();
+    },
+    clearTemporaryObjectDisplay() {
+      options = { ...options, temporaryObject: null };
+      updateSigmaRenderer();
+    },
+    resetView() {
+      options = { ...options, focus: null, selection: null };
+      updateSigmaRenderer();
+    },
+    select(selection) {
+      options = { ...options, selection };
+      updateSigmaRenderer();
+    },
+    previewNode() {},
+    clearSelection() {
+      options = { ...options, selection: null };
+      input.options.callbacks.onSelectionClearRequested?.();
+      updateSigmaRenderer();
+    },
+    clearInteraction() {
+      options = { ...options, focus: null, selection: null, temporaryObject: null };
+      updateSigmaRenderer();
+    },
+    setNodeFixed(id, mode) {
+      const node = options.data.nodes.find((item) => item.id === id);
+      if (!node) return false;
+      const path = wikiPathForGraphNode(node);
+      const nextPins: PinMap = { ...options.pins };
+      if (mode === "fix") {
+        const adapterNode = adapterDataForSigmaRoute(options).nodes.find((item) => item.id === id);
+        nextPins[path] = {
+          x: adapterNode?.point.x ?? numericNodeCoordinate(node.x),
+          y: adapterNode?.point.y ?? numericNodeCoordinate(node.y),
+          coordinateSpace: "world"
+        };
+      } else {
+        delete nextPins[path];
+      }
+      options = { ...options, pins: nextPins };
+      input.options.callbacks.onPinsChanged?.(nextPins);
+      updateSigmaRenderer();
+      return true;
+    },
+    setTheme(theme) {
+      options = { ...options, theme };
+      shell.dataset.theme = theme;
+      updateSigmaRenderer();
+    },
+    setPins(pins) {
+      options = { ...options, pins };
+      updateSigmaRenderer();
+    },
+    resetLayout() {
+      options = { ...options, pins: {} };
+      updateSigmaRenderer();
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      renderer?.destroy();
+      renderer = null;
+      shell.remove();
+    }
+  };
+
+  function updateSigmaRenderer(): void {
+    if (!renderer || destroyed) return;
+    renderer.update({
+      adapterData: adapterDataForSigmaRoute(options),
+      theme: options.theme
+    });
+  }
+
+  function handleSigmaHitTarget(target: GraphGestureTarget): void {
+    switch (target.kind) {
+      case "node":
+        if (target.id) selectOnSigma({ kind: "node", id: target.id });
+        break;
+      case "community-wash":
+        if (target.id) selectOnSigma({ kind: "community", id: target.id });
+        break;
+      case "aggregation-container":
+        if (target.communityId) selectOnSigma({ kind: "community", id: target.communityId });
+        break;
+      case "edge":
+        break;
+      case "graph-blank":
+        options = { ...options, selection: null, temporaryObject: null };
+        input.options.callbacks.onSelectionClearRequested?.();
+        updateSigmaRenderer();
+        break;
+    }
+  }
+
+  function selectOnSigma(selection: SelectionInput): void {
+    options = { ...options, selection };
+    input.options.callbacks.onSelectionInput?.(selection);
+    updateSigmaRenderer();
+  }
+
+  function mountSigmaControls(): void {
+    shell.dataset.theme = options.theme;
+    shell.dataset.searchOpen = searchOpen ? "true" : "false";
+    shell.querySelector(".graph-search")?.remove();
+    shell.querySelector(".graph-toolbar")?.remove();
+    const search = createSearchControl(input.container.ownerDocument, {
+      open: searchOpen,
+      query: options.searchQuery,
+      onOpen: () => {
+        searchOpen = true;
+        mountSigmaControls();
+      },
+      onQuery: applySearchQuery,
+      onNext: () => focusSearchResult("next"),
+      onPrevious: () => focusSearchResult("previous"),
+      onActivate: activateSearchResult,
+      onClose: () => {
+        searchOpen = false;
+        searchFocusedNodeId = null;
+        applySearchQuery("");
+      }
+    });
+    shell.prepend(search.element);
+    searchStatus = search.status;
+    updateSearchStatus(search.status);
+
+    const adapterData = adapterDataForSigmaRoute(options);
+    const legendRows = buildCommunityLegend(adapterData.renderable.communities, adapterData.renderable.nodes);
+    const communityLegend = createCommunityLegend(input.container.ownerDocument, {
+      rows: legendRows,
+      collapsed: legendCollapsed,
+      onToggle: () => {
+        legendCollapsed = !legendCollapsed;
+        mountSigmaControls();
+      },
+      onHover: (id) => {
+        shell.dataset.legendHover = id || "";
+      },
+      onSelect: (id) => selectOnSigma({ kind: "community", id })
+    });
+    const toolbar = createGraphToolbar(input.container.ownerDocument, {
+      panelState: toolbarPanelState,
+      typeFilters: options.typeFilters,
+      onPanelToggle: (panel) => {
+        toolbarPanelState = nextToolbarPanelState(toolbarPanelState, panel);
+        writeToolbarPanelState(input.container.ownerDocument.defaultView?.localStorage, toolbarPanelState);
+        mountSigmaControls();
+      },
+      onTypeFilterToggle: (type, enabled) => {
+        options = { ...options, typeFilters: { ...options.typeFilters, [type]: enabled } };
+        syncVisibilityState();
+        mountSigmaControls();
+        updateSigmaRenderer();
+      },
+      onReset: () => {
+        options = { ...options, focus: null, selection: null };
+        updateSigmaRenderer();
+      }
+    });
+    toolbar.filtersPanel.appendChild(communityLegend.element);
+    shell.prepend(toolbar.element);
+  }
+
+  function applySearchQuery(query: string): void {
+    const state = resolveGraphSearchState(options.data.nodes, query);
+    options = { ...options, searchQuery: state.query, searchResultIds: state.matchIds };
+    if (!state.matchIds.includes(searchFocusedNodeId || "")) searchFocusedNodeId = null;
+    syncVisibilityState();
+    if (searchStatus) updateSearchStatus(searchStatus);
+    updateSigmaRenderer();
+  }
+
+  function focusSearchResult(direction: "next" | "previous"): void {
+    const state = resolveGraphSearchState(options.data.nodes, options.searchQuery);
+    const index = searchFocusedNodeId ? state.matchIds.indexOf(searchFocusedNodeId) : -1;
+    if (!state.matchIds.length) return;
+    const nextIndex = direction === "next"
+      ? (index + 1 + state.matchIds.length) % state.matchIds.length
+      : (index - 1 + state.matchIds.length) % state.matchIds.length;
+    searchFocusedNodeId = state.matchIds[nextIndex];
+    mountSigmaControls();
+  }
+
+  function activateSearchResult(): void {
+    const state = resolveGraphSearchState(options.data.nodes, options.searchQuery);
+    const id = searchFocusedNodeId || state.matchIds[0];
+    if (id) selectOnSigma({ kind: "node", id });
+  }
+
+  function syncVisibilityState(): void {
+    input.options.callbacks.onVisibilityStateChange?.({
+      searchQuery: options.searchQuery,
+      searchResultIds: options.searchResultIds,
+      typeFilters: options.typeFilters,
+      temporaryObject: options.temporaryObject
+    });
+  }
+
+  function updateSearchStatus(status: HTMLElement): void {
+    const state = resolveGraphSearchState(options.data.nodes, options.searchQuery);
+    const focusedIndex = searchFocusedNodeId ? state.matchIds.indexOf(searchFocusedNodeId) : -1;
+    status.textContent = state.query
+      ? `${state.matchIds.length} 个结果${focusedIndex >= 0 ? ` · ${focusedIndex + 1}/${state.matchIds.length}` : ""}`
+      : "输入关键词";
+  }
+}
+
+function adapterDataForSigmaRoute(options: GraphFacadeRouteRendererOptions): GraphRendererAdapterData {
+  return buildGraphRendererAdapterData(options.data, {
+    theme: options.theme,
+    pins: options.pins,
+    selection: options.selection,
+    searchResultIds: options.searchResultIds,
+    aggregationMarkers: options.aggregationMarkers,
+    focus: null,
+    typeFilters: options.typeFilters
+  });
+}
+
+function numericNodeCoordinate(value: GraphNode["x"] | GraphNode["y"]): number {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
 export function createGraphFacadeFromRenderer(
@@ -176,46 +1047,56 @@ export function createGraphFacadeFromRenderer(
 
     setAggregationMarkers(markers): void {
       assertActive();
+      facadeState.aggregationMarkers = markers;
       renderer.setAggregationMarkers(markers);
     },
 
     focusNode(path: string): void {
       assertActive();
       container.dataset.llmWikiGraphFocus = path;
+      const node = facadeState.data.nodes.find((item) => item.id === path || wikiPathForGraphNode(item) === path);
+      facadeState.selection = node ? { kind: "node", id: node.id } : null;
       renderer.focusNode(path);
     },
 
     focusCommunity(id): Selection {
       assertActive();
       container.dataset.llmWikiGraphFocus = `community:${id}`;
+      facadeState.focus = { kind: "community", id };
+      facadeState.selection = { kind: "community", id };
       renderer.focusCommunity(id);
       return resolveForHostCapabilities({ kind: "community", id });
     },
 
     setTypeFilters(filters): void {
       assertActive();
+      facadeState.typeFilters = filters;
       renderer.setTypeFilters(filters);
     },
 
     showTemporaryObject(object): void {
       assertActive();
+      facadeState.temporaryObject = object;
       renderer.showTemporaryObject(object);
     },
 
     clearTemporaryObjectDisplay(): void {
       assertActive();
+      facadeState.temporaryObject = null;
       renderer.clearTemporaryObjectDisplay();
     },
 
     resetView(): void {
       assertActive();
       delete container.dataset.llmWikiGraphFocus;
+      facadeState.focus = null;
       renderer.resetView();
       capabilities?.onViewReset?.();
     },
 
     select(selector: SelectionInput): Selection {
       assertActive();
+      facadeState.selection = selector;
       renderer.select(selector);
       return resolveForHostCapabilities(selector);
     },
@@ -227,22 +1108,22 @@ export function createGraphFacadeFromRenderer(
 
     summarizeNode(id, summaryOptions) {
       assertActive();
-      return summarizeGraphNode(facadeState.data, id, summaryOptionsWithPins(facadeState, summaryOptions));
+      return summarizeGraphNode(facadeState.data, id, summaryOptionsWithFacadeState(facadeState, summaryOptions));
     },
 
     summarizeCommunity(id, summaryOptions) {
       assertActive();
-      return summarizeGraphCommunity(facadeState.data, id, summaryOptionsWithPins(facadeState, summaryOptions));
+      return summarizeGraphCommunity(facadeState.data, id, summaryOptionsWithFacadeState(facadeState, summaryOptions));
     },
 
     summarizeGlobal(summaryOptions) {
       assertActive();
-      return summarizeGraphGlobal(facadeState.data, summaryOptionsWithPins(facadeState, summaryOptions));
+      return summarizeGraphGlobal(facadeState.data, summaryOptionsWithFacadeState(facadeState, summaryOptions));
     },
 
     summarizeSearchResults(query, resultIds, summaryOptions) {
       assertActive();
-      return summarizeGraphSearchResults(facadeState.data, query, resultIds, summaryOptionsWithPins(facadeState, summaryOptions));
+      return summarizeGraphSearchResults(facadeState.data, query, resultIds, summaryOptionsWithFacadeState(facadeState, summaryOptions));
     },
 
     summarizeExcludedObject(
@@ -251,7 +1132,7 @@ export function createGraphFacadeFromRenderer(
       summaryOptions?: GraphSummaryOptions
     ) {
       assertActive();
-      return summarizeExcludedGraphObject(facadeState.data, object, reason, summaryOptionsWithPins(facadeState, summaryOptions));
+      return summarizeExcludedGraphObject(facadeState.data, object, reason, summaryOptionsWithFacadeState(facadeState, summaryOptions));
     },
 
     summarizeUnavailableObject(
@@ -260,11 +1141,12 @@ export function createGraphFacadeFromRenderer(
       summaryOptions?: GraphSummaryOptions
     ) {
       assertActive();
-      return summarizeUnavailableGraphObject(facadeState.data, object, reason, summaryOptionsWithPins(facadeState, summaryOptions));
+      return summarizeUnavailableGraphObject(facadeState.data, object, reason, summaryOptionsWithFacadeState(facadeState, summaryOptions));
     },
 
     clearSelection(): void {
       assertActive();
+      facadeState.selection = null;
       renderer.clearSelection();
     },
 
@@ -272,6 +1154,9 @@ export function createGraphFacadeFromRenderer(
       assertActive();
       renderer.clearInteraction();
       delete container.dataset.llmWikiGraphFocus;
+      facadeState.focus = null;
+      facadeState.selection = null;
+      facadeState.temporaryObject = null;
     },
 
     setNodeFixed(id: string, mode: "fix" | "unfix"): boolean {
@@ -294,6 +1179,7 @@ export function createGraphFacadeFromRenderer(
 
     resetLayout(): void {
       assertActive();
+      facadeState.pins = {};
       renderer.resetLayout();
     },
 
@@ -314,10 +1200,14 @@ export function createGraphFacadeFromRenderer(
   }
 }
 
-function summaryOptionsWithPins(state: GraphFacadeState, options: GraphSummaryOptions = {}): GraphSummaryOptions {
+function summaryOptionsWithFacadeState(state: GraphFacadeState, options: GraphSummaryOptions = {}): GraphSummaryOptions {
   return {
     ...options,
-    pins: options.pins ?? state.pins
+    selection: options.selection ?? state.selection ?? null,
+    searchResultIds: options.searchResultIds ?? state.searchResultIds ?? [],
+    pins: options.pins ?? state.pins,
+    aggregationMarkers: options.aggregationMarkers ?? state.aggregationMarkers ?? [],
+    temporaryObject: options.temporaryObject ?? state.temporaryObject ?? null
   };
 }
 

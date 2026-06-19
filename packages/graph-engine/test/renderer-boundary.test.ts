@@ -176,6 +176,21 @@ describe("renderer and facade boundary contract", () => {
     assert.deepEqual(violations, []);
   });
 
+  it("routes controller node DOM focus and class commands through the renderer surface", async () => {
+    const controllerText = await readFile(join(SRC, "render/controller.ts"), "utf8");
+    const surfaceText = await readFile(join(SRC, "render/renderer-surface.ts"), "utf8");
+
+    assert.doesNotMatch(
+      controllerText,
+      /context\.dom\.(?:nodeElements|edgeElements|aggregationContainerElements).*?\.(?:focus|classList)/
+    );
+    assert.match(controllerText, /context\.rendererSurface\.focusNode\(/);
+    assert.match(controllerText, /context\.rendererSurface\.setNodeDragging\(/);
+    assert.match(controllerText, /context\.rendererSurface\.clearNodeDragging\(/);
+    assert.match(surfaceText, /focusNode\(id/);
+    assert.match(surfaceText, /setNodeDragging\(id/);
+  });
+
   it("keeps pipeline and presenter out of semantic selection/focus/pin ownership", async () => {
     const files: Array<[string, RegExp[]]> = [
       ["render/render-pipeline.ts", PIPELINE_FORBIDDEN_STATE_MUTATION_PATTERNS],
@@ -276,6 +291,21 @@ describe("renderer and facade boundary contract", () => {
     assert.match(pipelineText, /onSelect:\s*\(id\) => options\.commands\.selectCommunity\(id\)/);
     assert.match(pipelineText, /applyTypeFilters\(\{ \.\.\.context\.typeFilters, \[type\]: enabled \}\)/);
     assert.match(pipelineText, /options\.commands\.resetViewState\(\)/);
+  });
+
+  it("keeps DOM/SVG graph drawing behind the dom-svg renderer boundary", async () => {
+    const pipelineText = await readFile(join(SRC, "render/render-pipeline.ts"), "utf8");
+    const domSvgText = await readFile(join(SRC, "render/dom-svg-renderer.ts"), "utf8");
+
+    assert.match(pipelineText, /paintDomSvgGraph\(\{/);
+    assert.doesNotMatch(pipelineText, /\bcreateGraphNodeElement\b/);
+    assert.doesNotMatch(pipelineText, /\bcreateGraphEdgeElement\b/);
+    assert.doesNotMatch(pipelineText, /\bcreateCommunityWashElement\b/);
+    assert.doesNotMatch(pipelineText, /\bcreateGraphMinimap\b/);
+    assert.match(domSvgText, /\bcreateGraphNodeElement\b/);
+    assert.match(domSvgText, /\bcreateGraphEdgeElement\b/);
+    assert.match(domSvgText, /\bcreateCommunityWashElement\b/);
+    assert.match(domSvgText, /\bcreateGraphMinimap\b/);
   });
 
   it("keeps lifecycle teardown ownership explicit in the renderer root", async () => {
