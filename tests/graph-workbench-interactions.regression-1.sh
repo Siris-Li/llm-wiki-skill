@@ -58,12 +58,50 @@ node - "$workbench_kb/wiki/graph-data.json" <<'NODE'
 const fs = require("fs");
 const file = process.argv[2];
 const data = JSON.parse(fs.readFileSync(file, "utf8"));
+const byId = new Map(data.nodes.map((node) => [node.id, node]));
+const base = byId.get("A") || data.nodes[0];
+for (const id of ["D", "E", "F", "G"]) {
+  if (byId.has(id)) continue;
+  data.nodes.push({
+    ...base,
+    id,
+    label: `节点${id}`,
+    type: "entity",
+    community: "t1",
+    source_path: `wiki/entities/${id}.md`,
+    x: (base.x || 500) + (id.charCodeAt(0) - 67) * 24,
+    y: (base.y || 300) + (id.charCodeAt(0) - 67) * 18
+  });
+}
+const existingEdges = new Set(data.edges.map((edge) => edge.id));
+for (const id of ["D", "E", "F", "G"]) {
+  const edgeId = `A-${id}`;
+  if (existingEdges.has(edgeId)) continue;
+  data.edges.push({ id: edgeId, from: "A", to: id, type: "EXTRACTED", relation_type: "同社区", weight: 0.5 });
+}
 for (const node of data.nodes) {
   node.source_path = `wiki/entities/${node.id}.md`;
   node.content = `# ${node.label}\n\n这是${node.label}的内容。\n`;
+  if (node.id === "C") node.type = "source";
+}
+const t1 = data.learning?.communities?.find((community) => community.id === "t1");
+if (t1) {
+  t1.members = data.nodes.filter((node) => node.community === "t1").map((node) => node.id);
+  t1.node_count = t1.members.length;
+}
+if (data.meta) {
+  data.meta.total_nodes = data.nodes.length;
+  data.meta.total_edges = data.edges.length;
 }
 fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 NODE
+for id in D E F G; do
+cat > "$workbench_kb/wiki/entities/$id.md" <<EOF
+# 节点$id
+
+这是节点$id 的正文。
+EOF
+done
 cat > "$tmp_dir/home/.llm-wiki-agent/config.json" <<JSON
 {
   "version": 1,

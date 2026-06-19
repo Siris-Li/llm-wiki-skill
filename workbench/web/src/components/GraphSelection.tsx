@@ -1,7 +1,7 @@
 import { MessageSquarePlus, Plus, Send } from "lucide-react";
 import type { Selection, SelectionAction } from "@llm-wiki/graph-engine";
 
-import { graphSelectionViewModel } from "@/lib/graph-selection-drawer";
+import { graphSelectionViewModel } from "../lib/graph-selection-drawer";
 
 interface Props {
 	title: string;

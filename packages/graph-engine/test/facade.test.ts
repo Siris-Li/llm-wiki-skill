@@ -78,6 +78,9 @@ describe("GraphFacade", () => {
     assert.equal(container.dataset.llmWikiGraphFocus, undefined);
     assert.deepEqual(renderer.calls.at(-1), ["clearInteraction"]);
 
+    assert.equal(engine.setNodeFixed("a", "fix"), true);
+    assert.deepEqual(renderer.calls.at(-1), ["setNodeFixed", "a", "fix"]);
+
     await engine.applyDiff({ addedNodes: ["c"] });
     assert.deepEqual(renderer.calls.at(-1), ["applyDiff", { addedNodes: ["c"] }, undefined]);
 
@@ -112,6 +115,84 @@ describe("GraphFacade", () => {
     assert.deepEqual(renderer.calls.at(-1), ["select", { kind: "node", id: "a" }]);
   });
 
+  it("keeps return global and reset layout as separate facade commands", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const renderer = createFakeRenderer();
+    const viewResets: number[] = [];
+    const engine = createGraphFacadeFromRenderer(container, renderer, {
+      data: DATA,
+      theme: "shan-shui",
+      capabilities: {
+        onViewReset: () => viewResets.push(1)
+      }
+    });
+
+    engine.focusCommunity("c1");
+    assert.equal(container.dataset.llmWikiGraphFocus, "community:c1");
+
+    engine.resetLayout();
+    assert.equal(container.dataset.llmWikiGraphFocus, "community:c1");
+    assert.deepEqual(renderer.calls.at(-1), ["resetLayout"]);
+    assert.deepEqual(viewResets, []);
+
+    engine.resetView();
+    assert.equal(container.dataset.llmWikiGraphFocus, undefined);
+    assert.deepEqual(renderer.calls.at(-1), ["resetView"]);
+    assert.deepEqual(viewResets, [1]);
+  });
+
+  it("exposes shared summary payloads from current facade data and pins", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const renderer = createFakeRenderer();
+    const engine = createGraphFacadeFromRenderer(container, renderer, {
+      data: DATA,
+      theme: "shan-shui",
+      pins: {
+        "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" }
+      }
+    });
+
+    const node = engine.summarizeNode("a", {
+      selection: { kind: "node", id: "a" },
+      searchResultIds: ["a"]
+    });
+    const community = engine.summarizeCommunity("c1", { selection: { kind: "community", id: "c1" } });
+    const global = engine.summarizeGlobal({ searchResultIds: ["b"] });
+    const search = engine.summarizeSearchResults("beta", ["b", "missing"]);
+    const excluded = engine.summarizeExcludedObject({ kind: "node", nodeId: "a" }, "filter", { searchResultIds: ["a"] });
+
+    assert.equal(node.kind, "node-summary");
+    assert.equal(node.nodeId, "a");
+    assert.equal(node.pinHint.pinned, true);
+    assert.equal(node.selection.containsCurrentObject, true);
+    assert.deepEqual(node.commands.map((command) => command.kind), ["open-detail-read", "set-fixed-position", "enter-community"]);
+
+    assert.equal(community.kind, "community-summary");
+    assert.equal(community.communityId, "c1");
+    assert.deepEqual(community.selection.selectedNodeIds, ["a", "b"]);
+
+    assert.equal(global.kind, "global-overview");
+    assert.deepEqual(global.searchResultIds, ["b"]);
+
+    assert.equal(search.kind, "search-results");
+    assert.deepEqual(search.visibleResultIds, ["b"]);
+    assert.deepEqual(search.unavailableResultIds, ["missing"]);
+
+    assert.equal(excluded.kind, "excluded-object");
+    assert.deepEqual(excluded.commands.map((command) => command.kind), ["show-this-object", "clear-temporary-object-display"]);
+
+    engine.setPins({ "wiki/b.md": { x: 1, y: 2, coordinateSpace: "world" } });
+    const beta = engine.summarizeNode("b");
+    assert.equal(beta.kind, "node-summary");
+    assert.equal(beta.pinHint.nodeId, "b");
+    assert.equal(beta.pinHint.pinned, true);
+
+    engine.setData(DATA);
+    const betaAfterRefresh = engine.summarizeNode("b");
+    assert.equal(betaAfterRefresh.kind, "node-summary");
+    assert.equal(betaAfterRefresh.pinHint.pinned, true);
+  });
+
   it("declares separate workbench, offline, and standalone capability contracts", async () => {
     const persistPins = async (_pins: PinMap) => {};
     const workbench = createGraphWorkbenchCapabilities({
@@ -132,6 +213,8 @@ describe("GraphFacade", () => {
       "onOpenPage",
       "onSelectionChange",
       "onSelectionClear",
+      "onViewReset",
+      "onVisibilityStateChange",
       "persistPins"
     ]);
 
@@ -167,6 +250,9 @@ function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
     focusCommunity(id: string) {
       calls.push(["focusCommunity", id]);
     },
+    previewNode(id: string | null) {
+      calls.push(["previewNode", id]);
+    },
     setTypeFilters(filters: GraphTypeFilters) {
       calls.push(["setTypeFilters", filters]);
     },
@@ -181,6 +267,10 @@ function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
     },
     clearInteraction() {
       calls.push(["clearInteraction"]);
+    },
+    setNodeFixed(id: string, mode: "fix" | "unfix") {
+      calls.push(["setNodeFixed", id, mode]);
+      return true;
     },
     setTheme(theme: ThemeId) {
       calls.push(["setTheme", theme]);

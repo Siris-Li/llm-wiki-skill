@@ -26,6 +26,10 @@ export function createGraphNodeElement(
   button.dataset.visualRole = node.visualRole;
   button.dataset.startNode = node.startNode ? "true" : "false";
   button.dataset.previewStart = node.previewStart ? "true" : "false";
+  button.dataset.coreAnchor = node.coreAnchor ? "true" : "false";
+  button.dataset.temporaryBoost = node.temporaryBoost > 0 ? "true" : "false";
+  button.dataset.interactionLabelVisible = node.interactionLabelVisible ? "true" : "false";
+  button.dataset.traceable = node.selected || node.coreAnchor || node.interactionLabelVisible ? "true" : "false";
   button.dataset.worldX = String(node.point.x);
   button.dataset.worldY = String(node.point.y);
   button.style.left = `${node.x}%`;

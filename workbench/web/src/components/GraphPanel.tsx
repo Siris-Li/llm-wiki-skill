@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Moon, RefreshCw, RotateCcw, Sun } from "lucide-react";
 import {
 	createGraphWorkbenchCapabilities,
 	createGraphEngine,
+	buildCommunityAggregationMarkers,
 	GraphDiffQueue,
 	type GraphData,
 	type GraphDiff,
 	type GraphEngine,
 	type GraphOpenPagePayload,
+	type GraphVisibilityState,
 	type PinMap,
 	type Selection,
 	type ThemeId,
@@ -19,6 +21,7 @@ import {
 	putGraphLayout,
 	rebuildGraph,
 } from "@/lib/api";
+import type { GraphSelectionCommand } from "@/lib/graph-summary-actions";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -28,8 +31,11 @@ interface Props {
 	onToggleTheme?: () => void;
 	onOpenPage?: (payload: GraphOpenPagePayload) => void;
 	onGraphDataChange?: (data: GraphData | null) => void;
+	onGraphPinsChange?: (pins: PinMap) => void;
+	onGraphVisibilityChange?: (state: GraphVisibilityState | null) => void;
 	onSelectionChange?: (selection: Selection | null) => void;
-	selectionCommand?: { id: string; type: "clear" | "clear-selection" | "neighbors" };
+	onViewReset?: () => void;
+	selectionCommand?: GraphSelectionCommand;
 	focusPath?: string | null;
 	pendingDiff?: GraphDiff | null;
 	refreshToken?: number;
@@ -55,7 +61,10 @@ export function GraphPanel({
 	onToggleTheme,
 	onOpenPage,
 	onGraphDataChange,
+	onGraphPinsChange,
+	onGraphVisibilityChange,
 	onSelectionChange,
+	onViewReset,
 	selectionCommand,
 	focusPath,
 	pendingDiff,
@@ -65,6 +74,7 @@ export function GraphPanel({
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const engineRef = useRef<GraphEngine | null>(null);
 	const engineKbPathRef = useRef<string | null>(null);
+	const engineDataRef = useRef<GraphData | null>(null);
 	const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const resetNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const activeKbPathRef = useRef<string | null>(currentKnowledgeBasePath);
@@ -73,11 +83,15 @@ export function GraphPanel({
 	const loadRequestRef = useRef(0);
 	const onOpenPageRef = useRef(onOpenPage);
 	const onGraphDataChangeRef = useRef(onGraphDataChange);
+	const onGraphPinsChangeRef = useRef(onGraphPinsChange);
+	const onGraphVisibilityChangeRef = useRef(onGraphVisibilityChange);
 	const onSelectionChangeRef = useRef(onSelectionChange);
+	const onViewResetRef = useRef(onViewReset);
 	const diffQueueRef = useRef(new GraphDiffQueue({ visible: true }));
 	const lastRefreshTokenRef = useRef(refreshToken);
 	const devGraphTestRef = useRef("");
 	const animationTokenRef = useRef(0);
+	const lastSelectionCommandRef = useRef<GraphSelectionCommand | undefined>(selectionCommand);
 	const [data, setData] = useState<GraphData | null>(null);
 	const [dataKnowledgeBasePath, setDataKnowledgeBasePath] = useState<string | null>(currentKnowledgeBasePath);
 	const [resetNotice, setResetNotice] = useState<ResetNotice | null>(null);
@@ -88,6 +102,10 @@ export function GraphPanel({
 	const [pendingAnimation, setPendingAnimation] = useState<PendingAnimation | null>(null);
 	const [animationReadyToken, setAnimationReadyToken] = useState(0);
 	const lastDragStateRef = useRef(false);
+	const aggregationMarkers = useMemo(
+		() => data ? buildCommunityAggregationMarkers(data, { pins: layoutPinsRef.current, minCommunitySize: 6 }) : [],
+		[data, layoutPinsRef.current],
+	);
 
 	const graphTheme: ThemeId = theme === "dark" ? "mo-ye" : "shan-shui";
 
@@ -112,11 +130,24 @@ export function GraphPanel({
 	}, [onGraphDataChange]);
 
 	useLayoutEffect(() => {
+		onGraphPinsChangeRef.current = onGraphPinsChange;
+	}, [onGraphPinsChange]);
+
+	useLayoutEffect(() => {
+		onGraphVisibilityChangeRef.current = onGraphVisibilityChange;
+	}, [onGraphVisibilityChange]);
+
+	useLayoutEffect(() => {
 		onSelectionChangeRef.current = onSelectionChange;
 	}, [onSelectionChange]);
 
+	useLayoutEffect(() => {
+		onViewResetRef.current = onViewReset;
+	}, [onViewReset]);
+
 	const applyLayoutPins = useCallback((pins: PinMap): void => {
 		layoutPinsRef.current = pins;
+		onGraphPinsChangeRef.current?.(pins);
 	}, []);
 
 	const runWhenDragIdle = useCallback((operation: () => void): () => void => {
@@ -142,6 +173,7 @@ export function GraphPanel({
 			setData(null);
 			setDataKnowledgeBasePath(null);
 			onGraphDataChangeRef.current?.(null);
+			onGraphVisibilityChangeRef.current?.(null);
 			applyLayoutPins({});
 			onSelectionChangeRef.current?.(null);
 			setStatus("idle");
@@ -159,6 +191,7 @@ export function GraphPanel({
 				setData(null);
 				setDataKnowledgeBasePath(kbPath);
 				onGraphDataChangeRef.current?.(null);
+				onGraphVisibilityChangeRef.current?.(null);
 				onSelectionChangeRef.current?.(null);
 				setStatus("building");
 				const nextBuildState = await rebuildGraph(kbPath);
@@ -178,6 +211,7 @@ export function GraphPanel({
 			setData(null);
 			setDataKnowledgeBasePath(kbPath);
 			onGraphDataChangeRef.current?.(null);
+			onGraphVisibilityChangeRef.current?.(null);
 			applyLayoutPins({});
 			onSelectionChangeRef.current?.(null);
 			setStatus("error");
@@ -302,10 +336,18 @@ export function GraphPanel({
 			engineRef.current?.destroy();
 			engineRef.current = null;
 			engineKbPathRef.current = null;
+			engineDataRef.current = null;
+			lastSelectionCommandRef.current = selectionCommand;
 			return;
 		}
 		if (engineRef.current && engineKbPathRef.current === currentKnowledgeBasePath) {
-			engineRef.current.setData(data, layoutPinsRef.current);
+			if (engineDataRef.current !== data) {
+				engineRef.current.setData(data, layoutPinsRef.current);
+				engineDataRef.current = data;
+			} else {
+				engineRef.current.setPins(layoutPinsRef.current);
+			}
+			engineRef.current.setAggregationMarkers(aggregationMarkers);
 			return;
 		}
 		engineRef.current?.destroy();
@@ -313,10 +355,12 @@ export function GraphPanel({
 			data,
 			pins: layoutPinsRef.current,
 			theme: graphThemeRef.current,
+			aggregationMarkers,
 			capabilities: createGraphWorkbenchCapabilities({
 				onOpenPage: (payload) => onOpenPageRef.current?.(payload),
 				onSelectionChange: (nextSelection) => onSelectionChangeRef.current?.(nextSelection),
 				onSelectionClear: () => onSelectionChangeRef.current?.(null),
+				onViewReset: () => onViewResetRef.current?.(),
 				onAsk: (nextSelection) => onSelectionChangeRef.current?.(nextSelection),
 				persistPins,
 				onDragStateChange: (dragging) => {
@@ -326,11 +370,13 @@ export function GraphPanel({
 						void playDiff(decision.diff);
 					}
 				},
+				onVisibilityStateChange: (state) => onGraphVisibilityChangeRef.current?.(state),
 			}).capabilities,
 		});
 		engineRef.current = engine;
 		engineKbPathRef.current = currentKnowledgeBasePath;
-	}, [currentKnowledgeBasePath, data, dataKnowledgeBasePath, persistPins, playDiff]);
+		engineDataRef.current = data;
+	}, [aggregationMarkers, currentKnowledgeBasePath, data, dataKnowledgeBasePath, persistPins, playDiff]);
 
 	useEffect(() => {
 		engineRef.current?.setTheme(graphTheme);
@@ -338,6 +384,8 @@ export function GraphPanel({
 
 	useEffect(() => {
 		if (!selectionCommand || status !== "ready") return;
+		if (lastSelectionCommandRef.current === selectionCommand) return;
+		lastSelectionCommandRef.current = selectionCommand;
 		if (selectionCommand.type === "clear") {
 			engineRef.current?.clearInteraction();
 			onSelectionChangeRef.current?.(null);
@@ -349,6 +397,27 @@ export function GraphPanel({
 		if (selectionCommand.type === "neighbors") {
 			const selected = engineRef.current?.select({ kind: "neighbors", id: selectionCommand.id });
 			if (selected) onSelectionChangeRef.current?.(selected);
+		}
+		if (selectionCommand.type === "enter-community") {
+			const selected = engineRef.current?.focusCommunity(selectionCommand.id);
+			if (selected) onSelectionChangeRef.current?.(selected);
+		}
+		if (selectionCommand.type === "enter-community-node") {
+			const selected = engineRef.current?.select({ kind: "node", id: selectionCommand.nodeId });
+			engineRef.current?.focusCommunity(selectionCommand.id);
+			if (selected) onSelectionChangeRef.current?.(selected);
+		}
+		if (selectionCommand.type === "preview-node") {
+			engineRef.current?.previewNode(selectionCommand.nodeId);
+		}
+		if (selectionCommand.type === "set-fixed-position") {
+			engineRef.current?.setNodeFixed(selectionCommand.nodeId, selectionCommand.mode);
+		}
+		if (selectionCommand.type === "show-temporary-object") {
+			engineRef.current?.showTemporaryObject(selectionCommand.object);
+		}
+		if (selectionCommand.type === "clear-temporary-object-display") {
+			engineRef.current?.clearTemporaryObjectDisplay();
 		}
 	}, [selectionCommand, status]);
 

@@ -20,6 +20,8 @@ export function createGraphEdgeElement(
   path.setAttribute("data-edge-id", edge.id);
   path.setAttribute("data-confidence", edge.confidence);
   path.setAttribute("data-relation-type", edge.relationType);
+  path.setAttribute("data-skeleton", edge.skeleton ? "true" : "false");
+  path.setAttribute("data-traceable", edge.traceable ? "true" : "false");
   path.setAttribute("aria-label", `${edge.relationType} · ${edgeConfidenceLabel(edge.confidence)}`);
   path.setAttribute("tabindex", "0");
   path.addEventListener("pointerenter", () => handlers.onEdgePreviewEnter(edge.id));

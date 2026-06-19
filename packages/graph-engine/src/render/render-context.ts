@@ -1,4 +1,4 @@
-import type { GraphData, GraphDiff, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId } from "../types";
+import type { GraphAggregationMarker, GraphData, GraphDiff, GraphSummaryObjectRef, GraphTypeFilters, GraphVisibilityState, NodeId, PinMap, SelectionInput, ThemeId } from "../types";
 import type { LiveGraphSimulation, PinState } from "../sim";
 import type { GraphHitTargetResolver } from "./hit-testing";
 import type { GraphGestureController, GraphGestureStateMachine } from "./gestures";
@@ -13,6 +13,7 @@ export interface PaintedGraphDom {
   svgElement: SVGSVGElement | null;
   edgeElements: Map<string, SVGPathElement>;
   communityWashElements: Map<string, SVGEllipseElement>;
+  aggregationContainerElements: Map<string, HTMLButtonElement>;
   nodeElements: Map<string, HTMLButtonElement>;
   miniNodeElements: Map<string, SVGCircleElement>;
   miniViewportElement: SVGRectElement | null;
@@ -33,8 +34,10 @@ export interface GraphRendererCallbacks {
   onNodeOpen?: (nodeId: NodeId) => void;
   onSelectionInput?: (selection: SelectionInput) => void;
   onSelectionClearRequested?: () => void;
+  onViewReset?: () => void;
   onPinsChanged?: (pins: PinMap) => void;
   onDragActiveChange?: (dragging: boolean) => void;
+  onVisibilityStateChange?: (state: GraphVisibilityState) => void;
 }
 
 export interface GraphRenderContext {
@@ -48,7 +51,10 @@ export interface GraphRenderContext {
   searchQuery: string;
   searchFocusedNodeId: NodeId | null;
   typeFilters: GraphTypeFilters;
+  aggregationMarkers: GraphAggregationMarker[];
+  baseTypeFilters: GraphTypeFilters;
   availableTypeFilters: GraphTypeFilters;
+  temporaryObject: GraphSummaryObjectRef | null;
   searchIndex: ReturnType<typeof resolveGraphSearchState>["searchIndex"] | undefined;
   previewTimer: ReturnType<typeof setTimeout> | null;
   pathCache: RenderPathCache;
@@ -62,6 +68,7 @@ export interface GraphRenderContext {
   gestureMachine: GraphGestureStateMachine;
   gestureController: GraphGestureController | null;
   viewportAnimationTimer: ReturnType<typeof setTimeout> | null;
+  interactionDegradationTimer: ReturnType<typeof setTimeout> | null;
   lastEffectiveDensityMode: DensityMode | null;
   lastViewportSize: { width: number; height: number };
   resizeObserver: ResizeObserver | null;

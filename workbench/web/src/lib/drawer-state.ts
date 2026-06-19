@@ -1,4 +1,13 @@
-import type { GraphOpenPagePayload, Selection } from "@llm-wiki/graph-engine";
+import type {
+	GraphCommunitySummaryPayload,
+	GraphExcludedObjectPayload,
+	GraphGlobalOverviewPayload,
+	GraphNodeSummaryPayload,
+	GraphOpenPagePayload,
+	GraphSearchResultsPayload,
+	GraphUnavailableObjectPayload,
+	Selection,
+} from "@llm-wiki/graph-engine";
 import type { ArtifactManifest } from "@/lib/api";
 
 interface PageState {
@@ -28,11 +37,51 @@ export type DrawerState =
 			loading: boolean;
 			error: string | null;
 		}
-	| {
+		| {
 			mode: "graph-selection";
 			title: string;
 			selection: Selection;
 			freeText: string;
+		}
+		| {
+			mode: "graph-node-summary";
+			payload: GraphNodeSummaryPayload;
+		}
+		| {
+			mode: "graph-community-summary";
+			payload: GraphCommunitySummaryPayload;
+		}
+		| {
+			mode: "graph-search-results";
+			payload: GraphSearchResultsPayload;
+		}
+		| {
+			mode: "graph-excluded-object";
+			payload: GraphExcludedObjectPayload;
+		}
+		| {
+			mode: "graph-unavailable-object";
+			payload: GraphUnavailableObjectPayload;
+		}
+		| {
+			mode: "graph-global-overview";
+			payload: GraphGlobalOverviewPayload;
+		}
+		| {
+			mode: "graph-loading";
+			title: string;
+			message?: string;
+		}
+		| {
+			mode: "graph-empty";
+			title: string;
+			message: string;
+			reason: "missing-strong-relations" | "missing-neighbors" | "missing-community-summary" | "no-search-results";
+		}
+		| {
+			mode: "graph-error";
+			title: string;
+			message: string;
 		};
 
 export function closedDrawer(): DrawerState {
@@ -76,4 +125,44 @@ export function graphSelectionDrawer(selection: Selection, title: string, freeTe
 		selection,
 		freeText,
 	};
+}
+
+export function graphNodeSummaryDrawer(payload: GraphNodeSummaryPayload): DrawerState {
+	return { mode: "graph-node-summary", payload };
+}
+
+export function graphCommunitySummaryDrawer(payload: GraphCommunitySummaryPayload): DrawerState {
+	return { mode: "graph-community-summary", payload };
+}
+
+export function graphSearchResultsDrawer(payload: GraphSearchResultsPayload): DrawerState {
+	return { mode: "graph-search-results", payload };
+}
+
+export function graphExcludedObjectDrawer(payload: GraphExcludedObjectPayload): DrawerState {
+	return { mode: "graph-excluded-object", payload };
+}
+
+export function graphUnavailableObjectDrawer(payload: GraphUnavailableObjectPayload): DrawerState {
+	return { mode: "graph-unavailable-object", payload };
+}
+
+export function graphGlobalOverviewDrawer(payload: GraphGlobalOverviewPayload): DrawerState {
+	return { mode: "graph-global-overview", payload };
+}
+
+export function graphLoadingDrawer(title: string, message?: string): DrawerState {
+	return { mode: "graph-loading", title, message };
+}
+
+export function graphEmptyDrawer(
+	title: string,
+	reason: Extract<DrawerState, { mode: "graph-empty" }>["reason"],
+	message: string,
+): DrawerState {
+	return { mode: "graph-empty", title, reason, message };
+}
+
+export function graphErrorDrawer(title: string, message: string): DrawerState {
+	return { mode: "graph-error", title, message };
 }

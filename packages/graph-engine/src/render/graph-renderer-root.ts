@@ -1,6 +1,8 @@
 import type {
   CommunityId,
+  GraphAggregationMarker,
   GraphFocusInput,
+  GraphSummaryObjectRef,
   GraphTypeFilters,
   GraphData,
   GraphDiff,
@@ -27,7 +29,7 @@ import {
   GraphGestureStateMachine
 } from "./gestures";
 import { readToolbarPanelState } from "./toolbar";
-import type { GraphRenderContext } from "./render-context";
+import type { GraphRenderContext, GraphRendererCallbacks } from "./render-context";
 import { createGraphController, type GraphController } from "./controller";
 import {
   createGraphRenderPipeline,
@@ -51,11 +53,14 @@ export interface GraphRendererOptions {
   onNodeOpen?: (nodeId: NodeId) => void;
   onSelectionInput?: (selection: SelectionInput) => void;
   onSelectionClearRequested?: () => void;
+  onViewReset?: () => void;
   onPinsChanged?: (pins: PinMap) => void;
   onDragActiveChange?: (dragging: boolean) => void;
+  onVisibilityStateChange?: GraphRendererCallbacks["onVisibilityStateChange"];
   toolbarContainer?: HTMLElement | null;
   focus?: GraphFocusInput;
   typeFilters?: GraphTypeFilters;
+  aggregationMarkers?: GraphAggregationMarker[];
   live?: boolean;
 }
 
@@ -71,16 +76,21 @@ export interface GraphRenderer {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
   setData(data: GraphData, pins?: PinMap): void;
+  setAggregationMarkers(markers: GraphAggregationMarker[]): void;
   setTheme(theme: ThemeId): void;
   setPins(pins: PinMap): void;
   focusNode(pathOrId: WikiPath): void;
   focusCommunity(id: CommunityId): void;
   setTypeFilters(filters: GraphTypeFilters): void;
+  showTemporaryObject(object: GraphSummaryObjectRef): void;
+  clearTemporaryObjectDisplay(): void;
   resetView(): void;
   select(selection: SelectionInput): void;
+  previewNode(id: NodeId | null): void;
   clearSelection(): void;
   clearInteraction(): void;
   resetLayout(): void;
+  setNodeFixed(id: NodeId, mode: "fix" | "unfix"): boolean;
   destroy(): void;
 }
 
@@ -102,8 +112,9 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     selectedNodeId: null,
     selection: null,
     focus: initialFocus,
-    typeFilters: options.typeFilters || {},
-    pathCache
+    typeFilters: {},
+    pathCache,
+    aggregationMarkers: options.aggregationMarkers
   });
   const runtimeState = createGraphRuntimeState({
     viewport: DEFAULT_RENDERER_VIEWPORT,
@@ -129,7 +140,10 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     searchQuery: "",
     searchFocusedNodeId: null,
     typeFilters: options.typeFilters || {},
+    aggregationMarkers: options.aggregationMarkers || [],
+    baseTypeFilters: {},
     availableTypeFilters: {},
+    temporaryObject: null,
     searchIndex: undefined,
     previewTimer: null,
     pathCache,
@@ -145,6 +159,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     gestureMachine: new GraphGestureStateMachine({ dragThreshold: 4 }),
     gestureController: null,
     viewportAnimationTimer: null,
+    interactionDegradationTimer: null,
     lastEffectiveDensityMode: null,
     lastViewportSize: initialViewportSize(root),
     resizeObserver: null,
@@ -157,8 +172,10 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       onNodeOpen: options.onNodeOpen,
       onSelectionInput: options.onSelectionInput,
       onSelectionClearRequested: options.onSelectionClearRequested,
+      onViewReset: options.onViewReset,
       onPinsChanged: options.onPinsChanged,
-      onDragActiveChange: options.onDragActiveChange
+      onDragActiveChange: options.onDragActiveChange,
+      onVisibilityStateChange: options.onVisibilityStateChange
     }
   };
   presenter = createGraphOverlaysPresenter(context, {
@@ -169,6 +186,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     render,
     viewportSize: () => pipeline.viewportSize(),
     setViewportAnimating: (enabled) => pipeline.setViewportAnimating(enabled),
+    setInteractionDegraded: (enabled, degradationOptions) => pipeline.setInteractionDegraded(enabled, degradationOptions),
     setGraphHover: (hover) => presenter.setGraphHover(hover),
     applyMotionFrame: (positions) => pipeline.applyMotionFrame(positions),
     markPinnedNodes: (pinnedNodeIds) => pipeline.markPinnedNodes(pinnedNodeIds),
@@ -183,11 +201,17 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       openSearch: () => controller.openSearch(),
       applySearchQuery: (query) => controller.applySearchQuery(query),
       focusNextSearchResult: () => controller.focusNextSearchResult(),
+      focusPreviousSearchResult: () => controller.focusPreviousSearchResult(),
+      activateSearchResult: () => controller.activateSearchResult(),
       closeSearch: () => controller.closeSearch(),
       selectCommunity: (id) => controller.selectCommunity(id),
+      selectAggregationContainer: (id) => {
+        if (id) controller.selectCommunity(id);
+      },
       setCommunityHover: (id) => controller.setCommunityHover(id),
       handleNodeClick: (id, additive) => controller.handleNodeClick(id, additive),
       handleNodeDoubleClick: (id) => controller.handleNodeDoubleClick(id),
+      setNodeFixed: (id, mode) => controller.setNodeFixed(id, mode),
       scheduleHoverPreview: (id) => presenter.scheduleHoverPreview(id),
       showEdgeHoverPreview: (id) => presenter.showEdgeHoverPreview(id),
       clearHoverPreview: () => presenter.clearHoverPreview()
@@ -221,6 +245,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     context.data = next.data || context.data;
     context.theme = next.theme || context.theme;
     if (Object.hasOwn(next, "typeFilters")) context.typeFilters = next.typeFilters || {};
+    if (Object.hasOwn(next, "aggregationMarkers")) context.aggregationMarkers = next.aggregationMarkers || [];
     if (Object.hasOwn(next, "pins")) context.runtimeState.setPins(next.pins || {});
     if (Object.hasOwn(next, "focus")) context.runtimeState.setFocus(next.focus || null);
     if (Object.hasOwn(next, "selectedNodeId")) {
@@ -251,6 +276,9 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       controller.clearTransientInteractionForDataRefresh();
       render({ data: nextData, pins: nextPins ?? context.runtimeState.snapshot().pins });
     },
+    setAggregationMarkers(markers: GraphAggregationMarker[]): void {
+      render({ aggregationMarkers: markers });
+    },
     setTheme(nextTheme: ThemeId): void {
       render({ theme: nextTheme });
     },
@@ -266,7 +294,13 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       controller.focusCommunity(id);
     },
     setTypeFilters(filters: GraphTypeFilters): void {
-      render({ typeFilters: filters });
+      pipeline.applyTypeFilters(filters);
+    },
+    showTemporaryObject(object: GraphSummaryObjectRef): void {
+      pipeline.showTemporaryObject(object);
+    },
+    clearTemporaryObjectDisplay(): void {
+      pipeline.clearTemporaryObjectDisplay();
     },
     resetView(): void {
       controller.resetViewState();
@@ -274,8 +308,16 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     select(nextSelection: SelectionInput): void {
       render({ selection: nextSelection });
     },
+    previewNode(id: NodeId | null): void {
+      if (id) {
+        presenter.setGraphHover({ kind: "node", id });
+      } else {
+        presenter.clearHoverPreview();
+      }
+      presenter.renderHoverPreview();
+    },
     clearSelection(): void {
-      controller.retreatFocusedView();
+      controller.clearSelectionOnly();
     },
     clearInteraction(): void {
       controller.clearInteractionState();
@@ -284,6 +326,9 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       const nextState = context.pinState.reset();
       render({ pins: nextState.pins });
       context.callbacks.onPinsChanged?.(nextState.pins);
+    },
+    setNodeFixed(id: NodeId, mode: "fix" | "unfix"): boolean {
+      return controller.setNodeFixed(id, mode);
     },
     destroy(): void {
       if (context.destroyed) return;

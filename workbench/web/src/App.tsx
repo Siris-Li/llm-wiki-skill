@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { resolveSelection, type GraphData, type GraphDiff, type GraphOpenPagePayload, type Selection } from "@llm-wiki/graph-engine";
+import {
+	resolveSelection,
+	type GraphData,
+	type GraphDiff,
+	type GraphOpenPagePayload,
+	type GraphSummaryCommand,
+	type GraphSummaryObjectRef,
+	type GraphVisibilityState,
+	type PinMap,
+	type Selection,
+} from "@llm-wiki/graph-engine";
 
 import { BatchDigestPanel, type BatchDigestJob } from "@/components/BatchDigestPanel";
 import { ChatPanel } from "@/components/ChatPanel";
@@ -38,7 +48,17 @@ import {
 	wikiDrawer,
 } from "@/lib/drawer-state";
 import type { GraphReaderActionId } from "@/lib/graph-reader";
-import { buildSelectionPromptPayload, selectionTitle } from "@/lib/graph-selection";
+import { buildSelectionPromptPayload } from "@/lib/graph-selection";
+import {
+	drawerForGraphSelection,
+	drawerForExcludedGraphObject,
+	drawerForGraphSummaryNode,
+	drawerForUnavailableGraphObject,
+	graphOpenPagePayloadForCommand,
+	graphObjectVisibilityReason,
+	graphSelectionCommandForOpenDetail,
+	type GraphSelectionCommand,
+} from "@/lib/graph-summary-actions";
 import { WIKI_LINK_SEEN_EVENT } from "@/lib/wiki-links";
 
 type ThemeMode = "dark" | "light";
@@ -55,6 +75,75 @@ const COMPACT_SIDEBAR_WIDTH = 230;
 const COLLAPSED_SIDEBAR_WIDTH = 52;
 const MOBILE_BREAKPOINT = 768;
 const COMPACT_BREAKPOINT = 1024;
+
+function drawerForGraphNodeVisibility(
+	data: GraphData | null,
+	nodeId: string,
+	current: DrawerState,
+	options: {
+		pins: PinMap;
+		visibility: GraphVisibilityState | null;
+		selection?: { kind: "node"; id: string };
+	} ,
+): DrawerState {
+	const object = { kind: "node" as const, nodeId };
+	const summaryOptions = {
+		pins: options.pins,
+		selection: options.selection ?? { kind: "node" as const, id: nodeId },
+		searchResultIds: options.visibility?.searchResultIds ?? [],
+		temporaryObject: options.visibility?.temporaryObject ?? null,
+	};
+	if (!data?.nodes.some((node) => node.id === nodeId)) {
+		return drawerForUnavailableGraphObject(data, object, "missing-node", current, summaryOptions);
+	}
+	const reason = graphObjectVisibilityReason(data, options.visibility, object);
+	const temporaryObject = options.visibility?.temporaryObject ?? null;
+	const temporarilyShown = temporaryObject?.kind === "node" && temporaryObject.nodeId === nodeId;
+	if (reason && !temporarilyShown) {
+		return drawerForExcludedGraphObject(data, object, reason, current, summaryOptions);
+	}
+	return drawerForGraphSummaryNode(data, nodeId, current, summaryOptions);
+}
+
+function sameGraphDrawerTarget(left: DrawerState, right: DrawerState): boolean {
+	if (left.mode !== right.mode) return false;
+	if (left.mode === "graph-node-summary" && right.mode === "graph-node-summary") {
+		return left.payload.nodeId === right.payload.nodeId
+			&& graphSummaryCommandSignature(left.payload.commands) === graphSummaryCommandSignature(right.payload.commands);
+	}
+	if (left.mode === "graph-excluded-object" && right.mode === "graph-excluded-object") {
+		return JSON.stringify(left.payload.object) === JSON.stringify(right.payload.object)
+			&& left.payload.reason === right.payload.reason
+			&& graphSummaryCommandSignature(left.payload.commands) === graphSummaryCommandSignature(right.payload.commands);
+	}
+	if (left.mode === "graph-unavailable-object" && right.mode === "graph-unavailable-object") {
+		return JSON.stringify(left.payload.object) === JSON.stringify(right.payload.object) && left.payload.reason === right.payload.reason;
+	}
+	return false;
+}
+
+function graphSummaryCommandSignature(commands: readonly GraphSummaryCommand[]): string {
+	return commands.map((command) => {
+		if (command.kind === "set-fixed-position") return `${command.kind}:${command.mode}:${command.nodeId}`;
+		if (command.kind === "open-detail-read") return `${command.kind}:${command.nodeId}`;
+		if (command.kind === "enter-community") return `${command.kind}:${command.communityId}`;
+		if (command.kind === "show-this-object") return `${command.kind}:${JSON.stringify(command.object)}`;
+		return command.kind;
+	}).join(",");
+}
+
+function visibilityWithTemporaryObject(
+	state: GraphVisibilityState | null,
+	temporaryObject: GraphSummaryObjectRef | null,
+): GraphVisibilityState | null {
+	if (!state && !temporaryObject) return null;
+	return {
+		searchQuery: state?.searchQuery ?? "",
+		searchResultIds: state?.searchResultIds ?? [],
+		typeFilters: state?.typeFilters ?? {},
+		temporaryObject,
+	};
+}
 
 function getSidebarLayoutWidth(collapsed: boolean): number {
 	if (typeof window === "undefined") return 0;
@@ -131,12 +220,16 @@ function App() {
 	const [graphRefreshToken, setGraphRefreshToken] = useState(0);
 	const [graphHasPendingUpdate, setGraphHasPendingUpdate] = useState(false);
 	const [graphData, setGraphData] = useState<GraphData | null>(null);
-	const [selectionCommand, setSelectionCommand] = useState<{ id: string; type: "clear" | "clear-selection" | "neighbors" } | undefined>();
+	const [graphPins, setGraphPins] = useState<PinMap>({});
+	const [graphVisibilityState, setGraphVisibilityState] = useState<GraphVisibilityState | null>(null);
+	const [graphTemporaryObject, setGraphTemporaryObject] = useState<GraphSummaryObjectRef | null>(null);
+	const [selectionCommand, setSelectionCommand] = useState<GraphSelectionCommand | undefined>();
 	const [mainView, setMainView] = useState<MainView>(() => {
 		if (typeof window === "undefined") return "chat";
 		return window.localStorage.getItem(MAIN_VIEW_STORAGE_KEY) === "graph" ? "graph" : "chat";
 	});
 	const mainViewRef = useRef(mainView);
+	const graphTemporaryObjectRef = useRef<GraphSummaryObjectRef | null>(null);
 	const activeConversationId = active?.conversation.id ?? null;
 
 	useEffect(() => {
@@ -177,6 +270,10 @@ function App() {
 	useEffect(() => {
 		if (mainView === "graph") setGraphHasPendingUpdate(false);
 	}, [mainView]);
+
+	useEffect(() => {
+		graphTemporaryObjectRef.current = graphTemporaryObject;
+	}, [graphTemporaryObject]);
 
 	useEffect(() => {
 		const handleWikiLinkSeenEvent = (event: Event) => {
@@ -272,6 +369,7 @@ function App() {
 		setPendingGraphDiff(null);
 		setGraphHasPendingUpdate(false);
 		setGraphData(null);
+		setGraphPins({});
 		setSelectionCommand({ id: Math.random().toString(36).slice(2, 10), type: "clear" });
 		setGraphFocusPath(null);
 	};
@@ -338,15 +436,55 @@ function App() {
 
 	const handleGraphSelectionChange = useCallback((selection: Selection | null) => {
 		if (!selection) {
-			setDrawer((current) => current.mode === "graph-selection" ? closedDrawer() : current);
+			setDrawer((current) => isGraphInteractionDrawer(current) ? closedDrawer() : current);
 			return;
 		}
+		if (drawer.mode === "graph-reader" && selection.nodeIds.length === 1 && drawer.payload.node.id === selection.nodeIds[0]) {
+			return;
+		}
+		setDrawer((current) => drawerForGraphSelection(graphData, selection, current, {
+			pins: graphPins,
+			searchResultIds: graphVisibilityState?.searchResultIds ?? [],
+		}));
+	}, [graphData, graphPins, graphVisibilityState, drawer]);
+
+	const handleGraphVisibilityChange = useCallback((state: GraphVisibilityState | null) => {
+		setGraphVisibilityState(state);
+		const effectiveState = visibilityWithTemporaryObject(state, graphTemporaryObjectRef.current ?? state?.temporaryObject ?? null);
 		setDrawer((current) => {
-			const freeText = current.mode === "graph-selection" ? current.freeText : "";
-			const title = graphData ? selectionTitle(graphData, selection) : "选区";
-			return graphSelectionDrawer(selection, title, freeText);
+			if (current.mode === "graph-node-summary") {
+				if (
+					effectiveState?.temporaryObject?.kind === "node"
+					&& effectiveState.temporaryObject.nodeId === current.payload.nodeId
+					&& current.payload.commands.some((command) => command.kind === "clear-temporary-object-display")
+				) {
+					return current;
+				}
+				const next = drawerForGraphNodeVisibility(graphData, current.payload.nodeId, current, {
+					pins: graphPins,
+					visibility: effectiveState,
+				});
+				return sameGraphDrawerTarget(current, next) ? current : next;
+			}
+			if (current.mode === "graph-excluded-object" && current.payload.object.kind === "node") {
+				const next = drawerForGraphNodeVisibility(graphData, current.payload.object.nodeId, current, {
+					pins: graphPins,
+					visibility: effectiveState,
+				});
+				return sameGraphDrawerTarget(current, next) ? current : next;
+			}
+			return current;
 		});
-	}, [graphData]);
+	}, [graphData, graphPins]);
+
+	const handleGraphViewReset = useCallback(() => {
+		setGraphFocusPath(null);
+		setDrawer((current) => (
+			current.mode === "graph-reader"
+				? drawerForGraphSummaryNode(graphData, current.payload.node.id, current, { pins: graphPins })
+				: current
+		));
+	}, [graphData, graphPins]);
 
 	const handleGraphSelectionTextChange = useCallback((value: string) => {
 		setDrawer((current) => (
@@ -444,8 +582,9 @@ function App() {
 		}
 	};
 
-	const handleOpenGraphPage = async (payload: GraphOpenPagePayload) => {
+	const handleOpenGraphPage = async (payload: GraphOpenPagePayload, options: { syncGraphFocus?: boolean } = {}) => {
 		if (!active) return;
+		const syncGraphFocus = options.syncGraphFocus ?? true;
 		const normalizedPagePath = toRelativePagePath(payload.path, active.kb.path) ?? payload.path;
 		const normalizedPayload = {
 			...payload,
@@ -455,7 +594,7 @@ function App() {
 				sourcePath: toRelativePagePath(payload.node.sourcePath, active.kb.path) ?? payload.node.sourcePath,
 			},
 		};
-		if (normalizedPagePath.startsWith("wiki/")) setGraphFocusPath(normalizedPagePath);
+		if (syncGraphFocus && normalizedPagePath.startsWith("wiki/")) setGraphFocusPath(normalizedPagePath);
 		setDrawer(graphReaderDrawer(normalizedPayload, { loading: true }));
 		try {
 			const content = await readPage(active.kb.path, normalizedPagePath);
@@ -472,6 +611,102 @@ function App() {
 			));
 		}
 	};
+
+	const handleGraphSummaryCommand = useCallback((command: GraphSummaryCommand) => {
+		if (command.kind === "open-detail-read") {
+			const payload = graphOpenPagePayloadForCommand(graphData, command);
+			const focusCommand = graphSelectionCommandForOpenDetail(graphData, command);
+			if (focusCommand) {
+				setSelectionCommand({
+					commandId: `open-detail-${command.nodeId}-${Math.random().toString(36).slice(2, 10)}`,
+					id: focusCommand.id,
+					nodeId: focusCommand.nodeId,
+					type: "enter-community-node",
+				});
+			}
+			if (payload) void handleOpenGraphPage(payload, { syncGraphFocus: !focusCommand });
+			return;
+		}
+		if (command.kind === "enter-community") {
+			setSelectionCommand({ id: command.communityId, type: "enter-community" });
+			return;
+		}
+		if (command.kind === "set-fixed-position") {
+			setSelectionCommand({
+				id: `${command.mode}-${command.nodeId}-${Math.random().toString(36).slice(2, 10)}`,
+				nodeId: command.nodeId,
+				mode: command.mode,
+				type: "set-fixed-position",
+			});
+			return;
+		}
+		if (command.kind === "show-this-object") {
+			graphTemporaryObjectRef.current = command.object;
+			setGraphTemporaryObject(command.object);
+			setSelectionCommand({
+				id: `show-${Math.random().toString(36).slice(2, 10)}`,
+				object: command.object,
+				type: "show-temporary-object",
+			});
+			if (command.object.kind === "node") {
+				const nodeId = command.object.nodeId;
+				const temporaryObject = command.object;
+				setDrawer((current) => {
+					const next = drawerForGraphNodeVisibility(graphData, nodeId, current, {
+					pins: graphPins,
+					visibility: {
+						searchQuery: graphVisibilityState?.searchQuery ?? "",
+						searchResultIds: graphVisibilityState?.searchResultIds ?? [],
+						typeFilters: graphVisibilityState?.typeFilters ?? {},
+						temporaryObject,
+					},
+					});
+					return sameGraphDrawerTarget(current, next) ? current : next;
+				});
+			}
+			return;
+		}
+		if (command.kind === "clear-temporary-object-display") {
+			graphTemporaryObjectRef.current = null;
+			setGraphTemporaryObject(null);
+			setSelectionCommand({
+				id: `clear-temporary-${Math.random().toString(36).slice(2, 10)}`,
+				type: "clear-temporary-object-display",
+			});
+			setDrawer((current) => {
+				if (current.mode !== "graph-node-summary") return current;
+				const next = drawerForGraphNodeVisibility(graphData, current.payload.nodeId, current, {
+					pins: graphPins,
+					visibility: graphVisibilityState ? { ...graphVisibilityState, temporaryObject: null } : null,
+				});
+				return sameGraphDrawerTarget(current, next) ? current : next;
+			});
+		}
+	}, [graphData, graphPins, graphVisibilityState, active]);
+
+	useEffect(() => {
+		if (drawer.mode !== "graph-node-summary") return;
+		setDrawer((current) => (
+			current.mode === "graph-node-summary"
+				? drawerForGraphNodeVisibility(graphData, current.payload.nodeId, current, {
+					pins: graphPins,
+					visibility: visibilityWithTemporaryObject(graphVisibilityState, graphTemporaryObjectRef.current),
+				})
+				: current
+		));
+	}, [drawer.mode, graphData, graphPins, graphVisibilityState]);
+
+	const handleGraphSummaryNodeSelect = useCallback((nodeId: string) => {
+		setDrawer((current) => drawerForGraphSummaryNode(graphData, nodeId, current, { pins: graphPins }));
+	}, [graphData, graphPins]);
+
+	const handleGraphSummaryNodePreview = useCallback((nodeId: string | null) => {
+		setSelectionCommand({
+			id: `${nodeId ?? "clear"}-${Math.random().toString(36).slice(2, 10)}`,
+			nodeId,
+			type: "preview-node",
+		});
+	}, []);
 
 	const handleWikiLinkSeen = useCallback((pagePath: string) => {
 		setGraphFocusPath(pagePath);
@@ -671,7 +906,10 @@ function App() {
 							onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
 							onOpenPage={handleOpenGraphPage}
 							onGraphDataChange={setGraphData}
+							onGraphPinsChange={setGraphPins}
+							onGraphVisibilityChange={handleGraphVisibilityChange}
 							onSelectionChange={handleGraphSelectionChange}
+							onViewReset={handleGraphViewReset}
 							selectionCommand={selectionCommand}
 							focusPath={graphFocusPath}
 							pendingDiff={pendingGraphDiff}
@@ -709,6 +947,9 @@ function App() {
 					onOpenPage={handleOpenPage}
 					onWikiLinkSeen={handleWikiLinkSeen}
 					onGraphReaderAction={handleGraphReaderAction}
+					onGraphSummaryCommand={handleGraphSummaryCommand}
+					onGraphSummaryNodeSelect={handleGraphSummaryNodeSelect}
+					onGraphSummaryNodePreview={handleGraphSummaryNodePreview}
 					onGraphSelectionTextChange={handleGraphSelectionTextChange}
 					onGraphSelectionNeighbors={handleGraphSelectionNeighbors}
 					onGraphSelectionAsk={handleGraphSelectionAsk}
@@ -744,6 +985,19 @@ function toRelativePagePath(outputPath: string, kbPath: string): string | null {
 	if (outputPath.startsWith(normalizedKb)) return outputPath.slice(normalizedKb.length);
 	if (outputPath.startsWith("wiki/")) return outputPath;
 	return null;
+}
+
+function isGraphInteractionDrawer(drawer: DrawerState): boolean {
+	return drawer.mode === "graph-selection"
+		|| drawer.mode === "graph-node-summary"
+		|| drawer.mode === "graph-community-summary"
+		|| drawer.mode === "graph-search-results"
+		|| drawer.mode === "graph-excluded-object"
+		|| drawer.mode === "graph-unavailable-object"
+		|| drawer.mode === "graph-global-overview"
+		|| drawer.mode === "graph-loading"
+		|| drawer.mode === "graph-empty"
+		|| drawer.mode === "graph-error";
 }
 
 export default App;

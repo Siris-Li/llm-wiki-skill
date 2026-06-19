@@ -6,13 +6,34 @@ export {
   edgeStrokeWidth,
   edgeVisualOpacity,
   edgeVisualStrokeWidth,
+  evaluateCommunityQuality,
+  GRAPH_COMMUNITY_FOCUS_BUDGETS,
+  GRAPH_COMMUNITY_FOCUS_THRESHOLDS,
+  GRAPH_RENDER_BUDGETS,
   makeEdgePath,
   makeEdgePathFromPoints,
   nodeDisplayModeForDensity,
+  resolveCommunityFocusScale,
+  resolveGraphRenderBudget,
   screenEffectiveDensityMode
 } from "./model";
 export type {
   DensityMode,
+  GraphCommunityFocusRepresentation,
+  GraphCommunityFocusScale,
+  GraphCommunityFocusSizeBand,
+  GraphCommunityAuxiliaryView,
+  GraphCommunityBoundaryCertainty,
+  GraphCommunityQuality,
+  GraphCommunityQualityLevel,
+  GraphCommunityQualitySignal,
+  GraphCommunityQualitySignalId,
+  GraphInteractionDegradation,
+  GraphRenderBudget,
+  GraphRenderBudgetLimits,
+  GraphRenderBudgetView,
+  GraphRenderOverflow,
+  GraphRenderOverflowBucket,
   NodeDisplayMode,
   NodeVisualRole,
   RenderableCommunity,
@@ -26,6 +47,28 @@ export type {
 } from "./model";
 export { buildCommunityLegend } from "./legend";
 export type { CommunityLegendRow } from "./legend";
+export {
+  GRAPH_RENDERER_ADAPTER_ROUTES,
+  buildGraphRendererAdapterData,
+  buildGraphRendererBehaviorContract
+} from "./adapter";
+export type {
+  GraphRendererAdapterAggregation,
+  GraphRendererAdapterCommunity,
+  GraphRendererAdapterData,
+  GraphRendererAdapterEdge,
+  GraphRendererAdapterNode,
+  GraphRendererAdapterOptions,
+  GraphRendererAdapterRoute,
+  GraphRendererBehaviorContract,
+  GraphRendererContainerSelectBehavior,
+  GraphRendererDrawerTarget,
+  GraphRendererEnterCommunityBehavior,
+  GraphRendererPinnedAggregationBehavior,
+  GraphRendererPointSelectBehavior,
+  GraphRendererSearchHighlightBehavior,
+  GraphRendererSelectedAggregationBehavior
+} from "./adapter";
 export {
   GRAPH_TOOLBAR_PANEL_KEY,
   nextToolbarPanelState,
@@ -94,7 +137,7 @@ export type {
   GraphWheelEventLike,
   GraphWheelTargetDecision
 } from "./gestures";
-export { resolveGraphSearchState, resolveNextGraphSearchFocus } from "./search";
+export { resolveGraphSearchState, resolveNextGraphSearchFocus, resolvePreviousGraphSearchFocus } from "./search";
 export type { GraphSearchFocus, GraphSearchNodeState, GraphSearchNodeView, GraphSearchState } from "./search";
 export { classifyGraphKeyboardIntent, isTextEditingElement } from "./keyboard";
 export type { GraphKeyboardIntent, GraphKeyboardIntentInput } from "./keyboard";

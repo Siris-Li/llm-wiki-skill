@@ -5,6 +5,8 @@ import type {
   GraphEngineOptions,
   GraphData,
   GraphOpenPagePayload,
+  GraphSummaryObjectRef,
+  GraphSummaryOptions,
   Selection,
   SelectionInput,
   ThemeId
@@ -12,6 +14,14 @@ import type {
 import { createGraphRenderer } from "./render";
 import { resolveSelectionForCapabilities } from "./select";
 import { graphNodeTypeLabel, wikiPathForGraphNode } from "./graph-node";
+import {
+  summarizeExcludedGraphObject,
+  summarizeGraphCommunity,
+  summarizeGraphGlobal,
+  summarizeGraphNode,
+  summarizeGraphSearchResults,
+  summarizeUnavailableGraphObject
+} from "./summary";
 
 export type GraphFacadeHostMode = "workbench" | "offline" | "standalone";
 
@@ -29,9 +39,11 @@ export function createGraphWorkbenchCapabilities(
       onOpenPage: capabilities.onOpenPage,
       onSelectionChange: capabilities.onSelectionChange,
       onSelectionClear: capabilities.onSelectionClear,
+      onViewReset: capabilities.onViewReset,
       onAsk: capabilities.onAsk,
       persistPins: capabilities.persistPins,
-      onDragStateChange: capabilities.onDragStateChange
+      onDragStateChange: capabilities.onDragStateChange,
+      onVisibilityStateChange: capabilities.onVisibilityStateChange
     }
   };
 }
@@ -58,13 +70,18 @@ export interface GraphFacadeRenderer {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
   setData(data: GraphEngineOptions["data"], pins?: GraphEngineOptions["pins"]): void;
+  setAggregationMarkers(markers: NonNullable<GraphEngineOptions["aggregationMarkers"]>): void;
   focusNode(path: string): void;
   focusCommunity(id: string): void;
   setTypeFilters(filters: NonNullable<GraphEngineOptions["typeFilters"]>): void;
+  showTemporaryObject(object: GraphSummaryObjectRef): void;
+  clearTemporaryObjectDisplay(): void;
   resetView(): void;
   select(selection: SelectionInput): void;
+  previewNode(id: string | null): void;
   clearSelection(): void;
   clearInteraction(): void;
+  setNodeFixed(id: string, mode: "fix" | "unfix"): boolean;
   setTheme(theme: ThemeId): void;
   setPins(pins: NonNullable<GraphEngineOptions["pins"]>): void;
   resetLayout(): void;
@@ -77,6 +94,7 @@ interface GraphFacadeContainer {
 
 interface GraphFacadeState {
   data: GraphData;
+  pins: NonNullable<GraphEngineOptions["pins"]>;
 }
 
 export function createGraphFacade(container: HTMLElement, options: GraphEngineOptions): GraphEngine {
@@ -85,7 +103,7 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
   }
 
   const capabilities = options.capabilities;
-  const facadeState: GraphFacadeState = { data: options.data };
+  const facadeState: GraphFacadeState = { data: options.data, pins: options.pins || {} };
   const renderer = createGraphRenderer(container, {
     data: options.data,
     pins: options.pins || {},
@@ -93,6 +111,7 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
     toolbarContainer: options.toolbarContainer,
     focus: options.focus,
     typeFilters: options.typeFilters,
+    aggregationMarkers: options.aggregationMarkers,
     onNodeOpen: capabilities?.onOpenPage
       ? (nodeId) => capabilities.onOpenPage?.(openPagePayloadForNode(facadeState.data, nodeId))
       : undefined,
@@ -105,9 +124,17 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
           if (!capabilities?.onSelectionChange) capabilities?.onAsk?.(selection);
         }
       : undefined,
-    onPinsChanged: capabilities?.persistPins ? (pins) => void capabilities.persistPins?.(pins) : undefined,
+    onPinsChanged: capabilities?.persistPins ? (pins) => {
+      facadeState.pins = pins;
+      void capabilities.persistPins?.(pins);
+    } : undefined,
     onSelectionClearRequested: capabilities?.onSelectionClear,
-    onDragActiveChange: capabilities?.onDragStateChange
+    onViewReset: () => {
+      delete container.dataset.llmWikiGraphFocus;
+      capabilities?.onViewReset?.();
+    },
+    onDragActiveChange: capabilities?.onDragStateChange,
+    onVisibilityStateChange: capabilities?.onVisibilityStateChange
   });
 
   return createGraphFacadeFromRenderer(container, renderer, options, facadeState);
@@ -117,10 +144,11 @@ export function createGraphFacadeFromRenderer(
   container: GraphFacadeContainer,
   renderer: GraphFacadeRenderer,
   options: GraphEngineOptions,
-  facadeState: GraphFacadeState = { data: options.data }
+  facadeState: GraphFacadeState = { data: options.data, pins: options.pins || {} }
 ): GraphEngine {
   let currentTheme: ThemeId = options.theme;
   let destroyed = false;
+  const capabilities = options.capabilities;
   const canAsk = Boolean(options.capabilities?.onAsk);
   const resolveForHostCapabilities = (input: SelectionInput): Selection =>
     resolveSelectionForCapabilities(facadeState.data, input, { canAsk });
@@ -142,7 +170,13 @@ export function createGraphFacadeFromRenderer(
     setData(data, pins): void {
       assertActive();
       facadeState.data = data;
+      if (pins) facadeState.pins = pins;
       renderer.setData(data, pins);
+    },
+
+    setAggregationMarkers(markers): void {
+      assertActive();
+      renderer.setAggregationMarkers(markers);
     },
 
     focusNode(path: string): void {
@@ -163,16 +197,70 @@ export function createGraphFacadeFromRenderer(
       renderer.setTypeFilters(filters);
     },
 
+    showTemporaryObject(object): void {
+      assertActive();
+      renderer.showTemporaryObject(object);
+    },
+
+    clearTemporaryObjectDisplay(): void {
+      assertActive();
+      renderer.clearTemporaryObjectDisplay();
+    },
+
     resetView(): void {
       assertActive();
       delete container.dataset.llmWikiGraphFocus;
       renderer.resetView();
+      capabilities?.onViewReset?.();
     },
 
     select(selector: SelectionInput): Selection {
       assertActive();
       renderer.select(selector);
       return resolveForHostCapabilities(selector);
+    },
+
+    previewNode(id): void {
+      assertActive();
+      renderer.previewNode(id);
+    },
+
+    summarizeNode(id, summaryOptions) {
+      assertActive();
+      return summarizeGraphNode(facadeState.data, id, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
+    summarizeCommunity(id, summaryOptions) {
+      assertActive();
+      return summarizeGraphCommunity(facadeState.data, id, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
+    summarizeGlobal(summaryOptions) {
+      assertActive();
+      return summarizeGraphGlobal(facadeState.data, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
+    summarizeSearchResults(query, resultIds, summaryOptions) {
+      assertActive();
+      return summarizeGraphSearchResults(facadeState.data, query, resultIds, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
+    summarizeExcludedObject(
+      object: GraphSummaryObjectRef,
+      reason: Parameters<GraphEngine["summarizeExcludedObject"]>[1],
+      summaryOptions?: GraphSummaryOptions
+    ) {
+      assertActive();
+      return summarizeExcludedGraphObject(facadeState.data, object, reason, summaryOptionsWithPins(facadeState, summaryOptions));
+    },
+
+    summarizeUnavailableObject(
+      object: GraphSummaryObjectRef,
+      reason: Parameters<GraphEngine["summarizeUnavailableObject"]>[1],
+      summaryOptions?: GraphSummaryOptions
+    ) {
+      assertActive();
+      return summarizeUnavailableGraphObject(facadeState.data, object, reason, summaryOptionsWithPins(facadeState, summaryOptions));
     },
 
     clearSelection(): void {
@@ -186,6 +274,11 @@ export function createGraphFacadeFromRenderer(
       delete container.dataset.llmWikiGraphFocus;
     },
 
+    setNodeFixed(id: string, mode: "fix" | "unfix"): boolean {
+      assertActive();
+      return renderer.setNodeFixed(id, mode);
+    },
+
     setTheme(theme: ThemeId): void {
       assertActive();
       currentTheme = theme;
@@ -195,6 +288,7 @@ export function createGraphFacadeFromRenderer(
 
     setPins(pins): void {
       assertActive();
+      facadeState.pins = pins;
       renderer.setPins(pins);
     },
 
@@ -218,6 +312,13 @@ export function createGraphFacadeFromRenderer(
       throw new Error("Graph engine has been destroyed");
     }
   }
+}
+
+function summaryOptionsWithPins(state: GraphFacadeState, options: GraphSummaryOptions = {}): GraphSummaryOptions {
+  return {
+    ...options,
+    pins: options.pins ?? state.pins
+  };
 }
 
 function shouldResolveSelection(capabilities: GraphEngineOptions["capabilities"]): boolean {

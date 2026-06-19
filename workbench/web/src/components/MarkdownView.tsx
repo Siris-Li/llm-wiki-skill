@@ -2,22 +2,23 @@ import { useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { emitWikiLinkSeen, extractWikiPageRefs, normalizeWikiLinks } from "@/lib/wiki-links";
+import { emitWikiLinkSeen, extractWikiPageRefs, normalizeWikiLinks } from "../lib/wiki-links";
 
 interface Props {
 	content: string;
 	onOpenPage?: (path: string) => void;
 	onWikiLinkSeen?: (path: string) => void;
+	autoEmitWikiLinks?: boolean;
 }
 
-export function MarkdownView({ content, onOpenPage, onWikiLinkSeen }: Props) {
+export function MarkdownView({ content, onOpenPage, onWikiLinkSeen, autoEmitWikiLinks = true }: Props) {
 	useEffect(() => {
-		if (!onWikiLinkSeen) return;
+		if (!autoEmitWikiLinks || !onWikiLinkSeen) return;
 		for (const path of extractWikiPageRefs(content)) {
 			onWikiLinkSeen(path);
 			emitWikiLinkSeen(path);
 		}
-	}, [content, onWikiLinkSeen]);
+	}, [autoEmitWikiLinks, content, onWikiLinkSeen]);
 
 	return (
 		<div className="prose prose-invert max-w-none prose-pre:bg-background prose-pre:text-foreground prose-code:text-foreground">

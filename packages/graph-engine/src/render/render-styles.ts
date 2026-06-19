@@ -447,6 +447,41 @@ const STATIC_RENDERER_CSS = `
 .graph-content-layer.is-viewport-animating {
   transition: transform .2s ease-out;
 }
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node {
+  box-shadow: 0 8px 16px rgba(36, 31, 26, .06);
+}
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node:not([data-traceable="true"]) {
+  border-color: color-mix(in srgb, var(--rule) 88%, transparent);
+  box-shadow: 0 8px 14px rgba(36, 31, 26, .04);
+}
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node:not([data-traceable="true"])::before {
+  opacity: .12;
+}
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node:not([data-traceable="true"]) .node-name,
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node:not([data-traceable="true"]) .node-meta {
+  display: none;
+}
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node:not([data-traceable="true"]).is-point,
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node:not([data-traceable="true"]).is-overview,
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node:not([data-traceable="true"])[data-visual-role="map-pin"] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--night) 8%, transparent);
+}
+.llm-wiki-graph-engine[data-interaction-mode="active"] .edge:not([data-traceable="true"]) {
+  opacity: .08 !important;
+}
+.llm-wiki-graph-engine[data-interaction-mode="active"] .edge[data-traceable="true"] {
+  opacity: .46;
+}
+.llm-wiki-graph-engine[data-interaction-mode="active"] .community-wash {
+  opacity: .08;
+}
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node[data-traceable="true"] .node-name,
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node[aria-pressed="true"] .node-name {
+  display: block;
+}
+.llm-wiki-graph-engine[data-interaction-mode="active"] .node[data-traceable="true"] .node-meta {
+  display: flex;
+}
 .llm-wiki-graph-svg {
   position: absolute;
   inset: 0;
@@ -459,6 +494,11 @@ const STATIC_RENDERER_CSS = `
   stroke-linecap: round;
   opacity: .74;
   pointer-events: stroke;
+}
+.edge[data-filter-state="hidden"],
+.community-wash[data-filter-state="hidden"] {
+  opacity: .04 !important;
+  pointer-events: none;
 }
 .edge.is-diff-added {
   stroke-dasharray: var(--diff-edge-length, 180);
@@ -499,6 +539,15 @@ const STATIC_RENDERER_CSS = `
 .community-wash {
   transition: opacity .16s ease, cx .24s ease, cy .24s ease, rx .24s ease, ry .24s ease;
 }
+.llm-wiki-graph-engine[data-community-boundary-certainty="reduced"] .community-wash {
+  stroke-dasharray: 12 8;
+  stroke-width: .95;
+}
+.llm-wiki-graph-engine[data-community-boundary-certainty="low"] .community-wash {
+  stroke-dasharray: 7 10;
+  stroke-width: .75;
+  filter: grayscale(.18);
+}
 .llm-wiki-graph-engine[data-theme="mo-ye"] .community-wash {
   mix-blend-mode: screen;
   filter: saturate(.9);
@@ -509,11 +558,116 @@ const STATIC_RENDERER_CSS = `
 .llm-wiki-graph-engine[data-dragging] .community-wash {
   opacity: .035;
 }
+.graph-quality-notice {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 7;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(420px, calc(100% - 28px));
+  border: 1px solid color-mix(in srgb, var(--rule) 58%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  box-shadow: 0 14px 28px rgba(36, 24, 12, .08);
+  backdrop-filter: blur(14px);
+  padding: 7px 8px 7px 10px;
+  color: var(--muted);
+  font: 12px/1.25 var(--font-ui);
+  pointer-events: auto;
+}
+.graph-quality-notice[data-quality-level="poor"] {
+  border-color: color-mix(in srgb, var(--cinnabar) 42%, transparent);
+  color: var(--ink);
+}
+.graph-quality-notice-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-quality-notice-action {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--rule) 58%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+  padding: 5px 8px;
+  color: var(--ink);
+  font: 12px/1.2 var(--font-ui);
+  cursor: pointer;
+}
+.graph-quality-notice-action:hover {
+  border-color: color-mix(in srgb, var(--cinnabar) 54%, transparent);
+}
 .node-layer {
   position: absolute;
   inset: 0;
   z-index: 3;
   pointer-events: none;
+}
+.aggregation-container {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  width: calc(var(--aggregation-radius, 48px) * 2);
+  height: calc(var(--aggregation-radius, 48px) * 2);
+  border: 1px solid color-mix(in srgb, var(--aggregation-color, var(--cinnabar)) 58%, transparent);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--aggregation-color, var(--cinnabar)) 18%, transparent), transparent 62%),
+    color-mix(in srgb, var(--surface) 58%, transparent);
+  box-shadow: inset 0 0 0 10px color-mix(in srgb, var(--aggregation-color, var(--cinnabar)) 7%, transparent), 0 18px 34px rgba(36, 31, 26, .08);
+  color: var(--ink);
+  cursor: pointer;
+  pointer-events: auto;
+  text-align: center;
+  translate: -50% -50%;
+}
+.aggregation-container:hover,
+.aggregation-container:focus-visible,
+.aggregation-container[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--aggregation-color, var(--cinnabar)) 84%, transparent);
+  box-shadow: inset 0 0 0 10px color-mix(in srgb, var(--aggregation-color, var(--cinnabar)) 12%, transparent), 0 18px 34px rgba(36, 31, 26, .14);
+}
+.aggregation-container[data-selected="true"] {
+  outline: 2px solid color-mix(in srgb, var(--cinnabar) 72%, transparent);
+  outline-offset: 3px;
+}
+.aggregation-container[data-community-state="faded"] {
+  opacity: .34;
+}
+.aggregation-container[data-community-state="active"] {
+  opacity: 1;
+}
+.aggregation-container-count {
+  font: 700 18px/1 var(--font-ui);
+}
+.aggregation-container-label {
+  max-width: 78%;
+  overflow: hidden;
+  color: var(--muted);
+  font: 11px/1.2 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aggregation-container-markers {
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  max-width: 92%;
+  min-height: 14px;
+  overflow: hidden;
+}
+.aggregation-container-marker {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  padding: 1px 4px;
+  color: var(--muted);
+  font: 9px/1.2 var(--font-ui);
+  white-space: nowrap;
 }
 .graph-hover-preview {
   position: absolute;
@@ -627,6 +781,10 @@ const STATIC_RENDERER_CSS = `
 }
 .node[data-search-state="faded"] {
   opacity: .28;
+}
+.node[data-filter-state="hidden"] {
+  opacity: .08;
+  pointer-events: none;
 }
 .node[data-community-state="faded"] {
   opacity: .24;
@@ -961,4 +1119,3 @@ const STATIC_RENDERER_CSS = `
   100% { transform: scale(1); }
 }
 `;
-

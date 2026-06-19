@@ -6,6 +6,7 @@ export type GraphGestureTargetKind =
   | "graph-blank"
   | "node"
   | "community-wash"
+  | "aggregation-container"
   | "edge"
   | "minimap"
   | "toolbar"
@@ -15,7 +16,7 @@ export type GraphGestureTargetKind =
   | "text-control"
   | "unknown";
 
-export type GraphOwnedTargetKind = "graph-blank" | "node" | "community-wash" | "edge";
+export type GraphOwnedTargetKind = "graph-blank" | "node" | "community-wash" | "aggregation-container" | "edge";
 export type GraphGestureBlockerTargetKind = Exclude<GraphGestureTargetKind, GraphOwnedTargetKind>;
 export type GraphGestureTargetOwnership = "graph-owned" | "graph-blocker";
 
@@ -31,6 +32,7 @@ export type GraphGestureTarget =
   | { kind: "graph-blank" }
   | { kind: "node"; id: NodeId | null }
   | { kind: "community-wash"; id: CommunityId | null }
+  | { kind: "aggregation-container"; id: string | null; communityId: CommunityId | null }
   | { kind: "edge"; id: string | null }
   | { kind: "minimap" }
   | { kind: "toolbar" }
@@ -40,7 +42,13 @@ export type GraphGestureTarget =
   | { kind: "text-control" }
   | { kind: "unknown" };
 
-export const GRAPH_OWNED_TARGET_KINDS = ["graph-blank", "node", "community-wash", "edge"] as const satisfies readonly GraphOwnedTargetKind[];
+export const GRAPH_OWNED_TARGET_KINDS = [
+  "graph-blank",
+  "node",
+  "community-wash",
+  "aggregation-container",
+  "edge"
+] as const satisfies readonly GraphOwnedTargetKind[];
 export const GRAPH_GESTURE_BLOCKER_TARGET_KINDS = [
   "minimap",
   "toolbar",
@@ -59,8 +67,10 @@ export const GRAPH_GESTURE_SELECTORS = {
   drawer: ".graph-reader, .graph-selection-panel, [data-graph-drawer=\"true\"]",
   minimap: ".mini-map",
   node: ".node",
+  aggregationContainer: ".aggregation-container",
   communityWash: ".community-wash",
-  edge: ".edge"
+  edge: ".edge",
+  blank: "[data-graph-blank=\"true\"]"
 } as const;
 
 export type GraphWheelTargetDecision =
@@ -159,11 +169,20 @@ export function classifyGraphEventTarget(target: GraphGestureTargetLike | null |
   const node = closest(target, GRAPH_GESTURE_SELECTORS.node);
   if (node) return { kind: "node", id: dataValue(node, "id", "nodeId") };
 
+  const aggregationContainer = closest(target, GRAPH_GESTURE_SELECTORS.aggregationContainer);
+  if (aggregationContainer) return {
+    kind: "aggregation-container",
+    id: dataValue(aggregationContainer, "aggregationId", "id"),
+    communityId: dataValue(aggregationContainer, "communityId")
+  };
+
   const communityWash = closest(target, GRAPH_GESTURE_SELECTORS.communityWash);
   if (communityWash) return { kind: "community-wash", id: dataValue(communityWash, "communityId", "id") };
 
   const edge = closest(target, GRAPH_GESTURE_SELECTORS.edge);
   if (edge) return { kind: "edge", id: dataValue(edge, "edgeId", "id") };
+
+  if (closest(target, GRAPH_GESTURE_SELECTORS.blank)) return { kind: "graph-blank" };
 
   return { kind: "graph-blank" };
 }
@@ -203,6 +222,8 @@ export function graphSpatialHitToGestureTarget(hit: GraphSpatialHitTarget | null
       return { kind: "edge", id: hit.id };
     case "community-wash":
       return { kind: "community-wash", id: hit.id };
+    case "aggregation-container":
+      return { kind: "aggregation-container", id: hit.id, communityId: hit.communityId };
     case "graph-blank":
       return { kind: "graph-blank" };
     default:
@@ -216,6 +237,8 @@ export function classifyGraphPointerDownTargetFromGraphTarget(graphTarget: Graph
       return { intent: "node-drag-candidate", target: graphTarget };
     case "community-wash":
       return { intent: "community-click-candidate", target: graphTarget };
+    case "aggregation-container":
+      return { intent: "community-click-candidate", target: { kind: "community-wash", id: graphTarget.communityId } };
     case "edge":
       return { intent: "blank-pan-candidate", target: graphTarget };
     case "graph-blank":
@@ -414,6 +437,8 @@ export class GraphGestureController {
   private readonly root: HTMLElement;
   private readonly options: GraphGestureControllerOptions;
   private readonly stateMachine: GraphGestureStateMachine;
+  private lastBlankDoubleClick: { x: number; y: number; timeStamp: number } | null = null;
+  private readonly recentPointerDownTargets: Array<{ x: number; y: number; timeStamp: number; target: GraphGestureTarget }> = [];
   private destroyed = false;
 
   constructor(root: HTMLElement, options: GraphGestureControllerOptions) {
@@ -426,6 +451,7 @@ export class GraphGestureController {
     this.root.addEventListener("pointerup", this.handlePointerUp);
     this.root.addEventListener("pointercancel", this.handlePointerCancel);
     this.root.addEventListener("lostpointercapture", this.handleLostPointerCapture);
+    this.root.addEventListener("click", this.handleClick);
     this.root.addEventListener("dblclick", this.handleDoubleClick);
   }
 
@@ -438,6 +464,7 @@ export class GraphGestureController {
     this.root.removeEventListener("pointerup", this.handlePointerUp);
     this.root.removeEventListener("pointercancel", this.handlePointerCancel);
     this.root.removeEventListener("lostpointercapture", this.handleLostPointerCapture);
+    this.root.removeEventListener("click", this.handleClick);
     this.root.removeEventListener("dblclick", this.handleDoubleClick);
   }
 
@@ -461,10 +488,12 @@ export class GraphGestureController {
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return;
+    const screenPoint = this.screenPointFromMouseEvent(event);
     const decision = classifyGraphPointerDownTargetFromGraphTarget(
-      this.graphTargetForEvent(event.target, this.screenPointFromMouseEvent(event))
+      this.graphTargetForEvent(event.target, screenPoint)
     );
     if (decision.intent === "blocked") return;
+    this.recordPointerDown(decision.target, screenPoint, event.timeStamp);
     event.preventDefault();
     this.options.onPointerDown?.(event, decision);
     this.stateMachine.pointerDown(decision, this.pointerEventFromPointerEvent(event));
@@ -495,14 +524,45 @@ export class GraphGestureController {
     this.applyIntents(this.stateMachine.lostPointerCapture({ pointerId }), null);
   };
 
-  private readonly handleDoubleClick = (event: MouseEvent): void => {
-    const decision = classifyGraphPointerDownTargetFromGraphTarget(
-      this.graphTargetForEvent(event.target, this.screenPointFromMouseEvent(event))
-    );
-    if (decision.intent !== "blank-pan-candidate") return;
-    event.preventDefault();
-    this.options.onBlankDoubleClick?.(event);
+  private readonly handleClick = (event: MouseEvent): void => {
+    if (event.detail < 2) return;
+    this.triggerBlankDoubleClick(event);
   };
+
+  private readonly handleDoubleClick = (event: MouseEvent): void => {
+    if (this.isDuplicateBlankDoubleClick(event)) return;
+    this.triggerBlankDoubleClick(event);
+  };
+
+  private triggerBlankDoubleClick(event: MouseEvent): void {
+    if (!this.isTrueBlankDoubleClick(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.lastBlankDoubleClick = {
+      x: event.clientX,
+      y: event.clientY,
+      timeStamp: event.timeStamp
+    };
+    this.options.onBlankDoubleClick?.(event);
+  }
+
+  private isDuplicateBlankDoubleClick(event: MouseEvent): boolean {
+    if (!this.lastBlankDoubleClick) return false;
+    return Math.abs(this.lastBlankDoubleClick.x - event.clientX) < 1
+      && Math.abs(this.lastBlankDoubleClick.y - event.clientY) < 1
+      && event.timeStamp - this.lastBlankDoubleClick.timeStamp < 500;
+  }
+
+  private isTrueBlankDoubleClick(event: MouseEvent): boolean {
+    const recentTargets = this.recentPointerDownTargets.filter((entry) => event.timeStamp - entry.timeStamp < 500);
+    if (recentTargets.length) return recentTargets.every((entry) => entry.target.kind === "graph-blank");
+    return classifyGraphEventTarget(this.eventTarget(event.target)).kind === "graph-blank";
+  }
+
+  private recordPointerDown(target: GraphGestureTarget, screenPoint: { x: number; y: number }, timeStamp: number): void {
+    this.recentPointerDownTargets.push({ target, x: screenPoint.x, y: screenPoint.y, timeStamp });
+    if (this.recentPointerDownTargets.length > 8) this.recentPointerDownTargets.shift();
+  }
 
   private applyIntents(intents: GraphGestureIntent[], event: PointerEvent | null): void {
     this.options.onGestureIntents(intents, event);
@@ -520,6 +580,7 @@ export class GraphGestureController {
   private graphTargetForEvent(target: EventTarget | null, screenPoint: { x: number; y: number }): GraphGestureTarget {
     const domTarget = classifyGraphEventTarget(this.eventTarget(target));
     if (isGraphGestureBlockerTarget(domTarget)) return domTarget;
+    if (domTarget.kind === "aggregation-container") return domTarget;
     return this.options.graphTargetFromScreenPoint?.(screenPoint) || domTarget;
   }
 

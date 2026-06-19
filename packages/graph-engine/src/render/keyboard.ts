@@ -44,5 +44,5 @@ export function isTextEditingElement(element: Element | null): boolean {
     const type = input.type.toLowerCase();
     return !["button", "checkbox", "radio", "range", "submit", "reset"].includes(type);
   }
-  return element instanceof HTMLElement && element.isContentEditable;
+  return typeof HTMLElement !== "undefined" && element instanceof HTMLElement && element.isContentEditable;
 }

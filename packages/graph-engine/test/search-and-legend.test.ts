@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildCommunityLegend, buildRenderableGraph, resolveGraphSearchState, resolveNextGraphSearchFocus } from "../src/render";
+import {
+  buildCommunityLegend,
+  buildRenderableGraph,
+  resolveGraphSearchState,
+  resolveNextGraphSearchFocus,
+  resolvePreviousGraphSearchFocus
+} from "../src/render";
 import type { GraphNode } from "../src/types";
 
 describe("graph scoped search", () => {
@@ -31,6 +37,13 @@ describe("graph scoped search", () => {
     assert.deepEqual(resolveNextGraphSearchFocus(["A", "B", "C"], "A"), { id: "B", index: 1 });
     assert.deepEqual(resolveNextGraphSearchFocus(["A", "B", "C"], "C"), { id: "A", index: 0 });
     assert.deepEqual(resolveNextGraphSearchFocus([], "A"), { id: null, index: -1 });
+  });
+
+  it("cycles search focus backward for keyboard result navigation", () => {
+    assert.deepEqual(resolvePreviousGraphSearchFocus(["A", "B", "C"], null), { id: "C", index: 2 });
+    assert.deepEqual(resolvePreviousGraphSearchFocus(["A", "B", "C"], "C"), { id: "B", index: 1 });
+    assert.deepEqual(resolvePreviousGraphSearchFocus(["A", "B", "C"], "A"), { id: "C", index: 2 });
+    assert.deepEqual(resolvePreviousGraphSearchFocus([], "A"), { id: null, index: -1 });
   });
 });
 

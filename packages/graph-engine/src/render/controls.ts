@@ -133,6 +133,8 @@ export function createSearchControl(
     onOpen: () => void;
     onQuery: (query: string) => void;
     onNext: () => void;
+    onPrevious: () => void;
+    onActivate: () => void;
     onClose: () => void;
   }
 ): SearchControlDom {
@@ -148,9 +150,17 @@ export function createSearchControl(
   input.addEventListener("focus", options.onOpen);
   input.addEventListener("input", () => options.onQuery(input.value));
   input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
+    if (event.key === "ArrowDown") {
       event.preventDefault();
       options.onNext();
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      options.onPrevious();
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      options.onActivate();
     }
     if (event.key === "Escape") {
       event.preventDefault();
