@@ -10,6 +10,8 @@ Select Sigma/Graphology WebGL as the future single global large-graph renderer i
 
 This task records the route decision only. It does not switch the production workbench renderer, add a production renderer path, or remove the current DOM/SVG renderer. Current DOM/SVG remains the rich small-graph and community-reading path.
 
+Post-review status: this remains the current route preference, not a final production integration proof. The original Phase 6 tables were produced by the first isolated harness. The hardened harness now requires the full 11-shape matrix, complete action coverage, failed-record detection, large-shape repeated cycles, and render-completion waits. The next production integration plan must rerun the hardened trials before treating the Sigma choice as locked.
+
 ## Why Sigma/Graphology Wins
 
 Sigma/Graphology is the best fit for the product goal: smooth 5000+ / 10000+ global browsing while preserving llm-wiki graph semantics outside the renderer.
@@ -24,7 +26,7 @@ Measured evidence:
 | nodes-10000-aggregation | 289.1 ms | 60.9 FPS | 40.9 ms | 14.6 ms | 18.5 ms |
 | oversized-community | 140.6 ms | 60.7 FPS | 14.7 ms | 6.9 ms | 6.9 ms |
 
-The trial also kept DOM output constant at 18 nodes, passed behavior parity for object ids, community ids, search hits, Pin hints, selected objects, and aggregation markers, and did not switch the production renderer path.
+The historical trial also kept DOM output constant at 18 nodes, passed behavior parity for object ids, community ids, search hits, Pin hints, selected objects, and aggregation markers, and did not switch the production renderer path.
 
 ## Rejected Alternatives
 
@@ -78,14 +80,15 @@ Required boundaries:
 
 ## Next Plan Direction
 
-The next plan should integrate Sigma/Graphology as the single production global renderer route and keep DOM/SVG as the community-reading renderer.
+The next plan should integrate Sigma/Graphology as the single production global renderer route only after a hardened rerun confirms the full 11-shape matrix. DOM/SVG should remain the community-reading renderer.
 
 It should not integrate vis-network or ship a separate aggregation-only global product in parallel. If Sigma/Graphology integration fails on a hard blocker, the plan should stop and record the blocker before considering vis-network or aggregation-first as a replacement route.
 
 ## Acceptance Evidence
 
-- Sigma/Graphology measured all required graph shapes with 47 fixed-schema records and 0 errors.
-- vis-network measured the same shapes and was rejected with semantic update and ownership-risk evidence.
-- Aggregation fallback measured the same shapes and was retained only as degradation strategy and fallback evidence, not as a full global renderer.
+- Sigma/Graphology historically measured the first 5 graph shapes with 47 fixed-schema records and 0 errors.
+- vis-network historically measured the same first 5 shapes and was rejected with semantic update and ownership-risk evidence.
+- Aggregation fallback historically measured the same first 5 shapes and was retained only as degradation strategy and fallback evidence, not as a full global renderer.
+- Post-review harness now requires the full 11-shape matrix and blocks failed records instead of accepting result-file existence.
 - No production renderer path was added or switched.
 - No unapproved production dependency was adopted by this task.

@@ -27,6 +27,14 @@ Machine-readable result:
 
 The artifact contains 47 fixed-schema records across 5 graph shapes.
 
+## Post-Review Harness Hardening
+
+The original result table below is now treated as a historical isolation baseline. After review, the aggregation fallback trial harness was hardened so a run fails when any action record fails, any failure class is present, any required action is missing, any requested shape is missing, or the wrapper only produced a JSON file without valid contents.
+
+The default shape set was expanded from 5 shapes to the full 11-shape stress matrix: realistic proxy, 1000 sparse/dense, 5000 sparse/dense, 10000 aggregation/high-edge, oversized community, many small communities, many search hits, and many Pin nodes. Repeated interaction/memory cycles now run on every requested shape instead of only 1000-node shapes.
+
+Interaction timing now waits for animation-frame completion after scripted actions. The aggregation fallback still uses internal `zoomBy` and `panBy` helpers for zoom and pan, so its zoom/pan numbers are useful for current-stack fallback pressure but are not directly equivalent to the real mouse-input measurements in the Sigma and vis-network trials.
+
 ## Result Table
 
 | Shape | Nodes | Edges | DOM nodes | Visible nodes | Visible edges | Labels | Cards | Initial | Wheel | Search | Hidden interaction objects |
@@ -55,7 +63,9 @@ It is not equivalent to a full global renderer. At 10000 nodes it hides 9034 int
 
 ## Acceptance Evidence
 
-- Required shapes measured: 1000 sparse, 1000 dense, 5000 sparse, 10000 aggregation, and oversized-community.
+- Historical shapes measured: 1000 sparse, 1000 dense, 5000 sparse, 10000 aggregation, and oversized-community.
+- Hardened default shapes now include the full 11-shape stress matrix.
+- Required actions are now enforced for every requested shape: initial render, pan, zoom, search highlight, point select, container select, drawer open, enter community, return global, and repeated memory cycle.
 - Required fallback elements present: aggregation containers, skeleton edges, selected/search/Pin markers, and lightweight drawer overflow path.
 - Behavior parity test passed: `node --import tsx --test packages/graph-engine/test/aggregation-fallback-trial-adapter.test.ts`.
 - No new dependency was added for this task.

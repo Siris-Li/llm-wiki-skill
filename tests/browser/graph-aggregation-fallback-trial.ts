@@ -7,26 +7,23 @@ import { pathToFileURL } from "node:url";
 import { buildCommunityAggregationMarkers } from "../../packages/graph-engine/src";
 import {
   generateLargeGraphFixture,
-  type LargeGraphFixtureId,
   type LargeGraphFixtureMetadata
 } from "../../packages/graph-engine/test/large-graph-fixtures";
 import { buildAggregationFallbackTrialModel } from "../../packages/graph-engine/test/aggregation-fallback-trial-adapter";
+import {
+  memoryGrowthFailureClass,
+  memoryGrowthFailureDetail,
+  parseRequestedShapes,
+  validateTrialResults,
+  waitForAnimationFrames
+} from "./graph-renderer-trial-shared";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 
 const artifactDir = process.env.GRAPH_AGGREGATION_TRIAL_ARTIFACT_DIR || path.join(os.tmpdir(), `llm-wiki-graph-aggregation-trial-${Date.now()}`);
 const executablePath = process.env.GRAPH_AGGREGATION_TRIAL_CHROME_EXECUTABLE || "";
-const requestedShapes = (process.env.GRAPH_AGGREGATION_TRIAL_SHAPES || [
-  "nodes-1000-sparse",
-  "nodes-1000-dense",
-  "nodes-5000-sparse",
-  "nodes-10000-aggregation",
-  "oversized-community"
-].join(","))
-  .split(",")
-  .map((item) => item.trim())
-  .filter(Boolean) as LargeGraphFixtureId[];
+const requestedShapes = parseRequestedShapes(process.env.GRAPH_AGGREGATION_TRIAL_SHAPES);
 const resultPath = path.join(artifactDir, "aggregation-fallback-trial-results.json");
 
 main().catch((error) => {
@@ -79,10 +76,13 @@ async function main(): Promise<void> {
     await writeResult(runStartedAt, records, errors);
   }
 
-  const missingShapes = requestedShapes.filter((shape) => !records.some((record) => record.graph_shape === shape));
-  if (missingShapes.length) {
-    throw new Error(`Aggregation fallback trial missing records for: ${missingShapes.join(", ")}. result=${resultPath}`);
-  }
+  validateTrialResults({
+    renderer: "aggregation fallback",
+    requestedShapes,
+    records,
+    errors,
+    resultPath
+  });
   console.log(`Wrote ${records.length} aggregation fallback trial records to ${resultPath}`);
 }
 
@@ -318,7 +318,7 @@ async function measureShape(browser: BrowserLike, metadata: LargeGraphFixtureMet
     ]) {
       records.push(await safeMeasure(page, metadata, action));
     }
-    if (metadata.nodes <= 1000) records.push(await safeMeasure(page, metadata, () => measureRepeatedCycles(page, metadata)));
+    records.push(await safeMeasure(page, metadata, () => measureRepeatedCycles(page, metadata)));
   } finally {
     await page.close().catch(() => undefined);
   }
@@ -346,6 +346,7 @@ async function measureWheelZoom(page: PageLike, metadata: LargeGraphFixtureMetad
     await page.evaluate(() => (window as any).__aggregationTrial.zoomBy(1.04));
     await page.waitForTimeout(50);
   }
+  await waitForAnimationFrames(page);
   const sample = await samplePromise;
   const after = await cameraState(page);
   const changed = JSON.stringify(after) !== JSON.stringify(before);
@@ -364,7 +365,7 @@ async function measurePan(page: PageLike, metadata: LargeGraphFixtureMetadata): 
   const before = await cameraState(page);
   const started = performance.now();
   await page.evaluate(() => (window as any).__aggregationTrial.panBy(180, 140));
-  await page.waitForTimeout(120);
+  await waitForAnimationFrames(page);
   const after = await cameraState(page);
   return recordFromPage(page, metadata, {
     action: "pan",
@@ -378,11 +379,14 @@ async function measurePan(page: PageLike, metadata: LargeGraphFixtureMetadata): 
 async function measureSearch(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
   const started = performance.now();
   const result = await page.evaluate(() => (window as any).__aggregationTrial.searchHighlight("needle"));
+  await waitForAnimationFrames(page);
+  const hits = (result as { hits: number }).hits;
   return recordFromPage(page, metadata, {
     action: "search_highlight",
     duration_ms: performance.now() - started,
-    pass: Boolean((result as { hits: number }).hits),
-    failure_class: (result as { hits: number }).hits ? null : "no_search_hits",
+    pass: hits === metadata.search_hits,
+    failure_class: hits === metadata.search_hits ? null : "search_hit_mismatch",
+    failure_detail: hits === metadata.search_hits ? null : `expected=${metadata.search_hits}; actual=${hits}`,
     artifact_path: resultPath
   });
 }
@@ -393,11 +397,16 @@ async function measurePointSelect(page: PageLike, metadata: LargeGraphFixtureMet
     const trial = (window as any).__aggregationTrial;
     return trial.pointSelect(trial.firstNodeId);
   });
+  await waitForAnimationFrames(page);
+  const counts = await page.evaluate(() => (window as any).__aggregationTrial.counts());
+  const expected = (result as { selectedNodeId: string | null }).selectedNodeId;
+  const actual = (counts as { selectedNodeId: string | null }).selectedNodeId;
   return recordFromPage(page, metadata, {
     action: "point_select",
     duration_ms: performance.now() - started,
-    pass: Boolean((result as { selectedNodeId: string | null }).selectedNodeId),
-    failure_class: (result as { selectedNodeId: string | null }).selectedNodeId ? null : "missing_selected_node",
+    pass: Boolean(expected) && actual === expected,
+    failure_class: Boolean(expected) && actual === expected ? null : "selected_node_mismatch",
+    failure_detail: Boolean(expected) && actual === expected ? null : `expected=${expected ?? "null"}; actual=${actual ?? "null"}`,
     artifact_path: resultPath
   });
 }
@@ -408,11 +417,16 @@ async function measureContainerSelect(page: PageLike, metadata: LargeGraphFixtur
     const trial = (window as any).__aggregationTrial;
     return trial.containerSelect(trial.firstContainerId);
   });
+  await waitForAnimationFrames(page);
+  const counts = await page.evaluate(() => (window as any).__aggregationTrial.counts());
+  const expected = (result as { selectedContainerId: string | null }).selectedContainerId;
+  const actual = (counts as { selectedContainerId: string | null }).selectedContainerId;
   return recordFromPage(page, metadata, {
     action: "container_select",
     duration_ms: performance.now() - started,
-    pass: Boolean((result as { selectedContainerId: string | null }).selectedContainerId),
-    failure_class: (result as { selectedContainerId: string | null }).selectedContainerId ? null : "missing_selected_container",
+    pass: Boolean(expected) && actual === expected,
+    failure_class: Boolean(expected) && actual === expected ? null : "selected_container_mismatch",
+    failure_detail: Boolean(expected) && actual === expected ? null : `expected=${expected ?? "null"}; actual=${actual ?? "null"}`,
     artifact_path: resultPath
   });
 }
@@ -420,11 +434,15 @@ async function measureContainerSelect(page: PageLike, metadata: LargeGraphFixtur
 async function measureDrawerOpen(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
   const started = performance.now();
   const result = await page.evaluate(() => (window as any).__aggregationTrial.openDrawer());
+  await waitForAnimationFrames(page);
+  const opened = Boolean((result as { open: boolean; text?: string }).open);
+  const text = (result as { open: boolean; text?: string }).text || "";
   return recordFromPage(page, metadata, {
     action: "drawer_open",
     duration_ms: performance.now() - started,
-    pass: Boolean((result as { open: boolean }).open),
-    failure_class: (result as { open: boolean }).open ? null : "drawer_not_opened",
+    pass: opened && /^(container|node|global)/.test(text),
+    failure_class: opened && /^(container|node|global)/.test(text) ? null : "drawer_not_opened",
+    failure_detail: opened && /^(container|node|global)/.test(text) ? null : `text=${text || "empty"}`,
     artifact_path: resultPath
   });
 }
@@ -435,11 +453,16 @@ async function measureEnterCommunity(page: PageLike, metadata: LargeGraphFixture
     const trial = (window as any).__aggregationTrial;
     return trial.enterCommunity(trial.firstCommunityId);
   });
+  await waitForAnimationFrames(page);
+  const counts = await page.evaluate(() => (window as any).__aggregationTrial.counts());
+  const expected = (result as { selectedContainerId: string | null }).selectedContainerId;
+  const actual = (counts as { selectedContainerId: string | null }).selectedContainerId;
   return recordFromPage(page, metadata, {
     action: "enter_community",
     duration_ms: performance.now() - started,
-    pass: Boolean((result as { selectedContainerId: string | null }).selectedContainerId),
-    failure_class: (result as { selectedContainerId: string | null }).selectedContainerId ? null : "missing_community",
+    pass: Boolean(expected) && actual === expected,
+    failure_class: Boolean(expected) && actual === expected ? null : "community_selection_mismatch",
+    failure_detail: Boolean(expected) && actual === expected ? null : `expected=${expected ?? "null"}; actual=${actual ?? "null"}`,
     artifact_path: resultPath
   });
 }
@@ -447,10 +470,15 @@ async function measureEnterCommunity(page: PageLike, metadata: LargeGraphFixture
 async function measureReturnGlobal(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
   const started = performance.now();
   await page.evaluate(() => (window as any).__aggregationTrial.returnGlobal());
+  await waitForAnimationFrames(page);
+  const counts = await page.evaluate(() => (window as any).__aggregationTrial.counts());
+  const selectedContainerId = (counts as { selectedContainerId: string | null }).selectedContainerId;
   return recordFromPage(page, metadata, {
     action: "return_global",
     duration_ms: performance.now() - started,
-    pass: true,
+    pass: selectedContainerId == null,
+    failure_class: selectedContainerId == null ? null : "global_return_incomplete",
+    failure_detail: selectedContainerId == null ? null : `selectedContainerId=${selectedContainerId}`,
     artifact_path: resultPath
   });
 }
@@ -467,17 +495,21 @@ async function measureRepeatedCycles(page: PageLike, metadata: LargeGraphFixture
       trial.openDrawer();
       trial.returnGlobal();
     });
-    await page.waitForTimeout(80);
+    await waitForAnimationFrames(page, 2);
   }
   const after = await memoryMb(page);
+  const memoryGrowth = before == null || after == null ? null : round(after - before);
+  const failureClass = memoryGrowthFailureClass(memoryGrowth, metadata);
   const record = await recordFromPage(page, metadata, {
     action: "repeated_search_community_drawer_cycles",
     duration_ms: performance.now() - started,
-    pass: true,
+    pass: failureClass == null,
+    failure_class: failureClass,
+    failure_detail: memoryGrowthFailureDetail(memoryGrowth, metadata),
     artifact_path: resultPath
   });
   record.memory_after_cycles_mb = after;
-  record.memory_growth_mb = before == null || after == null ? null : round(after - before);
+  record.memory_growth_mb = memoryGrowth;
   return record;
 }
 
@@ -514,7 +546,8 @@ async function recordFromPage(
     fps: input.fps == null ? null : round(input.fps),
     frame_p95_ms: input.frame_p95_ms == null ? null : round(input.frame_p95_ms),
     pass: input.pass ?? true,
-    failure_class: input.failure_class ?? null
+    failure_class: input.failure_class ?? null,
+    failure_detail: input.failure_detail ?? null
   };
 }
 

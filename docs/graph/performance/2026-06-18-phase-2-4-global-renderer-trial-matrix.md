@@ -35,13 +35,17 @@ Required graph shapes:
 
 | Shape | Nodes | Edge cap | Required in Phase 6? | Purpose |
 |---|---:|---:|---|---|
+| real-snapshot-proxy | 1000 | 1600 | yes | Proxy for a realistic medium wiki graph. |
 | nodes-1000-sparse | 1000 | 1400 | yes | Baseline interaction and correctness. |
 | nodes-1000-dense | 1000 | 12000 | yes | Dense local relation pressure. |
 | nodes-5000-sparse | 5000 | 6500 | yes | First large global target. |
+| nodes-5000-dense | 5000 | 60000 | yes | Edge-heavy 5000-node pressure. |
 | nodes-10000-aggregation | 10000 | 14000 | yes | Primary 10000+ global target. |
+| nodes-10000-high-edge | 10000 | 90000 | yes | Extreme edge pressure for the renderer decision. |
 | oversized-community | 3000 | 7000 | yes | One huge community without full-card rendering. |
-| nodes-5000-dense | 5000 | 60000 | optional stress | Edge-heavy renderer stress. |
-| nodes-10000-high-edge | 10000 | 90000 | optional stress | Extreme edge pressure, not a smoke gate. |
+| many-small-communities | 5000 | 6000 | yes | Many tiny communities and legend/container pressure. |
+| many-search-hits | 5000 | 7000 | yes | Search highlight pressure. |
+| many-pin-nodes | 5000 | 7000 | yes | Pin/selected preservation pressure. |
 
 ## Candidate Matrix
 
@@ -67,7 +71,7 @@ Required action records:
 - drawer open
 - enter community
 - return global
-- repeated cycle memory growth for 1000-node shapes
+- repeated cycle memory growth for every required shape
 
 Required metadata fields:
 
@@ -100,7 +104,13 @@ These thresholds are comparison gates, not final product promises.
 | Container select | <= 1000 ms | <= 2000 ms | <= 2500 ms | Community/aggregation selection must keep global context. |
 | Drawer open | <= 1000 ms | <= 2500 ms | <= 3000 ms | Long content rendering is not part of global lightweight drawer. |
 | Return global | <= 3500 ms | <= 5000 ms | <= 5000 ms | Route must not rebuild unnecessary detail. |
-| Repeated cycle memory growth | <= 10 MB | record only | record only | 5000/10000 memory records are useful even if not smoke gates. |
+| Repeated cycle memory growth | <= 50 MB | <= 75 MB | <= 100 MB | If the browser cannot expose memory, record that explicitly instead of silently passing. |
+
+## Browser Verification Boundary
+
+Scripted browser trials remain the route-decision evidence because they generate repeatable JSON artifacts across all graph shapes and actions.
+
+The Codex Browser plugin is an approved fallback for human-like visual and interaction checks when a local Playwright package or Chrome path is unavailable. It can validate that a page opens, visible graph controls respond, and the lightweight drawer flow matches user expectations. It must not replace the fixed-schema performance artifacts for renderer selection, because route decisions need comparable records across WebGL, Canvas, and aggregation fallback candidates.
 
 ## Desktop-App Compatibility Checks
 

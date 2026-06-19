@@ -7,10 +7,17 @@ import { pathToFileURL } from "node:url";
 import { buildCommunityAggregationMarkers } from "../../packages/graph-engine/src";
 import {
   generateLargeGraphFixture,
-  type LargeGraphFixtureId,
   type LargeGraphFixtureMetadata
 } from "../../packages/graph-engine/test/large-graph-fixtures";
 import { buildVisNetworkTrialModel } from "../../packages/graph-engine/test/vis-network-trial-adapter";
+import {
+  memoryGrowthFailureClass,
+  memoryGrowthFailureDetail,
+  parseRequestedShapes,
+  validateTrialResults,
+  waitForAfterDrawing,
+  waitForAnimationFrames
+} from "./graph-renderer-trial-shared";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -18,16 +25,7 @@ const { chromium } = require("playwright");
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const artifactDir = process.env.GRAPH_VIS_TRIAL_ARTIFACT_DIR || path.join(os.tmpdir(), `llm-wiki-graph-vis-trial-${Date.now()}`);
 const executablePath = process.env.GRAPH_VIS_TRIAL_CHROME_EXECUTABLE || "";
-const requestedShapes = (process.env.GRAPH_VIS_TRIAL_SHAPES || [
-  "nodes-1000-sparse",
-  "nodes-1000-dense",
-  "nodes-5000-sparse",
-  "nodes-10000-aggregation",
-  "oversized-community"
-].join(","))
-  .split(",")
-  .map((item) => item.trim())
-  .filter(Boolean) as LargeGraphFixtureId[];
+const requestedShapes = parseRequestedShapes(process.env.GRAPH_VIS_TRIAL_SHAPES);
 const resultPath = path.join(artifactDir, "vis-network-trial-results.json");
 const visNetworkVersion = "10.1.0";
 const visNetworkScript = path.join(repoRoot, "node_modules/vis-network/standalone/umd/vis-network.min.js");
@@ -83,10 +81,13 @@ async function main(): Promise<void> {
     await writeResult(runStartedAt, records, errors);
   }
 
-  const missingShapes = requestedShapes.filter((shape) => !records.some((record) => record.graph_shape === shape));
-  if (missingShapes.length) {
-    throw new Error(`vis-network trial missing records for: ${missingShapes.join(", ")}. result=${resultPath}`);
-  }
+  validateTrialResults({
+    renderer: "vis-network",
+    requestedShapes,
+    records,
+    errors,
+    resultPath
+  });
   console.log(`Wrote ${records.length} vis-network trial records to ${resultPath}`);
 }
 
@@ -175,6 +176,10 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
         selectionWidth: 1,
         hoverWidth: 0
       }
+    });
+    let drawCount = 0;
+    network.on("afterDrawing", () => {
+      drawCount += 1;
     });
     let selectedNodeId = model.nodes.find((node) => node.selected)?.id || null;
     let selectedContainerId = null;
@@ -276,6 +281,9 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
       firstNodeId: model.nodes[0]?.id || null,
       firstCommunityId: model.communities[0]?.id || null,
       firstContainerId: model.aggregations[0]?.id || model.communities[0]?.id || null,
+      drawCount() {
+        return drawCount;
+      },
       counts() {
         return {
           nodes: nodes.length,
@@ -288,14 +296,10 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
         };
       }
     };
-    network.once("afterDrawing", () => {
-      requestAnimationFrame(() => {
-        window.__visTrial.ready = true;
-      });
-    });
-    setTimeout(() => {
+    network.once("afterDrawing", () => requestAnimationFrame(() => {
       window.__visTrial.ready = true;
-    }, 3000);
+    }));
+    network.redraw();
   </script>
 </body>
 </html>
@@ -330,7 +334,7 @@ async function measureShape(browser: BrowserLike, metadata: LargeGraphFixtureMet
     ]) {
       records.push(await safeMeasure(page, metadata, action));
     }
-    if (metadata.nodes <= 1000) records.push(await safeMeasure(page, metadata, () => measureRepeatedCycles(page, metadata)));
+    records.push(await safeMeasure(page, metadata, () => measureRepeatedCycles(page, metadata)));
   } finally {
     await page.close().catch(() => undefined);
   }
@@ -394,11 +398,14 @@ async function measurePan(page: PageLike, metadata: LargeGraphFixtureMetadata): 
 async function measureSearch(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
   const started = performance.now();
   const result = await page.evaluate(() => (window as any).__visTrial.searchHighlight("needle"));
+  await waitForAfterDrawing(page);
+  const hits = (result as { hits: number }).hits;
   return recordFromPage(page, metadata, {
     action: "search_highlight",
     duration_ms: performance.now() - started,
-    pass: Boolean((result as { hits: number }).hits),
-    failure_class: (result as { hits: number }).hits ? null : "no_search_hits",
+    pass: hits === metadata.search_hits,
+    failure_class: hits === metadata.search_hits ? null : "search_hit_mismatch",
+    failure_detail: hits === metadata.search_hits ? null : `expected=${metadata.search_hits}; actual=${hits}`,
     artifact_path: resultPath
   });
 }
@@ -409,11 +416,16 @@ async function measurePointSelect(page: PageLike, metadata: LargeGraphFixtureMet
     const trial = (window as any).__visTrial;
     return trial.pointSelect(trial.firstNodeId);
   });
+  await waitForAfterDrawing(page);
+  const counts = await page.evaluate(() => (window as any).__visTrial.counts());
+  const expected = (result as { selectedNodeId: string | null }).selectedNodeId;
+  const actual = (counts as { selectedNodeId: string | null }).selectedNodeId;
   return recordFromPage(page, metadata, {
     action: "point_select",
     duration_ms: performance.now() - started,
-    pass: Boolean((result as { selectedNodeId: string | null }).selectedNodeId),
-    failure_class: (result as { selectedNodeId: string | null }).selectedNodeId ? null : "missing_selected_node",
+    pass: Boolean(expected) && actual === expected,
+    failure_class: Boolean(expected) && actual === expected ? null : "selected_node_mismatch",
+    failure_detail: Boolean(expected) && actual === expected ? null : `expected=${expected ?? "null"}; actual=${actual ?? "null"}`,
     artifact_path: resultPath
   });
 }
@@ -424,11 +436,16 @@ async function measureContainerSelect(page: PageLike, metadata: LargeGraphFixtur
     const trial = (window as any).__visTrial;
     return trial.containerSelect(trial.firstContainerId);
   });
+  await waitForAfterDrawing(page);
+  const counts = await page.evaluate(() => (window as any).__visTrial.counts());
+  const expected = (result as { selectedContainerId: string | null }).selectedContainerId;
+  const actual = (counts as { selectedContainerId: string | null }).selectedContainerId;
   return recordFromPage(page, metadata, {
     action: "container_select",
     duration_ms: performance.now() - started,
-    pass: Boolean((result as { selectedContainerId: string | null }).selectedContainerId),
-    failure_class: (result as { selectedContainerId: string | null }).selectedContainerId ? null : "missing_selected_container",
+    pass: Boolean(expected) && actual === expected,
+    failure_class: Boolean(expected) && actual === expected ? null : "selected_container_mismatch",
+    failure_detail: Boolean(expected) && actual === expected ? null : `expected=${expected ?? "null"}; actual=${actual ?? "null"}`,
     artifact_path: resultPath
   });
 }
@@ -436,11 +453,15 @@ async function measureContainerSelect(page: PageLike, metadata: LargeGraphFixtur
 async function measureDrawerOpen(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
   const started = performance.now();
   const result = await page.evaluate(() => (window as any).__visTrial.openDrawer());
+  await waitForAnimationFrames(page);
+  const opened = Boolean((result as { open: boolean; text?: string }).open);
+  const text = (result as { open: boolean; text?: string }).text || "";
   return recordFromPage(page, metadata, {
     action: "drawer_open",
     duration_ms: performance.now() - started,
-    pass: Boolean((result as { open: boolean }).open),
-    failure_class: (result as { open: boolean }).open ? null : "drawer_not_opened",
+    pass: opened && /^(container|node|global)/.test(text),
+    failure_class: opened && /^(container|node|global)/.test(text) ? null : "drawer_not_opened",
+    failure_detail: opened && /^(container|node|global)/.test(text) ? null : `text=${text || "empty"}`,
     artifact_path: resultPath
   });
 }
@@ -451,11 +472,16 @@ async function measureEnterCommunity(page: PageLike, metadata: LargeGraphFixture
     const trial = (window as any).__visTrial;
     return trial.enterCommunity(trial.firstCommunityId);
   });
+  await waitForAfterDrawing(page);
+  const counts = await page.evaluate(() => (window as any).__visTrial.counts());
+  const expected = (result as { selectedContainerId: string | null }).selectedContainerId;
+  const actual = (counts as { selectedContainerId: string | null }).selectedContainerId;
   return recordFromPage(page, metadata, {
     action: "enter_community",
     duration_ms: performance.now() - started,
-    pass: Boolean((result as { selectedContainerId: string | null }).selectedContainerId),
-    failure_class: (result as { selectedContainerId: string | null }).selectedContainerId ? null : "missing_community",
+    pass: Boolean(expected) && actual === expected,
+    failure_class: Boolean(expected) && actual === expected ? null : "community_selection_mismatch",
+    failure_detail: Boolean(expected) && actual === expected ? null : `expected=${expected ?? "null"}; actual=${actual ?? "null"}`,
     artifact_path: resultPath
   });
 }
@@ -463,10 +489,15 @@ async function measureEnterCommunity(page: PageLike, metadata: LargeGraphFixture
 async function measureReturnGlobal(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
   const started = performance.now();
   await page.evaluate(() => (window as any).__visTrial.returnGlobal());
+  await waitForAfterDrawing(page);
+  const counts = await page.evaluate(() => (window as any).__visTrial.counts());
+  const selectedContainerId = (counts as { selectedContainerId: string | null }).selectedContainerId;
   return recordFromPage(page, metadata, {
     action: "return_global",
     duration_ms: performance.now() - started,
-    pass: true,
+    pass: selectedContainerId == null,
+    failure_class: selectedContainerId == null ? null : "global_return_incomplete",
+    failure_detail: selectedContainerId == null ? null : `selectedContainerId=${selectedContainerId}`,
     artifact_path: resultPath
   });
 }
@@ -483,17 +514,21 @@ async function measureRepeatedCycles(page: PageLike, metadata: LargeGraphFixture
       trial.openDrawer();
       trial.returnGlobal();
     });
-    await page.waitForTimeout(80);
+    await waitForAfterDrawing(page);
   }
   const after = await memoryMb(page);
+  const memoryGrowth = before == null || after == null ? null : round(after - before);
+  const failureClass = memoryGrowthFailureClass(memoryGrowth, metadata);
   const record = await recordFromPage(page, metadata, {
     action: "repeated_search_community_drawer_cycles",
     duration_ms: performance.now() - started,
-    pass: true,
+    pass: failureClass == null,
+    failure_class: failureClass,
+    failure_detail: memoryGrowthFailureDetail(memoryGrowth, metadata),
     artifact_path: resultPath
   });
   record.memory_after_cycles_mb = after;
-  record.memory_growth_mb = before == null || after == null ? null : round(after - before);
+  record.memory_growth_mb = memoryGrowth;
   return record;
 }
 
@@ -529,7 +564,8 @@ async function recordFromPage(
     fps: input.fps == null ? null : round(input.fps),
     frame_p95_ms: input.frame_p95_ms == null ? null : round(input.frame_p95_ms),
     pass: input.pass ?? true,
-    failure_class: input.failure_class ?? null
+    failure_class: input.failure_class ?? null,
+    failure_detail: input.failure_detail ?? null
   };
 }
 

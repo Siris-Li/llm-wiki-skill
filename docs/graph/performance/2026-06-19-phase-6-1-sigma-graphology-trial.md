@@ -28,6 +28,14 @@ Machine-readable result:
 
 The artifact contains 47 fixed-schema records across 5 graph shapes.
 
+## Post-Review Harness Hardening
+
+The original result table below is now treated as a historical isolation baseline. After review, the Sigma trial harness was hardened so a run fails when any action record fails, any failure class is present, any required action is missing, any requested shape is missing, or the wrapper only produced a JSON file without valid contents.
+
+The default shape set was expanded from 5 shapes to the full 11-shape stress matrix: realistic proxy, 1000 sparse/dense, 5000 sparse/dense, 10000 aggregation/high-edge, oversized community, many small communities, many search hits, and many Pin nodes. Repeated interaction/memory cycles now run on every requested shape instead of only 1000-node shapes.
+
+Interaction timing now waits for visible render completion after scripted actions. Sigma uses animation-frame completion checks after search, selection, drawer, community, and return-global actions. A hardened rerun is required before using these numbers as final production-integration evidence.
+
 ## Result Table
 
 | Shape | Nodes | Edges | DOM nodes | Initial | Wheel | Pan | Search | Point | Container | Drawer | Community | Return | Cycle |
@@ -56,7 +64,8 @@ This is still not the final route decision. Phase 6 must also compare vis-networ
 
 ## Acceptance Evidence
 
-- Required shapes measured: 1000 sparse, 1000 dense, 5000 sparse, 10000 aggregation, and oversized-community.
-- Required actions measured: initial render, pan, zoom, search highlight, point select, container select, drawer open, enter community, return global, and repeated memory cycle for 1000-node shapes.
+- Historical shapes measured: 1000 sparse, 1000 dense, 5000 sparse, 10000 aggregation, and oversized-community.
+- Hardened default shapes now include the full 11-shape stress matrix.
+- Required actions are now enforced for every requested shape: initial render, pan, zoom, search highlight, point select, container select, drawer open, enter community, return global, and repeated memory cycle.
 - Behavior parity test passed: `node --import tsx --test packages/graph-engine/test/sigma-trial-adapter.test.ts`.
 - No production workbench renderer path was switched.
