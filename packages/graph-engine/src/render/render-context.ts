@@ -1,4 +1,4 @@
-import type { GraphData, GraphDiff, GraphSummaryObjectRef, GraphTypeFilters, GraphVisibilityState, NodeId, PinMap, SelectionInput, ThemeId } from "../types";
+import type { GraphAggregationMarker, GraphData, GraphDiff, GraphSummaryObjectRef, GraphTypeFilters, GraphVisibilityState, NodeId, PinMap, SelectionInput, ThemeId } from "../types";
 import type { LiveGraphSimulation, PinState } from "../sim";
 import type { GraphHitTargetResolver } from "./hit-testing";
 import type { GraphGestureController, GraphGestureStateMachine } from "./gestures";
@@ -13,6 +13,7 @@ export interface PaintedGraphDom {
   svgElement: SVGSVGElement | null;
   edgeElements: Map<string, SVGPathElement>;
   communityWashElements: Map<string, SVGEllipseElement>;
+  aggregationContainerElements: Map<string, HTMLButtonElement>;
   nodeElements: Map<string, HTMLButtonElement>;
   miniNodeElements: Map<string, SVGCircleElement>;
   miniViewportElement: SVGRectElement | null;
@@ -50,6 +51,7 @@ export interface GraphRenderContext {
   searchQuery: string;
   searchFocusedNodeId: NodeId | null;
   typeFilters: GraphTypeFilters;
+  aggregationMarkers: GraphAggregationMarker[];
   baseTypeFilters: GraphTypeFilters;
   availableTypeFilters: GraphTypeFilters;
   temporaryObject: GraphSummaryObjectRef | null;

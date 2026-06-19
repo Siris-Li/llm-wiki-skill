@@ -49,7 +49,7 @@ class FakeTarget implements GraphGestureTargetLike {
 
 describe("graph gesture target classifier", () => {
   it("declares graph-owned targets and gesture blockers as a stable contract", () => {
-    assert.deepEqual([...GRAPH_OWNED_TARGET_KINDS], ["graph-blank", "node", "community-wash", "edge"]);
+    assert.deepEqual([...GRAPH_OWNED_TARGET_KINDS], ["graph-blank", "node", "community-wash", "aggregation-container", "edge"]);
     assert.deepEqual([...GRAPH_GESTURE_BLOCKER_TARGET_KINDS], [
       "minimap",
       "toolbar",
@@ -429,6 +429,38 @@ describe("graph gesture controller", () => {
     controller.destroy();
   });
 
+  it("keeps aggregation container DOM ownership above spatial hits", () => {
+    const root = new FakeGestureRoot();
+    const zoomed: GraphGestureTarget[] = [];
+    const pointerDecisions: GraphGestureTarget[] = [];
+    const controller = new GraphGestureController(root as unknown as HTMLElement, {
+      targetFromEventTarget: (target) => target as GraphGestureTargetLike | null,
+      graphTargetFromScreenPoint: () => ({ kind: "node", id: "node-behind-container" }),
+      onWheelZoom: (_event, decision) => {
+        zoomed.push(decision.target);
+      },
+      onPointerDown: (_event, decision) => {
+        pointerDecisions.push(decision.target);
+      },
+      onGestureIntents: () => {}
+    });
+
+    const container = aggregationContainerTarget("agg-t1", "t1");
+    const wheel = wheelDomEvent(container, -20);
+    root.dispatch("wheel", wheel);
+    assert.equal(wheel.defaultPrevented, true);
+
+    const pointerDown = pointerDomEvent(container, 52, 260, 220);
+    root.dispatch("pointerdown", pointerDown);
+    assert.equal(pointerDown.defaultPrevented, true);
+    assert.equal(root.hasPointerCapture(52), true);
+
+    assert.deepEqual(zoomed, [{ kind: "aggregation-container", id: "agg-t1", communityId: "t1" }]);
+    assert.deepEqual(pointerDecisions, [{ kind: "community-wash", id: "t1" }]);
+
+    controller.destroy();
+  });
+
   it("uses DOM blank ownership for return-global double-click while graph objects and blockers keep defaults", () => {
     const root = new FakeGestureRoot();
     let resetCount = 0;
@@ -590,6 +622,11 @@ function nodeTarget(id: string): FakeTarget {
 function communityWashTarget(id: string): FakeTarget {
   const wash = new FakeTarget({ dataset: { communityId: id } });
   return new FakeTarget({ closest: { ".community-wash": wash } });
+}
+
+function aggregationContainerTarget(id: string, communityId: string): FakeTarget {
+  const container = new FakeTarget({ dataset: { aggregationId: id, communityId } });
+  return new FakeTarget({ closest: { ".aggregation-container": container } });
 }
 
 function edgeTarget(id: string): FakeTarget {

@@ -50,6 +50,7 @@ function spatialInputFromRenderableGraph(graph: RenderableGraph): GraphSpatialIn
   return {
     nodes: graph.nodes,
     edges: graph.edges,
-    communities: graph.communities
+    communities: graph.communities,
+    aggregationContainers: graph.aggregationContainers
   };
 }

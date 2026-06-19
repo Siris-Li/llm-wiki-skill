@@ -443,6 +443,41 @@ describe("buildRenderableGraph", () => {
     assert.ok(graph.overflow.labels.hidden > 0);
   });
 
+  it("builds aggregation containers with counts, search hits, pins, and selected markers", () => {
+    const data = budgetGraph(20, 40);
+    const pins = {
+      "wiki/budget/n3.md": { x: 700, y: 420, coordinateSpace: "world" as const }
+    };
+    const graph = buildRenderableGraph(data, {
+      theme: "shan-shui",
+      selection: { kind: "node", id: "n2" },
+      searchResultIds: ["n1", "n4"],
+      pins,
+      aggregationMarkers: [
+        {
+          id: "agg-c1",
+          label: "Budget container",
+          communityId: "c1",
+          nodeIds: ["n1", "n2", "n3", "n4"],
+          totalCount: 12
+        }
+      ]
+    });
+    const container = graph.aggregationContainers[0];
+
+    assert.ok(container);
+    assert.equal(container.role, "aggregation-container");
+    assert.equal(container.nodeCount, 12);
+    assert.equal(container.searchHitCount, 2);
+    assert.equal(container.pinnedCount, 1);
+    assert.equal(container.selectedCount, 1);
+    assert.equal(container.selected, true);
+    assert.deepEqual(container.searchResultIds, ["n1", "n4"]);
+    assert.deepEqual(container.pinnedNodeIds, ["n3"]);
+    assert.deepEqual(container.selectedNodeIds, ["n2"]);
+    assert.deepEqual(container.pinHints.map((hint) => hint.nodeId), ["n3"]);
+  });
+
   it("enters a community focus view by hiding nodes outside the selected community", () => {
     const graph = buildRenderableGraph(sampleGraph(), {
       theme: "shan-shui",

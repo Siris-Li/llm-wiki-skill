@@ -105,6 +105,7 @@ export function GraphCommunitySummary({ payload, onCommand, onShowNodeSummary, o
 				)}
 			</section>
 			<IdList title="搜索命中" ids={payload.searchResultIds} emptyText="暂无搜索命中" />
+			<IdList title="固定节点" ids={payload.pinHints.map((hint) => hint.nodeId)} emptyText="暂无固定节点" />
 			<RelationList title="桥接关系" relations={payload.bridgeRelations} emptyText="暂无桥接关系" />
 			<CommandRow commands={payload.commands} onCommand={onCommand} />
 		</article>

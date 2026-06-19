@@ -109,17 +109,27 @@ function sameGraphDrawerTarget(left: DrawerState, right: DrawerState): boolean {
 	if (left.mode !== right.mode) return false;
 	if (left.mode === "graph-node-summary" && right.mode === "graph-node-summary") {
 		return left.payload.nodeId === right.payload.nodeId
-			&& left.payload.commands.map((command) => command.kind).join(",") === right.payload.commands.map((command) => command.kind).join(",");
+			&& graphSummaryCommandSignature(left.payload.commands) === graphSummaryCommandSignature(right.payload.commands);
 	}
 	if (left.mode === "graph-excluded-object" && right.mode === "graph-excluded-object") {
 		return JSON.stringify(left.payload.object) === JSON.stringify(right.payload.object)
 			&& left.payload.reason === right.payload.reason
-			&& left.payload.commands.map((command) => command.kind).join(",") === right.payload.commands.map((command) => command.kind).join(",");
+			&& graphSummaryCommandSignature(left.payload.commands) === graphSummaryCommandSignature(right.payload.commands);
 	}
 	if (left.mode === "graph-unavailable-object" && right.mode === "graph-unavailable-object") {
 		return JSON.stringify(left.payload.object) === JSON.stringify(right.payload.object) && left.payload.reason === right.payload.reason;
 	}
 	return false;
+}
+
+function graphSummaryCommandSignature(commands: readonly GraphSummaryCommand[]): string {
+	return commands.map((command) => {
+		if (command.kind === "set-fixed-position") return `${command.kind}:${command.mode}:${command.nodeId}`;
+		if (command.kind === "open-detail-read") return `${command.kind}:${command.nodeId}`;
+		if (command.kind === "enter-community") return `${command.kind}:${command.communityId}`;
+		if (command.kind === "show-this-object") return `${command.kind}:${JSON.stringify(command.object)}`;
+		return command.kind;
+	}).join(",");
 }
 
 function visibilityWithTemporaryObject(
@@ -432,8 +442,11 @@ function App() {
 		if (drawer.mode === "graph-reader" && selection.nodeIds.length === 1 && drawer.payload.node.id === selection.nodeIds[0]) {
 			return;
 		}
-		setDrawer((current) => drawerForGraphSelection(graphData, selection, current, { pins: graphPins }));
-	}, [graphData, graphPins, drawer]);
+		setDrawer((current) => drawerForGraphSelection(graphData, selection, current, {
+			pins: graphPins,
+			searchResultIds: graphVisibilityState?.searchResultIds ?? [],
+		}));
+	}, [graphData, graphPins, graphVisibilityState, drawer]);
 
 	const handleGraphVisibilityChange = useCallback((state: GraphVisibilityState | null) => {
 		setGraphVisibilityState(state);

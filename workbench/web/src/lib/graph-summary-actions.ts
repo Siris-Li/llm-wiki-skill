@@ -50,6 +50,7 @@ export function drawerForGraphSelection(
 		const summary = summarizeGraphCommunity(data, selection.communityIds[0], {
 			...options,
 			selection: { kind: "community", id: selection.communityIds[0] },
+			searchResultIds: options.searchResultIds ?? [],
 		});
 		if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary);
 	}

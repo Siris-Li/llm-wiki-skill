@@ -272,6 +272,16 @@ export function buildGraphRendererAdapterData(
 
   const aggregations = markers.map((marker): GraphRendererAdapterAggregation => {
     const object = { kind: "aggregation" as const, aggregationId: marker.id, nodeIds: [...marker.nodeIds], communityId: marker.communityId ?? null };
+    const drawerTarget: GraphRendererDrawerTarget = marker.communityId
+      ? {
+          summaryKind: "community-summary",
+          object: { kind: "community", communityId: marker.communityId }
+        }
+      : {
+          summaryKind: "excluded-object",
+          object,
+          reason: "aggregation"
+        };
     const selectedNodeIds = stableIntersection(marker.nodeIds, marker.selectedNodeIds ?? selection.selectedNodeIds);
     const pinnedNodeIds = stableIntersection(marker.nodeIds, marker.pinnedNodeIds ?? pinnedNodeIdsForMarker(marker, nodeById, options.pins));
     const pinHints = pinnedNodeIds.map((id) => pinHintForNode(nodeById.get(id), id, null, options.pins)).filter((hint) => hint.pinned);
@@ -287,11 +297,7 @@ export function buildGraphRendererAdapterData(
       totalCount: marker.totalCount ?? marker.nodeIds.length,
       selected: selectedNodeIds.length > 0 || Boolean(marker.communityId && selectedCommunitySet.has(marker.communityId)),
       pinHints,
-      drawerTarget: {
-        summaryKind: "excluded-object",
-        object,
-        reason: "aggregation"
-      },
+      drawerTarget,
       commands: [
         { kind: "show-this-object", object, label: "显示这个对象" },
         { kind: "clear-temporary-object-display", label: "清除临时显示" }

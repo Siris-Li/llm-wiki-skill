@@ -58,14 +58,8 @@ describe("graph renderer adapter contract", () => {
     assert.deepEqual(aggregation.searchResultIds, ["b"]);
     assert.deepEqual(aggregation.pinnedNodeIds, ["a"]);
     assert.deepEqual(aggregation.drawerTarget, {
-      summaryKind: "excluded-object",
-      object: {
-        kind: "aggregation",
-        aggregationId: "agg-alpha",
-        nodeIds: ["a", "b"],
-        communityId: "alpha"
-      },
-      reason: "aggregation"
+      summaryKind: "community-summary",
+      object: { kind: "community", communityId: "alpha" }
     });
   });
 
@@ -121,14 +115,8 @@ describe("graph renderer adapter contract", () => {
         communityId: "alpha"
       },
       drawerTarget: {
-        summaryKind: "excluded-object",
-        object: {
-          kind: "aggregation",
-          aggregationId: "agg-alpha",
-          nodeIds: ["a", "b"],
-          communityId: "alpha"
-        },
-        reason: "aggregation"
+        summaryKind: "community-summary",
+        object: { kind: "community", communityId: "alpha" }
       },
       selected: true,
       searchResultIds: ["b"],
@@ -168,14 +156,8 @@ describe("graph renderer adapter contract", () => {
         selectedNodeIds: ["a"],
         selected: true,
         drawerTarget: {
-          summaryKind: "excluded-object",
-          object: {
-            kind: "aggregation",
-            aggregationId: "agg-alpha",
-            nodeIds: ["a", "b"],
-            communityId: "alpha"
-          },
-          reason: "aggregation"
+          summaryKind: "community-summary",
+          object: { kind: "community", communityId: "alpha" }
         }
       }
     ]);
@@ -193,14 +175,8 @@ describe("graph renderer adapter contract", () => {
           }
         ],
         drawerTarget: {
-          summaryKind: "excluded-object",
-          object: {
-            kind: "aggregation",
-            aggregationId: "agg-alpha",
-            nodeIds: ["a", "b"],
-            communityId: "alpha"
-          },
-          reason: "aggregation"
+          summaryKind: "community-summary",
+          object: { kind: "community", communityId: "alpha" }
         }
       }
     ]);

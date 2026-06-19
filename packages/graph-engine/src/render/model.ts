@@ -1,4 +1,4 @@
-import type { GraphData, GraphFocusInput, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
+import type { GraphAggregationMarker, GraphData, GraphFocusInput, GraphPinHint, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
 import {
   atlasNodePoint,
   buildAtlasModel,
@@ -93,6 +93,7 @@ export interface RenderableGraph {
   nodes: RenderableNode[];
   edges: RenderableEdge[];
   communities: RenderableCommunity[];
+  aggregationContainers: RenderableAggregationContainer[];
   minimap: RenderableMinimap;
   budget: GraphRenderBudget;
   overflow: GraphRenderOverflow;
@@ -161,6 +162,28 @@ export interface RenderableCommunity {
   } | null;
 }
 
+export interface RenderableAggregationContainer {
+  id: string;
+  role: "aggregation-container";
+  label: string;
+  communityId: string | null;
+  nodeIds: string[];
+  nodeCount: number;
+  searchHitCount: number;
+  pinnedCount: number;
+  selectedCount: number;
+  selected: boolean;
+  searchResultIds: string[];
+  pinnedNodeIds: string[];
+  selectedNodeIds: string[];
+  pinHints: GraphPinHint[];
+  point: { x: number; y: number };
+  x: number;
+  y: number;
+  radius: number;
+  color: string;
+}
+
 export interface RenderableMinimap {
   path: string;
   nodes: Array<{ id: string; x: number; y: number; r: number; fill: string; selected: boolean }>;
@@ -176,6 +199,7 @@ interface BuildRenderableGraphOptions {
   positions?: RenderPositionMap;
   pathCache?: RenderPathCache;
   searchResultIds?: NodeId[];
+  aggregationMarkers?: GraphAggregationMarker[];
 }
 
 type AtlasNode = {
@@ -354,6 +378,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const worldBounds = worldBoundsForPoints([...pointById.values()]);
   const pinnedNodeSet = resolvePinnedNodeIds(model.nodes, options.pins);
   const searchResultSet = new Set(options.searchResultIds || []);
+  const aggregationMarkers = options.aggregationMarkers ?? [];
   const stableCoreNodeIds = selectStableCoreNodeIds(filteredVisibleNodes, budgetLimits.maxLabels, {
     labelNodeIds: labelIds,
     importantNodeIds: importantIds,
@@ -549,6 +574,42 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     };
   });
   const communityById = new Map(communities.map((community) => [community.id, community]));
+  const nodeByRawId = new Map(model.nodes.map((node) => [node.id, node]));
+  const aggregationContainers = aggregationMarkers
+    .map((marker): RenderableAggregationContainer | null => {
+      const markerNodes = marker.nodeIds.map((id) => nodeByRawId.get(id)).filter((node): node is AtlasNode => Boolean(node));
+      if (!markerNodes.length) return null;
+      const points = markerNodes.map((node) => pointById.get(node.id) || renderPointForNode(node, options));
+      const point = averagePoint(points);
+      const cssPoint = worldPointToCssPercentPoint(point, worldBounds);
+      const searchResultIds = stableIntersection(marker.nodeIds, marker.searchResultIds ?? [...searchResultSet]);
+      const pinnedNodeIds = stableIntersection(marker.nodeIds, marker.pinnedNodeIds ?? [...pinnedNodeSet]);
+      const selectedMarkerNodeIds = stableIntersection(marker.nodeIds, marker.selectedNodeIds ?? selectedNodeIds);
+      const communityId = marker.communityId ?? markerNodes[0]?.community ?? null;
+      const community = communityId ? communityById.get(communityId) : null;
+      return {
+        id: marker.id,
+        role: "aggregation-container",
+        label: marker.label ?? community?.label ?? marker.id,
+        communityId,
+        nodeIds: [...marker.nodeIds],
+        nodeCount: marker.totalCount ?? marker.nodeIds.length,
+        searchHitCount: searchResultIds.length,
+        pinnedCount: pinnedNodeIds.length,
+        selectedCount: selectedMarkerNodeIds.length,
+        selected: selectedMarkerNodeIds.length > 0 || Boolean(communityId && options.selection?.kind === "community" && options.selection.id === communityId),
+        searchResultIds,
+        pinnedNodeIds,
+        selectedNodeIds: selectedMarkerNodeIds,
+        pinHints: pinnedNodeIds.map((id) => pinHintForNode(nodeByRawId.get(id), id, options.pins)).filter((hint) => hint.pinned),
+        point,
+        x: round(cssPoint.x),
+        y: round(cssPoint.y),
+        radius: aggregationContainerRadius(marker.totalCount ?? marker.nodeIds.length),
+        color: community?.color ?? getCommunityColor(theme, 0)
+      };
+    })
+    .filter((container): container is RenderableAggregationContainer => Boolean(container));
 
   const labelUsage = nodes.filter((node) => node.labelVisible).length;
   const cardUsage = nodes.filter((node) => node.displayMode === "card").length;
@@ -577,6 +638,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     nodes,
     edges,
     communities,
+    aggregationContainers,
     minimap: {
       path: MINIMAP_PATH,
       nodes: nodes.slice(0, 60).map((node) => {
@@ -629,6 +691,34 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     },
     communityFocus
   };
+}
+
+function pinHintForNode(node: AtlasNode | undefined, nodeId: NodeId, pins?: PinMap): GraphPinHint {
+  const wikiPath = node ? wikiPathForGraphNode(node) : nodeId;
+  const position = pins?.[wikiPath] ?? null;
+  return {
+    nodeId,
+    wikiPath,
+    pinned: Boolean(position),
+    position
+  };
+}
+
+function averagePoint(points: RenderPosition[]): RenderPosition {
+  const total = points.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), { x: 0, y: 0 });
+  return {
+    x: round(total.x / Math.max(1, points.length)),
+    y: round(total.y / Math.max(1, points.length))
+  };
+}
+
+function stableIntersection(baseIds: readonly string[], candidateIds: readonly string[]): string[] {
+  const candidates = new Set(candidateIds);
+  return baseIds.filter((id) => candidates.has(id));
+}
+
+function aggregationContainerRadius(nodeCount: number): number {
+  return round(Math.max(34, Math.min(88, 28 + Math.sqrt(Math.max(1, nodeCount)) * 7)));
 }
 
 export function resolveGraphRenderBudget(focus: GraphFocusInput, focusedCommunityNodeCount = 0): GraphRenderBudgetLimits {

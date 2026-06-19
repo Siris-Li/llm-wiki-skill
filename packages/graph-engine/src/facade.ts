@@ -70,6 +70,7 @@ export interface GraphFacadeRenderer {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
   setData(data: GraphEngineOptions["data"], pins?: GraphEngineOptions["pins"]): void;
+  setAggregationMarkers(markers: NonNullable<GraphEngineOptions["aggregationMarkers"]>): void;
   focusNode(path: string): void;
   focusCommunity(id: string): void;
   setTypeFilters(filters: NonNullable<GraphEngineOptions["typeFilters"]>): void;
@@ -110,6 +111,7 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
     toolbarContainer: options.toolbarContainer,
     focus: options.focus,
     typeFilters: options.typeFilters,
+    aggregationMarkers: options.aggregationMarkers,
     onNodeOpen: capabilities?.onOpenPage
       ? (nodeId) => capabilities.onOpenPage?.(openPagePayloadForNode(facadeState.data, nodeId))
       : undefined,
@@ -122,7 +124,10 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
           if (!capabilities?.onSelectionChange) capabilities?.onAsk?.(selection);
         }
       : undefined,
-    onPinsChanged: capabilities?.persistPins ? (pins) => void capabilities.persistPins?.(pins) : undefined,
+    onPinsChanged: capabilities?.persistPins ? (pins) => {
+      facadeState.pins = pins;
+      void capabilities.persistPins?.(pins);
+    } : undefined,
     onSelectionClearRequested: capabilities?.onSelectionClear,
     onViewReset: () => {
       delete container.dataset.llmWikiGraphFocus;
@@ -167,6 +172,11 @@ export function createGraphFacadeFromRenderer(
       facadeState.data = data;
       if (pins) facadeState.pins = pins;
       renderer.setData(data, pins);
+    },
+
+    setAggregationMarkers(markers): void {
+      assertActive();
+      renderer.setAggregationMarkers(markers);
     },
 
     focusNode(path: string): void {

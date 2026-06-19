@@ -6,6 +6,7 @@ export type GraphGestureTargetKind =
   | "graph-blank"
   | "node"
   | "community-wash"
+  | "aggregation-container"
   | "edge"
   | "minimap"
   | "toolbar"
@@ -15,7 +16,7 @@ export type GraphGestureTargetKind =
   | "text-control"
   | "unknown";
 
-export type GraphOwnedTargetKind = "graph-blank" | "node" | "community-wash" | "edge";
+export type GraphOwnedTargetKind = "graph-blank" | "node" | "community-wash" | "aggregation-container" | "edge";
 export type GraphGestureBlockerTargetKind = Exclude<GraphGestureTargetKind, GraphOwnedTargetKind>;
 export type GraphGestureTargetOwnership = "graph-owned" | "graph-blocker";
 
@@ -31,6 +32,7 @@ export type GraphGestureTarget =
   | { kind: "graph-blank" }
   | { kind: "node"; id: NodeId | null }
   | { kind: "community-wash"; id: CommunityId | null }
+  | { kind: "aggregation-container"; id: string | null; communityId: CommunityId | null }
   | { kind: "edge"; id: string | null }
   | { kind: "minimap" }
   | { kind: "toolbar" }
@@ -40,7 +42,13 @@ export type GraphGestureTarget =
   | { kind: "text-control" }
   | { kind: "unknown" };
 
-export const GRAPH_OWNED_TARGET_KINDS = ["graph-blank", "node", "community-wash", "edge"] as const satisfies readonly GraphOwnedTargetKind[];
+export const GRAPH_OWNED_TARGET_KINDS = [
+  "graph-blank",
+  "node",
+  "community-wash",
+  "aggregation-container",
+  "edge"
+] as const satisfies readonly GraphOwnedTargetKind[];
 export const GRAPH_GESTURE_BLOCKER_TARGET_KINDS = [
   "minimap",
   "toolbar",
@@ -59,6 +67,7 @@ export const GRAPH_GESTURE_SELECTORS = {
   drawer: ".graph-reader, .graph-selection-panel, [data-graph-drawer=\"true\"]",
   minimap: ".mini-map",
   node: ".node",
+  aggregationContainer: ".aggregation-container",
   communityWash: ".community-wash",
   edge: ".edge",
   blank: "[data-graph-blank=\"true\"]"
@@ -160,6 +169,13 @@ export function classifyGraphEventTarget(target: GraphGestureTargetLike | null |
   const node = closest(target, GRAPH_GESTURE_SELECTORS.node);
   if (node) return { kind: "node", id: dataValue(node, "id", "nodeId") };
 
+  const aggregationContainer = closest(target, GRAPH_GESTURE_SELECTORS.aggregationContainer);
+  if (aggregationContainer) return {
+    kind: "aggregation-container",
+    id: dataValue(aggregationContainer, "aggregationId", "id"),
+    communityId: dataValue(aggregationContainer, "communityId")
+  };
+
   const communityWash = closest(target, GRAPH_GESTURE_SELECTORS.communityWash);
   if (communityWash) return { kind: "community-wash", id: dataValue(communityWash, "communityId", "id") };
 
@@ -206,6 +222,8 @@ export function graphSpatialHitToGestureTarget(hit: GraphSpatialHitTarget | null
       return { kind: "edge", id: hit.id };
     case "community-wash":
       return { kind: "community-wash", id: hit.id };
+    case "aggregation-container":
+      return { kind: "aggregation-container", id: hit.id, communityId: hit.communityId };
     case "graph-blank":
       return { kind: "graph-blank" };
     default:
@@ -219,6 +237,8 @@ export function classifyGraphPointerDownTargetFromGraphTarget(graphTarget: Graph
       return { intent: "node-drag-candidate", target: graphTarget };
     case "community-wash":
       return { intent: "community-click-candidate", target: graphTarget };
+    case "aggregation-container":
+      return { intent: "community-click-candidate", target: { kind: "community-wash", id: graphTarget.communityId } };
     case "edge":
       return { intent: "blank-pan-candidate", target: graphTarget };
     case "graph-blank":
@@ -560,6 +580,7 @@ export class GraphGestureController {
   private graphTargetForEvent(target: EventTarget | null, screenPoint: { x: number; y: number }): GraphGestureTarget {
     const domTarget = classifyGraphEventTarget(this.eventTarget(target));
     if (isGraphGestureBlockerTarget(domTarget)) return domTarget;
+    if (domTarget.kind === "aggregation-container") return domTarget;
     return this.options.graphTargetFromScreenPoint?.(screenPoint) || domTarget;
   }
 

@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildCommunityAggregationMarkers,
   summarizeExcludedGraphObject,
   summarizeGraphCommunity,
   summarizeGraphGlobal,
@@ -134,6 +135,25 @@ describe("graph summary contract", () => {
     assert.deepEqual(summary.selection.selectedCommunityIds, ["alpha"]);
     assert.equal(summary.selection.containsCurrentObject, true);
     assert.deepEqual(summary.aggregationMarkers.map((marker) => marker.id), ["agg-alpha"]);
+  });
+
+  it("builds community aggregation markers for large communities with pinned-node metadata", () => {
+    const markers = buildCommunityAggregationMarkers(graphFixture(), {
+      minCommunitySize: 2,
+      pins: {
+        "wiki/alpha/a.md": { x: 3, y: 4, coordinateSpace: "world" }
+      }
+    });
+
+    assert.deepEqual(markers.map((marker) => marker.id), ["community-container:alpha", "community-container:beta"]);
+    assert.deepEqual(markers[0], {
+      id: "community-container:alpha",
+      label: "Alpha",
+      communityId: "alpha",
+      nodeIds: ["a", "b"],
+      pinnedNodeIds: ["a"],
+      totalCount: 2
+    });
   });
 
   it("preserves global, search, excluded, and unavailable payload identity fields", () => {

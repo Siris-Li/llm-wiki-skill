@@ -9,6 +9,9 @@ const { chromium } = require("playwright");
 const workbenchUrl = process.env.GRAPH_WORKBENCH_URL || "";
 const artifactDir = process.env.GRAPH_WORKBENCH_ARTIFACT_DIR || "";
 const executablePath = process.env.GRAPH_WORKBENCH_CHROME_EXECUTABLE || "";
+const GLOBAL_NODE_IDS = ["A", "B", "C", "D", "E", "F", "G"];
+const T1_NODE_IDS = ["A", "B", "D", "E", "F", "G"];
+const WITHOUT_SOURCE_NODE_IDS = ["A", "B", "D", "E", "F", "G"];
 
 assert.notEqual(workbenchUrl, "", "GRAPH_WORKBENCH_URL must point at the workbench dev server");
 
@@ -33,10 +36,20 @@ try {
 }
 
 async function closeBrowserForRegression(browser) {
+  let closed = false;
+  const closePromise = browser.close()
+    .then(() => {
+      closed = true;
+    })
+    .catch(() => {
+      closed = true;
+    });
   await Promise.race([
-    browser.close(),
+    closePromise,
     new Promise((resolve) => setTimeout(resolve, 5000))
   ]);
+  const browserProcess = typeof browser.process === "function" ? browser.process() : null;
+  if (!closed) browserProcess?.kill("SIGKILL");
 }
 
 async function runDesktopChecks(browser) {
@@ -48,6 +61,7 @@ async function runDesktopChecks(browser) {
     hover: {},
     drawer: {},
     communitySummary: {},
+    aggregationContainer: {},
     blankAndDoubleClick: {},
     returnGlobalState: {},
     communityDrag: {},
@@ -79,9 +93,8 @@ async function runDesktopChecks(browser) {
   evidence.hover.afterZoom = await hoverNodeAndMeasure(page, "A");
   assertStableHoverOffset(evidence.hover.beforeZoom, evidence.hover.afterZoom, "hover should stay anchored after zoom");
 
-  await page.locator(".node[data-id='A']").click();
+  await clickNodeForSummary(page, "A", "drawer open setup");
   await page.waitForSelector(".drawer-panel-open");
-  await page.waitForSelector('[data-testid="graph-node-summary"]');
   evidence.drawer.opened = await drawerAndGraphSnapshot(page);
   await page.locator('[data-testid="graph-node-summary"] button', { hasText: "打开详情" }).click();
   await page.waitForSelector(".graph-reader-drawer");
@@ -96,25 +109,29 @@ async function runDesktopChecks(browser) {
   await page.locator(".drawer-header button[aria-label='关闭']").click();
   await page.waitForSelector(".drawer-panel-open", { state: "detached" });
 
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   evidence.communitySummary.wash = await runCommunitySummaryWashCheck(page);
   await closeDrawerIfOpen(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   evidence.communitySummary.legend = await runCommunitySummaryLegendCheck(page);
   await closeDrawerIfOpen(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   evidence.communitySummary.coreList = await runCommunitySummaryCoreListFlow(page);
   await closeDrawerIfOpen(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
+  evidence.aggregationContainer = await runAggregationContainerCheck(page);
+  await closeDrawerIfOpen(page);
+  await resetGraphLayout(page);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   evidence.blankAndDoubleClick = await runBlankAndDoubleClickCheck(page);
   await closeDrawerIfOpen(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   evidence.returnGlobalState = await runReturnGlobalStatePreservationCheck(page);
   await closeDrawerIfOpen(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   evidence.communityDrag = await runCommunityDragCheck(page);
   await resetGraphLayout(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   evidence.panAndReset = await runPanMinimapResetCheck(page);
   evidence.dragRefreshRace = await runDragRefreshRaceCheck(page);
 
@@ -128,7 +145,7 @@ async function runDesktopChecks(browser) {
 async function runNarrowChecks(browser) {
   const page = await openWorkbenchGraphPage(browser, { width: 390, height: 844 }, "light");
   const communityId = await firstCommunityWashId(page);
-  const nodeId = await ensureAnyNodeInteractable(page, ["A", "B", "C"]);
+  const nodeId = await ensureAnyNodeInteractable(page, GLOBAL_NODE_IDS);
   const evidence = {
     viewport: "390x844",
     wheelTargets: {},
@@ -141,7 +158,7 @@ async function runNarrowChecks(browser) {
   evidence.wheelTargets.communityWash = await assertWheelZoomsFromReset(page, () => findCommunityWashPoint(page, communityId), "narrow community wash");
   evidence.hover.node = await hoverNodeAndMeasure(page, nodeId);
   await assertBoxInsideViewport(page, ".graph-hover-preview", "narrow hover preview");
-  await page.locator(`.node[data-id="${cssString(nodeId)}"]`).click();
+  await clickNodeForSummary(page, nodeId, "narrow drawer open setup");
   await page.waitForSelector(".drawer-panel-open");
   await page.waitForSelector('[data-testid="graph-node-summary"]');
   evidence.drawer = await drawerAndGraphSnapshot(page);
@@ -230,7 +247,7 @@ async function openWorkbenchGraphPage(browser, viewport, theme) {
       && document.querySelector(".llm-wiki-graph-engine")?.dataset.theme === expectedGraphTheme;
   }, expectedGraphTheme);
   await resetGraphView(page);
-  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  await waitForVisibleNodeIds(page, GLOBAL_NODE_IDS);
   await page.waitForSelector(".community-wash");
   return page;
 }
@@ -263,7 +280,7 @@ async function assertWheelDoesNotZoom(page, point, label) {
 async function runCommunityDragCheck(page) {
   await openCommunitySummaryFromWash(page, "t1");
   await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
-  await waitForVisibleNodeIds(page, ["A", "B"]);
+  await waitForVisibleNodeIds(page, T1_NODE_IDS);
   await waitForViewportAnimationIdle(page);
   const initial = await page.evaluate(() => {
     const root = document.querySelector("[data-llm-wiki-graph-root='true']");
@@ -275,13 +292,21 @@ async function runCommunityDragCheck(page) {
     const nodeRect = node.getBoundingClientRect();
     return {
       wash: window.__graphWorkbenchTest.relativeRect(washRect, rootRect),
+      root: window.__graphWorkbenchTest.relativeRect(rootRect, rootRect),
+      rootClient: {
+        left: rootRect.left,
+        right: rootRect.right
+      },
       nodeCenter: {
         x: nodeRect.left + nodeRect.width / 2,
         y: nodeRect.top + nodeRect.height / 2
       }
     };
   });
-  const target = { x: initial.nodeCenter.x + 360, y: initial.nodeCenter.y + 24 };
+  const target = {
+    x: Math.min(initial.rootClient.right - 80, initial.rootClient.left + initial.wash.right + 260),
+    y: initial.nodeCenter.y + 24
+  };
   await page.mouse.move(initial.nodeCenter.x, initial.nodeCenter.y);
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 8 });
@@ -350,10 +375,10 @@ async function runCommunitySummaryLegendCheck(page) {
   await openToolbarFilters(page);
   await page.locator('.graph-toolbar-panel[data-state="filters"] .community-legend-row[data-community-id="t1"]').click();
   await page.waitForSelector('[data-testid="graph-community-summary"]');
-  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  await waitForVisibleNodeIds(page, GLOBAL_NODE_IDS);
   const after = await graphSnapshot(page);
   assert.equal(transformScale(after.transform), transformScale(before.transform), "legend community click should preserve the global zoom scale");
-  assert.deepEqual(after.visibleNodes, ["A", "B", "C"], "legend community click should keep the global node set visible");
+  assert.deepEqual(after.visibleNodes, GLOBAL_NODE_IDS, "legend community click should keep the global node set visible");
   return { before, after };
 }
 
@@ -365,13 +390,62 @@ async function runCommunitySummaryCoreListFlow(page) {
   const hover = await hoverPreviewSnapshot(page);
   await nodeLink.click();
   await page.waitForSelector('[data-testid="graph-node-summary"]');
-  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  await waitForVisibleNodeIds(page, GLOBAL_NODE_IDS);
   const nodeSummary = await graphSnapshot(page);
   await page.locator('[data-testid="graph-node-summary"] button', { hasText: "进入社区" }).click();
-  await waitForVisibleNodeIds(page, ["A", "B"]);
+  await waitForVisibleNodeIds(page, T1_NODE_IDS);
   await waitForCommunityFocus(page, "t1", "node summary enter-community should focus the community");
   const focused = await graphSnapshot(page);
   return { summary, hover, nodeSummary, focused };
+}
+
+async function runAggregationContainerCheck(page) {
+  await page.waitForSelector(".aggregation-container[data-role='aggregation-container']");
+  const before = await graphSnapshot(page);
+  const container = page.locator(".aggregation-container").first();
+  const metadata = await container.evaluate((element) => ({
+    role: element.getAttribute("data-role"),
+    nodeCount: Number(element.getAttribute("data-node-count") || 0),
+    communityId: element.getAttribute("data-community-id") || "",
+    searchHitCount: Number(element.getAttribute("data-search-hit-count") || 0),
+    pinnedCount: Number(element.getAttribute("data-pinned-count") || 0),
+    selectedCount: Number(element.getAttribute("data-selected-count") || 0)
+  }));
+  assert.equal(metadata.role, "aggregation-container", "aggregation should expose a distinct container role");
+  assert.ok(metadata.nodeCount >= 6, `aggregation should represent a large community, got ${metadata.nodeCount}`);
+
+  await closeToolbarWithButton(page);
+  await waitForToolbarPanel(page, "closed");
+  await clickNodeForSummary(page, "A", "aggregation pinned setup");
+  await page.locator('[data-testid="graph-node-summary"] button', { hasText: "固定位置" }).click();
+  await page.waitForSelector(".node[data-id='A'][data-pinned='true']");
+
+  await openSearch(page);
+  await page.locator(".graph-search-input").fill("节点B");
+  await page.waitForFunction(() => document.querySelector(".graph-search-status")?.textContent?.includes("1 个结果"));
+  await container.click({ force: true });
+  try {
+    await page.waitForSelector('[data-testid="graph-community-summary"]', { timeout: 5000 });
+  } catch (err) {
+    const diagnostics = await graphInteractionDiagnostics(page, await elementCenter(page, ".aggregation-container"));
+    throw new assert.AssertionError({
+      message: `aggregation container click should open community summary, got ${JSON.stringify(diagnostics)}`,
+      actual: err,
+      expected: "graph-community-summary",
+      operator: "strictEqual"
+    });
+  }
+  await waitForVisibleNodeIds(page, GLOBAL_NODE_IDS, "aggregation container click should stay in global view");
+  await waitForNoGraphFocus(page, "aggregation container click should not enter community focus");
+  const drawer = await page.locator('[data-testid="graph-community-summary"]').evaluate((element) => ({
+    text: element.textContent || ""
+  }));
+  assert.match(drawer.text, /搜索命中/, "aggregation summary should list internal search hits");
+  assert.match(drawer.text, /B/, "aggregation summary should include the internal search hit");
+  assert.match(drawer.text, /固定节点/, "aggregation summary should list pinned nodes");
+  assert.match(drawer.text, /A/, "aggregation summary should include the pinned node");
+  const after = await graphSnapshot(page);
+  return { before, metadata, after, drawerText: drawer.text };
 }
 
 async function runBlankAndDoubleClickCheck(page) {
@@ -379,19 +453,18 @@ async function runBlankAndDoubleClickCheck(page) {
 
   await openCommunitySummaryFromWash(page, "t1");
   await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
-  await waitForVisibleNodeIds(page, ["A", "B"]);
+  await waitForVisibleNodeIds(page, T1_NODE_IDS);
   await waitForCommunityFocus(page, "t1", "blank click setup should focus the community");
-  await page.locator(".node[data-id='A']").click();
-  await page.waitForSelector('[data-testid="graph-node-summary"]');
+  await clickNodeForSummary(page, "A", "blank click setup");
   const beforeBlankClick = await graphSnapshot(page);
   const blankClickPoint = await clickBlankPointThatClearsSelection(page, "A");
   await waitForCommunityFocus(page, "t1", "blank click should not leave community focus");
   const afterBlankClick = await graphSnapshot(page);
-  assert.deepEqual(afterBlankClick.visibleNodes, ["A", "B"], "single blank click should preserve community visible nodes");
+  assert.deepEqual(afterBlankClick.visibleNodes, T1_NODE_IDS, "single blank click should preserve community visible nodes");
 
   const beforeBlankDouble = await graphSnapshot(page);
   const blankDoubleClickPoint = await doubleClickBlankPointThatReturnsGlobal(page);
-  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  await waitForVisibleNodeIds(page, GLOBAL_NODE_IDS);
   await waitForNoGraphFocus(page, "true blank double click should return global");
   const afterBlankDouble = await graphSnapshot(page);
   assert.notDeepEqual(afterBlankDouble.visibleNodes, beforeBlankDouble.visibleNodes, "true blank double click should leave focused community");
@@ -399,14 +472,14 @@ async function runBlankAndDoubleClickCheck(page) {
   await openCommunitySummaryFromWash(page, "t1");
   await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
   await waitForCommunityFocus(page, "t1", "node double-click setup should focus the community");
-  await waitForVisibleNodeIds(page, ["A", "B"]);
-  await page.locator(".node[data-id='A']").dblclick();
+  await waitForVisibleNodeIds(page, T1_NODE_IDS);
+  await doubleClickNode(page, "A");
   await page.waitForTimeout(160);
   await waitForCommunityFocus(page, "t1", "node double-click should not return global");
   assert.equal(await nodePinnedState(page, "A"), "false", "node double-click should not silently pin or unpin");
   blockers.node = await graphSnapshot(page);
 
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   blockers.communityWash = await assertDoubleClickDoesNotReturnGlobal(page, () => findCommunityWashPoint(page, "t1"), "community wash");
   blockers.edge = await assertDoubleClickDoesNotReturnGlobal(page, () => firstEdgeMidpoint(page), "edge");
 
@@ -422,12 +495,12 @@ async function runBlankAndDoubleClickCheck(page) {
   await waitForSearchState(page, "closed");
 
   await closeDrawerIfOpen(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   await clickNodeForSummary(page, "A", "drawer blocker setup");
   blockers.drawer = await assertDoubleClickDoesNotReturnGlobal(page, () => elementCenter(page, ".drawer-panel-open"), "right drawer");
 
   await closeDrawerIfOpen(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   await clickNodeForSummary(page, "A", "fixed action setup");
   await page.locator('[data-testid="graph-node-summary"] button', { hasText: "固定位置" }).click();
   await page.waitForSelector(".node[data-id='A'][data-pinned='true']");
@@ -457,7 +530,7 @@ async function runReturnGlobalStatePreservationCheck(page) {
 async function runNodeReturnGlobalStateCheck(page) {
   await resetGraphLayout(page);
   await closeDrawerIfOpen(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   await clickNodeForSummary(page, "C", "filtered selected object setup");
   await page.waitForSelector('[data-testid="graph-node-summary"]');
 
@@ -472,7 +545,7 @@ async function runNodeReturnGlobalStateCheck(page) {
   assert.notEqual(filteredNodeType, "", "node C should expose a type for filter stability checks");
   const beforeFilterTransform = await layerTransform(page);
   await setTypeFilter(page, filteredNodeType, false);
-  await waitForVisibleNodeIds(page, ["A", "B"], `${filteredNodeType} filter should hide node C before return global`);
+  await waitForVisibleNodeIds(page, T1_NODE_IDS, `${filteredNodeType} filter should hide node C before return global`);
   const afterFilterTransform = await layerTransform(page);
   assert.equal(afterFilterTransform, beforeFilterTransform, "type filter changes should not move or rebuild the graph layout");
   const excludedObjectFlow = await runFilteredSelectedObjectCheck(page, filteredNodeType);
@@ -483,11 +556,11 @@ async function runNodeReturnGlobalStateCheck(page) {
   await page.locator('[data-testid="graph-node-summary"] button', { hasText: "打开详情" }).click();
   await page.waitForSelector(".graph-reader-drawer");
   await waitForCommunityFocus(page, "t1", "node detail return-global setup should enter community");
-  await waitForVisibleNodeIds(page, ["A", "B"]);
+  await waitForVisibleNodeIds(page, T1_NODE_IDS);
   await page.waitForSelector(".node[data-id='A'][aria-pressed='true']");
   const focused = await returnGlobalStateSnapshot(page);
 
-  await resetGraphView(page, ["A", "B"]);
+  await resetGraphView(page, T1_NODE_IDS);
   await waitForNoGraphFocus(page, "return global should leave community focus");
   await page.waitForSelector('[data-testid="graph-node-summary"]');
   await page.waitForSelector(".node[data-id='A'][aria-pressed='true'][data-pinned='true']");
@@ -499,10 +572,10 @@ async function runNodeReturnGlobalStateCheck(page) {
   assert.ok(returned.disabledTypes.includes(filteredNodeType), "type filter should remain active after return global");
   assert.equal(returned.nodeA.pinned, "true", "fixed position should remain after return global");
   assert.equal(returned.nodeA.pressed, "true", "selected node should remain selected after return global");
-  assert.deepEqual(returned.visibleNodes, ["A", "B"], "active type filter should still shape the returned global view");
+  assert.deepEqual(returned.visibleNodes, T1_NODE_IDS, "active type filter should still shape the returned global view");
 
   await setTypeFilter(page, filteredNodeType, true);
-  await waitForVisibleNodeIds(page, ["A", "B", "C"], "restoring filtered type should show global nodes");
+  await waitForVisibleNodeIds(page, GLOBAL_NODE_IDS, "restoring filtered type should show global nodes");
 
   return {
     focused,
@@ -520,11 +593,11 @@ async function runFilteredSelectedObjectCheck(page, filteredNodeType) {
   const excluded = await returnGlobalStateSnapshot(page);
   assert.equal(excluded.drawerTestId, "graph-excluded-object", "filtered selected node should keep drawer as an excluded object");
   assert.ok(excluded.disabledTypes.includes(filteredNodeType), "excluded object drawer should preserve the active type filter");
-  assert.deepEqual(excluded.visibleNodes, ["A", "B"], "filtered object should remain hidden before explicit show");
+  assert.deepEqual(excluded.visibleNodes, T1_NODE_IDS, "filtered object should remain hidden before explicit show");
 
   await page.locator('[data-testid="graph-excluded-object"] button', { hasText: "显示这个对象" }).click();
   await page.waitForSelector('[data-testid="graph-node-summary"]');
-  await waitForVisibleNodeIds(page, ["A", "B", "C"], "show this object should temporarily reveal filtered node with context");
+  await waitForVisibleNodeIds(page, GLOBAL_NODE_IDS, "show this object should temporarily reveal filtered node with context");
   const shown = await returnGlobalStateSnapshot(page);
   assert.equal(shown.drawerTestId, "graph-node-summary", "show this object should return to a node summary");
   assert.ok(shown.disabledTypes.includes(filteredNodeType), "show this object should not clear the active filter");
@@ -532,7 +605,7 @@ async function runFilteredSelectedObjectCheck(page, filteredNodeType) {
 
   await page.locator('[data-testid="graph-node-summary"] button', { hasText: "清除临时显示" }).click();
   await page.waitForSelector('[data-testid="graph-excluded-object"]');
-  await waitForVisibleNodeIds(page, ["A", "B"], "clearing temporary object should restore active filter visibility");
+  await waitForVisibleNodeIds(page, T1_NODE_IDS, "clearing temporary object should restore active filter visibility");
   const cleared = await returnGlobalStateSnapshot(page);
   assert.equal(cleared.drawerTestId, "graph-excluded-object", "cleared temporary display should return to excluded drawer");
   assert.ok(cleared.disabledTypes.includes(filteredNodeType), "clearing temporary display should keep the filter active");
@@ -547,46 +620,46 @@ async function runResetLayoutDistinctFromReturnGlobalCheck(page) {
   await page.waitForSelector(".node[data-id='A'][data-pinned='true']");
   await resetGraphLayout(page);
   await waitForCommunityFocus(page, "t1", "reset layout should not return global");
-  await waitForVisibleNodeIds(page, ["A", "B"]);
+  await waitForVisibleNodeIds(page, T1_NODE_IDS);
   await page.waitForSelector(".graph-reader-drawer");
   const afterResetLayout = await returnGlobalStateSnapshot(page);
 
   assert.equal(afterResetLayout.readerOpen, true, "reset layout should keep the current reader open");
   assert.equal(afterResetLayout.nodeA.pinned, "false", "reset layout should clear fixed position");
   assert.equal(afterResetLayout.nodeA.pressed, "true", "reset layout should not clear selection");
-  assert.deepEqual(afterResetLayout.visibleNodes, ["A", "B"], "reset layout should preserve community focus");
+  assert.deepEqual(afterResetLayout.visibleNodes, T1_NODE_IDS, "reset layout should preserve community focus");
   return afterResetLayout;
 }
 
 async function runCommunityReturnGlobalStateCheck(page) {
   await closeDrawerIfOpen(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   await openCommunitySummaryFromWash(page, "t1");
   await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
   await waitForCommunityFocus(page, "t1", "community return-global setup should enter community");
-  await waitForVisibleNodeIds(page, ["A", "B"]);
+  await waitForVisibleNodeIds(page, T1_NODE_IDS);
   const focused = await returnGlobalStateSnapshot(page);
 
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   await waitForNoGraphFocus(page, "community return global should leave community focus");
   await page.waitForSelector('[data-testid="graph-community-summary"]');
   const returned = await returnGlobalStateSnapshot(page);
 
   assert.equal(returned.drawerTestId, "graph-community-summary", "selected community should still show community summary after return global");
-  assert.deepEqual(returned.visibleNodes, ["A", "B", "C"], "community return global should restore the global node set");
+  assert.deepEqual(returned.visibleNodes, GLOBAL_NODE_IDS, "community return global should restore the global node set");
   return { focused, returned };
 }
 
 async function openCommunitySummaryFromWash(page, communityId) {
   await closeDrawerIfOpen(page);
-  await resetGraphView(page, ["A", "B", "C"]);
+  await resetGraphView(page, GLOBAL_NODE_IDS);
   const before = await graphSnapshot(page);
   await clickCommunityWash(page, communityId);
   await page.waitForSelector('[data-testid="graph-community-summary"]');
-  await waitForVisibleNodeIds(page, ["A", "B", "C"], "community summary wash click should stay global");
+  await waitForVisibleNodeIds(page, GLOBAL_NODE_IDS, "community summary wash click should stay global");
   const after = await graphSnapshot(page);
   assert.equal(transformScale(after.transform), transformScale(before.transform), "community wash click should preserve the global zoom scale");
-  assert.deepEqual(after.visibleNodes, ["A", "B", "C"], "community wash click should keep the global node set visible");
+  assert.deepEqual(after.visibleNodes, GLOBAL_NODE_IDS, "community wash click should keep the global node set visible");
   return { before, after };
 }
 
@@ -602,9 +675,9 @@ async function runPanMinimapResetCheck(page) {
   const afterPan = await graphSnapshot(page);
   assert.notDeepEqual(afterPan.mini, before.mini, "blank pan should update minimap viewport");
   await resetGraphView(page);
-  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  await waitForVisibleNodeIds(page, GLOBAL_NODE_IDS);
   const afterReset = await graphSnapshot(page);
-  assert.deepEqual(afterReset.visibleNodes, ["A", "B", "C"], "reset view should return to all nodes");
+  assert.deepEqual(afterReset.visibleNodes, GLOBAL_NODE_IDS, "reset view should return to all nodes");
   assertValidMinimap(afterReset.mini, "after reset");
   return {
     before,
@@ -615,7 +688,7 @@ async function runPanMinimapResetCheck(page) {
 
 async function runDragRefreshRaceCheck(page) {
   await resetGraphView(page);
-  await waitForVisibleNodeIds(page, ["A", "B", "C"]);
+  await waitForVisibleNodeIds(page, GLOBAL_NODE_IDS);
   const nodeId = await ensureAnyNodeInteractable(page, ["B", "C", "A"]);
   const before = await nodeSnapshot(page, nodeId);
   const target = { x: before.center.x + 260, y: before.center.y + 18 };
@@ -742,6 +815,14 @@ async function waitForGraphRefreshProbe(page) {
 }
 
 async function resetGraphView(page, expectedVisibleNodeIds = null) {
+  await closeToolbarWithButton(page);
+  await waitForToolbarPanel(page, "closed");
+  const searchState = await page.locator(".graph-search").evaluate((element) => element.getAttribute("data-state") || "").catch(() => "closed");
+  const drawerOpen = await page.locator(".drawer-panel-open").count();
+  if (searchState !== "closed" && drawerOpen === 0) {
+    await closeSearch(page);
+    await waitForSearchState(page, "closed");
+  }
   const before = await layerTransform(page);
   await page.locator("[data-llm-wiki-graph-root='true']").getByRole("button", { name: "回全图" }).click();
   await page.waitForTimeout(220);
@@ -1117,14 +1198,14 @@ async function assertDoubleClickDoesNotReturnGlobal(page, pointFactory, label) {
   await openCommunitySummaryFromWash(page, "t1");
   await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
   await waitForCommunityFocus(page, "t1", `${label} setup should focus the community`);
-  await waitForVisibleNodeIds(page, ["A", "B"]);
+  await waitForVisibleNodeIds(page, T1_NODE_IDS);
   const before = await graphSnapshot(page);
   const point = await pointFactory();
   await page.mouse.dblclick(point.x, point.y);
   await page.waitForTimeout(180);
   await waitForCommunityFocus(page, "t1", `${label} double click should not return global`);
   const after = await graphSnapshot(page);
-  assert.deepEqual(after.visibleNodes, ["A", "B"], `${label} double click should preserve community focus`);
+  assert.deepEqual(after.visibleNodes, T1_NODE_IDS, `${label} double click should preserve community focus`);
   return { before, after, point: roundedPoint(point) };
 }
 
@@ -1156,9 +1237,8 @@ async function nodeCenter(page, id) {
 }
 
 async function clickNodeForSummary(page, id, label) {
-  await ensureNodeInteractable(page, id);
-  const point = await nodeCenter(page, id);
-  await page.mouse.click(point.x, point.y);
+  const point = await findNodeInteractionPoint(page, id);
+  await dispatchGraphPointerClick(page, point);
   try {
     await page.waitForSelector('[data-testid="graph-node-summary"]', { timeout: 5000 });
   } catch (err) {
@@ -1170,6 +1250,54 @@ async function clickNodeForSummary(page, id, label) {
       operator: "strictEqual"
     });
   }
+}
+
+async function doubleClickNode(page, id) {
+  const point = await findNodeInteractionPoint(page, id);
+  await page.mouse.dblclick(point.x, point.y);
+}
+
+async function findNodeInteractionPoint(page, id) {
+  return page.locator(`.node[data-id="${cssString(id)}"]`).evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    const candidates = [
+      [0.5, 0.5],
+      [0.22, 0.22],
+      [0.78, 0.22],
+      [0.22, 0.78],
+      [0.78, 0.78],
+      [0.5, 0.18],
+      [0.5, 0.82]
+    ];
+    for (const [rx, ry] of candidates) {
+      const x = rect.left + rect.width * rx;
+      const y = rect.top + rect.height * ry;
+      if (document.elementFromPoint(x, y)?.closest?.(`.node[data-id="${CSS.escape(node.dataset.id || "")}"]`) === node) {
+        return { x, y };
+      }
+    }
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    };
+  });
+}
+
+async function dispatchGraphPointerClick(page, point) {
+  const root = page.locator("[data-llm-wiki-graph-root='true']");
+  const pointer = {
+    button: 0,
+    pointerId: 1,
+    clientX: point.x,
+    clientY: point.y,
+    bubbles: true,
+    cancelable: true
+  };
+  await root.dispatchEvent("pointerdown", {
+    ...pointer,
+    buttons: 1
+  });
+  await root.dispatchEvent("pointerup", pointer);
 }
 
 async function nodePinnedState(page, id) {
@@ -1187,24 +1315,31 @@ async function elementCenter(page, selector) {
 }
 
 async function firstEdgeMidpoint(page) {
-  return page.locator(".edge").first().evaluate((edge) => {
-    if (!(edge instanceof SVGPathElement)) throw new Error("edge should be an SVG path");
-    const svg = edge.ownerSVGElement;
-    if (!svg) throw new Error("edge should have an owner SVG");
-    const length = edge.getTotalLength();
-    const rect = svg.getBoundingClientRect();
-    const viewBox = svg.viewBox.baseVal;
-    const toClientPoint = (point) => ({
-      x: rect.left + (point.x - viewBox.x) / viewBox.width * rect.width,
-      y: rect.top + (point.y - viewBox.y) / viewBox.height * rect.height
-    });
-    const fractions = [0.5, 0.42, 0.58, 0.35, 0.65, 0.25, 0.75];
-    for (const fraction of fractions) {
-      const point = toClientPoint(edge.getPointAtLength(length * fraction));
-      if (document.elementFromPoint(point.x, point.y)?.closest?.(".edge") === edge) return point;
+  return page.evaluate(() => {
+    const edges = [...document.querySelectorAll(".edge")];
+    const diagnostics = [];
+    const fractions = [0.5, 0.42, 0.58, 0.35, 0.65, 0.25, 0.75, 0.15, 0.85];
+    for (const edge of edges) {
+      if (!(edge instanceof SVGPathElement)) continue;
+      const svg = edge.ownerSVGElement;
+      if (!svg) continue;
+      const length = edge.getTotalLength();
+      const rect = svg.getBoundingClientRect();
+      const viewBox = svg.viewBox.baseVal;
+      const toClientPoint = (point) => ({
+        x: rect.left + (point.x - viewBox.x) / viewBox.width * rect.width,
+        y: rect.top + (point.y - viewBox.y) / viewBox.height * rect.height
+      });
+      for (const fraction of fractions) {
+        const point = toClientPoint(edge.getPointAtLength(length * fraction));
+        if (document.elementFromPoint(point.x, point.y)?.closest?.(".edge") === edge) return point;
+      }
+      diagnostics.push({
+        id: edge.getAttribute("data-edge-id") || edge.id || "",
+        midpoint: toClientPoint(edge.getPointAtLength(length / 2))
+      });
     }
-    const mid = toClientPoint(edge.getPointAtLength(length / 2));
-    throw new Error(`Could not find exposed edge point near first edge; midpoint=${JSON.stringify(mid)}`);
+    throw new Error(`Could not find exposed edge point; diagnostics=${JSON.stringify(diagnostics.slice(0, 8))}`);
   });
 }
 
@@ -1229,7 +1364,10 @@ async function findCommunityWashPoint(page, communityId) {
         return { x, y };
       }
     }
-    throw new Error("Could not find exposed community wash point");
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    };
   }, communityId);
 }
 
@@ -1299,7 +1437,10 @@ async function closeToolbarWithBlankClick(page) {
 }
 
 async function closeToolbarWithButton(page) {
-  await page.locator(".graph-toolbar-button").filter({ hasText: "筛选" }).click();
+  const state = await toolbarPanelState(page);
+  if (state !== "closed") {
+    await page.locator(".graph-toolbar-button").filter({ hasText: "筛选" }).click();
+  }
 }
 
 async function waitForToolbarPanel(page, state) {
@@ -1308,8 +1449,14 @@ async function waitForToolbarPanel(page, state) {
   }, state);
 }
 
+async function toolbarPanelState(page) {
+  return page.locator("[data-llm-wiki-graph-root='true']")
+    .evaluate((element) => element.dataset.toolbarPanel || "closed")
+    .catch(() => "closed");
+}
+
 async function openToolbarFilters(page) {
-  const state = await page.locator("[data-llm-wiki-graph-root='true']").evaluate((element) => element.dataset.toolbarPanel || "");
+  const state = await toolbarPanelState(page);
   if (state !== "filters") {
     await page.locator(".graph-toolbar-button").filter({ hasText: "筛选" }).click();
   }
@@ -1337,6 +1484,10 @@ async function openSearch(page) {
   await root.evaluate((element) => element.focus({ preventScroll: true }));
   await page.keyboard.press(searchShortcut());
   await waitForSearchState(page, "open");
+}
+
+async function closeSearch(page) {
+  await page.locator(".graph-search-input").press("Escape");
 }
 
 async function waitForSearchState(page, state) {

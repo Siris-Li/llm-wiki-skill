@@ -43,6 +43,10 @@ describe("RightDrawer graph lightweight summaries", () => {
 		assert.match(html, /核心节点/);
 		assert.match(html, /查看全部/);
 		assert.match(html, /alpha-node/);
+		assert.match(html, /搜索命中/);
+		assert.match(html, /beta-node/);
+		assert.match(html, /固定节点/);
+		assert.match(html, /gamma-node/);
 		assert.match(html, /进入社区/);
 		assert.doesNotMatch(html, /打开详情/);
 		assert.doesNotMatch(html, /graph-reader-drawer/);
@@ -138,7 +142,9 @@ function communitySummaryFixture(): GraphCommunitySummaryPayload {
 		nodeCount: 12,
 		coreNodeIds: ["alpha-node", "beta-node", "gamma-node", "delta-node"],
 		searchResultIds: ["beta-node"],
-		pinHints: [],
+		pinHints: [
+			{ nodeId: "gamma-node", wikiPath: "wiki/gamma.md", pinned: true, position: { x: 12, y: 18, coordinateSpace: "world" } },
+		],
 		selection: {
 			input: { kind: "community", id: "alpha" },
 			selectionId: "community:alpha",

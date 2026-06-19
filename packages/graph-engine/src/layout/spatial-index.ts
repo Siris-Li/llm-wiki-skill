@@ -3,7 +3,7 @@ import { cardDims } from "../model/labels";
 import type { Quadtree, QuadtreeLeaf, QuadtreeNode } from "d3-quadtree";
 import { graphEdgeControlPoint } from "./edge-geometry";
 
-export type GraphSpatialHitKind = "node" | "edge" | "community-wash" | "graph-blank";
+export type GraphSpatialHitKind = "node" | "edge" | "community-wash" | "aggregation-container" | "graph-blank";
 
 export interface GraphSpatialPoint {
   x: number;
@@ -46,16 +46,25 @@ export interface GraphSpatialCommunityLike {
   } | null;
 }
 
+export interface GraphSpatialAggregationContainerLike {
+  id: string;
+  communityId?: string | null;
+  point?: GraphSpatialPoint;
+  radius?: number;
+}
+
 export type GraphSpatialHitTarget =
   | { kind: "node"; id: string }
   | { kind: "edge"; id: string }
   | { kind: "community-wash"; id: string }
+  | { kind: "aggregation-container"; id: string; communityId: string | null }
   | { kind: "graph-blank" };
 
 export interface GraphSpatialIndexInput {
   nodes?: readonly GraphSpatialNodeLike[];
   edges?: readonly GraphSpatialEdgeLike[];
   communities?: readonly GraphSpatialCommunityLike[];
+  aggregationContainers?: readonly GraphSpatialAggregationContainerLike[];
   edgeHitTolerance?: number;
   nodeFallbackRadius?: number;
 }
@@ -86,6 +95,14 @@ interface SpatialCommunityEntry {
   order: number;
 }
 
+interface SpatialAggregationContainerEntry {
+  id: string;
+  communityId: string | null;
+  point: GraphSpatialPoint;
+  radius: number;
+  order: number;
+}
+
 export const DEFAULT_GRAPH_EDGE_HIT_TOLERANCE = 10;
 export const DEFAULT_GRAPH_NODE_FALLBACK_RADIUS = 32;
 
@@ -93,6 +110,7 @@ export class GraphSpatialIndex {
   private readonly nodes: SpatialNodeEntry[];
   private readonly edges: SpatialEdgeEntry[];
   private readonly communities: SpatialCommunityEntry[];
+  private readonly aggregationContainers: SpatialAggregationContainerEntry[];
   private readonly nodeTree: Quadtree<SpatialNodeEntry>;
   private readonly edgeGrid: SpatialEdgeGrid;
   private readonly maxNodeRadius: number;
@@ -114,6 +132,7 @@ export class GraphSpatialIndex {
     this.edges = normalizeEdges(input.edges || [], nodeById, this.edgeHitTolerance);
     this.edgeGrid = new SpatialEdgeGrid(this.edges, this.edgeHitTolerance);
     this.communities = normalizeCommunities(input.communities || []);
+    this.aggregationContainers = normalizeAggregationContainers(input.aggregationContainers || []);
   }
 
   rebuild(input: GraphSpatialIndexInput): GraphSpatialIndex {
@@ -127,6 +146,13 @@ export class GraphSpatialIndex {
 
     const edge = this.findEdge(safePoint);
     if (edge) return { kind: "edge", id: edge.id };
+
+    const aggregationContainer = this.findAggregationContainer(safePoint);
+    if (aggregationContainer) return {
+      kind: "aggregation-container",
+      id: aggregationContainer.id,
+      communityId: aggregationContainer.communityId
+    };
 
     const community = this.findCommunity(safePoint);
     if (community) return { kind: "community-wash", id: community.id };
@@ -171,6 +197,14 @@ export class GraphSpatialIndex {
       .filter((candidate) => candidate.score <= 1)
       .sort((left, right) => left.score - right.score || left.community.order - right.community.order);
     return candidates[0]?.community || null;
+  }
+
+  findAggregationContainer(point: GraphSpatialPoint): SpatialAggregationContainerEntry | null {
+    const safePoint = normalizePoint(point);
+    const candidates = this.aggregationContainers
+      .filter((container) => distanceBetweenPoints(safePoint, container.point) <= container.radius)
+      .sort((left, right) => distanceBetweenPoints(safePoint, left.point) - distanceBetweenPoints(safePoint, right.point) || left.order - right.order);
+    return candidates[0] || null;
   }
 
   nearestNode(point: GraphSpatialPoint, radius = this.maxNodeRadius): SpatialNodeEntry | null {
@@ -262,6 +296,19 @@ function normalizeCommunities(communities: readonly GraphSpatialCommunityLike[])
       cy: finiteNumber(wash.cy, 0),
       rx,
       ry,
+      order: index
+    }];
+  });
+}
+
+function normalizeAggregationContainers(containers: readonly GraphSpatialAggregationContainerLike[]): SpatialAggregationContainerEntry[] {
+  return containers.flatMap((container, index) => {
+    if (!container.point) return [];
+    return [{
+      id: String(container.id),
+      communityId: container.communityId ? String(container.communityId) : null,
+      point: normalizePoint(container.point),
+      radius: finitePositiveNumber(container.radius, DEFAULT_GRAPH_NODE_FALLBACK_RADIUS),
       order: index
     }];
   });
@@ -407,6 +454,10 @@ function finiteNumber(value: unknown, fallback: number): number {
 
 function distance(left: GraphSpatialPoint, right: GraphSpatialPoint): number {
   return Math.hypot(right.x - left.x, right.y - left.y);
+}
+
+function distanceBetweenPoints(left: GraphSpatialPoint, right: GraphSpatialPoint): number {
+  return distance(left, right);
 }
 
 const DEFAULT_EDGE_GRID_CELL_SIZE = 96;

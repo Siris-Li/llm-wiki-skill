@@ -479,6 +479,7 @@ export interface GraphEngineOptions {
   theme: ThemeId;
   focus?: GraphFocusInput;
   typeFilters?: GraphTypeFilters;
+  aggregationMarkers?: GraphAggregationMarker[];
   toolbarContainer?: HTMLElement | null;
   capabilities?: GraphEngineCapabilities;
 }
@@ -487,6 +488,7 @@ export interface GraphEngine {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
   setData(data: GraphData, pins?: PinMap): void;
+  setAggregationMarkers(markers: GraphAggregationMarker[]): void;
   focusNode(path: WikiPath): void;
   focusCommunity(id: CommunityId): Selection;
   setTypeFilters(filters: GraphTypeFilters): void;

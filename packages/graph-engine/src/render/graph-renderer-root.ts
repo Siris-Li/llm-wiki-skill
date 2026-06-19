@@ -1,5 +1,6 @@
 import type {
   CommunityId,
+  GraphAggregationMarker,
   GraphFocusInput,
   GraphSummaryObjectRef,
   GraphTypeFilters,
@@ -59,6 +60,7 @@ export interface GraphRendererOptions {
   toolbarContainer?: HTMLElement | null;
   focus?: GraphFocusInput;
   typeFilters?: GraphTypeFilters;
+  aggregationMarkers?: GraphAggregationMarker[];
   live?: boolean;
 }
 
@@ -74,6 +76,7 @@ export interface GraphRenderer {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
   setData(data: GraphData, pins?: PinMap): void;
+  setAggregationMarkers(markers: GraphAggregationMarker[]): void;
   setTheme(theme: ThemeId): void;
   setPins(pins: PinMap): void;
   focusNode(pathOrId: WikiPath): void;
@@ -110,7 +113,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     selection: null,
     focus: initialFocus,
     typeFilters: {},
-    pathCache
+    pathCache,
+    aggregationMarkers: options.aggregationMarkers
   });
   const runtimeState = createGraphRuntimeState({
     viewport: DEFAULT_RENDERER_VIEWPORT,
@@ -136,6 +140,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     searchQuery: "",
     searchFocusedNodeId: null,
     typeFilters: options.typeFilters || {},
+    aggregationMarkers: options.aggregationMarkers || [],
     baseTypeFilters: {},
     availableTypeFilters: {},
     temporaryObject: null,
@@ -198,6 +203,9 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       focusNextSearchResult: () => controller.focusNextSearchResult(),
       closeSearch: () => controller.closeSearch(),
       selectCommunity: (id) => controller.selectCommunity(id),
+      selectAggregationContainer: (id) => {
+        if (id) controller.selectCommunity(id);
+      },
       setCommunityHover: (id) => controller.setCommunityHover(id),
       handleNodeClick: (id, additive) => controller.handleNodeClick(id, additive),
       handleNodeDoubleClick: (id) => controller.handleNodeDoubleClick(id),
@@ -235,6 +243,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     context.data = next.data || context.data;
     context.theme = next.theme || context.theme;
     if (Object.hasOwn(next, "typeFilters")) context.typeFilters = next.typeFilters || {};
+    if (Object.hasOwn(next, "aggregationMarkers")) context.aggregationMarkers = next.aggregationMarkers || [];
     if (Object.hasOwn(next, "pins")) context.runtimeState.setPins(next.pins || {});
     if (Object.hasOwn(next, "focus")) context.runtimeState.setFocus(next.focus || null);
     if (Object.hasOwn(next, "selectedNodeId")) {
@@ -264,6 +273,9 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     setData(nextData: GraphData, nextPins?: PinMap): void {
       controller.clearTransientInteractionForDataRefresh();
       render({ data: nextData, pins: nextPins ?? context.runtimeState.snapshot().pins });
+    },
+    setAggregationMarkers(markers: GraphAggregationMarker[]): void {
+      render({ aggregationMarkers: markers });
     },
     setTheme(nextTheme: ThemeId): void {
       render({ theme: nextTheme });

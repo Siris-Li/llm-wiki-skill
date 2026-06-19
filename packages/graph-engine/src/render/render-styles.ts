@@ -555,6 +555,69 @@ const STATIC_RENDERER_CSS = `
   z-index: 3;
   pointer-events: none;
 }
+.aggregation-container {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  width: calc(var(--aggregation-radius, 48px) * 2);
+  height: calc(var(--aggregation-radius, 48px) * 2);
+  border: 1px solid color-mix(in srgb, var(--aggregation-color, var(--cinnabar)) 58%, transparent);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--aggregation-color, var(--cinnabar)) 18%, transparent), transparent 62%),
+    color-mix(in srgb, var(--surface) 58%, transparent);
+  box-shadow: inset 0 0 0 10px color-mix(in srgb, var(--aggregation-color, var(--cinnabar)) 7%, transparent), 0 18px 34px rgba(36, 31, 26, .08);
+  color: var(--ink);
+  cursor: pointer;
+  pointer-events: auto;
+  text-align: center;
+  translate: -50% -50%;
+}
+.aggregation-container:hover,
+.aggregation-container:focus-visible,
+.aggregation-container[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--aggregation-color, var(--cinnabar)) 84%, transparent);
+  box-shadow: inset 0 0 0 10px color-mix(in srgb, var(--aggregation-color, var(--cinnabar)) 12%, transparent), 0 18px 34px rgba(36, 31, 26, .14);
+}
+.aggregation-container[data-selected="true"] {
+  outline: 2px solid color-mix(in srgb, var(--cinnabar) 72%, transparent);
+  outline-offset: 3px;
+}
+.aggregation-container[data-community-state="faded"] {
+  opacity: .34;
+}
+.aggregation-container[data-community-state="active"] {
+  opacity: 1;
+}
+.aggregation-container-count {
+  font: 700 18px/1 var(--font-ui);
+}
+.aggregation-container-label {
+  max-width: 78%;
+  overflow: hidden;
+  color: var(--muted);
+  font: 11px/1.2 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aggregation-container-markers {
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  max-width: 92%;
+  min-height: 14px;
+  overflow: hidden;
+}
+.aggregation-container-marker {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  padding: 1px 4px;
+  color: var(--muted);
+  font: 9px/1.2 var(--font-ui);
+  white-space: nowrap;
+}
 .graph-hover-preview {
   position: absolute;
   z-index: 9;

@@ -12,6 +12,10 @@ import {
   type GraphEdgeElementHandlers
 } from "./edges";
 import { createCommunityWashElement } from "./community-washes";
+import {
+  createGraphAggregationContainerElement,
+  type GraphAggregationContainerElementHandlers
+} from "./aggregation-containers";
 import { createGraphMinimap } from "./minimap";
 import {
   buildRenderableGraph,
@@ -39,7 +43,7 @@ import { ensureGraphRendererStyles } from "./render-styles";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const COMMUNITY_LEGEND_COLLAPSED_KEY = "llm-wiki:graph:community-legend:collapsed";
 
-interface PaintHandlers extends GraphNodeElementHandlers, GraphEdgeElementHandlers {
+interface PaintHandlers extends GraphNodeElementHandlers, GraphEdgeElementHandlers, GraphAggregationContainerElementHandlers {
   onNodeClick: (id: NodeId, additive: boolean) => void;
   onNodeDoubleClick: (id: string) => boolean;
   onNodePreviewEnter: (id: NodeId) => void;
@@ -57,6 +61,7 @@ export interface GraphRenderCommands {
   closeSearch(): void;
   selectCommunity(id: string): void;
   setCommunityHover(id: string | null): void;
+  selectAggregationContainer(id: string | null): void;
   handleNodeClick(id: NodeId, additive: boolean): void;
   handleNodeDoubleClick(id: string): boolean;
   setNodeFixed(id: string, mode: "fix" | "unfix"): boolean;
@@ -123,6 +128,7 @@ export function createGraphRenderPipeline(
       selection: renderSelection.selection,
       focus: runtimeSnapshot.focus,
       typeFilters: {},
+      aggregationMarkers: context.aggregationMarkers,
       pathCache: context.pathCache
     });
     context.runtimeState.setPositions(positionsFromRenderableGraph(context.graph));
@@ -155,6 +161,9 @@ export function createGraphRenderPipeline(
         },
         onNodePreviewLeave: () => {
           options.commands.clearHoverPreview();
+        },
+        onAggregationContainerClick: (container) => {
+          options.commands.selectAggregationContainer(container.communityId);
         }
       }
     });
@@ -218,6 +227,11 @@ export function createGraphRenderPipeline(
 
     const nodeLayer = context.ownerDocument.createElement("div");
     nodeLayer.className = "node-layer";
+    for (const container of graph.aggregationContainers) {
+      const button = createGraphAggregationContainerElement(context.ownerDocument, container, paintOptions.handlers);
+      painted.aggregationContainerElements.set(container.id, button);
+      nodeLayer.appendChild(button);
+    }
     for (const node of graph.nodes) {
       const button = createGraphNodeElement(context.ownerDocument, node, paintOptions.handlers);
       painted.nodeElements.set(node.id, button);
@@ -417,6 +431,10 @@ export function createGraphRenderPipeline(
     for (const [id, element] of context.dom.communityWashElements) {
       element.dataset.communityState = active ? (id === active ? "active" : "faded") : "none";
     }
+    for (const element of context.dom.aggregationContainerElements.values()) {
+      const community = element.dataset.communityId || "";
+      element.dataset.communityState = active ? (community === active ? "active" : "faded") : "none";
+    }
     for (const edge of context.graph.edges) {
       const element = context.dom.edgeElements.get(edge.id);
       if (!element) continue;
@@ -452,6 +470,7 @@ export function createGraphRenderPipeline(
       focus: snapshot.focus,
       typeFilters: {},
       positions: snapshot.positions,
+      aggregationMarkers: context.aggregationMarkers,
       pathCache: context.pathCache
     });
     context.hitTargetResolver.refresh();
@@ -792,6 +811,7 @@ export function emptyPaintedDom(): PaintedGraphDom {
     svgElement: null,
     edgeElements: new Map(),
     communityWashElements: new Map(),
+    aggregationContainerElements: new Map(),
     nodeElements: new Map(),
     miniNodeElements: new Map(),
     miniViewportElement: null,

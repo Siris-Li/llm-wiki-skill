@@ -195,6 +195,38 @@ export function summarizeUnavailableGraphObject(
   };
 }
 
+export function buildCommunityAggregationMarkers(
+  data: GraphData,
+  options: { pins?: PinMap; minCommunitySize?: number } = {}
+): GraphAggregationMarker[] {
+  const minCommunitySize = Math.max(1, Math.floor(Number(options.minCommunitySize) || 6));
+  const nodesByCommunity = new Map<CommunityId, NodeId[]>();
+  for (const node of data.nodes) {
+    if (!node.community) continue;
+    const ids = nodesByCommunity.get(node.community) ?? [];
+    ids.push(node.id);
+    nodesByCommunity.set(node.community, ids);
+  }
+  const communityById = new Map((data.learning?.communities ?? []).map((community) => [community.id, community]));
+  const pinnedWikiPaths = new Set(Object.keys(options.pins ?? {}));
+  return [...nodesByCommunity.entries()]
+    .filter(([, nodeIds]) => nodeIds.length >= minCommunitySize)
+    .map(([communityId, nodeIds]) => {
+      const community = communityById.get(communityId) ?? null;
+      const pinnedNodeIds = data.nodes
+        .filter((node) => node.community === communityId && pinnedWikiPaths.has(wikiPathForGraphNode(node)))
+        .map((node) => node.id);
+      return {
+        id: `community-container:${communityId}`,
+        label: community?.label ?? communityId,
+        communityId,
+        nodeIds,
+        pinnedNodeIds,
+        totalCount: Number(community?.node_count ?? nodeIds.length)
+      };
+    });
+}
+
 function buildSummaryIndex(data: GraphData): SummaryIndex {
   const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
   const edgesByNodeId = new Map<NodeId, GraphEdge[]>(data.nodes.map((node) => [node.id, []]));

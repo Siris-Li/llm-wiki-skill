@@ -28,6 +28,49 @@ describe("graph renderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("renders aggregation containers as distinct containers and opens community summary first", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const selections: SelectionInput[] = [];
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: graphDataWithCommunities([
+        ["a", "community-a"],
+        ["b", "community-a"],
+        ["c", "community-b"]
+      ]),
+      theme: "shan-shui",
+      live: false,
+      aggregationMarkers: [
+        {
+          id: "agg-community-a",
+          label: "Community A overflow",
+          communityId: "community-a",
+          nodeIds: ["a", "b"],
+          selectedNodeIds: ["a"],
+          searchResultIds: ["b"],
+          totalCount: 6
+        }
+      ],
+      onSelectionInput: (selection) => selections.push(selection)
+    });
+    const aggregation = findByDataset(renderer.root as unknown as FakeElement, "aggregationId", "agg-community-a");
+
+    assert.ok(aggregation);
+    assert.equal(aggregation.classList.contains("aggregation-container"), true);
+    assert.equal(aggregation.dataset.role, "aggregation-container");
+    assert.equal(aggregation.dataset.nodeCount, "6");
+    assert.equal(aggregation.dataset.searchHitCount, "1");
+    assert.equal(aggregation.dataset.selectedCount, "1");
+
+    aggregation.dispatch("click");
+
+    assert.deepEqual(selections, [{ kind: "community", id: "community-a" }]);
+    assert.deepEqual(visibleNodeIds(renderer), ["a", "b", "c"]);
+    assert.equal(renderer.root.dataset.llmWikiGraphFocus, undefined);
+
+    renderer.destroy();
+  });
+
   it("routes a global node click to lightweight selection instead of opening the page", () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");
