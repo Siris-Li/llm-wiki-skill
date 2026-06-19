@@ -332,21 +332,23 @@ async function runSearchKeyboardChecks(page, message) {
   );
 
   const beforeFocus = await layerTransform(page);
-  await input.press("Enter");
+  await input.press("ArrowDown");
   await page.waitForSelector('.node[data-search-focus="true"]');
   const firstFocus = await focusedSearchNodeId(page);
-  await input.press("Enter");
+  await input.press("ArrowDown");
   await page.waitForFunction((previous) => {
     const focused = document.querySelector('.node[data-search-focus="true"]');
     return Boolean(focused && focused.dataset.id && focused.dataset.id !== previous);
   }, firstFocus);
   const secondFocus = await focusedSearchNodeId(page);
-  assert.notEqual(secondFocus, firstFocus, `${message}: Enter should cycle to another result`);
+  assert.notEqual(secondFocus, firstFocus, `${message}: ArrowDown should cycle to another result`);
   assert.notEqual(
     await waitForLayerTransform(page, beforeFocus),
     beforeFocus,
-    `${message}: Enter should move the viewport to the focused result`
+    `${message}: ArrowDown should move the viewport to the focused result`
   );
+  await input.press("Enter");
+  await page.waitForSelector(`.node[data-id="${secondFocus}"][aria-pressed="true"]`);
 
   await input.press("Escape");
   await waitForSearchState(page, "closed");

@@ -30,11 +30,21 @@ try {
 
   const clickPoint = await findCommunityWashPoint(page, communityId);
   await page.mouse.click(clickPoint.x, clickPoint.y);
-  await waitForVisibleNodeIds(page, expectedCommunityNodes);
+  await waitForSelectedNodeIds(page, expectedCommunityNodes);
   assert.deepEqual(
     await visibleNodeIds(page),
+    ["A", "B", "C"],
+    "clicking a community wash should keep the global node set visible"
+  );
+  assert.deepEqual(
+    await selectedNodeIds(page),
     expectedCommunityNodes,
-    "clicking a community wash should enter that community without showing outside nodes"
+    "clicking a community wash should select the community nodes"
+  );
+  assert.equal(
+    await graphFocus(page),
+    "",
+    "clicking a community wash should open summary/selection first instead of entering community focus"
   );
 
   await resetToFreshGraph(page);
@@ -64,7 +74,8 @@ try {
   console.log(JSON.stringify({
     communityId,
     washWheel: { before: initialTransform, after: zoomedTransform, point: washPoint },
-    communityClickVisibleNodes: expectedCommunityNodes,
+    communityClickVisibleNodes: ["A", "B", "C"],
+    communityClickSelectedNodes: expectedCommunityNodes,
     thresholdMoveVisibleNodes: ["A", "B", "C"],
     dragEvidence
   }, null, 2));
@@ -102,6 +113,25 @@ async function waitForVisibleNodeIds(page, expected) {
     const actual = [...document.querySelectorAll(".node")].map((node) => node.dataset.id).sort();
     return actual.length === expected.length && actual.every((id, index) => id === expected[index]);
   }, expected);
+}
+
+async function selectedNodeIds(page) {
+  return page.locator('.node[aria-pressed="true"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.id).sort());
+}
+
+async function waitForSelectedNodeIds(page, expected) {
+  await page.waitForFunction((expected) => {
+    const actual = [...document.querySelectorAll('.node[aria-pressed="true"]')].map((node) => node.dataset.id).sort();
+    return actual.length === expected.length && actual.every((id, index) => id === expected[index]);
+  }, expected);
+}
+
+async function graphFocus(page) {
+  return page.evaluate(() => {
+    return document.querySelector("[data-llm-wiki-graph-root='true']")?.dataset.focus
+      || document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus
+      || "";
+  });
 }
 
 async function multiNodeCommunityId(page) {

@@ -287,7 +287,7 @@ async function measureDrawerOpen(page: PageLike, metadata: LargeGraphFixtureMeta
   await page.keyboard.press("Escape").catch(() => undefined);
   const started = performance.now();
   await clickVisibleNode(page);
-  await page.waitForSelector(".graph-reader[data-state='open']");
+  await waitForGraphDrawerOpen(page);
   const duration = performance.now() - started;
   return recordFromPage(page, metadata, {
     action: "drawer_open",
@@ -337,7 +337,7 @@ async function measureRepeatedCycles(page: PageLike, metadata: LargeGraphFixture
     await page.locator(".graph-search-input").fill(index % 2 === 0 ? "needle" : "node");
     await page.waitForFunction(() => document.querySelectorAll('.node[data-search-state="match"]').length > 0);
     await clickVisibleNode(page);
-    await page.waitForSelector(".graph-reader[data-state='open']");
+    await waitForGraphDrawerOpen(page);
     await page.keyboard.press("Escape").catch(() => undefined);
     await ensureFiltersOpen(page);
     await page.locator(".community-legend-row").nth(index % 3).click({ force: true });
@@ -477,6 +477,17 @@ async function waitForTransformChange(page: PageLike, previous: string, timeout:
     undefined,
     { timeout }
   );
+}
+
+async function waitForGraphDrawerOpen(page: PageLike): Promise<void> {
+  await page.waitForFunction(`(() => {
+    return Boolean(
+      document.querySelector(".graph-reader[data-state='open']")
+      || document.querySelector(".graph-selection-panel[data-state='open']")
+      || document.querySelector("[data-testid='graph-node-summary']")
+      || document.querySelector("[data-testid='graph-community-summary']")
+    );
+  })()`, undefined, { timeout: 12000 });
 }
 
 async function visibleNodeTarget(page: PageLike): Promise<{ id: string; x: number; y: number }> {
