@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Files, Monitor, Moon, Send, Settings, Square, Sun, X } from "lucide-react";
+import { Files, Send, Square, X } from "lucide-react";
 
-import { CommandMenu } from "@/components/CommandMenu";
-import { ExportButtons } from "@/components/ExportButtons";
-import { MarkdownView } from "@/components/MarkdownView";
-import { RefMenu } from "@/components/RefMenu";
-import { ToolHistorySummary } from "@/components/ToolHistorySummary";
-import { ToolStatusRunway } from "@/components/ToolStatusRunway";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { CommandMenu } from "./CommandMenu";
+import { ExportButtons } from "./ExportButtons";
+import { MarkdownView } from "./MarkdownView";
+import { RefMenu } from "./RefMenu";
+import { ToolHistorySummary } from "./ToolHistorySummary";
+import { ToolStatusRunway } from "./ToolStatusRunway";
 import {
 	buildExportPrompt,
 	type CommandItem,
@@ -16,22 +15,22 @@ import {
 	type InspectPathResult,
 	listCommands,
 	listRefs,
-	type ModelInfo,
 	type PageRef,
 	streamPrompt,
 	type ToolStatusContractEvent,
 	type UIMessage,
-} from "@/lib/api";
-import { createLegacyToolStatusState } from "@/lib/legacy-tool-status";
+} from "../lib/api";
+import { createLegacyToolStatusState } from "../lib/legacy-tool-status";
 import {
 	cancelActiveToolStatus,
 	createToolStatusState,
 	flushToolStatusUpdates,
 	reduceToolStatusEvent,
 	type ToolStatusState,
-} from "@/lib/tool-status-model";
-import { cn } from "@/lib/utils";
-import { extractWikiPageRefs } from "@/lib/wiki-links";
+} from "../lib/tool-status-model";
+import { cn } from "../lib/utils";
+import { DEFAULT_CHAT_STATUS, type ChatStatusSnapshot } from "../lib/view-status";
+import { extractWikiPageRefs } from "../lib/wiki-links";
 
 type ToolMark = { name: string; status: "running" | "done" };
 
@@ -68,23 +67,20 @@ function isExportCommand(name: string): name is ExportKind {
  * 阶段一 step 8 + review 修：
  *   - 接受 initialMessages（历史消息）作为初始状态
  *   - 父组件通过 key 在切换会话时强制重挂载本组件
- *   - 顶部状态条按 PRODUCT.md §5.2 占位三栏（KB / 模型 / 设置）
+ *   - 全局库/模型/主题入口已上提到 TopBar
  *   - 删除"等待 agent 响应…"文字，改用 ▍ 光标
  */
 interface Props {
 	currentKnowledgeBaseName: string | null;
 	currentKnowledgeBasePath: string | null;
-	model: ModelInfo | null;
 	initialMessages: UIMessage[];
 	onMessageSent?: () => void;
-	onOpenSettings?: () => void;
+	onStatusChange?: (snapshot: ChatStatusSnapshot) => void;
 	onOpenPage?: (path: string) => void;
 	onWikiLinkSeen?: (path: string) => void;
 	onArtifactCreated?: (id: string) => void;
 	artifactCount?: number;
 	onOpenArtifacts?: () => void;
-	theme?: "dark" | "light";
-	onToggleTheme?: () => void;
 	onStartBatchDigest?: (input: {
 		kbPath: string;
 		filePaths: string[];
@@ -97,25 +93,29 @@ interface Props {
 		displayText: string;
 	} | null;
 	onPendingPromptConsumed?: () => void;
+	pendingInsertRef?: {
+		id: string;
+		path: string;
+	} | null;
+	onPendingInsertRefConsumed?: () => void;
 }
 
 export function ChatPanel({
 	currentKnowledgeBaseName,
 	currentKnowledgeBasePath,
-	model,
 	initialMessages,
 	onMessageSent,
-	onOpenSettings,
+	onStatusChange,
 	onOpenPage,
 	onWikiLinkSeen,
 	onArtifactCreated,
 	artifactCount = 0,
 	onOpenArtifacts,
-	theme = "dark",
-	onToggleTheme,
 	onStartBatchDigest,
 	pendingPrompt,
 	onPendingPromptConsumed,
+	pendingInsertRef,
+	onPendingInsertRefConsumed,
 }: Props) {
 	const [messages, setMessages] = useState<Message[]>(() => initialMessages.map(fromUIMessage));
 	const [input, setInput] = useState("");
@@ -145,6 +145,8 @@ export function ChatPanel({
 	const toolFlushTimersRef = useRef<Record<string, number>>({});
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const consumedPendingPromptRef = useRef<string | null>(null);
+	const consumedPendingInsertRef = useRef<string | null>(null);
+	const sendPromptRef = useRef<(overrideText?: string, displayText?: string) => void>(() => {});
 
 	const detectedMaterial = (() => {
 		const text = input.trim();
@@ -171,10 +173,20 @@ export function ChatPanel({
 	}, [currentKnowledgeBaseName]);
 
 	useEffect(() => {
+		const toolFlushTimers = toolFlushTimersRef.current;
 		return () => {
-			for (const timer of Object.values(toolFlushTimersRef.current)) window.clearTimeout(timer);
+			abortRef.current?.abort();
+			for (const timer of Object.values(toolFlushTimers)) window.clearTimeout(timer);
+			onStatusChange?.(DEFAULT_CHAT_STATUS);
 		};
-	}, []);
+	}, [onStatusChange]);
+
+	useEffect(() => {
+		onStatusChange?.({
+			status,
+			summary: chatStatusSummary(status, errorMsg, Boolean(currentKnowledgeBaseName)),
+		});
+	}, [currentKnowledgeBaseName, errorMsg, onStatusChange, status]);
 
 	useEffect(() => {
 		if (!refMenu.open || !currentKnowledgeBasePath) {
@@ -434,13 +446,27 @@ export function ChatPanel({
 			if (activeAssistantIdRef.current === assistantId) activeAssistantIdRef.current = null;
 		}
 	};
+	useEffect(() => {
+		sendPromptRef.current = (overrideText?: string, displayText?: string) => {
+			void sendPrompt(overrideText, displayText);
+		};
+	});
 
 	useEffect(() => {
 		if (!pendingPrompt || consumedPendingPromptRef.current === pendingPrompt.id) return;
 		consumedPendingPromptRef.current = pendingPrompt.id;
 		onPendingPromptConsumed?.();
-		void sendPrompt(pendingPrompt.message, pendingPrompt.displayText);
+		sendPromptRef.current(pendingPrompt.message, pendingPrompt.displayText);
 	}, [onPendingPromptConsumed, pendingPrompt]);
+
+	useEffect(() => {
+		if (!pendingInsertRef || consumedPendingInsertRef.current === pendingInsertRef.id) return;
+		consumedPendingInsertRef.current = pendingInsertRef.id;
+		const link = `[[${pendingInsertRef.path}]]`;
+		setInput((current) => `${current}${current.trim() ? " " : ""}${link} `);
+		onPendingInsertRefConsumed?.();
+		requestAnimationFrame(() => textareaRef.current?.focus());
+	}, [onPendingInsertRefConsumed, pendingInsertRef]);
 
 	useEffect(() => {
 		if (!onWikiLinkSeen) return;
@@ -543,56 +569,6 @@ export function ChatPanel({
 
 	return (
 		<div className="chat-screen">
-			<header className="statusbar">
-				<div className="statusbar-left">
-					<span className="status-dot" />
-					<span className="status-kb">
-						{currentKnowledgeBaseName ?? <span className="italic opacity-60">未选择</span>}
-					</span>
-				</div>
-				<div className="statusbar-right">
-					<button
-						type="button"
-						className="status-pill status-pill-button"
-						onClick={onToggleTheme}
-						title={theme === "dark" ? "切换浅色主题" : "切换暗色主题"}
-						aria-label={theme === "dark" ? "切换浅色主题" : "切换暗色主题"}
-					>
-						{theme === "dark" ? <Moon /> : <Sun />}
-					</button>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<span className="status-pill cursor-help">
-								<Monitor />
-								{model ? `${model.provider}/${model.id}` : "无活跃模型"}
-							</span>
-						</TooltipTrigger>
-						<TooltipContent side="bottom">
-							<div className="text-xs">当前模型来自设置</div>
-						</TooltipContent>
-					</Tooltip>
-					{artifactCount > 0 && (
-						<button
-							type="button"
-							onClick={onOpenArtifacts}
-							className="status-pill status-pill-button"
-							title="查看产物"
-						>
-							<Files />
-							产物 {artifactCount}
-						</button>
-					)}
-					<button
-						type="button"
-						onClick={onOpenSettings}
-						className="status-pill status-pill-button"
-					>
-						<Settings />
-						设置
-					</button>
-				</div>
-			</header>
-
 			<div className="chat-messages">
 				{messages.length === 0 && (
 					<div className="chat-empty">
@@ -630,12 +606,19 @@ export function ChatPanel({
 				onDragOver={(event) => event.preventDefault()}
 				onDrop={handleDrop}
 			>
-				<div className="chat-input-hints">
-					<span className="chat-input-hint"><kbd>@</kbd> 引用页面</span>
-					<span className="chat-input-hint"><kbd>/</kbd> 调用命令</span>
-					<span className="chat-input-hint"><kbd>⌘↵</kbd> 发送</span>
-					<span className="chat-input-hint ml-auto opacity-60">拖入文件或链接进行消化</span>
-				</div>
+				{artifactCount > 0 && (
+					<div className="chat-input-hints">
+						<button
+							type="button"
+							onClick={onOpenArtifacts}
+							className="chat-input-artifact"
+							title="查看产物"
+						>
+							<Files className="size-3.5" />
+							产物 {artifactCount}
+						</button>
+					</div>
+				)}
 				{batchChipVisible && detectedBatch?.inspect.ingestibleFiles && (
 					<div className="input-chip">
 						<button
@@ -668,7 +651,7 @@ export function ChatPanel({
 						</button>
 					</div>
 				)}
-				<div className="relative">
+				<div className="composer-card">
 					<CommandMenu
 						open={commandMenu.open}
 						query={commandMenu.query}
@@ -697,44 +680,51 @@ export function ChatPanel({
 							updateMenus(e.currentTarget.value, e.currentTarget.selectionStart);
 						}}
 						onKeyDown={handleKeyDown}
-						rows={3}
+						rows={1}
 						className="chat-textarea"
 						placeholder={
 							currentKnowledgeBaseName
-								? "输入消息… @引用页面  /调用命令  Cmd+Enter 发送"
+								? "写下想法…  @ 引用  / 命令  ·  ⌘↵ 发送"
 								: "请先在左侧选择一个知识库…"
 						}
 						disabled={status === "streaming" || !currentKnowledgeBaseName}
 					/>
+					<div className="composer-actions">
+						{(status === "streaming" || status === "error" || detectedMaterial || detectedBatch) && (
+							<span className="composer-status" role={status === "error" ? "alert" : "status"}>
+								{status === "streaming" ? "生成中" : status === "error" ? "出错" : "待消化"}
+							</span>
+						)}
+						<button
+							type="button"
+							className={cn("send-btn", status === "streaming" && "stop-btn")}
+							onClick={() => {
+								if (status === "streaming") stopStreaming();
+								else void sendPrompt();
+							}}
+							disabled={status !== "streaming" && (!input.trim() || !currentKnowledgeBaseName)}
+							title={status === "streaming" ? "停止" : "发送（⌘↵）"}
+						>
+							{status === "streaming" ? <Square className="size-4" /> : <Send className="size-4" />}
+							<span className="sr-only">{status === "streaming" ? "停止" : "发送"}</span>
+						</button>
+					</div>
 				</div>
-				<ExportButtons
-					disabled={!currentKnowledgeBaseName || status === "streaming" || messages.length === 0}
-					disabledReason={
-						!currentKnowledgeBaseName
-							? "请先选择知识库"
-							: status === "streaming"
-								? "当前正在生成"
-								: "请先开始对话"
-					}
-					onExport={handleExport}
-				/>
-				<div className="chat-send-row">
-					<span className="chat-status-text">
-						{status === "streaming" ? "生成中" : status === "error" ? "出错" : "就绪"}
-					</span>
-					<button
-						type="button"
-						className={cn("send-btn", status === "streaming" && "stop-btn")}
-						onClick={() => {
-							if (status === "streaming") stopStreaming();
-							else void sendPrompt();
-						}}
-						disabled={status !== "streaming" && (!input.trim() || !currentKnowledgeBaseName)}
-					>
-						{status === "streaming" ? <Square className="size-4" /> : <Send className="size-4" />}
-						{status === "streaming" ? "停止" : "发送"}
-					</button>
-				</div>
+				{messages.length > 0 && (
+					<div className="composer-tools">
+						<ExportButtons
+							disabled={!currentKnowledgeBaseName || status === "streaming"}
+							disabledReason={
+								!currentKnowledgeBaseName
+									? "请先选择知识库"
+									: status === "streaming"
+										? "当前正在生成"
+										: ""
+							}
+							onExport={handleExport}
+						/>
+					</div>
+				)}
 			</div>
 		</div>
 	);
@@ -756,12 +746,12 @@ function MessageBubble({
 		message.toolStatus && (showCursor || message.toolStatus.cancelReason || message.toolStatus.error),
 	);
 	return (
-		<div className={cn("msg-row", isUser ? "msg-row-user" : "msg-row-assistant")}>
+		<div className={cn("msg-row", isUser ? "msg-row-user" : "msg-row-assistant")} aria-label={isUser ? "用户消息" : "助手消息"}>
 			<div className={cn("msg-avatar", isUser ? "msg-avatar-user" : "msg-avatar-assistant")}>
-				{isUser ? "U" : "A"}
+				{isUser ? "你" : "AI"}
 			</div>
 			<div className="msg-body">
-				<div className="msg-role">{isUser ? "你" : "assistant"}</div>
+				<div className="msg-role">{isUser ? "你" : "llm-wiki"}</div>
 				{message.toolStatus ? (
 					showToolRunway ? (
 						<ToolStatusRunway state={message.toolStatus} />
@@ -769,7 +759,7 @@ function MessageBubble({
 						<ToolHistorySummary state={message.toolStatus} />
 					)
 				) : null}
-				<div className="msg-content">
+				<div className="msg-content" aria-label={isUser ? "用户气泡" : "助手气泡"}>
 					{isUser ? (
 						<span className="whitespace-pre-wrap">{message.content}</span>
 					) : (
@@ -803,6 +793,17 @@ function parseToolStatusEvent(event: string, data: string): ToolStatusContractEv
 	} catch {
 		return null;
 	}
+}
+
+function chatStatusSummary(
+	status: ChatStatusSnapshot["status"],
+	errorMsg: string | null,
+	hasKnowledgeBase: boolean,
+): string {
+	if (!hasKnowledgeBase) return "等待选择知识库";
+	if (status === "streaming") return "正在接收回复";
+	if (status === "error") return errorMsg ?? "对话暂时不可用";
+	return "可以发送消息";
 }
 
 function parseDroppedPath(dataTransfer: DataTransfer): string | null {

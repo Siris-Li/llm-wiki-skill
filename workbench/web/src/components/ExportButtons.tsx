@@ -1,8 +1,8 @@
 import { FileDown, FileText, Globe, Presentation, Table } from "lucide-react";
 import type { ComponentType } from "react";
 
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { ExportKind } from "@/lib/api";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import type { ExportKind } from "../lib/api";
 
 const EXPORTS: Array<{
 	kind: ExportKind;
@@ -24,8 +24,11 @@ interface Props {
 
 export function ExportButtons({ disabled, disabledReason, onExport }: Props) {
 	return (
-		<div className="export-bar">
-			<span className="export-label">导出</span>
+		<div className="export-bar" aria-label="导出当前对话">
+			<div className="export-bar-head">
+				<span className="export-label">导出</span>
+				<span className="export-hint">把当前对话整理成文件</span>
+			</div>
 			{EXPORTS.map((item) => {
 				const Icon = item.icon;
 				return (
@@ -37,6 +40,7 @@ export function ExportButtons({ disabled, disabledReason, onExport }: Props) {
 									disabled={disabled}
 									onClick={() => onExport(item.kind)}
 									className="export-btn"
+									aria-label={`导出为 ${item.label}`}
 								>
 									<Icon className="size-3.5" />
 									{item.label}

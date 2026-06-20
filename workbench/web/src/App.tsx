@@ -12,24 +12,29 @@ import {
 } from "@llm-wiki/graph-engine";
 
 import { BatchDigestPanel, type BatchDigestJob } from "@/components/BatchDigestPanel";
+import { AppearancePanel } from "@/components/AppearancePanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { GraphPanel } from "@/components/GraphPanel";
+import { MainViewTabs, type MainView } from "@/components/MainViewTabs";
 import { RightDrawer } from "@/components/RightDrawer";
+import { SearchPanel } from "@/components/SearchPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
-import { Sidebar, type MainView } from "@/components/Sidebar";
+import { Sidebar } from "@/components/Sidebar";
+import { TopBar } from "@/components/TopBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
 	type ActiveContext,
 	type ConversationInfo,
 	createNewConversation,
-	createKnowledgeBase,
 	type ArtifactManifest,
 	getActiveContext,
 	type KnowledgeBaseInfo,
 	listArtifacts,
 	listConversations,
 	listKnowledgeBases,
+	listRefs,
 	type ModelRef,
+	type PageRef,
 	registerExternalKnowledgeBase,
 	readPage,
 	selectConversation,
@@ -60,21 +65,30 @@ import {
 	type GraphSelectionCommand,
 } from "@/lib/graph-summary-actions";
 import { WIKI_LINK_SEEN_EVENT } from "@/lib/wiki-links";
+import {
+	applyAppearance,
+	mergeAppearance,
+	readAppearance,
+	writeAppearance,
+	type AppearancePrefs,
+	type ThemeMode,
+} from "@/lib/appearance";
+import {
+	DEFAULT_CHAT_STATUS,
+	DEFAULT_GRAPH_STATUS,
+	type ChatStatusSnapshot,
+	type GraphStatusSnapshot,
+} from "@/lib/view-status";
+import {
+	DEFAULT_DRAWER_WIDTH,
+	clampDrawerWidthForViewport,
+	sidebarLayoutWidth,
+} from "@/lib/drawer-layout";
 
-type ThemeMode = "dark" | "light";
-const THEME_STORAGE_KEY = "llm-wiki-agent-theme";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "llm-wiki-agent-sidebar-collapsed";
 const DRAWER_WIDTH_STORAGE_KEY = "llm-wiki-agent-drawer-width";
 const MAIN_VIEW_STORAGE_KEY = "llm-wiki-agent-main-view";
-const DEFAULT_DRAWER_WIDTH = 420;
-const MIN_DRAWER_WIDTH = 360;
-const MIN_CHAT_WIDTH = 420;
-const MAX_DRAWER_RATIO = 0.7;
-const FULL_SIDEBAR_WIDTH = 270;
-const COMPACT_SIDEBAR_WIDTH = 230;
-const COLLAPSED_SIDEBAR_WIDTH = 52;
-const MOBILE_BREAKPOINT = 768;
-const COMPACT_BREAKPOINT = 1024;
+const SEARCH_REF_LIMIT = 5000;
 
 function drawerForGraphNodeVisibility(
 	data: GraphData | null,
@@ -147,26 +161,23 @@ function visibilityWithTemporaryObject(
 
 function getSidebarLayoutWidth(collapsed: boolean): number {
 	if (typeof window === "undefined") return 0;
-	if (window.innerWidth <= MOBILE_BREAKPOINT) return 0;
-	if (collapsed) return COLLAPSED_SIDEBAR_WIDTH;
-	return window.innerWidth <= COMPACT_BREAKPOINT ? COMPACT_SIDEBAR_WIDTH : FULL_SIDEBAR_WIDTH;
+	return sidebarLayoutWidth(collapsed, window.innerWidth);
 }
 
 function clampDrawerWidth(width: number, sidebarCollapsed: boolean): number {
 	if (typeof window === "undefined") return DEFAULT_DRAWER_WIDTH;
-	const sidebarWidth = getSidebarLayoutWidth(sidebarCollapsed);
-	const maxByRatio = Math.floor(window.innerWidth * MAX_DRAWER_RATIO);
-	const maxByChat = Math.max(0, window.innerWidth - sidebarWidth - MIN_CHAT_WIDTH);
-	const maxWidth = Math.max(0, Math.min(maxByRatio, maxByChat));
-	const minWidth = Math.min(MIN_DRAWER_WIDTH, maxWidth);
-	return Math.min(Math.max(width, minWidth), maxWidth);
+	return clampDrawerWidthForViewport(width, {
+		viewportWidth: window.innerWidth,
+		sidebarWidth: getSidebarLayoutWidth(sidebarCollapsed),
+	});
 }
 
 /**
  * 阶段一 step 8 - 阶段一完结
  *
  * Layout:
- *   [Sidebar 知识库 + 对话列表] [ChatPanel 对话主区]
+ *   [TopBar 预留]
+ *   [Sidebar 知识库 + 对话列表] [ChatPanel/GraphPanel 主区] [RightDrawer]
  *
  * 切库联动：
  *   1. POST /api/knowledge-base → 后端自动选/新建该库最近对话
@@ -183,10 +194,8 @@ function clampDrawerWidth(width: number, sidebarCollapsed: boolean): number {
  *   3. ChatPanel 重挂载
  */
 function App() {
-	const [theme, setTheme] = useState<ThemeMode>(() => {
-		if (typeof window === "undefined") return "dark";
-		return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
-	});
+	const [appearance, setAppearance] = useState(readAppearance);
+	const theme: ThemeMode = appearance.theme;
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
 		if (typeof window === "undefined") return false;
 		return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
@@ -194,7 +203,7 @@ function App() {
 	const [drawerWidth, setDrawerWidthState] = useState(() => {
 		if (typeof window === "undefined") return DEFAULT_DRAWER_WIDTH;
 		const stored = window.localStorage.getItem(DRAWER_WIDTH_STORAGE_KEY);
-		if (!stored) return DEFAULT_DRAWER_WIDTH;
+		if (!stored) return clampDrawerWidth(DEFAULT_DRAWER_WIDTH, sidebarCollapsed);
 		const raw = Number(stored);
 		return Number.isFinite(raw) ? clampDrawerWidth(raw, sidebarCollapsed) : DEFAULT_DRAWER_WIDTH;
 	});
@@ -206,6 +215,13 @@ function App() {
 	const [chatKey, setChatKey] = useState(0);
 	const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [appearanceOpen, setAppearanceOpen] = useState(false);
+	const [searchOpen, setSearchOpen] = useState(false);
+	const [searchRefs, setSearchRefs] = useState<PageRef[]>([]);
+	const [searchRefsLoading, setSearchRefsLoading] = useState(false);
+	const [searchRefsError, setSearchRefsError] = useState<string | null>(null);
+	const [chatStatus, setChatStatus] = useState<ChatStatusSnapshot>(DEFAULT_CHAT_STATUS);
+	const [graphStatus, setGraphStatus] = useState<GraphStatusSnapshot>(DEFAULT_GRAPH_STATUS);
 	const [drawer, setDrawer] = useState<DrawerState>(() => closedDrawer());
 	const [artifacts, setArtifacts] = useState<ArtifactManifest[]>([]);
 	const [drawerFullscreen, setDrawerFullscreen] = useState(false);
@@ -215,10 +231,12 @@ function App() {
 		message: string;
 		displayText: string;
 	} | null>(null);
+	const [pendingInsertRef, setPendingInsertRef] = useState<{ id: string; path: string } | null>(null);
 	const [graphFocusPath, setGraphFocusPath] = useState<string | null>(null);
 	const [pendingGraphDiff, setPendingGraphDiff] = useState<GraphDiff | null>(null);
 	const [graphRefreshToken, setGraphRefreshToken] = useState(0);
 	const [graphHasPendingUpdate, setGraphHasPendingUpdate] = useState(false);
+	const [graphBuildError, setGraphBuildError] = useState<Extract<GraphEvent, { type: "graph_error" }> | null>(null);
 	const [graphData, setGraphData] = useState<GraphData | null>(null);
 	const [graphPins, setGraphPins] = useState<PinMap>({});
 	const [graphVisibilityState, setGraphVisibilityState] = useState<GraphVisibilityState | null>(null);
@@ -233,11 +251,19 @@ function App() {
 	const activeConversationId = active?.conversation.id ?? null;
 
 	useEffect(() => {
-		const root = document.documentElement;
-		root.dataset.theme = theme;
-		root.classList.toggle("dark", theme === "dark");
-		window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-	}, [theme]);
+		applyAppearance(appearance);
+		writeAppearance(appearance);
+	}, [appearance]);
+
+	const toggleTheme = useCallback(() => {
+		setAppearance((value) => mergeAppearance(value, {
+			theme: value.theme === "dark" ? "light" : "dark",
+		}));
+	}, []);
+
+	const updateAppearance = useCallback((patch: Partial<AppearancePrefs>) => {
+		setAppearance((value) => mergeAppearance(value, patch));
+	}, []);
 
 	useEffect(() => {
 		window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(sidebarCollapsed));
@@ -254,6 +280,7 @@ function App() {
 		events.addEventListener("graph_updated", (message) => {
 			const event = JSON.parse((message as MessageEvent).data) as GraphEvent;
 			if (event.type !== "graph_updated" || event.kbPath !== active.kb.path) return;
+			setGraphBuildError(null);
 			setGraphRefreshToken((token) => token + 1);
 			setPendingGraphDiff(event.diff);
 			if (mainViewRef.current !== "graph" && event.diff) setGraphHasPendingUpdate(true);
@@ -262,6 +289,7 @@ function App() {
 			const event = JSON.parse((message as MessageEvent).data) as GraphEvent;
 			if (event.type === "graph_error" && event.kbPath === active.kb.path) {
 				setSidebarError(event.message);
+				setGraphBuildError(event);
 			}
 		});
 		return () => events.close();
@@ -286,6 +314,7 @@ function App() {
 
 	useEffect(() => {
 		const handleResize = () => setDrawerWidthState((width) => clampDrawerWidth(width, sidebarCollapsed));
+		handleResize();
 		window.addEventListener("resize", handleResize);
 		return () => window.removeEventListener("resize", handleResize);
 	}, [sidebarCollapsed]);
@@ -319,11 +348,13 @@ function App() {
 			setActive(currentActive);
 			if (currentActive) {
 				setInitialMessages(currentActive.conversation.messages);
+				setChatKey((k) => k + 1);
 				await refreshConversations(currentActive.kb.path);
 			} else {
 				setInitialMessages([]);
 				setConversations([]);
 				setArtifacts([]);
+				setGraphBuildError(null);
 				setDrawer(closedDrawer());
 			}
 		} catch (err) {
@@ -364,9 +395,12 @@ function App() {
 		setActive(ctx);
 		setInitialMessages(ctx.conversation.messages);
 		setChatKey((k) => k + 1);
+		setChatStatus(DEFAULT_CHAT_STATUS);
+		setGraphStatus(DEFAULT_GRAPH_STATUS);
 		setDrawer(closedDrawer());
 		setArtifacts([]);
 		setPendingGraphDiff(null);
+		setGraphBuildError(null);
 		setGraphHasPendingUpdate(false);
 		setGraphData(null);
 		setGraphPins({});
@@ -390,6 +424,7 @@ function App() {
 
 	const handleSelectConversation = async (item: ConversationInfo) => {
 		if (!active) return;
+		setMainView("chat");
 		if (item.id === active.conversation.id) return;
 
 		setSidebarError(null);
@@ -404,6 +439,7 @@ function App() {
 
 	const handleNewConversation = async () => {
 		if (!active) return;
+		setMainView("chat");
 		setSidebarError(null);
 		try {
 			const ctx = await createNewConversation(active.kb.path);
@@ -558,12 +594,6 @@ function App() {
 		if (info.valid) await handleSelectKb(info);
 	};
 
-	const handleCreateWiki = async (name: string, purpose: string) => {
-		const info = await createKnowledgeBase(name, purpose);
-		await refreshAll();
-		await handleSelectKb(info);
-	};
-
 	const handleMessageSent = async () => {
 		// 用户发了一次消息后，刷新对话列表，把 "(新对话)" stub 替换为带 firstMessage 的真实条目
 		if (active) await refreshConversations(active.kb.path);
@@ -582,7 +612,10 @@ function App() {
 		}
 	};
 
-	const handleOpenGraphPage = async (payload: GraphOpenPagePayload, options: { syncGraphFocus?: boolean } = {}) => {
+	const handleOpenGraphPage = useCallback(async (
+		payload: GraphOpenPagePayload,
+		options: { syncGraphFocus?: boolean } = {},
+	) => {
 		if (!active) return;
 		const syncGraphFocus = options.syncGraphFocus ?? true;
 		const normalizedPagePath = toRelativePagePath(payload.path, active.kb.path) ?? payload.path;
@@ -607,10 +640,10 @@ function App() {
 			setDrawer((current) => (
 				shouldApplyGraphReaderResult(current, normalizedPayload)
 					? graphReaderDrawer(normalizedPayload, { error: err instanceof Error ? err.message : String(err) })
-					: current
+				: current
 			));
 		}
-	};
+	}, [active]);
 
 	const handleGraphSummaryCommand = useCallback((command: GraphSummaryCommand) => {
 		if (command.kind === "open-detail-read") {
@@ -653,13 +686,13 @@ function App() {
 				const temporaryObject = command.object;
 				setDrawer((current) => {
 					const next = drawerForGraphNodeVisibility(graphData, nodeId, current, {
-					pins: graphPins,
-					visibility: {
-						searchQuery: graphVisibilityState?.searchQuery ?? "",
-						searchResultIds: graphVisibilityState?.searchResultIds ?? [],
-						typeFilters: graphVisibilityState?.typeFilters ?? {},
-						temporaryObject,
-					},
+						pins: graphPins,
+						visibility: {
+							searchQuery: graphVisibilityState?.searchQuery ?? "",
+							searchResultIds: graphVisibilityState?.searchResultIds ?? [],
+							typeFilters: graphVisibilityState?.typeFilters ?? {},
+							temporaryObject,
+						},
 					});
 					return sameGraphDrawerTarget(current, next) ? current : next;
 				});
@@ -682,7 +715,7 @@ function App() {
 				return sameGraphDrawerTarget(current, next) ? current : next;
 			});
 		}
-	}, [graphData, graphPins, graphVisibilityState, active]);
+	}, [graphData, graphPins, graphVisibilityState, handleOpenGraphPage]);
 
 	useEffect(() => {
 		if (drawer.mode !== "graph-node-summary") return;
@@ -873,90 +906,162 @@ function App() {
 		}
 	};
 
+	const activeKnowledgeBase: KnowledgeBaseInfo | null = active?.kb
+		? kbs.find((kb) => kb.path === active.kb.path) ?? {
+				path: active.kb.path,
+				name: active.kb.name,
+				origin: "default",
+				valid: true,
+			}
+		: null;
+
+	useEffect(() => {
+		if (!active?.kb.path) {
+			setSearchRefs([]);
+			setSearchRefsError(null);
+			setSearchRefsLoading(false);
+			return;
+		}
+		let cancelled = false;
+		setSearchRefsLoading(true);
+		setSearchRefsError(null);
+		listRefs(active.kb.path, "", SEARCH_REF_LIMIT)
+			.then((items) => {
+				if (!cancelled) setSearchRefs(items);
+			})
+			.catch((err) => {
+				if (!cancelled) {
+					setSearchRefs([]);
+					setSearchRefsError(err instanceof Error ? err.message : String(err));
+				}
+			})
+			.finally(() => {
+				if (!cancelled) setSearchRefsLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [active?.kb.path]);
+
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
+			if (event.defaultPrevented) return;
+			event.preventDefault();
+			if (activeKnowledgeBase?.valid) setSearchOpen(true);
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [activeKnowledgeBase?.valid]);
+
+	const drawerOpen = drawer.mode !== "closed";
+
 	return (
 		<TooltipProvider delayDuration={200}>
 			<div className="app-shell">
-				<Sidebar
-					knowledgeBases={kbs}
-					currentKbPath={active?.kb.path ?? null}
-					conversations={conversations}
-					currentConversationId={active?.conversation.id ?? null}
-					loading={loading}
-					error={sidebarError}
-					collapsed={sidebarCollapsed}
-					activeView={mainView}
-					onSelectKb={handleSelectKb}
-					onSelectConversation={handleSelectConversation}
-					onSelectView={setMainView}
+				<TopBar
+					knowledgeBase={activeKnowledgeBase}
+					model={active?.model ?? null}
+					theme={theme}
+					chatStatus={chatStatus}
+					graphStatus={graphStatus}
+					appearanceOpen={appearanceOpen}
+					searchDisabled={!activeKnowledgeBase?.valid}
+					modelDisabled={loading}
+					newConversationDisabled={loading}
+					onSearch={() => setSearchOpen(true)}
+					onConfigChanged={handleConfigChanged}
 					onNewConversation={handleNewConversation}
-					onRefresh={refreshAll}
-					onOpenSettings={() => setSettingsOpen(true)}
-					onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
-					graphHasPendingUpdate={graphHasPendingUpdate}
-					onAddExternal={handleAddExternal}
-					onCreateWiki={handleCreateWiki}
-					onStartBatchDigest={handleStartBatchDigest}
+					onToggleTheme={toggleTheme}
+					onOpenAppearance={() => setAppearanceOpen((value) => !value)}
 				/>
-				<main className="shell-main">
-					{mainView === "graph" ? (
-						<GraphPanel
-							currentKnowledgeBaseName={active?.kb.name ?? null}
-							currentKnowledgeBasePath={active?.kb.path ?? null}
-							theme={theme}
-							onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
-							onOpenPage={handleOpenGraphPage}
-							onGraphDataChange={setGraphData}
-							onGraphPinsChange={setGraphPins}
-							onGraphVisibilityChange={handleGraphVisibilityChange}
-							onSelectionChange={handleGraphSelectionChange}
-							onViewReset={handleGraphViewReset}
-							selectionCommand={selectionCommand}
-							focusPath={graphFocusPath}
-							pendingDiff={pendingGraphDiff}
-							refreshToken={graphRefreshToken}
-							onDiffConsumed={() => setPendingGraphDiff(null)}
+				<div className="app-body" data-drawer-open={drawerOpen ? "true" : "false"}>
+					<Sidebar
+						knowledgeBases={kbs}
+						currentKbPath={active?.kb.path ?? null}
+						conversations={conversations}
+						currentConversationId={active?.conversation.id ?? null}
+						error={sidebarError}
+						collapsed={sidebarCollapsed}
+						activeView={mainView}
+						onSelectKb={handleSelectKb}
+						onSelectConversation={handleSelectConversation}
+						onSelectView={setMainView}
+						onNewConversation={handleNewConversation}
+						onOpenSettings={() => setSettingsOpen(true)}
+						onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+						graphHasPendingUpdate={graphHasPendingUpdate}
+						onAddExternal={handleAddExternal}
+						onStartBatchDigest={handleStartBatchDigest}
+					/>
+					<main className="shell-main">
+						<MainViewTabs
+							activeView={mainView}
+							graphHasPendingUpdate={graphHasPendingUpdate}
+							onSelectView={setMainView}
 						/>
-					) : (
-						<ChatPanel
-							key={chatKey}
-							currentKnowledgeBaseName={active?.kb.name ?? null}
-							model={active?.model ?? null}
-							initialMessages={initialMessages}
-							onMessageSent={handleMessageSent}
-							onOpenSettings={() => setSettingsOpen(true)}
-							currentKnowledgeBasePath={active?.kb.path ?? null}
-							onOpenPage={handleOpenPage}
-							onWikiLinkSeen={handleWikiLinkSeen}
-							onArtifactCreated={handleArtifactCreated}
-							artifactCount={artifacts.length}
-							onOpenArtifacts={handleOpenArtifacts}
-							onStartBatchDigest={handleStartBatchDigest}
-							theme={theme}
-							onToggleTheme={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
-							pendingPrompt={pendingGraphPrompt}
-							onPendingPromptConsumed={() => setPendingGraphPrompt(null)}
-						/>
-					)}
-				</main>
-				<RightDrawer
-					drawer={drawer}
-					fullscreen={drawerFullscreen}
-					width={drawerWidth}
-					defaultWidth={DEFAULT_DRAWER_WIDTH}
-					onSelectArtifact={(id) => setDrawer(artifactDrawer(artifacts, id))}
-					onOpenPage={handleOpenPage}
-					onWikiLinkSeen={handleWikiLinkSeen}
-					onGraphReaderAction={handleGraphReaderAction}
-					onGraphSummaryCommand={handleGraphSummaryCommand}
-					onGraphSummaryNodeSelect={handleGraphSummaryNodeSelect}
-					onGraphSummaryNodePreview={handleGraphSummaryNodePreview}
-					onGraphSelectionTextChange={handleGraphSelectionTextChange}
-					onGraphSelectionNeighbors={handleGraphSelectionNeighbors}
-					onGraphSelectionAsk={handleGraphSelectionAsk}
-					onResize={setDrawerWidth}
-					onToggleFullscreen={() => setDrawerFullscreen((value) => !value)}
-					onClose={handleCloseDrawer}
-				/>
+						<div className="main-view-content">
+							{mainView === "graph" ? (
+								<GraphPanel
+									currentKnowledgeBaseName={active?.kb.name ?? null}
+									currentKnowledgeBasePath={active?.kb.path ?? null}
+									theme={theme}
+									graphBuildError={graphBuildError}
+									onOpenPage={handleOpenGraphPage}
+									onGraphDataChange={setGraphData}
+									onGraphPinsChange={setGraphPins}
+									onGraphVisibilityChange={handleGraphVisibilityChange}
+									onSelectionChange={handleGraphSelectionChange}
+									onStatusChange={setGraphStatus}
+									onViewReset={handleGraphViewReset}
+									selectionCommand={selectionCommand}
+									focusPath={graphFocusPath}
+									pendingDiff={pendingGraphDiff}
+									refreshToken={graphRefreshToken}
+									onDiffConsumed={() => setPendingGraphDiff(null)}
+								/>
+							) : (
+								<ChatPanel
+									key={chatKey}
+									currentKnowledgeBaseName={active?.kb.name ?? null}
+									initialMessages={initialMessages}
+									onMessageSent={handleMessageSent}
+									onStatusChange={setChatStatus}
+									currentKnowledgeBasePath={active?.kb.path ?? null}
+									onOpenPage={handleOpenPage}
+									onWikiLinkSeen={handleWikiLinkSeen}
+									onArtifactCreated={handleArtifactCreated}
+									artifactCount={artifacts.length}
+									onOpenArtifacts={handleOpenArtifacts}
+									onStartBatchDigest={handleStartBatchDigest}
+									pendingPrompt={pendingGraphPrompt}
+									onPendingPromptConsumed={() => setPendingGraphPrompt(null)}
+									pendingInsertRef={pendingInsertRef}
+									onPendingInsertRefConsumed={() => setPendingInsertRef(null)}
+								/>
+							)}
+						</div>
+					</main>
+					<RightDrawer
+						drawer={drawer}
+						fullscreen={drawerFullscreen}
+						width={drawerWidth}
+						defaultWidth={DEFAULT_DRAWER_WIDTH}
+						onSelectArtifact={(id) => setDrawer(artifactDrawer(artifacts, id))}
+						onOpenPage={handleOpenPage}
+						onWikiLinkSeen={handleWikiLinkSeen}
+						onGraphReaderAction={handleGraphReaderAction}
+						onGraphSummaryCommand={handleGraphSummaryCommand}
+						onGraphSummaryNodeSelect={handleGraphSummaryNodeSelect}
+						onGraphSummaryNodePreview={handleGraphSummaryNodePreview}
+						onGraphSelectionTextChange={handleGraphSelectionTextChange}
+						onGraphSelectionNeighbors={handleGraphSelectionNeighbors}
+						onGraphSelectionAsk={handleGraphSelectionAsk}
+						onResize={setDrawerWidth}
+						onToggleFullscreen={() => setDrawerFullscreen((value) => !value)}
+						onClose={handleCloseDrawer}
+					/>
+				</div>
 				<SettingsPanel
 					open={settingsOpen}
 					onOpenChange={setSettingsOpen}
@@ -966,6 +1071,25 @@ function App() {
 					job={batchJob}
 					onClose={() => setBatchJob(null)}
 					onOpenOutput={handleOpenBatchOutput}
+				/>
+				<AppearancePanel
+					open={appearanceOpen}
+					value={appearance}
+					onChange={updateAppearance}
+					onClose={() => setAppearanceOpen(false)}
+				/>
+				<SearchPanel
+					open={searchOpen}
+					refs={searchRefs}
+					loading={searchRefsLoading}
+					error={searchRefsError}
+					knowledgeBaseName={active?.kb.name ?? null}
+					onClose={() => setSearchOpen(false)}
+					onOpenPage={handleOpenPage}
+					onInsertRef={(path) => {
+						setMainView("chat");
+						setPendingInsertRef({ id: Math.random().toString(36).slice(2, 10), path });
+					}}
 				/>
 			</div>
 		</TooltipProvider>

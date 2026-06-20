@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Moon, RefreshCw, RotateCcw, Sun } from "lucide-react";
+import { RefreshCw, RotateCcw } from "lucide-react";
 import {
 	createGraphWorkbenchCapabilities,
 	createGraphEngine,
@@ -20,20 +20,22 @@ import {
 	getGraphLayout,
 	putGraphLayout,
 	rebuildGraph,
-} from "@/lib/api";
-import type { GraphSelectionCommand } from "@/lib/graph-summary-actions";
-import { cn } from "@/lib/utils";
+} from "../lib/api";
+import type { GraphSelectionCommand } from "../lib/graph-summary-actions";
+import { cn } from "../lib/utils";
+import { DEFAULT_GRAPH_STATUS, type GraphStatusKind, type GraphStatusSnapshot } from "../lib/view-status";
 
 interface Props {
 	currentKnowledgeBaseName: string | null;
 	currentKnowledgeBasePath: string | null;
 	theme: "dark" | "light";
-	onToggleTheme?: () => void;
+	graphBuildError?: { kbPath: string; message: string; rebuiltAt: string } | null;
 	onOpenPage?: (payload: GraphOpenPagePayload) => void;
 	onGraphDataChange?: (data: GraphData | null) => void;
 	onGraphPinsChange?: (pins: PinMap) => void;
 	onGraphVisibilityChange?: (state: GraphVisibilityState | null) => void;
 	onSelectionChange?: (selection: Selection | null) => void;
+	onStatusChange?: (snapshot: GraphStatusSnapshot) => void;
 	onViewReset?: () => void;
 	selectionCommand?: GraphSelectionCommand;
 	focusPath?: string | null;
@@ -41,8 +43,6 @@ interface Props {
 	refreshToken?: number;
 	onDiffConsumed?: () => void;
 }
-
-type GraphStatus = "idle" | "loading" | "building" | "ready" | "error";
 
 interface ResetNotice {
 	pins: PinMap;
@@ -58,12 +58,13 @@ export function GraphPanel({
 	currentKnowledgeBaseName,
 	currentKnowledgeBasePath,
 	theme,
-	onToggleTheme,
+	graphBuildError = null,
 	onOpenPage,
 	onGraphDataChange,
 	onGraphPinsChange,
 	onGraphVisibilityChange,
 	onSelectionChange,
+	onStatusChange,
 	onViewReset,
 	selectionCommand,
 	focusPath,
@@ -95,7 +96,7 @@ export function GraphPanel({
 	const [data, setData] = useState<GraphData | null>(null);
 	const [dataKnowledgeBasePath, setDataKnowledgeBasePath] = useState<string | null>(currentKnowledgeBasePath);
 	const [resetNotice, setResetNotice] = useState<ResetNotice | null>(null);
-	const [status, setStatus] = useState<GraphStatus>("idle");
+	const [status, setStatus] = useState<GraphStatusKind>("idle");
 	const [error, setError] = useState<string | null>(null);
 	const [buildState, setBuildState] = useState<"none" | "started" | "queued">("none");
 	const [animationState, setAnimationState] = useState<"idle" | "playing" | "queued">("idle");
@@ -104,7 +105,7 @@ export function GraphPanel({
 	const lastDragStateRef = useRef(false);
 	const aggregationMarkers = useMemo(
 		() => data ? buildCommunityAggregationMarkers(data, { pins: layoutPinsRef.current, minCommunitySize: 6 }) : [],
-		[data, layoutPinsRef.current],
+		[data],
 	);
 
 	const graphTheme: ThemeId = theme === "dark" ? "mo-ye" : "shan-shui";
@@ -116,6 +117,24 @@ export function GraphPanel({
 		setData(null);
 		setDataKnowledgeBasePath(currentKnowledgeBasePath);
 	}, [currentKnowledgeBasePath]);
+
+	useEffect(() => {
+		return () => {
+			onStatusChange?.(DEFAULT_GRAPH_STATUS);
+		};
+	}, [onStatusChange]);
+
+	useEffect(() => {
+		if (!graphBuildError || graphBuildError.kbPath !== currentKnowledgeBasePath) return;
+		setData(null);
+		setDataKnowledgeBasePath(currentKnowledgeBasePath);
+		onGraphDataChangeRef.current?.(null);
+		onGraphVisibilityChangeRef.current?.(null);
+		onSelectionChangeRef.current?.(null);
+		setBuildState("none");
+		setError(graphBuildError.message);
+		setStatus("error");
+	}, [currentKnowledgeBasePath, graphBuildError]);
 
 	useLayoutEffect(() => {
 		graphThemeRef.current = graphTheme;
@@ -140,6 +159,14 @@ export function GraphPanel({
 	useLayoutEffect(() => {
 		onSelectionChangeRef.current = onSelectionChange;
 	}, [onSelectionChange]);
+
+	useLayoutEffect(() => {
+		onStatusChange?.({
+			status,
+			summary: graphStatusSummary(status, Boolean(currentKnowledgeBasePath), buildState, error, data, animationState),
+			animation: animationState,
+		});
+	}, [animationState, buildState, currentKnowledgeBasePath, data, error, onStatusChange, status]);
 
 	useLayoutEffect(() => {
 		onViewResetRef.current = onViewReset;
@@ -376,7 +403,7 @@ export function GraphPanel({
 		engineRef.current = engine;
 		engineKbPathRef.current = currentKnowledgeBasePath;
 		engineDataRef.current = data;
-	}, [aggregationMarkers, currentKnowledgeBasePath, data, dataKnowledgeBasePath, persistPins, playDiff]);
+	}, [aggregationMarkers, currentKnowledgeBasePath, data, dataKnowledgeBasePath, persistPins, playDiff, selectionCommand]);
 
 	useEffect(() => {
 		engineRef.current?.setTheme(graphTheme);
@@ -476,7 +503,7 @@ export function GraphPanel({
 	}, [data, focusPath, status]);
 
 	useEffect(() => {
-		if (!import.meta.env.DEV || !data || !engineRef.current || status !== "ready") return;
+		if (!import.meta.env?.DEV || !data || !engineRef.current || status !== "ready") return;
 		const params = new URLSearchParams(window.location.search);
 		const mode = params.get("graphTest");
 		if (mode !== "reduced" && mode !== "motion") return;
@@ -490,39 +517,43 @@ export function GraphPanel({
 		});
 	}, [data, status]);
 
+	const hasReadyGraph = status === "ready" && data;
 	return (
 		<div className="graph-screen" data-graph-status={status} data-graph-theme={graphTheme} data-graph-animation={animationState}>
-			<header className="statusbar">
-				<div className="statusbar-left">
-					<span className={cn("status-dot", status === "building" && "status-dot-warn", status === "error" && "status-dot-error")} />
-					<span className="status-kb">
-						{currentKnowledgeBaseName ?? <span className="italic opacity-60">未选择</span>}
-					</span>
-					<span className="status-pill">图谱</span>
-				</div>
-				<div className="statusbar-right">
-					<button
-						type="button"
-						className="status-pill status-pill-button"
-						onClick={onToggleTheme}
-						title={theme === "dark" ? "切换浅色主题" : "切换暗色主题"}
-						aria-label={theme === "dark" ? "切换浅色主题" : "切换暗色主题"}
-					>
-						{theme === "dark" ? <Moon /> : <Sun />}
-					</button>
-					<button
-						type="button"
-						className="status-pill status-pill-button"
-						onClick={resetLayout}
-						disabled={!currentKnowledgeBasePath || status !== "ready"}
-						title="重置布局"
-					>
-						<RotateCcw />
-						重置布局
-					</button>
-					<button
-						type="button"
-						className="status-pill status-pill-button"
+			<div className="graph-shell">
+				<header className="graph-shell-toolbar" aria-label="图谱工具栏">
+					<div className="graph-shell-toolbar-left">
+						<span className={cn("graph-shell-toolbar-dot", status === "building" && "graph-shell-toolbar-dot-warn", status === "error" && "graph-shell-toolbar-dot-error")} />
+						<div className="graph-shell-toolbar-title">
+							<span>{currentKnowledgeBaseName ?? "未选择知识库"}</span>
+							<small>图谱活地图</small>
+						</div>
+						<span className="graph-shell-toolbar-chip">{statusLabel(status)}</span>
+						{hasReadyGraph && (
+							<span className="graph-shell-toolbar-chip graph-shell-toolbar-chip-muted">
+								{data.nodes.length} 节点 · {data.edges.length} 关联
+							</span>
+						)}
+						<div className="graph-shell-legend" aria-label="图谱图例">
+							<span><span className="graph-legend-dot graph-legend-dot-node" />节点</span>
+							<span><span className="graph-legend-line" />关系</span>
+							<span><span className="graph-legend-cloud" />社区</span>
+						</div>
+					</div>
+					<div className="graph-shell-toolbar-actions">
+						<button
+							type="button"
+							className="graph-shell-toolbar-button"
+							onClick={resetLayout}
+							disabled={!currentKnowledgeBasePath || status !== "ready"}
+							title="重置布局"
+						>
+							<RotateCcw />
+							重置布局
+						</button>
+						<button
+							type="button"
+							className="graph-shell-toolbar-button"
 							onClick={() => {
 								const kbPath = activeKbPathRef.current;
 								if (!kbPath) return;
@@ -536,51 +567,55 @@ export function GraphPanel({
 										setStatus("error");
 										setError(err instanceof Error ? err.message : String(err));
 									});
-						}}
-						disabled={!currentKnowledgeBasePath || status === "building"}
-						title="重新构建图谱"
-					>
-						<RefreshCw className={cn(status === "building" && "animate-spin")} />
-						重构
-					</button>
-				</div>
-			</header>
-
-			<div className="graph-stage">
-				<div ref={hostRef} className={cn("graph-host", !data && "graph-host-empty")} />
-				{status !== "ready" && (
-					<div className="graph-state" data-testid="graph-state">
-						<div className="graph-state-title">{statusTitle(status)}</div>
-						<div className="graph-state-copy">
-							{statusCopy(status, Boolean(currentKnowledgeBasePath), buildState, error)}
-						</div>
-					</div>
-				)}
-				{status === "ready" && data && (
-					<div className="graph-metrics">
-						<span>{data.nodes.length} 节点</span>
-						<span>{data.edges.length} 关联</span>
-					</div>
-				)}
-				{animationState !== "idle" && (
-					<div className="graph-growth-indicator" data-testid="graph-growth-indicator">
-						{animationState === "playing" ? "图谱更新中" : "图谱更新待播放"}
-					</div>
-				)}
-				{resetNotice && (
-					<div className="graph-toast" role="status">
-						<span>已重置 {resetNotice.count} 个钉位</span>
-						<button type="button" onClick={undoResetLayout}>
-							撤销
+							}}
+							disabled={!currentKnowledgeBasePath || status === "building"}
+							title="重新构建图谱"
+						>
+							<RefreshCw className={cn(status === "building" && "animate-spin")} />
+							重构
 						</button>
 					</div>
-				)}
+				</header>
+
+				<div className="graph-stage">
+					<div ref={hostRef} className={cn("graph-host", !data && "graph-host-empty")} />
+					{status !== "ready" && (
+						<div className="graph-state" data-testid="graph-state">
+							<div className="graph-state-title">{statusTitle(status)}</div>
+							<div className="graph-state-copy">
+								{statusCopy(status, Boolean(currentKnowledgeBasePath), buildState, error)}
+							</div>
+						</div>
+					)}
+					{animationState !== "idle" && (
+						<div className="graph-growth-indicator" data-testid="graph-growth-indicator">
+							{animationState === "playing" ? "图谱更新中" : "图谱更新待播放"}
+						</div>
+					)}
+					{resetNotice && (
+						<div className="graph-toast" role="status">
+							<span>已重置 {resetNotice.count} 个钉位</span>
+							<button type="button" onClick={undoResetLayout}>
+								撤销
+							</button>
+						</div>
+					)}
+				</div>
 			</div>
 		</div>
 	);
 }
 
-function statusTitle(status: GraphStatus): string {
+function statusLabel(status: GraphStatusKind): string {
+	if (status === "idle") return "空闲";
+	if (status === "loading") return "读取中";
+	if (status === "building") return "构建中";
+	if (status === "ready") return "就绪";
+	if (status === "error") return "错误";
+	return status;
+}
+
+function statusTitle(status: GraphStatusKind): string {
 	if (status === "idle") return "选择知识库后查看图谱";
 	if (status === "loading") return "正在读取图谱";
 	if (status === "building") return "图谱构建中";
@@ -589,12 +624,12 @@ function statusTitle(status: GraphStatus): string {
 }
 
 function statusCopy(
-	status: GraphStatus,
+	status: GraphStatusKind,
 	hasKnowledgeBase: boolean,
 	buildState: "none" | "started" | "queued",
 	error: string | null,
 ): string {
-	if (!hasKnowledgeBase) return "左侧选择一个知识库后，这里会显示它的结构地图。";
+	if (!hasKnowledgeBase) return "左侧选择一个知识库后，这里会显示它的图谱活地图。";
 	if (status === "loading") return "正在读取当前知识库的图谱数据。";
 	if (status === "building") {
 		return buildState === "queued"
@@ -603,6 +638,22 @@ function statusCopy(
 	}
 	if (status === "error") return error ?? "请稍后重试。";
 	return "";
+}
+
+function graphStatusSummary(
+	status: GraphStatusKind,
+	hasKnowledgeBase: boolean,
+	buildState: "none" | "started" | "queued",
+	error: string | null,
+	data: GraphData | null,
+	animationState: GraphStatusSnapshot["animation"],
+): string {
+	if (status === "ready" && data) {
+		if (animationState === "playing") return "图谱更新动画播放中";
+		if (animationState === "queued") return "图谱更新等待播放";
+		return `${data.nodes.length} 节点 · ${data.edges.length} 关联`;
+	}
+	return statusCopy(status, hasKnowledgeBase, buildState, error);
 }
 
 function sampleDiffForGraphTest(data: GraphData): GraphDiff {
