@@ -28,6 +28,7 @@ import { resolveGraphSearchState } from "./search";
 import type { GraphRuntimeStateSnapshot } from "./state";
 import type { GraphRenderContext, PaintedGraphDom } from "./render-context";
 import { ensureGraphRendererStyles } from "./render-styles";
+import { resolveGraphRelationFocus, type GraphRelationFocusDepth } from "./relation-focus";
 
 const COMMUNITY_LEGEND_COLLAPSED_KEY = "llm-wiki:graph:community-legend:collapsed";
 
@@ -49,9 +50,11 @@ export interface GraphRenderCommands {
   handleNodeClick(id: NodeId, additive: boolean): void;
   handleNodeDoubleClick(id: string): boolean;
   setNodeFixed(id: string, mode: "fix" | "unfix"): boolean;
+  setNodeHover(id: NodeId | null): void;
   scheduleHoverPreview(id: NodeId): void;
   showEdgeHoverPreview(id: string): void;
   clearHoverPreview(): void;
+  cancelHoverPreviewOnly(): void;
 }
 
 export interface GraphRenderOverlayDelegates {
@@ -70,6 +73,7 @@ export interface GraphRenderPipeline {
   showTemporaryObject(object: GraphSummaryObjectRef): void;
   clearTemporaryObjectDisplay(): void;
   applyCommunityHover(): void;
+  applyRelationFocus(): void;
   bindResizeObserver(): void;
   commitViewport(nextViewport: RendererViewport, options?: ViewportFrameCommitOptions): void;
   resetRootScroll(): void;
@@ -101,6 +105,8 @@ export function createGraphRenderPipeline(
   options: GraphRenderPipelineOptions
 ): GraphRenderPipeline {
   ensureGraphRendererStyles(context.ownerDocument);
+  const lastNodeRelationDepth = new Map<string, GraphRelationFocusDepth>();
+  const lastEdgeRelationDepth = new Map<string, GraphRelationFocusDepth>();
 
   function rebuildAndPaint(): void {
     const runtimeSnapshot = context.runtimeState.snapshot();
@@ -135,7 +141,10 @@ export function createGraphRenderPipeline(
           return options.commands.handleNodeDoubleClick(id);
         },
         onNodePreviewEnter: (id) => {
-          options.commands.scheduleHoverPreview(id);
+          options.commands.setNodeHover(id);
+          if (context.graph.focus?.kind !== "community") {
+            options.commands.scheduleHoverPreview(id);
+          }
         },
         onEdgePreviewEnter: (id) => {
           options.commands.showEdgeHoverPreview(id);
@@ -144,19 +153,33 @@ export function createGraphRenderPipeline(
           options.commands.clearHoverPreview();
         },
         onNodePreviewLeave: () => {
-          options.commands.clearHoverPreview();
+          if (context.graph.focus?.kind !== "community") {
+            options.commands.clearHoverPreview();
+            options.commands.setNodeHover(null);
+            return;
+          }
+          options.commands.cancelHoverPreviewOnly();
+          if (context.relationFocusClearTimer) clearTimeout(context.relationFocusClearTimer);
+          context.relationFocusClearTimer = setTimeout(() => {
+            context.relationFocusClearTimer = null;
+            options.commands.setNodeHover(null);
+          }, 80);
         },
         onAggregationContainerClick: (container) => {
           options.commands.selectAggregationContainer(container.communityId);
         }
       }
     });
+    delete context.root.dataset.relationFocusApplied;
+    lastNodeRelationDepth.clear();
+    lastEdgeRelationDepth.clear();
     context.lastEffectiveDensityMode = null;
     mountSearchControl();
     mountGraphToolbar();
     options.commands.applySearchQuery(context.searchQuery);
     applyTypeFilters(context.typeFilters);
     applyCommunityHover();
+    applyRelationFocus();
     markPinnedNodes(context.pinState.snapshot().pinnedNodeIds);
     commitViewport(context.runtimeState.snapshot().viewport);
     if (context.activeDiff && context.root.dataset.diffState === "playing") markDiffElements(context.activeDiff);
@@ -271,6 +294,7 @@ export function createGraphRenderPipeline(
     context.root.dataset.filteredNodeCount = String(hiddenNodeIds.size);
     context.root.dataset.typeFiltersActive = Object.values(context.typeFilters).some((enabled) => enabled === false) ? "true" : "false";
     applyCommunityHover();
+    applyRelationFocus();
     updateMinimapViewport();
   }
 
@@ -352,6 +376,46 @@ export function createGraphRenderPipeline(
       const inCommunity = nodeCommunity.get(edge.source) === active && nodeCommunity.get(edge.target) === active;
       element.dataset.communityState = active ? (inCommunity ? "active" : "faded") : "none";
     }
+  }
+
+  function applyRelationFocus(): void {
+    const activeNodeId = activeRelationFocusNodeId();
+    if (context.root.dataset.relationFocusNode === (activeNodeId || "") && context.root.dataset.relationFocusApplied === "true") return;
+    const focus = resolveGraphRelationFocus({
+      activeNodeId,
+      nodes: context.graph.nodes,
+      edges: context.graph.edges
+    });
+    context.root.dataset.relationFocus = focus.activeNodeId ? "active" : "idle";
+    context.root.dataset.relationFocusNode = focus.activeNodeId || "";
+    context.root.dataset.relationFocusApplied = "true";
+    for (const [id, element] of context.dom.nodeElements) {
+      const depth = focus.nodeDepthById.get(id) || "none";
+      if (lastNodeRelationDepth.get(id) !== depth) {
+        element.dataset.relationFocusDepth = depth;
+        lastNodeRelationDepth.set(id, depth);
+      }
+    }
+    for (const id of lastNodeRelationDepth.keys()) {
+      if (!context.dom.nodeElements.has(id)) lastNodeRelationDepth.delete(id);
+    }
+    for (const [id, element] of context.dom.edgeElements) {
+      const depth = focus.edgeDepthById.get(id) || "none";
+      if (lastEdgeRelationDepth.get(id) !== depth) {
+        element.dataset.relationFocusDepth = depth;
+        lastEdgeRelationDepth.set(id, depth);
+      }
+    }
+    for (const id of lastEdgeRelationDepth.keys()) {
+      if (!context.dom.edgeElements.has(id)) lastEdgeRelationDepth.delete(id);
+    }
+  }
+
+  function activeRelationFocusNodeId(): NodeId | null {
+    if (context.graph.focus?.kind !== "community") return null;
+    const hover = context.runtimeState.snapshot().hover;
+    if (hover?.kind === "node" && context.dom.nodeElements.has(hover.id)) return hover.id;
+    return context.graph.selectedNodeId;
   }
 
   function restartSimulation(): void {
@@ -480,6 +544,7 @@ export function createGraphRenderPipeline(
     context.root.dataset.effectiveDensity = densityMode;
     if (densityMode === context.lastEffectiveDensityMode) return;
     context.lastEffectiveDensityMode = densityMode;
+    if (context.graph.focus?.kind === "community") return;
     for (const node of context.graph.nodes) {
       const element = context.dom.nodeElements.get(node.id);
       if (!element) continue;
@@ -653,6 +718,8 @@ export function createGraphRenderPipeline(
     context.viewportAnimationTimer = null;
     if (context.interactionDegradationTimer) clearTimeout(context.interactionDegradationTimer);
     context.interactionDegradationTimer = null;
+    if (context.relationFocusClearTimer) clearTimeout(context.relationFocusClearTimer);
+    context.relationFocusClearTimer = null;
   }
 
   return {
@@ -665,6 +732,7 @@ export function createGraphRenderPipeline(
     showTemporaryObject,
     clearTemporaryObjectDisplay,
     applyCommunityHover,
+    applyRelationFocus,
     bindResizeObserver,
     commitViewport,
     resetRootScroll,

@@ -12,6 +12,7 @@ export interface GraphOverlaysPresenter {
   scheduleHoverPreview(id: NodeId): void;
   showEdgeHoverPreview(id: string): void;
   clearHoverPreview(): void;
+  cancelHoverPreviewOnly(): void;
   setGraphHover(hover: GraphRuntimeStateSnapshot["hover"]): GraphRuntimeStateSnapshot;
   renderHoverPreview(): void;
   renderReader(): void;
@@ -71,10 +72,12 @@ export function createGraphOverlaysPresenter(
   }
 
   function scheduleHoverPreview(id: NodeId): void {
+    if (context.graph.focus?.kind === "community") return;
     if (context.previewTimer) clearTimeout(context.previewTimer);
     context.previewTimer = setTimeout(() => {
       context.previewTimer = null;
-      setGraphHover({ kind: "node", id });
+      const hover = context.runtimeState.snapshot().hover;
+      if (hover?.kind !== "node" || hover.id !== id) return;
       renderHoverPreview();
     }, 300);
   }
@@ -99,6 +102,17 @@ export function createGraphOverlaysPresenter(
     renderHoverPreview();
   }
 
+  function cancelHoverPreviewOnly(): void {
+    if (context.previewTimer) {
+      clearTimeout(context.previewTimer);
+      context.previewTimer = null;
+    }
+    if (context.dom.previewElement?.dataset.kind === "node") {
+      context.dom.previewElement.dataset.state = "closed";
+      context.dom.previewElement.replaceChildren();
+    }
+  }
+
   function setGraphHover(hover: GraphRuntimeStateSnapshot["hover"]): GraphRuntimeStateSnapshot {
     return context.runtimeState.setHover(hover);
   }
@@ -116,6 +130,10 @@ export function createGraphOverlaysPresenter(
       preview.dataset.state = "open";
       preview.append(createEdgeHoverPreviewContent(context.ownerDocument, edge.relationType, edge.confidence));
       positionEdgeHoverPreview(preview, edge);
+      return;
+    }
+    if (hover?.kind === "node" && context.graph.focus?.kind === "community") {
+      preview.dataset.state = "closed";
       return;
     }
     preview.dataset.state = rawNode && renderedNode ? "open" : "closed";
@@ -164,6 +182,7 @@ export function createGraphOverlaysPresenter(
     scheduleHoverPreview,
     showEdgeHoverPreview,
     clearHoverPreview,
+    cancelHoverPreviewOnly,
     setGraphHover,
     renderHoverPreview,
     renderReader,

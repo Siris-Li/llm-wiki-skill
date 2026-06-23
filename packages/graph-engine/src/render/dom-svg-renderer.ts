@@ -40,6 +40,7 @@ export function paintDomSvgGraph(input: PaintDomSvgGraphInput): PaintedGraphDom 
   root.dataset.communityQuality = graph.communityQuality.level;
   root.dataset.communityBoundaryCertainty = graph.communityQuality.boundaryCertainty;
   root.dataset.communityAuxiliaryViews = graph.communityQuality.auxiliaryViews.map((view) => view.id).join(",");
+  root.dataset.communityMapState = graph.focus?.kind === "community" ? "lightweight" : "none";
 
   const painted = emptyPaintedDom();
   const contentLayer = ownerDocument.createElement("div");
@@ -83,7 +84,9 @@ export function paintDomSvgGraph(input: PaintDomSvgGraphInput): PaintedGraphDom 
     nodeLayer.appendChild(button);
   }
   for (const node of graph.nodes) {
-    const button = createGraphNodeElement(ownerDocument, node, handlers);
+    const button = createGraphNodeElement(ownerDocument, node, handlers, {
+      communityMap: graph.focus?.kind === "community"
+    });
     painted.nodeElements.set(node.id, button);
     painted.basePoints.set(node.id, node.point);
     nodeLayer.appendChild(button);
