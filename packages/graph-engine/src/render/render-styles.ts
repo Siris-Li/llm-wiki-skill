@@ -21,15 +21,19 @@ const STATIC_RENDERER_CSS = `
   color: var(--ink);
   font-family: var(--font-ui);
   background:
-    radial-gradient(ellipse at 28% 55%, color-mix(in srgb, var(--surface) 56%, transparent), transparent 56%),
-    radial-gradient(ellipse at 70% 48%, color-mix(in srgb, var(--mist) 60%, transparent), transparent 58%),
+    var(--paper-glow, radial-gradient(ellipse at 28% 55%, color-mix(in srgb, var(--surface) 56%, transparent), transparent 56%)),
+    var(--paper-vignette, radial-gradient(ellipse at 70% 48%, color-mix(in srgb, var(--mist) 60%, transparent), transparent 58%)),
+    var(--paper-mottle, none),
     var(--bg);
 }
 .llm-wiki-graph-engine[data-theme="mo-ye"] {
   background:
+    var(--paper-glow, radial-gradient(140% 95% at 50% -25%, color-mix(in srgb, var(--surface-2) 38%, transparent), transparent 55%)),
     linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 38%, transparent), transparent 34%),
     radial-gradient(ellipse at 28% 56%, color-mix(in srgb, var(--night) 13%, transparent), transparent 58%),
     radial-gradient(ellipse at 76% 38%, color-mix(in srgb, var(--cinnabar) 9%, transparent), transparent 54%),
+    var(--paper-vignette, radial-gradient(ellipse 105% 92% at 50% 40%, transparent 52%, rgba(0, 0, 0, .22) 100%)),
+    var(--paper-mottle, none),
     var(--bg);
 }
 [data-llm-wiki-graph-route-transition] > .sigma-global-route,
@@ -61,6 +65,9 @@ const STATIC_RENDERER_CSS = `
   width: 100%;
   height: 100%;
 }
+.sigma-global-route.llm-wiki-graph-engine {
+  min-height: 0;
+}
 .sigma-global-renderer canvas {
   position: absolute;
   inset: 0;
@@ -81,6 +88,7 @@ const STATIC_RENDERER_CSS = `
   border: 1px solid currentColor;
   cursor: pointer;
   pointer-events: auto;
+  z-index: 2;
   border-radius: 999px;
   opacity: 0;
   touch-action: none;
@@ -93,11 +101,6 @@ const STATIC_RENDERER_CSS = `
   outline-offset: 2px;
   opacity: .2;
 }
-.sigma-global-community-region {
-  border-radius: 999px;
-  border: 0;
-  opacity: .055;
-}
 .sigma-global-community-label {
   max-width: 160px;
   overflow: hidden;
@@ -107,7 +110,7 @@ const STATIC_RENDERER_CSS = `
   box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
   padding: 1px 5px;
   color: var(--muted);
-  font: 11px/1.35 var(--font-ui);
+  font: 600 12px/1.35 var(--font-ui);
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -116,6 +119,9 @@ const STATIC_RENDERER_CSS = `
   background: color-mix(in srgb, var(--surface) 72%, transparent);
   color: var(--ink);
   font-weight: 600;
+}
+.sigma-global-community-label[data-dim="true"] {
+  opacity: .45;
 }
 .graph-content-layer {
   position: absolute;
