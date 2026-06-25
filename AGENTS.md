@@ -16,6 +16,47 @@
 
 ---
 
+## 🏗️ monorepo 怎么连
+
+```
+workbench/web (React 19, SSE) ──HTTP POST + SSE──▶ workbench/server (Hono + @earendil-works/pi-coding-agent)
+                                                          │
+                                                          ├─ spawn 根目录 scripts/（Skill 已有能力，ADR-16 能力归属）
+                                                          └─ 依赖 @llm-wiki/graph-engine
+packages/graph-engine ──ESM + IIFE 双产物──▶ workbench/web 图谱视图 + Skill 离线 HTML（一个引擎、两个宿主，ADR-21）
+```
+
+- 权威架构图、技术栈与全部 ADR 见 [workbench/PRODUCT.md §3 / §7](workbench/PRODUCT.md)；当前阶段与协作铁律见 [workbench/AGENTS.md](workbench/AGENTS.md)。
+- **三类数据彻底分离**（别写错位置）：知识库 `~/llm-wiki/<name>/`、应用数据 `~/.llm-wiki-agent/`、模型凭证 `~/.pi/agent/auth.json`（pi-agent 管，权限 0600）。应用自己的 `config.json` **绝不存** API key。
+
+## ⚙️ 开发命令速查
+
+npm workspaces，三个包（根 `package.json` 不设 `"type": "module"`——Skill 的 CommonJS 测试要兼容，ESM 声明在各子包；ADR-20）：
+
+| 包 | 路径 | npm 名 |
+|---|---|---|
+| 前端 | `workbench/web` | `@llm-wiki-agent/web` |
+| 后端 | `workbench/server` | `@llm-wiki-agent/server` |
+| 图谱引擎 | `packages/graph-engine` | `@llm-wiki/graph-engine` |
+
+| 操作 | 命令（从仓库根） |
+|---|---|
+| 一行启动（后端 `8787` + 前端 `5180`，strictPort） | `npm run dev` |
+| 全仓类型检查 | `npm run typecheck` |
+| 前端 lint | `npm run lint -w @llm-wiki-agent/web` |
+| 前端单测（unit + dom） | `npm run test -w @llm-wiki-agent/web` |
+| 前端 Paper 视觉回归（playwright） | `npm run visual:paper -w @llm-wiki-agent/web` |
+| 引擎单测 | `npm run test -w @llm-wiki/graph-engine` |
+| 后端单测（server 无聚合 test 脚本，用 node:test） | `node --import tsx --test "workbench/server/src/**/*.test.ts"` |
+
+要点：
+
+- 测试统一用 Node 内置 `node --test`（不是 jest/vitest）。前端 DOM 测试走 jsdom + @testing-library/react，视觉回归用 playwright（仅 dev 依赖，不进运行时）。
+- `web` / `server` 的 `build` 与 `typecheck` 带 `prebuild` / `pretypecheck` 钩子，会**自动先 build `@llm-wiki/graph-engine`**。改了引擎代码后，跑前端/后端的 typecheck 或 build 会自动带上最新引擎产物；单跑引擎自己的 `tsc --noEmit` 不会刷新 `dist/`。
+- Node `>=22.19.0`（pi-coding-agent 硬要求，`.mise.toml` / `.nvmrc` 锁定）。
+
+---
+
 ## Skill 形态：安装与维护
 
 这是 llm-wiki 在 Codex 下的入口文件。
