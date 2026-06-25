@@ -9,6 +9,7 @@ import {
   buildSigmaGlobalGraphologyGraph,
   createSigmaGlobalHitProjector,
   createSigmaGlobalRenderer,
+  sigmaGlobalEdgeStyle,
   type SigmaGlobalGraphologyGraph,
   type SigmaGlobalRendererRuntime,
   type SigmaGlobalSigmaLike
@@ -99,9 +100,8 @@ describe("Sigma global renderer production boundary", () => {
       }
     });
     assert.deepEqual(graph.getEdgeAttributes("adapter-edge"), {
-      size: 3,
-      color: "#8a8175",
-      opacity: 0.126,
+      size: 1.13,
+      color: "rgba(49, 95, 114, 0.145)",
       relationType: "depends-on-adapter",
       confidence: "ADAPTER_CONFIDENCE",
       weight: 0.75,
@@ -164,6 +164,152 @@ describe("Sigma global renderer production boundary", () => {
     assert.deepEqual(graph.getAttribute("selection"), adapterData.selection);
   });
 
+  it("passes selected communities into Sigma global focus edge styling", () => {
+    const adapterData = adapterDataFixture({ communityCount: 3, selectedCommunityIds: ["community-1"] });
+    const graph = buildSigmaGlobalGraphologyGraph(
+      adapterData,
+      { GraphologyGraph },
+      "shan-shui",
+      { semanticEmphasis: false, focusHighlight: true }
+    );
+
+    assert.deepEqual(graph.getEdgeAttributes("adapter-edge"), {
+      size: 0.62,
+      color: "rgba(49, 95, 114, 0.05)",
+      relationType: "depends-on-adapter",
+      confidence: "ADAPTER_CONFIDENCE",
+      weight: 0.75,
+      sourceCommunityId: "adapter-community",
+      targetCommunityId: "adapter-community"
+    });
+  });
+
+  it("styles Sigma global edges by relation and community scope without confidence opacity", () => {
+    const intraNeutral = sigmaGlobalEdgeStyle(sigmaEdgeFixture({
+      relationType: "依赖",
+      sourceCommunityId: "c1",
+      targetCommunityId: "c1",
+      confidence: "EXTRACTED",
+      weight: 0
+    }), "shan-shui");
+    const bridgeNeutral = sigmaGlobalEdgeStyle(sigmaEdgeFixture({
+      relationType: "依赖",
+      sourceCommunityId: "c1",
+      targetCommunityId: "c2",
+      confidence: "EXTRACTED",
+      weight: 0
+    }), "shan-shui");
+    const contrast = sigmaGlobalEdgeStyle(sigmaEdgeFixture({
+      relationType: "对比",
+      sourceCommunityId: "c1",
+      targetCommunityId: "c1",
+      confidence: "EXTRACTED",
+      weight: 0.5
+    }), "shan-shui");
+    const conflictDark = sigmaGlobalEdgeStyle(sigmaEdgeFixture({
+      relationType: "矛盾",
+      sourceCommunityId: "c1",
+      targetCommunityId: "c2",
+      confidence: "EXTRACTED",
+      weight: 1
+    }), "mo-ye");
+    const neutralDark = sigmaGlobalEdgeStyle(sigmaEdgeFixture({
+      relationType: "依赖",
+      sourceCommunityId: "c1",
+      targetCommunityId: "c1",
+      confidence: "EXTRACTED",
+      weight: 0
+    }), "mo-ye");
+
+    assert.deepEqual(intraNeutral, { color: "rgba(49, 95, 114, 0.1)", size: 0.72 });
+    assert.deepEqual(bridgeNeutral, { color: "rgba(49, 95, 114, 0.34)", size: 1.1 });
+    assert.deepEqual(contrast, { color: "rgba(183, 121, 31, 0.54)", size: 1.55 });
+    assert.deepEqual(conflictDark, { color: "rgba(244, 114, 182, 0.66)", size: 2.25 });
+    assert.deepEqual(neutralDark, { color: "rgba(142, 135, 120, 0.1)", size: 0.72 });
+  });
+
+  it("keeps global confidence out of Sigma edge styling", () => {
+    const extracted = sigmaGlobalEdgeStyle(sigmaEdgeFixture({
+      relationType: "依赖",
+      confidence: "EXTRACTED",
+      weight: 0.4
+    }), "shan-shui");
+    const inferred = sigmaGlobalEdgeStyle(sigmaEdgeFixture({
+      relationType: "依赖",
+      confidence: "INFERRED",
+      weight: 0.4
+    }), "shan-shui");
+
+    assert.deepEqual(inferred, extracted);
+  });
+
+  it("lets semantic emphasis thin neutral edges and lift semantic edges", () => {
+    const style = { semanticEmphasis: true, focusHighlight: false };
+    const neutralBase = sigmaGlobalEdgeStyle(sigmaEdgeFixture({ relationType: "依赖", weight: 0.5 }), "shan-shui");
+    const neutralEmphasis = sigmaGlobalEdgeStyle(sigmaEdgeFixture({ relationType: "依赖", weight: 0.5 }), "shan-shui", style);
+    const contrastBase = sigmaGlobalEdgeStyle(sigmaEdgeFixture({ relationType: "对比", weight: 0.5 }), "shan-shui");
+    const contrastEmphasis = sigmaGlobalEdgeStyle(sigmaEdgeFixture({ relationType: "对比", weight: 0.5 }), "shan-shui", style);
+
+    assert.ok(edgeStyleAlpha(neutralEmphasis.color) < edgeStyleAlpha(neutralBase.color));
+    assert.ok(neutralEmphasis.size < neutralBase.size);
+    assert.ok(edgeStyleAlpha(contrastEmphasis.color) > edgeStyleAlpha(contrastBase.color));
+    assert.ok(contrastEmphasis.size > contrastBase.size);
+  });
+
+  it("uses focus highlight only when selected communities exist", () => {
+    const style = { semanticEmphasis: false, focusHighlight: true };
+    const selectedCommunities = new Set(["c1"]);
+    const touchedEdge = sigmaEdgeFixture({
+      relationType: "依赖",
+      sourceCommunityId: "c1",
+      targetCommunityId: "c2",
+      weight: 0.4
+    });
+    const untouchedEdge = sigmaEdgeFixture({
+      relationType: "依赖",
+      sourceCommunityId: "c2",
+      targetCommunityId: "c3",
+      weight: 0.4
+    });
+
+    const touchedBase = sigmaGlobalEdgeStyle(touchedEdge, "shan-shui");
+    const touchedFocused = sigmaGlobalEdgeStyle(touchedEdge, "shan-shui", style, selectedCommunities);
+    const untouchedBase = sigmaGlobalEdgeStyle(untouchedEdge, "shan-shui");
+    const untouchedFocused = sigmaGlobalEdgeStyle(untouchedEdge, "shan-shui", style, selectedCommunities);
+    const noSelectionFocused = sigmaGlobalEdgeStyle(untouchedEdge, "shan-shui", style, new Set());
+
+    assert.ok(edgeStyleAlpha(touchedFocused.color) >= edgeStyleAlpha(touchedBase.color));
+    assert.ok(touchedFocused.size >= touchedBase.size);
+    assert.ok(edgeStyleAlpha(untouchedFocused.color) < edgeStyleAlpha(untouchedBase.color));
+    assert.ok(untouchedFocused.size < untouchedBase.size);
+    assert.deepEqual(noSelectionFocused, untouchedBase);
+  });
+
+  it("treats missing community ids as non-bridge edges without accidental focus lift", () => {
+    const style = { semanticEmphasis: false, focusHighlight: true };
+    const partialCommunityEdge = sigmaEdgeFixture({
+      sourceCommunityId: null,
+      targetCommunityId: "c2",
+      relationType: "依赖",
+      weight: 0
+    });
+    const missingCommunityEdge = sigmaEdgeFixture({
+      sourceCommunityId: null,
+      targetCommunityId: null,
+      relationType: "依赖",
+      weight: 0
+    });
+
+    assert.deepEqual(
+      sigmaGlobalEdgeStyle(partialCommunityEdge, "shan-shui"),
+      { color: "rgba(49, 95, 114, 0.1)", size: 0.72 }
+    );
+    assert.deepEqual(
+      sigmaGlobalEdgeStyle(missingCommunityEdge, "shan-shui", style, new Set(["c1"])),
+      { color: "rgba(49, 95, 114, 0.05)", size: 0.6 }
+    );
+  });
+
   it("keeps the production Sigma boundary on GraphRendererAdapterData instead of raw GraphData", async () => {
     const source = await readFile(new URL("../src/render/sigma-global-renderer.ts", import.meta.url), "utf8");
     assert.match(source, /buildSigmaGlobalGraphologyGraph\(\s*adapterData: GraphRendererAdapterData/);
@@ -188,6 +334,17 @@ describe("Sigma global renderer production boundary", () => {
     assert.match(block, /var\(--paper-glow/);
     assert.match(block, /var\(--paper-vignette/);
     assert.match(block, /var\(--paper-mottle/);
+  });
+
+  it("hides confidence rows only inside the Sigma global route legend", async () => {
+    const styles = await readFile(new URL("../src/render/render-styles.ts", import.meta.url), "utf8");
+    const hiddenConfidenceSelectors = [...styles.matchAll(/^\s*([^{}\n]*\.graph-edge-legend-group:has\(\.graph-edge-legend-confidence\)[^{}\n]*)\s*\{[^}]*display:\s*none/gm)]
+      .map((match) => match[1].replace(/\s+/g, " ").trim());
+
+    assert.match(styles, /\.sigma-global-route\s+\.graph-edge-legend-group:has\(\.graph-edge-legend-confidence\)\s*\{[\s\S]*display:\s*none/);
+    assert.deepEqual(hiddenConfidenceSelectors, [
+      ".sigma-global-route .graph-edge-legend-group:has(.graph-edge-legend-confidence)"
+    ]);
   });
 
   it("projects Sigma node hits before overlapping community regions", () => {
@@ -519,7 +676,7 @@ describe("Sigma global renderer production boundary", () => {
     assert.ok(ordinarySize < selectedSize);
     assert.ok(ordinarySize < searchSize);
     assert.ok(ordinarySize < pinnedSize);
-    assert.ok(weakEdge.opacity < strongEdge.opacity);
+    assert.ok(edgeStyleAlpha(weakEdge.color) < edgeStyleAlpha(strongEdge.color));
     assert.ok(weakEdge.size < strongEdge.size);
     assert.ok(labelCount <= adapterData.renderable.budget.limits.maxLabels);
     assert.equal(aggregationOverlays.length, 0);
@@ -1116,6 +1273,31 @@ function adapterDataFixture(options: {
       }
     }
   };
+}
+
+function sigmaEdgeFixture(
+  overrides: Partial<GraphRendererAdapterData["edges"][number]> = {}
+): GraphRendererAdapterData["edges"][number] {
+  return {
+    id: "style-edge",
+    sourceNodeId: "style-source",
+    targetNodeId: "style-target",
+    sourceCommunityId: "c1",
+    targetCommunityId: "c1",
+    relationType: "依赖",
+    confidence: "EXTRACTED",
+    weight: 0,
+    render: {
+      strokeWidth: 1,
+      opacity: 1
+    },
+    ...overrides
+  };
+}
+
+function edgeStyleAlpha(color: string): number {
+  const match = color.match(/,\s*([0-9.]+)\)$/);
+  return match ? Number(match[1]) : Number.NaN;
 }
 
 function adapterDataWithPolygonCommunityCloud(): GraphRendererAdapterData {

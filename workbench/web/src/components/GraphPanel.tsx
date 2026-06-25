@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw, RotateCcw } from "lucide-react";
+import { RefreshCw, RotateCcw, SlidersHorizontal } from "lucide-react";
 import {
 	createGraphWorkbenchCapabilities,
 	createGraphEngine,
@@ -7,6 +7,7 @@ import {
 	GraphDiffQueue,
 	type GraphData,
 	type GraphDiff,
+	type GraphEdgeStyleOptions,
 	type GraphEngine,
 	type GraphOpenPagePayload,
 	type GraphVisibilityState,
@@ -54,6 +55,12 @@ interface PendingAnimation {
 	diff: GraphDiff;
 }
 
+const GRAPH_EDGE_STYLE_STORAGE_KEY = "llm-wiki.graph.edge-style";
+const DEFAULT_GRAPH_EDGE_STYLE: GraphEdgeStyleOptions = {
+	semanticEmphasis: false,
+	focusHighlight: false,
+};
+
 export function GraphPanel({
 	currentKnowledgeBaseName,
 	currentKnowledgeBasePath,
@@ -94,6 +101,12 @@ export function GraphPanel({
 	const animationTokenRef = useRef(0);
 	const lastSelectionCommandRef = useRef<GraphSelectionCommand | undefined>(selectionCommand);
 	const [data, setData] = useState<GraphData | null>(null);
+	const [edgeStyle, setEdgeStyle] = useState<GraphEdgeStyleOptions>(() => readGraphEdgeStylePreference());
+	const edgeStyleRef = useRef<GraphEdgeStyleOptions>(edgeStyle);
+	const edgeTuningRef = useRef<HTMLDivElement | null>(null);
+	const edgeTuningButtonRef = useRef<HTMLButtonElement | null>(null);
+	const edgeTuningFirstToggleRef = useRef<HTMLInputElement | null>(null);
+	const [edgeTuningOpen, setEdgeTuningOpen] = useState(false);
 	const [dataKnowledgeBasePath, setDataKnowledgeBasePath] = useState<string | null>(currentKnowledgeBasePath);
 	const [resetNotice, setResetNotice] = useState<ResetNotice | null>(null);
 	const [status, setStatus] = useState<GraphStatusKind>("idle");
@@ -109,6 +122,8 @@ export function GraphPanel({
 	);
 
 	const graphTheme: ThemeId = theme === "dark" ? "mo-ye" : "shan-shui";
+	const readyGraph = status === "ready" ? data : null;
+	const edgeTuningAvailable = Boolean(readyGraph);
 
 	useLayoutEffect(() => {
 		activeKbPathRef.current = currentKnowledgeBasePath;
@@ -135,6 +150,38 @@ export function GraphPanel({
 		setError(graphBuildError.message);
 		setStatus("error");
 	}, [currentKnowledgeBasePath, graphBuildError]);
+
+	useEffect(() => {
+		edgeStyleRef.current = edgeStyle;
+		writeGraphEdgeStylePreference(edgeStyle);
+		engineRef.current?.setEdgeStyle(edgeStyle);
+	}, [edgeStyle]);
+
+	useEffect(() => {
+		if (!edgeTuningOpen) return;
+		const handlePointerDown = (event: PointerEvent) => {
+			const target = event.target;
+			if (target instanceof Node && edgeTuningRef.current?.contains(target)) return;
+			setEdgeTuningOpen(false);
+		};
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			setEdgeTuningOpen(false);
+			edgeTuningButtonRef.current?.focus();
+		};
+		document.addEventListener("pointerdown", handlePointerDown);
+		document.addEventListener("keydown", handleKeyDown);
+		edgeTuningFirstToggleRef.current?.focus();
+		return () => {
+			document.removeEventListener("pointerdown", handlePointerDown);
+			document.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [edgeTuningOpen]);
+
+	useEffect(() => {
+		if (!edgeTuningAvailable) setEdgeTuningOpen(false);
+	}, [edgeTuningAvailable]);
 
 	useLayoutEffect(() => {
 		graphThemeRef.current = graphTheme;
@@ -379,6 +426,7 @@ export function GraphPanel({
 			data,
 			pins: layoutPinsRef.current,
 			theme: graphThemeRef.current,
+			edgeStyle: edgeStyleRef.current,
 			aggregationMarkers,
 			capabilities: createGraphWorkbenchCapabilities({
 				onOpenPage: (payload) => onOpenPageRef.current?.(payload),
@@ -514,7 +562,6 @@ export function GraphPanel({
 		});
 	}, [data, status]);
 
-	const hasReadyGraph = status === "ready" && data;
 	return (
 		<div className="graph-screen" data-graph-status={status} data-graph-theme={graphTheme} data-graph-animation={animationState}>
 			<div className="graph-shell">
@@ -526,9 +573,9 @@ export function GraphPanel({
 							<small>图谱活地图</small>
 						</div>
 						<span className="graph-shell-toolbar-chip">{statusLabel(status)}</span>
-						{hasReadyGraph && (
+						{readyGraph && (
 							<span className="graph-shell-toolbar-chip graph-shell-toolbar-chip-muted">
-								{data.nodes.length} 节点 · {data.edges.length} 关联
+								{readyGraph.nodes.length} 节点 · {readyGraph.edges.length} 关联
 							</span>
 						)}
 						<div className="graph-shell-legend" aria-label="图谱图例">
@@ -538,6 +585,64 @@ export function GraphPanel({
 						</div>
 					</div>
 					<div className="graph-shell-toolbar-actions">
+						<div className="graph-edge-tuning" ref={edgeTuningRef}>
+							<button
+								type="button"
+								ref={edgeTuningButtonRef}
+								className="graph-shell-toolbar-button"
+								data-active={edgeTuningOpen ? "true" : undefined}
+								aria-expanded={edgeTuningOpen}
+								aria-controls="graph-edge-tuning-panel"
+								disabled={!edgeTuningAvailable}
+								onClick={() => setEdgeTuningOpen((open) => !open)}
+								title="调参"
+							>
+								<SlidersHorizontal />
+								调参
+							</button>
+							{edgeTuningOpen && (
+								<div
+									id="graph-edge-tuning-panel"
+									className="graph-edge-tuning-panel"
+									role="dialog"
+									aria-label="图谱调参"
+								>
+									<div className="graph-edge-tuning-heading">
+										<strong>图谱调参</strong>
+									</div>
+									<div className="graph-edge-tuning-base">分主次</div>
+									<label className="graph-edge-tuning-toggle">
+										<input
+											type="checkbox"
+											ref={edgeTuningFirstToggleRef}
+											checked={edgeStyle.semanticEmphasis}
+											onChange={(event) => {
+												const checked = event.currentTarget.checked;
+												setEdgeStyle((current) => ({
+													...current,
+													semanticEmphasis: checked,
+												}));
+											}}
+										/>
+										<span>语义强调</span>
+									</label>
+									<label className="graph-edge-tuning-toggle">
+										<input
+											type="checkbox"
+											checked={edgeStyle.focusHighlight}
+											onChange={(event) => {
+												const checked = event.currentTarget.checked;
+												setEdgeStyle((current) => ({
+													...current,
+													focusHighlight: checked,
+												}));
+											}}
+										/>
+										<span>聚焦点亮</span>
+									</label>
+								</div>
+							)}
+						</div>
 						<button
 							type="button"
 							className="graph-shell-toolbar-button"
@@ -601,6 +706,28 @@ export function GraphPanel({
 			</div>
 		</div>
 	);
+}
+
+function readGraphEdgeStylePreference(): GraphEdgeStyleOptions {
+	try {
+		const raw = localStorage.getItem(GRAPH_EDGE_STYLE_STORAGE_KEY);
+		if (!raw) return { ...DEFAULT_GRAPH_EDGE_STYLE };
+		const parsed = JSON.parse(raw) as Partial<GraphEdgeStyleOptions>;
+		return {
+			semanticEmphasis: parsed.semanticEmphasis === true,
+			focusHighlight: parsed.focusHighlight === true,
+		};
+	} catch {
+		return { ...DEFAULT_GRAPH_EDGE_STYLE };
+	}
+}
+
+function writeGraphEdgeStylePreference(style: GraphEdgeStyleOptions): void {
+	try {
+		localStorage.setItem(GRAPH_EDGE_STYLE_STORAGE_KEY, JSON.stringify(style));
+	} catch {
+		// localStorage can be unavailable in restricted browser contexts.
+	}
 }
 
 function statusLabel(status: GraphStatusKind): string {
