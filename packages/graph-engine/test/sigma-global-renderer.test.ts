@@ -66,6 +66,8 @@ describe("Sigma global renderer production boundary", () => {
       selected: true,
       searchHit: false,
       pinned: false,
+      communityDimmed: false,
+      communitySpotlightVisible: true,
       aggregationIds: ["adapter-aggregation"],
       labelVisible: true,
       displayMode: "card",
@@ -89,6 +91,8 @@ describe("Sigma global renderer production boundary", () => {
       selected: false,
       searchHit: true,
       pinned: true,
+      communityDimmed: false,
+      communitySpotlightVisible: true,
       aggregationIds: ["adapter-aggregation"],
       labelVisible: false,
       displayMode: "point",
@@ -182,6 +186,29 @@ describe("Sigma global renderer production boundary", () => {
       sourceCommunityId: "adapter-community",
       targetCommunityId: "adapter-community"
     });
+  });
+
+  it("dims ordinary nodes outside the selected community while keeping priority nodes visible", () => {
+    const adapterData = nodeSpotlightAdapterData();
+    const graph = buildSigmaGlobalGraphologyGraph(adapterData, { GraphologyGraph });
+
+    assert.equal(graph.getNodeAttribute("alpha-ordinary", "communityDimmed"), false);
+    assert.equal(graph.getNodeAttribute("beta-ordinary", "communityDimmed"), true);
+    assert.equal(graph.getNodeAttribute("beta-ordinary", "color"), "rgba(18, 52, 1, 0.2)");
+    assert.equal(graph.getNodeAttribute("beta-ordinary", "size"), 3.6);
+    assert.equal(graph.getNodeAttribute("beta-search", "communityDimmed"), false);
+    assert.equal(graph.getNodeAttribute("beta-search", "communitySpotlightVisible"), true);
+    assert.equal(graph.getNodeAttribute("beta-pinned", "communityDimmed"), false);
+    assert.equal(graph.getNodeAttribute("alpha-selected", "communityDimmed"), false);
+  });
+
+  it("does not dim nodes when there is no community selection spotlight", () => {
+    const adapterData = nodeSpotlightAdapterData({ selectionKind: "node" });
+    const graph = buildSigmaGlobalGraphologyGraph(adapterData, { GraphologyGraph });
+
+    assert.equal(graph.getNodeAttribute("beta-ordinary", "communityDimmed"), false);
+    assert.equal(graph.getNodeAttribute("beta-ordinary", "color"), "#123401");
+    assert.equal(graph.getNodeAttribute("beta-ordinary", "size"), 5);
   });
 
   it("styles Sigma global edges by relation and community scope without confidence opacity", () => {
@@ -443,6 +470,23 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("keeps community spotlight overlays at community level without expanding every selected node", () => {
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
+      theme: "shan-shui",
+      runtime: fakeRuntime()
+    });
+
+    const nodeTargets = renderer.overlayRoot.children
+      .filter((child) => child.className === "sigma-global-node-hit-target")
+      .map((child) => child.dataset.nodeId);
+
+    assert.deepEqual(nodeTargets.sort(), ["beta-pinned", "beta-search"]);
+
+    renderer.destroy();
+  });
+
   it("renders fallback ellipse clouds and routes SVG shape clicks to community selection", () => {
     const hits: unknown[] = [];
     const renderer = createSigmaGlobalRenderer({
@@ -528,6 +572,38 @@ describe("Sigma global renderer production boundary", () => {
     // Phase 2：region 元素按 id 复用（同一实例），拖拽提交后只更新位置/几何。
     assert.equal(movedRegion, initialRegion);
     assert.ok(movedLeft > initialLeft, `expected cloud to follow dragged node, got ${initialLeft} -> ${movedLeft}`);
+
+    renderer.destroy();
+  });
+
+  it("refreshes community cloud geometry across same-id data updates", () => {
+    const runtime = fakeRuntime();
+    const initialData = adapterDataWithPolygonCommunityCloud();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: initialData,
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+    const initialRegion = sigmaCommunityRegion(renderer, "adapter-community");
+    const initialLeft = Number.parseFloat(initialRegion?.style.left ?? "0");
+    const movedData: GraphRendererAdapterData = {
+      ...initialData,
+      nodes: initialData.nodes.map((node) => node.id === "render-alpha"
+        ? { ...node, point: { x: 171, y: node.point.y } }
+        : node)
+    };
+
+    renderer.update({ adapterData: movedData });
+
+    const movedRegion = sigmaCommunityRegion(renderer, "adapter-community");
+    const movedLeft = Number.parseFloat(movedRegion?.style.left ?? "0");
+
+    assert.equal(renderer.graph.getNodeAttribute("render-alpha", "x"), 171);
+    assert.equal(sigma.setGraphCalls.length, 0);
+    assert.equal(movedRegion, initialRegion);
+    assert.ok(movedLeft > initialLeft, `expected cloud to follow updated node, got ${initialLeft} -> ${movedLeft}`);
 
     renderer.destroy();
   });
@@ -866,6 +942,144 @@ describe("Sigma global renderer production boundary", () => {
     assert.deepEqual(renderer.lastHitTarget, { kind: "node", id: "render-beta" });
   });
 
+  it("patches node spotlight attributes in place when community selection changes", () => {
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+    const originalGraph = renderer.graph;
+    const overlay = renderer.overlayRoot as unknown as { replaceChildren: (...items: HTMLElement[]) => void };
+    let replaced = 0;
+    const originalReplace = overlay.replaceChildren.bind(overlay);
+    overlay.replaceChildren = (...items) => {
+      replaced += 1;
+      originalReplace(...items);
+    };
+    const originalChildren = [...renderer.overlayRoot.children];
+
+    assert.equal(renderer.graph.getNodeAttribute("beta-ordinary", "communityDimmed"), true);
+
+    renderer.update({
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-2" })
+    });
+
+    assert.equal(renderer.graph, originalGraph);
+    assert.equal(sigma.setGraphCalls.length, 0);
+    assert.equal(renderer.graph.getNodeAttribute("alpha-ordinary", "communityDimmed"), true);
+    assert.equal(renderer.graph.getNodeAttribute("beta-ordinary", "communityDimmed"), false);
+    assert.deepEqual(renderer.graph.getAttribute("selection").input, { kind: "community", id: "community-2" });
+    assert.equal(replaced, 1);
+    assert.equal(renderer.overlayRoot.children.length, originalChildren.length);
+
+    renderer.destroy();
+  });
+
+  it("animates the Sigma camera to the latest selected community spotlight in Sigma camera coordinates", () => {
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectionKind: null }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.update({ adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }) });
+    renderer.update({ adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-2" }) });
+
+    assert.equal(sigma.camera.animateCalls.length, 2);
+    assert.deepEqual(sigma.camera.animateCalls.at(0), {
+      state: { x: 0.48, y: 0.6, angle: 0, ratio: 0.92 },
+      options: { duration: 380, easing: "quadraticInOut" }
+    });
+    assert.deepEqual(sigma.camera.activeAnimationTarget, { x: 0.63, y: 0.7, angle: 0, ratio: 0.846 });
+    assert.deepEqual(sigma.camera.getState(), { x: 0.63, y: 0.7, angle: 0, ratio: 0.846 });
+
+    renderer.destroy();
+  });
+
+  it("sets the Sigma camera instantly when reduced motion is requested", () => {
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer({
+        matchMedia: () => ({ matches: true }) as MediaQueryList
+      } as FakeDefaultView),
+      adapterData: nodeSpotlightAdapterData({ selectionKind: null }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.update({ adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }) });
+
+    assert.equal(sigma.camera.animateCalls.length, 0);
+    assert.deepEqual(sigma.camera.setStateCalls.at(-1), { x: 0.48, y: 0.6, angle: 0, ratio: 0.92 });
+    assert.deepEqual(sigma.camera.getState(), { x: 0.48, y: 0.6, angle: 0, ratio: 0.92 });
+
+    renderer.destroy();
+  });
+
+  it("does not move the Sigma camera when the selected community is already framed", () => {
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectionKind: null }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+    sigma.camera.setState({ x: 0.48, y: 0.6, ratio: 0.92 });
+
+    renderer.update({ adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }) });
+
+    assert.equal(sigma.camera.animateCalls.length, 0);
+    assert.deepEqual(sigma.camera.getState(), { x: 0.48, y: 0.6, angle: 0, ratio: 0.92 });
+
+    renderer.destroy();
+  });
+
+  it("resets the Sigma camera back to the full global composition", () => {
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectionKind: null }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.update({ adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }) });
+    renderer.resetView();
+
+    assert.deepEqual(sigma.camera.setStateCalls.at(-1), { x: 0.5, y: 0.5, angle: 0, ratio: 1 });
+    assert.deepEqual(sigma.camera.getState(), { x: 0.5, y: 0.5, angle: 0, ratio: 1 });
+
+    renderer.destroy();
+  });
+
+  it("keeps the full graph rebuild path for theme changes", () => {
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
+      theme: "shan-shui",
+      runtime
+    });
+
+    renderer.update({
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-2" }),
+      theme: "mo-ye"
+    });
+
+    assert.equal(runtime.instances[0].setGraphCalls.length, 1);
+
+    renderer.destroy();
+  });
+
   it("reports Sigma initialization failure to the route layer", () => {
     const failure = new Error("webgl unavailable");
     const errors: unknown[] = [];
@@ -924,7 +1138,7 @@ describe("Sigma global renderer production boundary", () => {
       onFatalError: (error) => errors.push(error)
     });
 
-    renderer.update({ adapterData: adapterDataFixture({ selectedNodeId: "render-beta" }) });
+    renderer.update({ adapterData: adapterDataFixture({ selectedNodeId: "render-beta" }), theme: "mo-ye" });
     renderer.destroy();
 
     assert.deepEqual(errors.map((error) => String(error)), ["Error: graph swap failed", "Error: kill failed"]);
@@ -1372,6 +1586,161 @@ function adapterDataFixture(options: {
   };
 }
 
+function nodeSpotlightAdapterData(options: {
+  selectedCommunityId?: "community-1" | "community-2";
+  selectionKind?: "community" | "node" | null;
+} = {}): GraphRendererAdapterData {
+  const selectedCommunityId = options.selectedCommunityId ?? "community-1";
+  const selectionKind = options.selectionKind === undefined ? "community" : options.selectionKind;
+  const renderableCommunities = renderableCommunityFixture(2);
+  const nodes: GraphRendererAdapterData["nodes"] = [
+    spotlightNodeFixture("alpha-ordinary", "community-1", { point: { x: 10, y: 20 } }),
+    spotlightNodeFixture("alpha-selected", "community-1", { selected: true, point: { x: 20, y: 30 } }),
+    spotlightNodeFixture("beta-ordinary", "community-2", { point: { x: 110, y: 120 } }),
+    spotlightNodeFixture("beta-search", "community-2", { searchHit: true, point: { x: 120, y: 130 } }),
+    spotlightNodeFixture("beta-pinned", "community-2", { pinned: true, point: { x: 130, y: 140 } })
+  ];
+  const selectedNodeIds = nodes.filter((node) => node.selected).map((node) => node.id);
+  const searchResultIds = nodes.filter((node) => node.searchHit).map((node) => node.id);
+  const pinnedNodeIds = nodes.filter((node) => node.pinHint.pinned).map((node) => node.id);
+  const selectedCommunityIds = selectionKind === "community"
+    ? [selectedCommunityId]
+    : selectionKind === "node"
+      ? ["community-1"]
+      : [];
+  const selectionInput = selectionKind === "community"
+    ? { kind: "community" as const, id: selectedCommunityId }
+    : selectionKind === "node"
+      ? { kind: "node" as const, id: "alpha-selected" }
+      : null;
+
+  return {
+    counts: {
+      nodes: nodes.length,
+      edges: 0,
+      communities: 2,
+      hidden: 0,
+      renderedNodes: nodes.length,
+      renderedEdges: 0,
+      aggregationContainers: 0
+    },
+    selection: {
+      input: selectionInput,
+      selectionId: selectionInput ? `${selectionInput.kind}:${selectionInput.id}` : null,
+      selectedNodeIds,
+      selectedCommunityIds,
+      containsCurrentObject: Boolean(selectionInput)
+    },
+    nodes,
+    edges: [],
+    communities: renderableCommunities.map((community) => ({
+      id: community.id,
+      object: { kind: "community", communityId: community.id },
+      label: community.label,
+      nodeIds: nodes.filter((node) => node.communityId === community.id).map((node) => node.id),
+      nodeCount: nodes.filter((node) => node.communityId === community.id).length,
+      selected: selectedCommunityIds.includes(community.id),
+      searchResultIds: searchResultIds.filter((id) => nodes.find((node) => node.id === id)?.communityId === community.id),
+      pinHints: nodes
+        .filter((node) => node.communityId === community.id && node.pinHint.pinned)
+        .map((node) => node.pinHint),
+      aggregationIds: [],
+      drawerTarget: {
+        summaryKind: "community-summary",
+        object: { kind: "community", communityId: community.id }
+      },
+      commands: [{ kind: "enter-community", communityId: community.id, label: "进入社区" }]
+    })),
+    aggregations: [],
+    renderable: {
+      nodes: [],
+      edges: [],
+      communities: renderableCommunities,
+      aggregationContainers: [],
+      minimap: { path: "", nodes: [] },
+      relationLegend: [],
+      selectedNodeId: selectedNodeIds[0] ?? null,
+      selectedCommunityId,
+      selectedNodeIds,
+      hiddenNodeIds: new Set(),
+      searchResultIds,
+      worldBounds: { minX: 0, maxX: 200, minY: 0, maxY: 200 },
+      budgets: {
+        limits: {
+          maxNodes: nodes.length,
+          maxEdges: 0,
+          maxLabels: 0,
+          maxCards: 0,
+          maxInteractionUpdates: nodes.length,
+          maxVisibleCommunities: 2
+        },
+        usage: {
+          nodes: nodes.length,
+          edges: 0,
+          labels: 0,
+          cards: 0,
+          interactionUpdate: nodes.length,
+          activeInteraction: nodes.length,
+          communities: 2,
+          aggregationContainers: 0
+        }
+      },
+      qualityNotice: null,
+      communityFocus: null,
+      communityQuality: {
+        boundaryCertainty: "high",
+        skeletonLabel: "stable",
+        hiddenNodeCount: 0,
+        hiddenEdgeCount: 0,
+        stableCoreNodeIds: [],
+        stableSkeletonEdgeIds: [],
+        temporaryBoostNodeIds: []
+      }
+    }
+  };
+
+}
+
+function spotlightNodeFixture(
+  id: string,
+  communityId: string,
+  options: {
+    point: { x: number; y: number };
+    selected?: boolean;
+    searchHit?: boolean;
+    pinned?: boolean;
+  }
+): GraphRendererAdapterData["nodes"][number] {
+  return {
+    id,
+    object: { kind: "node", nodeId: id },
+    label: id,
+    type: "topic",
+    communityId,
+    sourcePath: `spotlight/${id}.md`,
+    point: options.point,
+    selected: Boolean(options.selected),
+    searchHit: Boolean(options.searchHit),
+    pinHint: {
+      nodeId: id,
+      wikiPath: `spotlight/${id}.md`,
+      pinned: Boolean(options.pinned),
+      position: options.pinned ? { x: options.point.x, y: options.point.y, coordinateSpace: "world" } : null
+    },
+    aggregationIds: [],
+    drawerTarget: {
+      summaryKind: "node-summary",
+      object: { kind: "node", nodeId: id }
+    },
+    render: {
+      displayMode: "point",
+      visualRole: "map-pin",
+      priority: 10,
+      labelVisible: false
+    }
+  };
+}
+
 function sigmaEdgeFixture(
   overrides: Partial<GraphRendererAdapterData["edges"][number]> = {}
 ): GraphRendererAdapterData["edges"][number] {
@@ -1602,7 +1971,11 @@ function renderableCommunityFixture(count: number): GraphRendererAdapterData["re
   });
 }
 
-function fakeContainer(defaultView?: Pick<Window, "ResizeObserver" | "requestAnimationFrame" | "cancelAnimationFrame">): HTMLElement & { children: HTMLElement[] } {
+type FakeDefaultView = Partial<Pick<Window, "ResizeObserver" | "requestAnimationFrame" | "cancelAnimationFrame">> & {
+  matchMedia?: Window["matchMedia"];
+};
+
+function fakeContainer(defaultView?: FakeDefaultView): HTMLElement & { children: HTMLElement[] } {
   const children: HTMLElement[] = [];
   const container = {
     ownerDocument: {
@@ -1623,7 +1996,7 @@ function resizeObserverEntry(width: number, height: number): ResizeObserverEntry
   return { contentRect: { width, height } as DOMRectReadOnly } as ResizeObserverEntry;
 }
 
-function fakeElement(_tagName: string, defaultView?: Pick<Window, "ResizeObserver" | "requestAnimationFrame" | "cancelAnimationFrame">): HTMLElement {
+function fakeElement(_tagName: string, defaultView?: FakeDefaultView): HTMLElement {
   const children: HTMLElement[] = [];
   const attributes = new Map<string, string>();
   const listeners = new Map<string, EventListenerOrEventListenerObject[]>();
@@ -1697,6 +2070,7 @@ function fakeRuntime(options: {
   constructError?: Error;
   setGraphError?: Error;
   killError?: Error;
+  worldScale?: number;
 } = {}): SigmaGlobalRendererRuntime & { instances: FakeSigma[] } {
   const instances: FakeSigma[] = [];
   class RuntimeSigma extends FakeSigma {
@@ -1743,7 +2117,7 @@ class FakeSigma implements SigmaGlobalSigmaLike {
     graph: SigmaGlobalGraphologyGraph,
     container: HTMLElement,
     settings: Record<string, unknown> = {},
-    private readonly options: { setGraphError?: Error; killError?: Error } = {}
+    private readonly options: { setGraphError?: Error; killError?: Error; worldScale?: number } = {}
   ) {
     this.graph = graph;
     this.container = container;
@@ -1773,11 +2147,17 @@ class FakeSigma implements SigmaGlobalSigmaLike {
   }
 
   viewportToGraph(point: { x: number; y: number }): { x: number; y: number } {
+    const scale = this.options.worldScale ?? 1;
+    return { x: point.x * scale, y: point.y * scale };
+  }
+
+  viewportToFramedGraph(point: { x: number; y: number }): { x: number; y: number } {
     return { x: point.x, y: point.y };
   }
 
   graphToViewport(point: { x: number; y: number }): { x: number; y: number } {
-    return { x: point.x, y: point.y };
+    const scale = this.options.worldScale ?? 1;
+    return { x: point.x / scale, y: point.y / scale };
   }
 
   on(event: string, listener: (payload?: unknown) => void): void {
@@ -1802,12 +2182,29 @@ class FakeSigma implements SigmaGlobalSigmaLike {
 
 class FakeCamera {
   private state = { x: 0, y: 0, angle: 0, ratio: 1 };
+  readonly setStateCalls: Array<Partial<{ x: number; y: number; angle: number; ratio: number }>> = [];
+  readonly animateCalls: Array<{
+    state: Partial<{ x: number; y: number; angle: number; ratio: number }>;
+    options?: { duration?: number; easing?: string };
+  }> = [];
+  activeAnimationTarget: Partial<{ x: number; y: number; angle: number; ratio: number }> | null = null;
 
   getState(): { x: number; y: number; angle: number; ratio: number } {
     return { ...this.state };
   }
 
   setState(state: Partial<{ x: number; y: number; angle: number; ratio: number }>): void {
+    this.setStateCalls.push({ ...state });
     this.state = { ...this.state, ...state };
+  }
+
+  animate(
+    state: Partial<{ x: number; y: number; angle: number; ratio: number }>,
+    options?: { duration?: number; easing?: string }
+  ): Promise<void> {
+    this.animateCalls.push({ state: { ...state }, options: options ? { ...options } : undefined });
+    this.activeAnimationTarget = { ...state };
+    this.setState(state);
+    return Promise.resolve();
   }
 }

@@ -125,26 +125,34 @@ describe("GraphFacade", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const renderer = createFakeRenderer();
     const viewResets: number[] = [];
+    const selectionClears: number[] = [];
+    const facadeState: GraphFacadeState = { data: DATA, pins: {} };
     const engine = createGraphFacadeFromRenderer(container, renderer, {
       data: DATA,
       theme: "shan-shui",
       capabilities: {
+        onSelectionClear: () => selectionClears.push(1),
         onViewReset: () => viewResets.push(1)
       }
-    });
+    }, facadeState);
 
     engine.focusCommunity("c1");
     assert.equal(container.dataset.llmWikiGraphFocus, "community:c1");
+    assert.deepEqual(facadeState.selection, { kind: "community", id: "c1" });
 
     engine.resetLayout();
     assert.equal(container.dataset.llmWikiGraphFocus, "community:c1");
     assert.deepEqual(renderer.calls.at(-1), ["resetLayout"]);
     assert.deepEqual(viewResets, []);
+    assert.deepEqual(selectionClears, []);
 
     engine.resetView();
     assert.equal(container.dataset.llmWikiGraphFocus, undefined);
+    assert.equal(facadeState.selection, null);
+    assert.equal(facadeState.temporaryObject, null);
     assert.deepEqual(renderer.calls.at(-1), ["resetView"]);
     assert.deepEqual(viewResets, [1]);
+    assert.deepEqual(selectionClears, [1]);
   });
 
   it("exposes shared summary payloads from current facade data and pins", () => {
@@ -437,6 +445,140 @@ describe("GraphFacade", () => {
     manager.resetView();
 
     assert.deepEqual(renderers[0].calls.at(-1), ["resetView"]);
+    assert.deepEqual(state.selection, { kind: "node", id: "a" });
+  });
+
+  it("uses global reset to exit Sigma community spotlight without changing routes", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: { "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" } },
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: { topic: true, source: true },
+      aggregationMarkers: [],
+      selection: { kind: "community", id: "c1" },
+      searchResultIds: ["a"],
+      temporaryObject: { kind: "community", communityId: "c1" }
+    };
+    const renderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const selectionClears: number[] = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      callbacks: {
+        onSelectionClearRequested: () => selectionClears.push(1)
+      },
+      factories: {
+        createSigmaGlobal: () => trackRenderer(renderers, "sigma"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.resetView();
+
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(state.focus, null);
+    assert.equal(state.selection, null);
+    assert.equal(state.temporaryObject, null);
+    assert.deepEqual(state.searchResultIds, ["a"]);
+    assert.deepEqual(Object.keys(state.pins), ["wiki/a.md"]);
+    assert.deepEqual(renderers[0].calls.slice(-1), [["resetView"]]);
+    assert.deepEqual(selectionClears, [1]);
+  });
+
+  it("lets the Sigma toolbar global reset clear the active renderer spotlight", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: { topic: true, source: true },
+      aggregationMarkers: [],
+      selection: { kind: "community", id: "c1" },
+      searchResultIds: [],
+      temporaryObject: { kind: "community", communityId: "c1" }
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const renderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const selectionClears: number[] = [];
+    const viewResets: number[] = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      callbacks: {
+        onSelectionClearRequested: () => selectionClears.push(1),
+        onViewReset: () => viewResets.push(1)
+      },
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return trackRenderer(renderers, "sigma");
+        },
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(state.selection, null);
+    assert.equal(state.temporaryObject, null);
+    assert.deepEqual(selectionClears, [1]);
+    assert.deepEqual(viewResets, [1]);
+    assert.deepEqual(renderers[0].calls.slice(-1), [["resetView"]]);
+  });
+
+  it("returns from DOM/SVG community reading to a plain global map after community selection", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: { "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" } },
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: { topic: true, source: true },
+      aggregationMarkers: [],
+      selection: { kind: "community", id: "c1" },
+      searchResultIds: ["a"],
+      temporaryObject: { kind: "community", communityId: "c1" }
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const communityInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const selectionClears: number[] = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      callbacks: {
+        onSelectionClearRequested: () => selectionClears.push(1)
+      },
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return createFakeRenderer();
+        },
+        createDomSvgCommunity: (input) => {
+          communityInputs.push(input);
+          return createFakeRenderer();
+        },
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c1");
+    manager.resetView();
+
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(state.focus, null);
+    assert.equal(state.selection, null);
+    assert.equal(state.temporaryObject, null);
+    assert.equal(sigmaInputs.length, 2);
+    assert.deepEqual(sigmaInputs[1].options.selection, null);
+    assert.deepEqual(sigmaInputs[1].options.searchResultIds, ["a"]);
+    assert.deepEqual(Object.keys(sigmaInputs[1].options.pins), ["wiki/a.md"]);
+    assert.deepEqual(selectionClears, [1]);
   });
 
   it("lets a DOM/SVG community toolbar request the facade-level global route", () => {
@@ -716,6 +858,37 @@ describe("GraphFacade", () => {
     assert.equal(sigmaCount, 0);
     assert.equal(domFallbackCount, 0);
     assert.equal(overLimitCount, 1);
+  });
+
+  it("keeps over-limit reset on the over-limit route", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: largeGraphData(2001, 1, 1),
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: { kind: "community", id: "large-community-0" },
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const overLimitRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: () => createFakeRenderer(),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => trackRenderer(overLimitRenderers, "over-limit-notice")
+      }
+    });
+
+    assert.equal(manager.routeId, "over-limit-notice");
+    manager.resetView();
+
+    assert.equal(manager.routeId, "over-limit-notice");
+    assert.deepEqual(overLimitRenderers[0].calls.filter((call) => call[0] === "resetView"), [["resetView"]]);
   });
 
   it("routes stale small metadata to over-limit notice using actual node array length", () => {
