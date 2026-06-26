@@ -239,6 +239,24 @@ describe("renderer and facade boundary contract", () => {
     assert.match(facadeText, /applyGraphThemeToElement\(shell, theme\)/);
   });
 
+  it("mounts and styles Sigma zoom controls outside the main graph toolbar", async () => {
+    const facadeText = await readFile(join(SRC, "facade.ts"), "utf8");
+    const stylesText = await readFile(join(SRC, "render/render-styles.ts"), "utf8");
+
+    assertSourceContainsAll(facadeText, [
+      "createSigmaZoomControls",
+      "shell.querySelector(\".graph-zoom-controls\")?.remove();",
+      "onZoomIn: () => renderer?.zoomIn()",
+      "onZoomOut: () => renderer?.zoomOut()"
+    ]);
+    assertSourceContainsAll(stylesText, [
+      ".graph-zoom-controls",
+      "bottom: 14px;",
+      ".graph-zoom-button",
+      ".graph-zoom-button:hover"
+    ]);
+  });
+
   it("lets Sigma route share theme styles without inheriting the root minimum height", async () => {
     const stylesText = await readFile(join(SRC, "render/render-styles.ts"), "utf8");
 

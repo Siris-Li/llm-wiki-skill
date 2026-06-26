@@ -26,7 +26,7 @@ import {
   type SigmaGlobalRendererRuntime
 } from "./render/sigma-global-renderer";
 import { buildCommunityLegend, nextToolbarPanelState, resolveGraphSearchState, readToolbarPanelState, writeToolbarPanelState } from "./render";
-import { createCommunityLegend, createGraphToolbar, createSearchControl } from "./render/controls";
+import { createCommunityLegend, createGraphToolbar, createSearchControl, createSigmaZoomControls } from "./render/controls";
 import { ensureGraphRendererStyles } from "./render/render-styles";
 import { resolveSelectionForCapabilities } from "./select";
 import { graphNodeTypeLabel, wikiPathForGraphNode } from "./graph-node";
@@ -1014,6 +1014,7 @@ function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererFactoryI
     shell.dataset.searchOpen = searchOpen ? "true" : "false";
     shell.querySelector(".graph-search")?.remove();
     shell.querySelector(".graph-toolbar")?.remove();
+    shell.querySelector(".graph-zoom-controls")?.remove();
     const search = createSearchControl(input.container.ownerDocument, {
       open: searchOpen,
       query: options.searchQuery,
@@ -1069,6 +1070,12 @@ function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererFactoryI
     });
     toolbar.filtersPanel.appendChild(communityLegend.element);
     shell.prepend(toolbar.element);
+
+    const zoomControls = createSigmaZoomControls(input.container.ownerDocument, {
+      onZoomIn: () => renderer?.zoomIn(),
+      onZoomOut: () => renderer?.zoomOut()
+    });
+    shell.prepend(zoomControls.element);
   }
 
   function applySearchQuery(query: string): void {
