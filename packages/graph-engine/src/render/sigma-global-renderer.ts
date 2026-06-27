@@ -570,6 +570,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   }
 
   function handleSigmaWheelZoom(payload: unknown): void {
+    if (destroyed) return;
     const input = sigmaWheelInputFromPayload(payload, sigmaViewportCenter(sigmaRoot));
     if (!input) return;
     preventSigmaDefault(payload);
@@ -595,10 +596,9 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       void camera.animate(nextState, { duration: SIGMA_BUTTON_ZOOM_DURATION_MS, easing: "quadraticOut" });
       return;
     }
-    if (!animated && camera?.isAnimated?.() && camera.animate) {
-      void camera.animate(nextState, { duration: 1, easing: "quadraticOut" });
-      return;
-    }
+    // 滚轮/触控板始终即时 setState，不排队动画（设计 §5）。即使按钮或社区聚焦动画
+    // 仍在进行，滚轮也直接覆盖相机；Sigma camera 没有公开的取消动画接口，接受聚焦
+    // 动画末期（约 380ms）与滚轮的轻微拉锯，换取触控板高频输入的连续手感。
     camera?.setState?.(nextState);
   }
 

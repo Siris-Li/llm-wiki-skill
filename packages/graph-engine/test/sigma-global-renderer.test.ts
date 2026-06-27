@@ -1422,7 +1422,7 @@ describe("Sigma global renderer production boundary", () => {
     assert.equal(sigma.zoomTargets.length, 0);
   });
 
-  it("exposes button zoom methods that use the viewport center, bounded ratio, and wheel takeover", () => {
+  it("exposes button zoom methods and lets wheel zoom override an active button animation without queuing", () => {
     const runtime = fakeRuntime();
     const renderer = createSigmaGlobalRenderer({
       container: fakeContainer(),
@@ -1442,9 +1442,14 @@ describe("Sigma global renderer production boundary", () => {
     renderer.zoomOut();
     assertClose(sigma.zoomTargets.at(-1)?.ratio ?? 0, 1);
 
+    // 按钮动画仍在进行（FakeCamera.animated=true），但滚轮必须直接 setState，
+    // 不再排队 animate(duration:1)——这是触控板连续手感的关键（设计 §5）。
+    const animateCallsBeforeWheel = sigma.camera.animateCalls.length;
+    const setStateCallsBeforeWheel = sigma.camera.setStateCalls.length;
     const takeoverWheel = sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
     assert.equal(takeoverWheel.prevented, true);
-    assert.equal(sigma.camera.animateCalls.at(-1)?.options?.duration, 1);
+    assert.equal(sigma.camera.animateCalls.length, animateCallsBeforeWheel, "wheel must not queue a new animation");
+    assert.ok(sigma.camera.setStateCalls.length > setStateCallsBeforeWheel, "wheel must apply via direct setState");
   });
 
   function assertClose(actual: number, expected: number, tolerance = 0.000001): void {
