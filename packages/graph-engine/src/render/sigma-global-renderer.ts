@@ -41,9 +41,7 @@ import {
   SIGMA_BUTTON_ZOOM_RATIO,
   SIGMA_CAMERA_MAX_RATIO,
   SIGMA_CAMERA_MIN_RATIO,
-  sigmaButtonZoomRatio,
-  sigmaWheelZoomRatio,
-  type SigmaWheelDeltaLike
+  sigmaButtonZoomRatio
 } from "./sigma-zoom";
 import { preventSigmaDefault } from "./sigma-events";
 import type {
@@ -81,6 +79,11 @@ import {
   restoreCameraState,
   sigmaGlobalCameraState
 } from "./sigma-global-camera";
+import {
+  bindSigmaWheelZoomController,
+  sigmaViewportCenter,
+  type SigmaWheelZoomController
+} from "./sigma-wheel-zoom";
 
 export type {
   SigmaGlobalCameraState,
@@ -120,18 +123,6 @@ export const SIGMA_GLOBAL_RENDERER_BUNDLE_BOUNDARY = {
   workbench: "loads through the graph-engine ESM Sigma runtime boundary when global route manager selects Sigma",
   offlineHtml: "loads through the graph-engine IIFE Sigma runtime boundary when offline global route manager selects Sigma"
 } as const;
-
-interface SigmaGlobalWheelPayload {
-  x?: unknown;
-  y?: unknown;
-  delta?: unknown;
-  original?: {
-    deltaY?: unknown;
-    deltaMode?: unknown;
-    target?: unknown;
-  };
-  preventSigmaDefault?: () => void;
-}
 
 export async function sigmaGlobalRendererRuntimeBoundary(): Promise<SigmaGlobalRendererRuntimeBoundary> {
   const [{ default: Sigma }, { default: GraphologyGraph }] = await Promise.all([
@@ -186,7 +177,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   let cameraSpotlightCommunityId: string | null = sigmaSpotlightCommunityId(adapterData);
   let suppressNextNodeClickId: string | null = null;
   let overlayPointerDragCleanup: (() => void) | null = null;
-  let sigmaWheelCleanup: (() => void) | null = null;
+  let sigmaWheelZoomController: SigmaWheelZoomController | null = null;
   let eventBindings: Array<{ event: string; listener: (payload?: unknown) => void }> = [];
   let resizeObserver: ResizeObserver | null = null;
   let resizeAnimationFrame: number | null = null;
@@ -199,7 +190,14 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
 
   try {
     sigma = new runtime.Sigma(graph, sigmaRoot, sigmaSettingsForTheme(currentTheme));
-    bindSigmaWheelZoom();
+    sigmaWheelZoomController = bindSigmaWheelZoomController({
+      sigma,
+      root: sigmaRoot,
+      isDestroyed: () => destroyed,
+      currentRatio: () => readCameraState(sigma)?.ratio ?? 1,
+      onZoomAtPoint: (point, nextRatio) => zoomSigmaCameraAtViewportPoint(point, nextRatio, false),
+      onFatalError: options.onFatalError
+    });
     bindSigmaEvents();
     bindSigmaResizeObserver();
     rebuildSigmaOverlays();
@@ -305,7 +303,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       cancelNodeDrag();
       destroyed = true;
       generation += 1;
-      unbindSigmaWheelZoom();
+      sigmaWheelZoomController?.destroy();
+      sigmaWheelZoomController = null;
       unbindSigmaEvents();
       cancelScheduledResizeRefresh();
       resizeObserver?.disconnect();
@@ -355,30 +354,6 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       sigma.off?.(binding.event, binding.listener);
     }
     eventBindings = [];
-  }
-
-  function bindSigmaWheelZoom(): void {
-    const captor = sigma.getMouseCaptor?.();
-    if (!captor?.on) return;
-    const listener = (payload?: unknown): void => handleSigmaWheelZoom(payload);
-    captor.on("wheel", listener);
-    sigmaWheelCleanup = () => captor.off?.("wheel", listener);
-  }
-
-  function unbindSigmaWheelZoom(): void {
-    sigmaWheelCleanup?.();
-    sigmaWheelCleanup = null;
-  }
-
-  function handleSigmaWheelZoom(payload: unknown): void {
-    if (destroyed) return;
-    const input = sigmaWheelInputFromPayload(payload, sigmaViewportCenter(sigmaRoot));
-    if (!input) return;
-    preventSigmaDefault(payload);
-    if (sigmaWheelTargetIsZoomControl(payload)) return;
-    const current = readCameraState(sigma) ?? { x: 0, y: 0, angle: 0, ratio: 1 };
-    const nextRatio = sigmaWheelZoomRatio(current.ratio, input.delta);
-    zoomSigmaCameraAtViewportPoint(input.point, nextRatio, false);
   }
 
   function zoomSigmaCameraAtViewportPoint(
@@ -832,7 +807,7 @@ function sigmaSettingsForTheme(theme: ThemeId): Record<string, unknown> {
     allowInvalidContainer: false,
     labelColor: sigmaLabelColor(theme),
     zoomingRatio: SIGMA_BUTTON_ZOOM_RATIO,
-    // Sigma 默认 wheel 的兜底参数：wheel 已被 handleSigmaWheelZoom 接管（preventSigmaDefault），
+    // Sigma 默认 wheel 的兜底参数：wheel 已被 sigma-wheel-zoom controller 接管（preventSigmaDefault），
     // zoomingRatio/zoomDuration 只在 Sigma 内置缩放入口（如 animatedZoom）被触发时生效，
     // 日常不走。项目按钮动画用的是 SIGMA_BUTTON_ZOOM_DURATION_MS（140），勿与这里的 120 混淆。
     zoomDuration: 120,
@@ -843,59 +818,6 @@ function sigmaSettingsForTheme(theme: ThemeId): Record<string, unknown> {
 
 function sigmaLabelColor(theme: ThemeId): { color: string } {
   return { color: theme === "mo-ye" ? "#f8fafc" : "#6b6256" };
-}
-
-function sigmaWheelInputFromPayload(payload: unknown, fallbackPoint: GraphScreenPoint): {
-  point: GraphScreenPoint;
-  delta: SigmaWheelDeltaLike;
-} | null {
-  const wheel = payload as SigmaGlobalWheelPayload | null;
-  const originalDeltaY = wheel?.original?.deltaY;
-  const fallbackDelta = wheel?.delta;
-  const deltaY = typeof originalDeltaY === "number"
-    ? originalDeltaY
-    : typeof fallbackDelta === "number"
-      ? -fallbackDelta * 120
-      : null;
-  if (deltaY == null || !Number.isFinite(deltaY)) return null;
-
-  const x = finiteNumber(wheel?.x, Number.NaN);
-  const y = finiteNumber(wheel?.y, Number.NaN);
-  const point = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : fallbackPoint;
-  const originalDeltaMode = wheel?.original?.deltaMode;
-  return {
-    point,
-    delta: {
-      deltaY,
-      deltaMode: typeof originalDeltaMode === "number" ? originalDeltaMode : 0
-    }
-  };
-}
-
-// 防御性检查：判断 wheel 是否发生在左下缩放控件上。实际上 .graph-zoom-controls 是
-// 覆盖在 Sigma canvas 之上的独立 DOM，wheel 事件不会从它冒泡到 Sigma 的 mouse captor
-// （captor 绑在内部 canvas），所以这个分支在当前结构下正常不可达。保留是为了在控件
-// 层级/事件链日后变化时仍能挡住"滚到按钮上误缩放图谱"。
-function sigmaWheelTargetIsZoomControl(payload: unknown): boolean {
-  const wheel = payload as SigmaGlobalWheelPayload | null;
-  const target = wheel?.original?.target as {
-    closest?: (selector: string) => unknown;
-    parentElement?: { closest?: (selector: string) => unknown };
-  } | null | undefined;
-  return Boolean(
-    target?.closest?.("[data-control=\"sigma-zoom\"]") ||
-    target?.parentElement?.closest?.("[data-control=\"sigma-zoom\"]")
-  );
-}
-
-function sigmaViewportCenter(root: HTMLElement): GraphScreenPoint {
-  const rect = typeof root.getBoundingClientRect === "function" ? root.getBoundingClientRect() : null;
-  const width = finiteNumber(rect?.width, 1000);
-  const height = finiteNumber(rect?.height, 680);
-  return {
-    x: width / 2,
-    y: height / 2
-  };
 }
 
 function sigmaOverlayNodes(adapterData: GraphRendererAdapterData): GraphRendererAdapterNode[] {
