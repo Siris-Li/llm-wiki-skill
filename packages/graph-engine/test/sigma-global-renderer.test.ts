@@ -2423,6 +2423,11 @@ class FakeCamera {
     return this.animated;
   }
 
+  // 乐观同步模拟：animate 立刻 setState 到目标，animated 仅在 duration>1 时为 true。
+  // 这不反映真实 Sigma 3.x camera.animate 的逐帧 rAF 插值（见 sigma.esm.js），因此
+  // "wheel 不积压动画""按钮动画被滚轮即时接管"等设计 §5 语义在单测层无法真正证伪
+  // ——FakeCamera 抹平了动画的进行中状态。这类交互由浏览器回归（smallMove<largeMove）
+  // 与实机手感兜底。
   animate(
     state: Partial<{ x: number; y: number; angle: number; ratio: number }>,
     options?: { duration?: number; easing?: string }

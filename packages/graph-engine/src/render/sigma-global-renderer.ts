@@ -1031,6 +1031,9 @@ function sigmaSettingsForTheme(theme: ThemeId): Record<string, unknown> {
     allowInvalidContainer: false,
     labelColor: sigmaLabelColor(theme),
     zoomingRatio: SIGMA_BUTTON_ZOOM_RATIO,
+    // Sigma 默认 wheel 的兜底参数：wheel 已被 handleSigmaWheelZoom 接管（preventSigmaDefault），
+    // zoomingRatio/zoomDuration 只在 Sigma 内置缩放入口（如 animatedZoom）被触发时生效，
+    // 日常不走。项目按钮动画用的是 SIGMA_BUTTON_ZOOM_DURATION_MS（140），勿与这里的 120 混淆。
     zoomDuration: 120,
     minCameraRatio: SIGMA_CAMERA_MIN_RATIO,
     maxCameraRatio: SIGMA_CAMERA_MAX_RATIO
@@ -1079,6 +1082,10 @@ function sigmaWheelInputFromPayload(payload: unknown, fallbackPoint: GraphScreen
   };
 }
 
+// 防御性检查：判断 wheel 是否发生在左下缩放控件上。实际上 .graph-zoom-controls 是
+// 覆盖在 Sigma canvas 之上的独立 DOM，wheel 事件不会从它冒泡到 Sigma 的 mouse captor
+// （captor 绑在内部 canvas），所以这个分支在当前结构下正常不可达。保留是为了在控件
+// 层级/事件链日后变化时仍能挡住"滚到按钮上误缩放图谱"。
 function sigmaWheelTargetIsZoomControl(payload: unknown): boolean {
   const wheel = payload as SigmaGlobalWheelPayload | null;
   const target = wheel?.original?.target as {
