@@ -53,6 +53,30 @@ import {
   sigmaWheelZoomRatio,
   type SigmaWheelDeltaLike
 } from "./sigma-zoom";
+import { preventSigmaDefault } from "./sigma-events";
+import type {
+  SigmaGlobalCameraState,
+  SigmaGlobalGraphologyGraph,
+  SigmaGlobalGraphologyRuntime,
+  SigmaGlobalRenderer,
+  SigmaGlobalRendererCreateOptions,
+  SigmaGlobalRendererRuntime,
+  SigmaGlobalRendererRuntimeBoundary,
+  SigmaGlobalRendererUpdateOptions,
+  SigmaGlobalSigmaLike
+} from "./sigma-global-types";
+
+export type {
+  SigmaGlobalCameraState,
+  SigmaGlobalGraphologyGraph,
+  SigmaGlobalGraphologyRuntime,
+  SigmaGlobalRenderer,
+  SigmaGlobalRendererCreateOptions,
+  SigmaGlobalRendererRuntime,
+  SigmaGlobalRendererRuntimeBoundary,
+  SigmaGlobalRendererUpdateOptions,
+  SigmaGlobalSigmaLike
+} from "./sigma-global-types";
 
 export const SIGMA_GLOBAL_RENDERER_ID = "sigma-global" as const;
 
@@ -68,35 +92,6 @@ export const SIGMA_GLOBAL_RENDERER_BUNDLE_BOUNDARY = {
   offlineHtml: "loads through the graph-engine IIFE Sigma runtime boundary when offline global route manager selects Sigma"
 } as const;
 
-export interface SigmaGlobalRendererRuntimeBoundary {
-  Sigma: typeof import("sigma").default;
-  GraphologyGraph: typeof import("graphology").default;
-}
-
-export type SigmaGlobalGraphologyGraph = InstanceType<SigmaGlobalRendererRuntimeBoundary["GraphologyGraph"]>;
-
-export interface SigmaGlobalCameraState {
-  x: number;
-  y: number;
-  angle: number;
-  ratio: number;
-}
-
-export interface SigmaGlobalCameraLike {
-  getState?: () => SigmaGlobalCameraState;
-  setState?: (state: Partial<SigmaGlobalCameraState>) => unknown;
-  isAnimated?: () => boolean;
-  animate?: (
-    state: Partial<SigmaGlobalCameraState>,
-    options?: { duration?: number; easing?: string }
-  ) => unknown;
-}
-
-export interface SigmaGlobalMouseCaptorLike {
-  on?: (event: "wheel", listener: (payload?: unknown) => void) => unknown;
-  off?: (event: "wheel", listener: (payload?: unknown) => void) => unknown;
-}
-
 interface SigmaGlobalWheelPayload {
   x?: unknown;
   y?: unknown;
@@ -107,31 +102,6 @@ interface SigmaGlobalWheelPayload {
     target?: unknown;
   };
   preventSigmaDefault?: () => void;
-}
-
-export interface SigmaGlobalSigmaLike {
-  getCamera?: () => SigmaGlobalCameraLike;
-  getMouseCaptor?: () => SigmaGlobalMouseCaptorLike;
-  getViewportZoomedState?: (viewportTarget: GraphScreenPoint, newRatio: number) => SigmaGlobalCameraState;
-  getGraph?: () => unknown;
-  setGraph?: (graph: SigmaGlobalGraphologyGraph) => unknown;
-  getSetting?: (key: string) => unknown;
-  setSetting?: (key: string, value: unknown) => unknown;
-  viewportToGraph?: (point: GraphScreenPoint) => { x: number; y: number };
-  viewportToFramedGraph?: (point: GraphScreenPoint) => { x: number; y: number };
-  graphToViewport?: (point: { x: number; y: number }) => GraphScreenPoint;
-  refresh?: () => unknown;
-  on?: (event: string, listener: (payload?: unknown) => void) => unknown;
-  off?: (event: string, listener: (payload?: unknown) => void) => unknown;
-  kill?: () => unknown;
-}
-
-export interface SigmaGlobalGraphologyRuntime {
-  GraphologyGraph: SigmaGlobalRendererRuntimeBoundary["GraphologyGraph"];
-}
-
-export interface SigmaGlobalRendererRuntime extends SigmaGlobalGraphologyRuntime {
-  Sigma: new (graph: SigmaGlobalGraphologyGraph, container: HTMLElement, settings?: Record<string, unknown>) => SigmaGlobalSigmaLike;
 }
 
 export interface SigmaGlobalGraphologyNodeAttributes {
@@ -204,14 +174,6 @@ export interface SigmaGlobalHitInput {
   renderedObject?: SigmaGlobalRenderedObject | null;
 }
 
-interface SigmaGlobalPointerEventPayload {
-  node?: unknown;
-  event?: { x?: unknown; y?: unknown; preventSigmaDefault?: () => void };
-  x?: unknown;
-  y?: unknown;
-  preventSigmaDefault?: () => void;
-}
-
 export interface SigmaGlobalHitProjectorInput {
   adapterData: GraphRendererAdapterData;
   viewport: RendererViewport;
@@ -222,43 +184,6 @@ export interface SigmaGlobalHitProjectorInput {
 export interface SigmaGlobalHitProjector {
   targetFromSigmaHit(input: SigmaGlobalHitInput): GraphGestureTarget;
   index(): GraphSpatialIndex;
-}
-
-export interface SigmaGlobalRendererCreateOptions {
-  container: HTMLElement;
-  adapterData: GraphRendererAdapterData;
-  theme: ThemeId;
-  edgeStyle?: GraphEdgeStyleOptions;
-  onHitTarget?: (target: GraphGestureTarget) => void;
-  onPinsChanged?: (pins: PinMap) => void;
-  onDragActiveChange?: (dragging: boolean) => void;
-  onFatalError?: (error: unknown) => void;
-  pins?: PinMap;
-  runtime?: SigmaGlobalRendererRuntime;
-  viewport?: RendererViewport;
-  viewportSize?: RendererViewportSize;
-}
-
-export interface SigmaGlobalRendererUpdateOptions {
-  adapterData: GraphRendererAdapterData;
-  theme?: ThemeId;
-  edgeStyle?: GraphEdgeStyleOptions;
-  pins?: PinMap;
-}
-
-export interface SigmaGlobalRenderer {
-  readonly id: typeof SIGMA_GLOBAL_RENDERER_ID;
-  readonly root: HTMLElement;
-  readonly overlayRoot: HTMLElement;
-  readonly graph: SigmaGlobalGraphologyGraph;
-  readonly updateStrategy: "rebuild-graph-preserve-camera";
-  readonly lastHitTarget: GraphGestureTarget | null;
-  isDragging(): boolean;
-  resetView(): void;
-  zoomIn(): void;
-  zoomOut(): void;
-  update(options: SigmaGlobalRendererUpdateOptions): void;
-  destroy(): void;
 }
 
 export interface SigmaGlobalEdgeStyle {
@@ -1296,13 +1221,6 @@ function sigmaScreenPointFromPayload(payload: unknown): GraphScreenPoint | null 
   const x = candidate?.event?.x ?? candidate?.x;
   const y = candidate?.event?.y ?? candidate?.y;
   return typeof x === "number" && typeof y === "number" ? { x, y } : null;
-}
-
-function preventSigmaDefault(payload: unknown): void {
-  const eventPayload = payload as SigmaGlobalPointerEventPayload | null;
-  eventPayload?.preventSigmaDefault?.();
-  eventPayload?.event?.preventSigmaDefault?.();
-  if (payload instanceof Event) payload.preventDefault();
 }
 
 function spatialInputFromAdapterData(adapterData: GraphRendererAdapterData): GraphSpatialIndexInput {
