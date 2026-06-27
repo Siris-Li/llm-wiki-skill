@@ -1233,6 +1233,13 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
 
 ## Changelog
 
+- **2026-06-27 v22（全局 Sigma 缩放手感修复 #73）**：修掉全局图谱触控板/滚轮缩放的"按档位卡顿"
+  - 根因：wheel 路径在相机动画进行中时改走 `animate({duration:1})`，被 Sigma 的 rAF 重入切成离散跳变，违背设计 §5"滚轮直接更新相机、不排队动画"
+  - 修复：wheel 无条件走 `camera.setState`（即时）；`handleSigmaWheelZoom` 补 `destroyed` 守卫；同步更新测试断言与盲区注释
+  - 验证：单元 460 pass；浏览器生产回归 33 records / 3 shapes PASS；实机确认手感改善
+  - 已知局限：合成 wheel 事件测不准真实触控板"积压"，手感以实机为准（测试已加注释）
+  - 分支 `codex/fix-global-graph-zoom-controls`，9 个 commit（`05be23d`..`9c897cf`）
+  - 后续债务：sigma-global-renderer.ts 又涨到 1566 行，拆分已立项 #77（承接 #64）
 - **2026-06-20 v21（Paper UI 立项与文档对齐）**：确认工作台默认外观迁移为 Paper 暖纸
   - §5.2 顶部状态条改为统一顶栏：知识库静态展示，搜索、模型、新对话、主题、外观和设置集中在全局操作区
   - §5.4 视觉风格改为默认浅色暖纸、夜灯可切、Plus Jakarta Sans / Caveat / JetBrains Mono 字体组合

@@ -241,6 +241,43 @@ const STATIC_RENDERER_CSS = `
 .graph-toolbar-panel[data-state="closed"] {
   display: none;
 }
+.graph-zoom-controls {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 8;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid color-mix(in srgb, var(--rule) 62%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 64%, transparent);
+  box-shadow: 0 14px 30px rgba(36, 24, 12, .08);
+  backdrop-filter: blur(14px);
+  padding: 4px;
+  pointer-events: auto;
+}
+.llm-wiki-graph-engine[data-theme="mo-ye"] .graph-zoom-controls {
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+}
+.graph-zoom-button {
+  user-select: none;
+  -webkit-user-select: none;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: 600 18px/1 var(--font-ui);
+  cursor: pointer;
+}
+.graph-zoom-button:hover,
+.graph-zoom-button:focus-visible {
+  background: color-mix(in srgb, var(--cinnabar) 10%, transparent);
+  color: var(--ink);
+  outline: none;
+}
 .graph-toolbar-section {
   display: none;
 }

@@ -44,6 +44,15 @@ import {
   sigmaSharedCloudFilterDef,
   type SigmaCloudKind
 } from "./sigma-overlay-svg";
+import {
+  SIGMA_BUTTON_ZOOM_DURATION_MS,
+  SIGMA_BUTTON_ZOOM_RATIO,
+  SIGMA_CAMERA_MAX_RATIO,
+  SIGMA_CAMERA_MIN_RATIO,
+  sigmaButtonZoomRatio,
+  sigmaWheelZoomRatio,
+  type SigmaWheelDeltaLike
+} from "./sigma-zoom";
 
 export const SIGMA_GLOBAL_RENDERER_ID = "sigma-global" as const;
 
@@ -83,8 +92,27 @@ export interface SigmaGlobalCameraLike {
   ) => unknown;
 }
 
+export interface SigmaGlobalMouseCaptorLike {
+  on?: (event: "wheel", listener: (payload?: unknown) => void) => unknown;
+  off?: (event: "wheel", listener: (payload?: unknown) => void) => unknown;
+}
+
+interface SigmaGlobalWheelPayload {
+  x?: unknown;
+  y?: unknown;
+  delta?: unknown;
+  original?: {
+    deltaY?: unknown;
+    deltaMode?: unknown;
+    target?: unknown;
+  };
+  preventSigmaDefault?: () => void;
+}
+
 export interface SigmaGlobalSigmaLike {
   getCamera?: () => SigmaGlobalCameraLike;
+  getMouseCaptor?: () => SigmaGlobalMouseCaptorLike;
+  getViewportZoomedState?: (viewportTarget: GraphScreenPoint, newRatio: number) => SigmaGlobalCameraState;
   getGraph?: () => unknown;
   setGraph?: (graph: SigmaGlobalGraphologyGraph) => unknown;
   getSetting?: (key: string) => unknown;
@@ -227,6 +255,8 @@ export interface SigmaGlobalRenderer {
   readonly lastHitTarget: GraphGestureTarget | null;
   isDragging(): boolean;
   resetView(): void;
+  zoomIn(): void;
+  zoomOut(): void;
   update(options: SigmaGlobalRendererUpdateOptions): void;
   destroy(): void;
 }
@@ -356,6 +386,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   let cameraSpotlightCommunityId: string | null = sigmaSpotlightCommunityId(adapterData);
   let suppressNextNodeClickId: string | null = null;
   let overlayPointerDragCleanup: (() => void) | null = null;
+  let sigmaWheelCleanup: (() => void) | null = null;
   let eventBindings: Array<{ event: string; listener: (payload?: unknown) => void }> = [];
   let resizeObserver: ResizeObserver | null = null;
   let resizeAnimationFrame: number | null = null;
@@ -368,6 +399,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
 
   try {
     sigma = new runtime.Sigma(graph, sigmaRoot, sigmaSettingsForTheme(currentTheme));
+    bindSigmaWheelZoom();
     bindSigmaEvents();
     bindSigmaResizeObserver();
     rebuildSigmaOverlays();
@@ -395,6 +427,14 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       assertActive();
       cameraSpotlightCommunityId = null;
       sigma.getCamera?.().setState?.(sigmaGlobalCameraState(sigma, adapterData));
+    },
+    zoomIn() {
+      assertActive();
+      zoomSigmaCameraAtViewportPoint(sigmaViewportCenter(sigmaRoot), "in", true);
+    },
+    zoomOut() {
+      assertActive();
+      zoomSigmaCameraAtViewportPoint(sigmaViewportCenter(sigmaRoot), "out", true);
     },
     update(updateOptions) {
       assertActive();
@@ -464,6 +504,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       cancelNodeDrag();
       destroyed = true;
       generation += 1;
+      unbindSigmaWheelZoom();
       unbindSigmaEvents();
       cancelScheduledResizeRefresh();
       resizeObserver?.disconnect();
@@ -513,6 +554,52 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       sigma.off?.(binding.event, binding.listener);
     }
     eventBindings = [];
+  }
+
+  function bindSigmaWheelZoom(): void {
+    const captor = sigma.getMouseCaptor?.();
+    if (!captor?.on) return;
+    const listener = (payload?: unknown): void => handleSigmaWheelZoom(payload);
+    captor.on("wheel", listener);
+    sigmaWheelCleanup = () => captor.off?.("wheel", listener);
+  }
+
+  function unbindSigmaWheelZoom(): void {
+    sigmaWheelCleanup?.();
+    sigmaWheelCleanup = null;
+  }
+
+  function handleSigmaWheelZoom(payload: unknown): void {
+    if (destroyed) return;
+    const input = sigmaWheelInputFromPayload(payload, sigmaViewportCenter(sigmaRoot));
+    if (!input) return;
+    preventSigmaDefault(payload);
+    if (sigmaWheelTargetIsZoomControl(payload)) return;
+    const current = readCameraState(sigma) ?? { x: 0, y: 0, angle: 0, ratio: 1 };
+    const nextRatio = sigmaWheelZoomRatio(current.ratio, input.delta);
+    zoomSigmaCameraAtViewportPoint(input.point, nextRatio, false);
+  }
+
+  function zoomSigmaCameraAtViewportPoint(
+    point: GraphScreenPoint,
+    target: "in" | "out" | number,
+    animated: boolean
+  ): void {
+    const camera = sigma.getCamera?.();
+    const current = readCameraState(sigma) ?? { x: 0, y: 0, angle: 0, ratio: 1 };
+    const nextRatio = typeof target === "number" ? target : sigmaButtonZoomRatio(current.ratio, target);
+    const nextState = sigma.getViewportZoomedState?.(point, nextRatio) ?? {
+      ...current,
+      ratio: nextRatio
+    };
+    if (animated && camera?.animate && !prefersReducedMotion(sigmaRoot.ownerDocument.defaultView)) {
+      void camera.animate(nextState, { duration: SIGMA_BUTTON_ZOOM_DURATION_MS, easing: "quadraticOut" });
+      return;
+    }
+    // 滚轮/触控板始终即时 setState，不排队动画（设计 §5）。即使按钮或社区聚焦动画
+    // 仍在进行，滚轮也直接覆盖相机；Sigma camera 没有公开的取消动画接口，接受聚焦
+    // 动画末期（约 380ms）与滚轮的轻微拉锯，换取触控板高频输入的连续手感。
+    camera?.setState?.(nextState);
   }
 
   function bindSigmaResizeObserver(): void {
@@ -942,7 +1029,14 @@ function sigmaSettingsForTheme(theme: ThemeId): Record<string, unknown> {
   return {
     renderEdgeLabels: false,
     allowInvalidContainer: false,
-    labelColor: sigmaLabelColor(theme)
+    labelColor: sigmaLabelColor(theme),
+    zoomingRatio: SIGMA_BUTTON_ZOOM_RATIO,
+    // Sigma 默认 wheel 的兜底参数：wheel 已被 handleSigmaWheelZoom 接管（preventSigmaDefault），
+    // zoomingRatio/zoomDuration 只在 Sigma 内置缩放入口（如 animatedZoom）被触发时生效，
+    // 日常不走。项目按钮动画用的是 SIGMA_BUTTON_ZOOM_DURATION_MS（140），勿与这里的 120 混淆。
+    zoomDuration: 120,
+    minCameraRatio: SIGMA_CAMERA_MIN_RATIO,
+    maxCameraRatio: SIGMA_CAMERA_MAX_RATIO
   };
 }
 
@@ -958,6 +1052,59 @@ function readCameraState(sigma: SigmaGlobalSigmaLike): SigmaGlobalCameraState | 
     y: finiteNumber(state.y, 0),
     angle: finiteNumber(state.angle, 0),
     ratio: finiteNumber(state.ratio, 1)
+  };
+}
+
+function sigmaWheelInputFromPayload(payload: unknown, fallbackPoint: GraphScreenPoint): {
+  point: GraphScreenPoint;
+  delta: SigmaWheelDeltaLike;
+} | null {
+  const wheel = payload as SigmaGlobalWheelPayload | null;
+  const originalDeltaY = wheel?.original?.deltaY;
+  const fallbackDelta = wheel?.delta;
+  const deltaY = typeof originalDeltaY === "number"
+    ? originalDeltaY
+    : typeof fallbackDelta === "number"
+      ? -fallbackDelta * 120
+      : null;
+  if (deltaY == null || !Number.isFinite(deltaY)) return null;
+
+  const x = finiteNumber(wheel?.x, Number.NaN);
+  const y = finiteNumber(wheel?.y, Number.NaN);
+  const point = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : fallbackPoint;
+  const originalDeltaMode = wheel?.original?.deltaMode;
+  return {
+    point,
+    delta: {
+      deltaY,
+      deltaMode: typeof originalDeltaMode === "number" ? originalDeltaMode : 0
+    }
+  };
+}
+
+// 防御性检查：判断 wheel 是否发生在左下缩放控件上。实际上 .graph-zoom-controls 是
+// 覆盖在 Sigma canvas 之上的独立 DOM，wheel 事件不会从它冒泡到 Sigma 的 mouse captor
+// （captor 绑在内部 canvas），所以这个分支在当前结构下正常不可达。保留是为了在控件
+// 层级/事件链日后变化时仍能挡住"滚到按钮上误缩放图谱"。
+function sigmaWheelTargetIsZoomControl(payload: unknown): boolean {
+  const wheel = payload as SigmaGlobalWheelPayload | null;
+  const target = wheel?.original?.target as {
+    closest?: (selector: string) => unknown;
+    parentElement?: { closest?: (selector: string) => unknown };
+  } | null | undefined;
+  return Boolean(
+    target?.closest?.("[data-control=\"sigma-zoom\"]") ||
+    target?.parentElement?.closest?.("[data-control=\"sigma-zoom\"]")
+  );
+}
+
+function sigmaViewportCenter(root: HTMLElement): GraphScreenPoint {
+  const rect = typeof root.getBoundingClientRect === "function" ? root.getBoundingClientRect() : null;
+  const width = finiteNumber(rect?.width, 1000);
+  const height = finiteNumber(rect?.height, 680);
+  return {
+    x: width / 2,
+    y: height / 2
   };
 }
 

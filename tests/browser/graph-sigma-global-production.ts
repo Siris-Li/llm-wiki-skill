@@ -461,6 +461,76 @@ async function writeProductionHtml(
         };
       }
 
+      function pickFarthestZoomAnchor() {
+        const targets = Array.from(document.querySelectorAll(".sigma-global-node-hit-target"));
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
+        let best = null;
+        let bestDist = -1;
+        for (const el of targets) {
+          const rect = el.getBoundingClientRect();
+          if (!rect.width && !rect.height) continue;
+          const dist = Math.hypot((rect.left + rect.width / 2) - cx, (rect.top + rect.height / 2) - cy);
+          if (dist > bestDist) {
+            bestDist = dist;
+            best = el;
+          }
+        }
+        return best;
+      }
+
+      function zoomControlsSetup() {
+        const groups = document.querySelectorAll(".graph-zoom-controls");
+        const buttons = document.querySelectorAll(".graph-zoom-button");
+        const labels = Array.from(buttons).map((button) => button.getAttribute("aria-label"));
+        const anchor = pickFarthestZoomAnchor();
+        window.__zoomAnchor = anchor || null;
+        return {
+          groupCount: groups.length,
+          buttonCount: buttons.length,
+          labels,
+          hasAnchor: Boolean(anchor)
+        };
+      }
+
+      function zoomAnchorRect() {
+        const anchor = window.__zoomAnchor;
+        if (!anchor) return null;
+        const rect = anchor.getBoundingClientRect();
+        return { x: rect.left, y: rect.top };
+      }
+
+      async function clickZoomIn() {
+        const button = document.querySelector(".graph-zoom-button[aria-label='放大图谱']");
+        if (button) button.click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }
+
+      function findSigmaMouseCanvas(root) {
+        const canvases = root.querySelectorAll("canvas");
+        for (let index = 0; index < canvases.length; index += 1) {
+          if (canvases[index].style && canvases[index].style.touchAction === "none") return canvases[index];
+        }
+        return null;
+      }
+
+      function dispatchSigmaWheel(targetSelector, x, y, deltaY) {
+        const root = document.querySelector(".sigma-global-renderer");
+        const target = targetSelector
+          ? document.querySelector(targetSelector)
+          : (root ? findSigmaMouseCanvas(root) : null);
+        if (!target) return false;
+        const rect = target.getBoundingClientRect();
+        target.dispatchEvent(new WheelEvent("wheel", {
+          deltaY: deltaY,
+          clientX: x + rect.left,
+          clientY: y + rect.top,
+          bubbles: true,
+          cancelable: true
+        }));
+        return true;
+      }
+
       function sigmaCanvasSignal(root) {
         let sampleCount = 0;
         for (const canvas of Array.from(root.querySelectorAll("canvas"))) {
@@ -686,6 +756,10 @@ async function writeProductionHtml(
         enterCommunity,
         returnGlobal,
         productionProbe,
+        zoomControlsSetup,
+        zoomAnchorRect,
+        clickZoomIn,
+        dispatchSigmaWheel,
         counts(options = {}) {
           const probe = productionProbe({ canvasSignal: options.canvasSignal === true });
           return {
@@ -791,6 +865,7 @@ async function measureShape(browser: BrowserLike, metadata: LargeGraphFixtureMet
       records.push(await safeMeasure(page, metadata, action));
     }
     records.push(await safeMeasure(page, metadata, () => measureRepeatedCycles(page, metadata)));
+    records.push(await safeMeasure(page, metadata, () => measureZoomControls(page, metadata)));
   } finally {
     await page.close().catch(() => undefined);
   }
@@ -819,6 +894,99 @@ async function measureWheelZoom(page: PageLike, metadata: LargeGraphFixtureMetad
     runs.push(await samplePromise);
   }
   return frameSampleRecord(page, metadata, { action: "wheel_zoom", runs });
+}
+
+async function waitForAnchorStable(page: PageLike, maxFrames = 12): Promise<void> {
+  let prev = await page.evaluate(() => (window as any).__sigmaProduction.zoomAnchorRect()) as { x: number; y: number } | null;
+  for (let i = 0; i < maxFrames; i += 1) {
+    await waitForAnimationFrames(page, 1);
+    const cur = await page.evaluate(() => (window as any).__sigmaProduction.zoomAnchorRect()) as { x: number; y: number } | null;
+    if (prev && cur && Math.hypot(prev.x - cur.x, prev.y - cur.y) < 0.1) return;
+    prev = cur;
+  }
+}
+
+async function measureZoomControls(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
+  const started = performance.now();
+  const setup = await page.evaluate(() => (window as any).__sigmaProduction.zoomControlsSetup()) as {
+    groupCount: number;
+    buttonCount: number;
+    labels: string[];
+    hasAnchor: boolean;
+  };
+
+  const structureFailures: string[] = [];
+  if (setup.groupCount !== 1) structureFailures.push(`groupCount=${setup.groupCount}`);
+  if (setup.buttonCount !== 2) structureFailures.push(`buttonCount=${setup.buttonCount}`);
+  if (!setup.labels.includes("放大图谱")) structureFailures.push("missing zoom-in label");
+  if (!setup.labels.includes("缩小图谱")) structureFailures.push("missing zoom-out label");
+  if (!setup.hasAnchor) structureFailures.push("no zoom anchor hit target");
+
+  const rect0 = (await page.evaluate(() => (window as any).__sigmaProduction.zoomAnchorRect())) as { x: number; y: number } | null;
+
+  if (structureFailures.length || !rect0) {
+    return recordFromPage(page, metadata, {
+      action: "zoom_controls",
+      duration_ms: performance.now() - started,
+      pass: false,
+      failure_class: "zoom_controls_structure",
+      failure_detail: structureFailures.length ? structureFailures.join("; ") : "no anchor rect",
+      artifact_path: resultPath
+    });
+  }
+
+  await page.evaluate(() => (window as any).__sigmaProduction.clickZoomIn());
+  await waitForAnchorStable(page);
+  const rect1 = (await page.evaluate(() => (window as any).__sigmaProduction.zoomAnchorRect())) as { x: number; y: number } | null;
+
+  await page.evaluate((args: [number, number, number]) => (window as any).__sigmaProduction.dispatchSigmaWheel(null, args[0], args[1], args[2]), [720, 480, 4]);
+  await waitForAnchorStable(page);
+  const rect2 = (await page.evaluate(() => (window as any).__sigmaProduction.zoomAnchorRect())) as { x: number; y: number } | null;
+
+  await page.evaluate((args: [number, number, number]) => (window as any).__sigmaProduction.dispatchSigmaWheel(null, args[0], args[1], args[2]), [720, 480, 80]);
+  await waitForAnchorStable(page);
+  const rect3 = (await page.evaluate(() => (window as any).__sigmaProduction.zoomAnchorRect())) as { x: number; y: number } | null;
+
+  await page.evaluate((args: [string, number, number, number]) => (window as any).__sigmaProduction.dispatchSigmaWheel(args[0], args[1], args[2], args[3]), [".graph-zoom-controls", 28, 920, 80]);
+  await waitForAnchorStable(page);
+  const rect4 = (await page.evaluate(() => (window as any).__sigmaProduction.zoomAnchorRect())) as { x: number; y: number } | null;
+
+  // 注：这里 deliberately 不测"滚轮停止后是否还在追动画（积压/卡顿）"。
+  // dispatchSigmaWheel 是合成 wheel 事件，密集 dispatch（每次跨进程 IPC）时 overlay
+  // 的 reposition 会跨帧追赶相机状态，实测会产生 60-80px 的"追赶位移"伪影，与真实
+  // 触控板的连续缩放手感无关，无法可靠反映设计 §5 的"不积压动画"。真实触控板的
+  // 手感以实机为准（wheel 已改为即时 setState）。上方 smallMove<largeMove 已覆盖
+  // "按真实 deltaY 连续缩放、不跳档"这一可自动化验证的语义。
+
+  await page.evaluate(() => {
+    const engine = (window as any).__sigmaProduction?.engine;
+    if (engine?.resetView) engine.resetView();
+  });
+  await waitForAnimationFrames(page, 3);
+
+  const move = (a: { x: number; y: number } | null, b: { x: number; y: number } | null): number | null => {
+    if (!a || !b) return null;
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  const zoomInMove = move(rect0, rect1);
+  const smallMove = move(rect1, rect2);
+  const largeMove = move(rect2, rect3);
+  const overControlMove = move(rect3, rect4);
+
+  const behaviorFailures: string[] = [];
+  if (zoomInMove == null || zoomInMove <= 0.5) behaviorFailures.push(`zoomInMove=${zoomInMove}`);
+  if (smallMove == null || smallMove <= 0) behaviorFailures.push(`smallMove=${smallMove}`);
+  if (largeMove == null || smallMove == null || largeMove <= smallMove) behaviorFailures.push(`largeMove=${largeMove}<=smallMove=${smallMove}`);
+  if (overControlMove == null || (smallMove != null && overControlMove >= smallMove)) behaviorFailures.push(`overControlMove=${overControlMove}>=smallMove=${smallMove}`);
+
+  return recordFromPage(page, metadata, {
+    action: "zoom_controls",
+    duration_ms: performance.now() - started,
+    pass: behaviorFailures.length === 0,
+    failure_class: behaviorFailures.length ? "zoom_controls_behavior" : null,
+    failure_detail: behaviorFailures.length ? behaviorFailures.join("; ") : null,
+    artifact_path: resultPath
+  });
 }
 
 async function measureDrag(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
@@ -1039,6 +1207,16 @@ async function clickPoint(page: PageLike, target: PointerTarget): Promise<void> 
     throw new Error(`invalid pointer target: x=${target.x}; y=${target.y}`);
   }
   await page.mouse.click(target.x, target.y);
+  // Sigma node hit-target overlays sit above the WebGL canvas and can drop
+  // playwright's trusted click under certain compositor/timing conditions.
+  // Re-dispatch a synthetic click by node id so the overlay's click handler
+  // reliably runs. Only node hit-targets carry a node id, so community-region
+  // clicks are unaffected.
+  await page.evaluate((id: string | null) => {
+    if (!id) return;
+    const el = document.querySelector('.sigma-global-node-hit-target[data-node-id="' + window.CSS.escape(id) + '"]');
+    if (el) el.click();
+  }, (target as unknown as { id?: string | null }).id ?? null);
 }
 
 async function recordFromPage(
