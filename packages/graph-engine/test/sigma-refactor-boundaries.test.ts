@@ -5,7 +5,8 @@ import { readFile } from "node:fs/promises";
 const helperFiles = [
   "sigma-global-types.ts",
   "sigma-events.ts",
-  "sigma-graphology-model.ts"
+  "sigma-graphology-model.ts",
+  "sigma-hit-projector.ts"
 ];
 
 const existingTypeOnlyFiles = [

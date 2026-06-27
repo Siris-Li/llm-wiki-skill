@@ -1,5 +1,4 @@
 import type { PinMap, PinPosition, ThemeId } from "../types";
-import { createGraphSpatialIndex, type GraphSpatialIndex, type GraphSpatialIndexInput } from "../layout";
 import type {
   GraphRendererAdapterData,
   GraphRendererAdapterNode
@@ -8,15 +7,13 @@ import {
   bindSigmaGlobalOverlayMouseDrag,
   bindSigmaGlobalOverlayPointerDrag,
   createSigmaGlobalNodeDragSession,
-  gestureTargetFromSigmaRenderedObject,
   moveSigmaGlobalNodeDragSession,
   sigmaAdapterDataWithNodePoint,
   sigmaCommunityLabels,
-  type SigmaGlobalRenderedObject,
   type SigmaGlobalNodeDragSession
 } from "./sigma-global-drag";
-import { screenPointToWorldPoint, type GraphScreenPoint } from "./geometry";
-import { graphSpatialHitToGestureTarget, type GraphGestureTarget } from "./gestures";
+import type { GraphScreenPoint } from "./geometry";
+import type { GraphGestureTarget } from "./gestures";
 import { DEFAULT_RENDERER_VIEWPORT, type RendererViewport, type RendererViewportSize } from "./viewport";
 import { overlayPointerScreenPoint, sigmaScreenPointToWorldPoint, sigmaWorldPointToScreenPoint } from "./sigma-coordinates";
 import {
@@ -70,6 +67,13 @@ import {
   sigmaSpotlightCommunityId,
   sigmaSpotlightCommunityIds
 } from "./sigma-graphology-model";
+import {
+  createSigmaGlobalHitProjector,
+  sigmaNodeIdFromPayload,
+  sigmaScreenPointFromPayload,
+  type SigmaGlobalHitInput,
+  type SigmaGlobalHitProjector
+} from "./sigma-hit-projector";
 
 export type {
   SigmaGlobalCameraState,
@@ -88,6 +92,13 @@ export {
   sigmaGlobalEdgeStyle
 } from "./sigma-graphology-model";
 export type { SigmaGlobalEdgeStyle } from "./sigma-graphology-model";
+export { createSigmaGlobalHitProjector } from "./sigma-hit-projector";
+export type {
+  SigmaGlobalHitInput,
+  SigmaGlobalHitProjector,
+  SigmaGlobalHitProjectorInput,
+  SigmaGlobalRenderedObject
+} from "./sigma-hit-projector";
 
 export const SIGMA_GLOBAL_RENDERER_ID = "sigma-global" as const;
 
@@ -115,24 +126,6 @@ interface SigmaGlobalWheelPayload {
   preventSigmaDefault?: () => void;
 }
 
-export interface SigmaGlobalHitInput {
-  nodeId?: string | null;
-  screenPoint?: GraphScreenPoint | null;
-  renderedObject?: SigmaGlobalRenderedObject | null;
-}
-
-export interface SigmaGlobalHitProjectorInput {
-  adapterData: GraphRendererAdapterData;
-  viewport: RendererViewport;
-  viewportSize: RendererViewportSize;
-  screenPointToWorldPoint?: (point: GraphScreenPoint) => { x: number; y: number };
-}
-
-export interface SigmaGlobalHitProjector {
-  targetFromSigmaHit(input: SigmaGlobalHitInput): GraphGestureTarget;
-  index(): GraphSpatialIndex;
-}
-
 export async function sigmaGlobalRendererRuntimeBoundary(): Promise<SigmaGlobalRendererRuntimeBoundary> {
   const [{ default: Sigma }, { default: GraphologyGraph }] = await Promise.all([
     import("sigma"),
@@ -142,39 +135,6 @@ export async function sigmaGlobalRendererRuntimeBoundary(): Promise<SigmaGlobalR
   return {
     Sigma,
     GraphologyGraph
-  };
-}
-
-export function createSigmaGlobalHitProjector(input: SigmaGlobalHitProjectorInput): SigmaGlobalHitProjector {
-  const knownNodeIds = new Set(input.adapterData.nodes.map((node) => node.id));
-  const spatialIndex = createGraphSpatialIndex(spatialInputFromAdapterData(input.adapterData));
-
-  return {
-    targetFromSigmaHit(hit) {
-      if (hit.nodeId && knownNodeIds.has(hit.nodeId)) {
-        return { kind: "node", id: hit.nodeId };
-      }
-
-      const renderedObjectTarget = hit.renderedObject ? gestureTargetFromSigmaRenderedObject(hit.renderedObject, input.adapterData) : null;
-      if (renderedObjectTarget) return renderedObjectTarget;
-
-      if (hit.screenPoint) {
-        const worldPoint = input.screenPointToWorldPoint
-          ? input.screenPointToWorldPoint(hit.screenPoint)
-          : screenPointToWorldPoint(
-              hit.screenPoint,
-              input.viewport,
-              input.viewportSize,
-              input.adapterData.renderable.worldBounds
-            );
-        return graphSpatialHitToGestureTarget(spatialIndex.hitTest(worldPoint));
-      }
-
-      return { kind: "graph-blank" };
-    },
-    index() {
-      return spatialIndex;
-    }
   };
 }
 
@@ -1069,48 +1029,6 @@ function sigmaCommunitySpotlightCenter(
 
 function prefersReducedMotion(view: Window | null | undefined): boolean {
   return Boolean(view?.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
-}
-
-function sigmaNodeIdFromPayload(payload: unknown): string | null {
-  const candidate = payload as { node?: unknown } | null;
-  return typeof candidate?.node === "string" ? candidate.node : null;
-}
-
-function sigmaScreenPointFromPayload(payload: unknown): GraphScreenPoint | null {
-  const candidate = payload as { event?: { x?: unknown; y?: unknown }; x?: unknown; y?: unknown } | null;
-  const x = candidate?.event?.x ?? candidate?.x;
-  const y = candidate?.event?.y ?? candidate?.y;
-  return typeof x === "number" && typeof y === "number" ? { x, y } : null;
-}
-
-function spatialInputFromAdapterData(adapterData: GraphRendererAdapterData): GraphSpatialIndexInput {
-  const renderableEdgeById = new Map(adapterData.renderable.edges.map((edge) => [edge.id, edge]));
-  return {
-    nodes: adapterData.nodes.map((node) => ({
-      id: node.id,
-      label: node.label,
-      type: node.type,
-      point: node.point,
-      displayMode: node.render.displayMode,
-      visualRole: node.render.visualRole
-    })),
-    edges: adapterData.edges.map((edge) => ({
-      id: edge.id,
-      source: edge.sourceNodeId,
-      target: edge.targetNodeId,
-      curveOffset: renderableEdgeById.get(edge.id)?.curveOffset ?? 0
-    })),
-    communities: adapterData.renderable.communities.map((community) => ({
-      id: community.id,
-      wash: community.wash
-    })),
-    aggregationContainers: adapterData.renderable.aggregationContainers.map((aggregation) => ({
-      id: aggregation.id,
-      communityId: aggregation.communityId,
-      point: aggregation.point,
-      radius: aggregation.radius
-    }))
-  };
 }
 
 function sigmaOverlayNodes(adapterData: GraphRendererAdapterData): GraphRendererAdapterNode[] {
