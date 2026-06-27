@@ -951,6 +951,13 @@ async function measureZoomControls(page: PageLike, metadata: LargeGraphFixtureMe
   await waitForAnchorStable(page);
   const rect4 = (await page.evaluate(() => (window as any).__sigmaProduction.zoomAnchorRect())) as { x: number; y: number } | null;
 
+  // 注：这里 deliberately 不测"滚轮停止后是否还在追动画（积压/卡顿）"。
+  // dispatchSigmaWheel 是合成 wheel 事件，密集 dispatch（每次跨进程 IPC）时 overlay
+  // 的 reposition 会跨帧追赶相机状态，实测会产生 60-80px 的"追赶位移"伪影，与真实
+  // 触控板的连续缩放手感无关，无法可靠反映设计 §5 的"不积压动画"。真实触控板的
+  // 手感以实机为准（wheel 已改为即时 setState）。上方 smallMove<largeMove 已覆盖
+  // "按真实 deltaY 连续缩放、不跳档"这一可自动化验证的语义。
+
   await page.evaluate(() => {
     const engine = (window as any).__sigmaProduction?.engine;
     if (engine?.resetView) engine.resetView();
