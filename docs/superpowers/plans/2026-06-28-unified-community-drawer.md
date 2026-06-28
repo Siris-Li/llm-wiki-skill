@@ -18,6 +18,8 @@
 - Search hits, fixed nodes, and bridge relations no longer appear as large empty first-screen sections.
 - Single-node summaries show a clear “+邻居” command.
 - Sigma global Shift+click adds or removes nodes from a multi-selection.
+- `未分组` is clickable, selectable, highlighted, and present in legend/adapter data through the same `_none` constant.
+- Offline HTML keeps its no-chat selection facts panel working for community, ungrouped, and Shift multi-selection.
 - Unit tests, typecheck, lint, and browser validation cover the behavior.
 - `CHANGELOG.md` and `README.md` describe the user-facing change before push.
 
@@ -26,33 +28,100 @@
 - Spec: `docs/superpowers/specs/2026-06-28-unified-community-drawer-design.md`
 - Visual reference: `docs/superpowers/specs/unified-community-drawer-v3-reference.png`
 
+## Review-Locked Decisions
+
+These decisions were confirmed during `/plan-eng-review` and are mandatory for implementation:
+
+1. Keep the full scope in this branch: community drawer, `_none`, `+邻居`, and Sigma Shift multi-select.
+2. Community drawers and multi-node selection drawers must share one group-drawer skeleton. Do not rebuild two separate drawer structures.
+3. `_none` is a real virtual community in summary, selection, prompt formatting, and tests. Do not hardcode `_none` in the workbench when the engine exports the constant.
+4. Community summary facts must reuse `SelectionFacts`. The drawer may label `internalLinkCount` as “链接”, but it must not maintain a second facts algorithm.
+5. Closing a community drawer must clear the graph selection/highlight, just like closing the selection drawer.
+6. `+邻居` must update every command-order and UI-click test it affects, not only one summary contract test.
+7. Offline HTML and Sigma production performance regressions are part of final acceptance because `@llm-wiki/graph-engine` is shared by the workbench and generated HTML.
+8. The unified drawer intentionally shows the four fixed group actions for community and multi-node/neighbor selections. Older context-specific actions such as “为什么没联系” or “对比这两块” remain available in engine logic, but they are not first-screen drawer actions in this design.
+9. “链接” in the drawer means `SelectionFacts.internalLinkCount`: direct links where both endpoints are inside the current selected set. “孤立” means no direct link inside the current selected set, not no link in the whole graph.
+10. “发送” requires free text. “新对话” must preserve the old behavior of using the recommended/default action when free text is empty.
+11. Closing with the top-right button and closing with Escape may use different internal command names, but the user-visible result is the same: the drawer closes and graph selection/highlight is cleared for community and selection drawers.
+
 ## File Structure
 
-- Modify `packages/graph-engine/src/types.ts`: add `_none` constants, community summary overview fields, `select-neighbors` command, and action metadata types used by the drawer.
+- Modify `packages/graph-engine/src/types.ts`: add `_none` constants, community summary overview fields backed by `SelectionFacts`, `select-neighbors` command, and action metadata types used by the drawer.
 - Modify `packages/graph-engine/src/summary/index.ts`: make `_none` a real virtual community in summaries and add community overview facts.
 - Modify `packages/graph-engine/src/select/index.ts`: share `_none` mapping and add Shift toggle helper for Sigma.
+- Modify `packages/graph-engine/src/render/model.ts`: normalize ungrouped nodes into `_none` for renderable communities, community washes, focus, and selection highlighting.
+- Modify `packages/graph-engine/src/render/adapter.ts`: normalize community node membership, selected community state, commands, and drawer targets for `_none`.
+- Modify `packages/graph-engine/src/render/legend.ts`: keep the “未分组” legend row and node list consistent with `_none`.
+- Modify `packages/graph-engine/src/render/offline-reader.ts`: label `_none` as “未分组” in the offline selection facts panel and keep it free of workbench chat actions.
 - Modify `packages/graph-engine/src/render/sigma-hit-projector.ts`: extract Shift/additive intent from Sigma events.
 - Modify `packages/graph-engine/src/render/sigma-global-types.ts`: pass additive click context from the Sigma renderer.
 - Modify `packages/graph-engine/src/render/sigma-global-renderer.ts`: include additive context on node hits.
 - Modify `packages/graph-engine/src/facade.ts`: convert additive Sigma node hits into `nodes` selections or selection clear.
-- Create `workbench/web/src/lib/graph-community-drawer.ts`: derive the unified community drawer view model and fixed action list.
+- Create `workbench/web/src/lib/graph-group-drawer.ts`: derive the shared group-drawer skeleton, community view model, selection view model, fixed action list, and action lookup helpers.
 - Modify `workbench/web/src/lib/drawer-state.ts`: store community free text in drawer state.
+- Modify `workbench/web/src/lib/graph-selection.ts`: use engine `_none` constants when formatting selection prompts.
 - Modify `workbench/web/src/lib/graph-summary-actions.ts`: preserve community drawer text and keep `_none` routed to community summary.
-- Modify `workbench/web/src/components/GraphSummaryDrawer.tsx`: replace the heavy community summary with the unified drawer layout and add the node “+邻居” command display.
+- Modify `workbench/web/src/components/GraphGroupDrawer.tsx`: render the shared overview, fixed actions, core/selected nodes, and dialogue area for both community and selection drawers.
+- Modify `workbench/web/src/components/GraphSelection.tsx`: render multi-node and neighbor selections through `GraphGroupDrawer` instead of the old standalone selection panel.
+- Modify `workbench/web/src/components/GraphSummaryDrawer.tsx`: replace the heavy community summary with `GraphGroupDrawer` and add the node “+邻居” command display.
 - Modify `workbench/web/src/components/RightDrawer.tsx`: pass community dialogue handlers and render the new community props.
-- Modify `workbench/web/src/App.tsx`: wire community free text, community asks, `select-neighbors`, and Shift selection state refresh.
+- Modify `workbench/web/src/App.tsx`: wire community free text, community asks, `select-neighbors`, Shift selection state refresh, and close-to-clear behavior for community drawers.
 - Modify `workbench/web/src/index.css`: add unified community drawer styles and remove first-screen emphasis from obsolete community blocks.
 - Modify tests under `packages/graph-engine/test/` and `workbench/web/test/`: lock the new behavior.
 - Modify `CHANGELOG.md` and `README.md`: document the shipped behavior.
 
 ---
 
+### Task 0: Implementation Preflight
+
+**Files:** none
+
+- [ ] **Step 1: Confirm branch and workspace state**
+
+Run:
+
+```bash
+git status --short --branch
+git branch --show-current
+```
+
+Expected: branch is `codex/unified-community-drawer-design`. If implementation starts from `main`, create the branch first:
+
+```bash
+git switch main
+git pull --ff-only
+git switch -c codex/unified-community-drawer-design
+```
+
+Do not start feature code on `main`.
+
+- [ ] **Step 2: Confirm QA fixture coverage**
+
+Before browser QA, prepare or identify one knowledge base / fixture that contains:
+
+- at least one normal community
+- at least two ungrouped nodes
+- one linked ungrouped pair
+- one isolated ungrouped node
+- one node with at least one one-hop neighbor
+- at least two nodes visible in Sigma global view for Shift multi-select
+
+Prefer adding or extending a test fixture under `tests/fixtures/` if the current local knowledge base does not reliably contain all states. Browser QA must name the fixture or KB used in the final implementation report.
+
 ### Task 1: Engine Summary Contract For `_none`
 
 **Files:**
 - Modify: `packages/graph-engine/src/types.ts`
 - Modify: `packages/graph-engine/src/summary/index.ts`
+- Modify: `packages/graph-engine/src/render/model.ts`
+- Modify: `packages/graph-engine/src/render/adapter.ts`
+- Modify: `packages/graph-engine/src/render/legend.ts`
+- Modify: `packages/graph-engine/src/render/offline-reader.ts`
 - Test: `packages/graph-engine/test/summary-contract.test.ts`
+- Test: `packages/graph-engine/test/render-model.test.ts`
+- Test: `packages/graph-engine/test/renderer-adapter-contract.test.ts`
+- Test: `packages/graph-engine/test/legend.test.ts`
+- Test: `tests/browser/graph-html-insights.mjs`
 
 - [ ] **Step 1: Write the failing `_none` community summary test**
 
@@ -70,9 +139,12 @@ it("summarizes the ungrouped virtual community as a community payload", () => {
   assert.equal(summary.communityId, "_none");
   assert.equal(summary.label, "未分组");
   assert.equal(summary.nodeCount, 2);
-  assert.equal(summary.pageCount, 2);
-  assert.equal(summary.linkCount, 0);
-  assert.equal(summary.isolatedCount, 1);
+  assert.deepEqual(summary.facts, {
+    pageCount: 2,
+    internalLinkCount: 0,
+    communityCount: 1,
+    isolatedCount: 2
+  });
   assert.equal(summary.structureState, "ungrouped");
   assert.equal(summary.canEnterCommunity, false);
   assert.equal(summary.description, "这些页面暂未形成明确社区。你可以让 agent 探索它们之间是否存在潜在关系。");
@@ -101,6 +173,43 @@ function graphFixtureWithUngroupedNodes(): GraphData {
 }
 ```
 
+- [ ] **Step 1b: Write the failing `_none` internal-link variant test**
+
+Add a second fixture/assertion so the plan locks both `_none` edge cases:
+
+```ts
+it("counts internal links inside the ungrouped virtual community", () => {
+  const data = graphFixtureWithLinkedUngroupedNodes();
+  const summary = summarizeGraphCommunity(data, "_none", {
+    selection: { kind: "community", id: "_none" }
+  });
+
+  assert.equal(summary.kind, "community-summary");
+  assert.deepEqual(summary.facts, {
+    pageCount: 2,
+    internalLinkCount: 1,
+    communityCount: 1,
+    isolatedCount: 0
+  });
+  assert.equal(summary.structureState, "ungrouped");
+});
+
+function graphFixtureWithLinkedUngroupedNodes(): GraphData {
+  const base = graphFixtureWithUngroupedNodes();
+  return {
+    ...base,
+    meta: {
+      ...base.meta,
+      total_edges: base.meta.total_edges + 1
+    },
+    edges: [
+      ...base.edges,
+      { id: "loose-a-loose-b", from: "loose-a", to: "loose-b", type: "INFERRED", relation_type: "潜在关联", weight: 0.6 }
+    ]
+  };
+}
+```
+
 - [ ] **Step 2: Run the failing summary test**
 
 Run:
@@ -109,7 +218,7 @@ Run:
 node --import tsx --test packages/graph-engine/test/summary-contract.test.ts
 ```
 
-Expected: fail because `GraphCommunitySummaryPayload` does not have `pageCount`, `linkCount`, `isolatedCount`, `structureState`, `description`, `canEnterCommunity`, or `coreNodes`, and `_none` currently returns an unavailable summary.
+Expected: fail because `GraphCommunitySummaryPayload` does not have `facts`, `structureState`, `description`, `canEnterCommunity`, or `coreNodes`, and `_none` currently returns an unavailable summary.
 
 - [ ] **Step 3: Add community summary fields and constants**
 
@@ -176,9 +285,7 @@ export interface GraphCommunitySummaryPayload {
   communityId: CommunityId;
   label: string;
   nodeCount: number;
-  pageCount: number;
-  linkCount: number;
-  isolatedCount: number;
+  facts: SelectionFacts;
   structureState: GraphCommunityStructureState;
   description: string;
   canEnterCommunity: boolean;
@@ -200,6 +307,7 @@ In `packages/graph-engine/src/summary/index.ts`, import the new constants and ty
 
 ```ts
   GraphCommunityCoreNode,
+  SelectionFacts,
   UNGROUPED_COMMUNITY_ID,
   UNGROUPED_COMMUNITY_LABEL,
 ```
@@ -208,9 +316,9 @@ Replace the return body of `summarizeGraphCommunity` with this shape:
 
 ```ts
   const coreIds = coreNodeIds(data, nodes);
-  const internalLinkCount = internalLinkCountForNodes(data, nodeIds);
-  const isolatedCount = isolatedNodeCount(index, nodes);
-  const structureState = communityStructureState(communityId, nodes.length, internalLinkCount, isolatedCount);
+  const selection = resolveSelectionForCapabilities(data, { kind: "community", id: communityId }, { canAsk: false });
+  const facts = selection.facts;
+  const structureState = communityStructureState(communityId, facts.pageCount, facts.internalLinkCount, facts.isolatedCount);
   const canEnterCommunity = communityId !== UNGROUPED_COMMUNITY_ID && Boolean(community);
   return {
     kind: "community-summary",
@@ -218,9 +326,7 @@ Replace the return body of `summarizeGraphCommunity` with this shape:
     communityId,
     label: communityLabel(community?.label, communityId),
     nodeCount: Number(community?.node_count ?? nodes.length),
-    pageCount: nodes.length,
-    linkCount: internalLinkCount,
-    isolatedCount,
+    facts,
     structureState,
     description: communityDescription(structureState),
     canEnterCommunity,
@@ -280,18 +386,6 @@ function coreNodeSummaries(data: GraphData, ids: NodeId[]): GraphCommunityCoreNo
     }];
   });
 }
-
-function internalLinkCountForNodes(data: GraphData, nodeIds: Set<NodeId>): number {
-  return data.edges.filter((edge) => {
-    const from = endpointId(edge.from);
-    const to = endpointId(edge.to);
-    return Boolean(from && to && nodeIds.has(from) && nodeIds.has(to));
-  }).length;
-}
-
-function isolatedNodeCount(index: SummaryIndex, nodes: GraphNode[]): number {
-  return nodes.filter((node) => (index.edgesByNodeId.get(node.id)?.length ?? 0) === 0).length;
-}
 ```
 
 Replace `nodesForCommunity`:
@@ -327,12 +421,77 @@ node --import tsx --test packages/graph-engine/test/summary-contract.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Commit the engine summary contract**
+- [ ] **Step 6: Write failing render/adapter tests for `_none`**
+
+Add render model and adapter contract coverage:
+
+```ts
+it("normalizes ungrouped nodes into a selectable render community", () => {
+  const graph = buildRenderableGraph(graphFixtureWithUngroupedNodes(), {
+    selection: { kind: "community", id: UNGROUPED_COMMUNITY_ID }
+  });
+
+  const ungrouped = graph.communities.find((community) => community.id === UNGROUPED_COMMUNITY_ID);
+  assert.equal(ungrouped?.label, UNGROUPED_COMMUNITY_LABEL);
+  assert.ok(ungrouped?.wash, "ungrouped community should be clickable when its nodes are visible");
+  assert.deepEqual(
+    graph.nodes.filter((node) => node.community === UNGROUPED_COMMUNITY_ID && node.selected).map((node) => node.id),
+    ["loose-a", "loose-b"]
+  );
+});
+
+it("exposes ungrouped adapter community node ids and drawer target", () => {
+  const adapter = buildGraphRendererAdapterData(graphFixtureWithUngroupedNodes(), {
+    selection: { kind: "community", id: UNGROUPED_COMMUNITY_ID }
+  });
+  const ungrouped = adapter.communities.find((community) => community.id === UNGROUPED_COMMUNITY_ID);
+
+  assert.deepEqual(ungrouped?.nodeIds, ["loose-a", "loose-b"]);
+  assert.equal(ungrouped?.selected, true);
+  assert.deepEqual(ungrouped?.drawerTarget, {
+    summaryKind: "community-summary",
+    object: { kind: "community", communityId: UNGROUPED_COMMUNITY_ID }
+  });
+});
+```
+
+Add or update a legend test:
+
+```ts
+assert.equal(rows.find((row) => row.id === UNGROUPED_COMMUNITY_ID)?.label, UNGROUPED_COMMUNITY_LABEL);
+```
+
+Expected: fail until render model, adapter, and legend all use the same `_none` normalization as summary/select.
+
+- [ ] **Step 7: Normalize `_none` through render model, adapter, and legend**
+
+Use the exported constants from `packages/graph-engine/src/types.ts`.
+
+Implementation requirements:
+
+- `buildRenderableGraph()` must treat nodes with `community == null` or empty community as `UNGROUPED_COMMUNITY_ID` when building renderable nodes, community washes, focus counts, and selected node ids.
+- `evaluateCommunityQuality()` and community counts should include `_none` when ungrouped nodes exist, but the quality heuristics must not turn `_none` into a weak-label warning by itself.
+- `buildGraphRendererAdapterData()` must compute community `nodeIds`, `selected`, `searchResultIds`, and `pinHints` through normalized community ids, not raw `node.community === community.id`.
+- `buildCommunityLegend()` must list `_none` as “未分组” and map the ungrouped row to the normalized node ids.
+- `renderOfflineSelectionPanel()` must display `社区选区 · N 页` for `_none` selections and can optionally show the title `未分组 · N 页`; it must not show workbench-only ask actions.
+
+- [ ] **Step 8: Run render/adapter/offline `_none` tests**
 
 Run:
 
 ```bash
-git add packages/graph-engine/src/types.ts packages/graph-engine/src/summary/index.ts packages/graph-engine/test/summary-contract.test.ts
+node --import tsx --test packages/graph-engine/test/summary-contract.test.ts packages/graph-engine/test/render-model.test.ts packages/graph-engine/test/renderer-adapter-contract.test.ts packages/graph-engine/test/legend.test.ts
+tests/graph-html-insights.regression-1.sh
+```
+
+Expected: pass.
+
+- [ ] **Step 9: Commit the engine summary and render contract**
+
+Run:
+
+```bash
+git add packages/graph-engine/src/types.ts packages/graph-engine/src/summary/index.ts packages/graph-engine/src/select/index.ts packages/graph-engine/src/render/model.ts packages/graph-engine/src/render/adapter.ts packages/graph-engine/src/render/legend.ts packages/graph-engine/src/render/offline-reader.ts packages/graph-engine/test/summary-contract.test.ts packages/graph-engine/test/render-model.test.ts packages/graph-engine/test/renderer-adapter-contract.test.ts packages/graph-engine/test/legend.test.ts tests/browser/graph-html-insights.mjs
 git commit -m "fix: summarize ungrouped graph community"
 ```
 
@@ -340,24 +499,28 @@ Expected: commit succeeds.
 
 ---
 
-### Task 2: Community Drawer View Model
+### Task 2: Shared Group Drawer View Model
 
 **Files:**
-- Create: `workbench/web/src/lib/graph-community-drawer.ts`
-- Test: `workbench/web/test/graph-community-drawer.test.ts`
+- Create: `workbench/web/src/lib/graph-group-drawer.ts`
+- Test: `workbench/web/test/graph-group-drawer.test.ts`
 
 - [ ] **Step 1: Write failing view-model tests**
 
-Create `workbench/web/test/graph-community-drawer.test.ts`:
+Create `workbench/web/test/graph-group-drawer.test.ts`:
 
 ```ts
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { graphCommunityDrawerViewModel, communityDrawerActionById } from "../src/lib/graph-community-drawer";
-import type { GraphCommunitySummaryPayload } from "@llm-wiki/graph-engine";
+import {
+  graphCommunityDrawerViewModel,
+  graphSelectionGroupDrawerViewModel,
+  groupDrawerActionById,
+} from "../src/lib/graph-group-drawer";
+import type { GraphCommunitySummaryPayload, Selection } from "@llm-wiki/graph-engine";
 
-describe("graph community drawer view model", () => {
+describe("graph group drawer view model", () => {
   it("keeps normal community actions stable and enter-community available", () => {
     const view = graphCommunityDrawerViewModel(summaryFixture());
 
@@ -388,8 +551,7 @@ describe("graph community drawer view model", () => {
       label: "未分组",
       structureState: "ungrouped",
       canEnterCommunity: false,
-      linkCount: 0,
-      isolatedCount: 2
+      facts: { pageCount: 2, internalLinkCount: 0, communityCount: 1, isolatedCount: 2 },
     }));
 
     assert.equal(view.canEnterCommunity, false);
@@ -398,10 +560,31 @@ describe("graph community drawer view model", () => {
     assert.equal(view.tags.includes("暂未成组"), true);
   });
 
+  it("uses the same skeleton for manual multi-node selections", () => {
+    const view = graphSelectionGroupDrawerViewModel("选区", selectionFixture());
+
+    assert.equal(view.kicker, "选区");
+    assert.equal(view.title, "选区");
+    assert.equal(view.canEnterCommunity, false);
+    assert.equal(view.recommendedActionId, "explore_potential_links");
+    assert.deepEqual(view.facts, [
+      { label: "页", value: 3 },
+      { label: "链接", value: 0 },
+      { label: "社区", value: 2 },
+      { label: "孤立", value: 1 }
+    ]);
+    assert.deepEqual(view.actions.map((action) => action.label), [
+      "总结这一簇",
+      "找知识缺口",
+      "生成主题页",
+      "探索潜在关系"
+    ]);
+  });
+
   it("finds fixed actions by id for prompt dispatch", () => {
-    assert.equal(communityDrawerActionById("find_knowledge_gaps")?.label, "找知识缺口");
-    assert.equal(communityDrawerActionById("missing"), null);
-    assert.equal(communityDrawerActionById(null), null);
+    assert.equal(groupDrawerActionById("find_knowledge_gaps")?.label, "找知识缺口");
+    assert.equal(groupDrawerActionById("missing"), null);
+    assert.equal(groupDrawerActionById(null), null);
   });
 });
 
@@ -412,9 +595,7 @@ function summaryFixture(overrides: Partial<GraphCommunitySummaryPayload> = {}): 
     communityId: "build",
     label: "Knowledge Build",
     nodeCount: 6,
-    pageCount: 6,
-    linkCount: 5,
-    isolatedCount: 0,
+    facts: { pageCount: 6, internalLinkCount: 5, communityCount: 1, isolatedCount: 0 },
     structureState: "clear",
     description: "这组页面围绕同一主题聚在一起。你可以先看结构，也可以直接让 agent 基于这一组页面继续工作。",
     canEnterCommunity: true,
@@ -440,6 +621,17 @@ function summaryFixture(overrides: Partial<GraphCommunitySummaryPayload> = {}): 
     ...overrides
   };
 }
+
+function selectionFixture(overrides: Partial<Selection> = {}): Selection {
+  return {
+    id: "nodes:a,b,c",
+    nodeIds: ["a", "b", "c"],
+    communityIds: ["alpha", "beta"],
+    facts: { pageCount: 3, internalLinkCount: 0, communityCount: 2, isolatedCount: 1 },
+    actions: [{ id: "explore_potential_links", label: "探索潜在关系", tone: "bridge" }],
+    ...overrides
+  };
+}
 ```
 
 - [ ] **Step 2: Run the failing view-model test**
@@ -447,52 +639,59 @@ function summaryFixture(overrides: Partial<GraphCommunitySummaryPayload> = {}): 
 Run:
 
 ```bash
-node --import tsx --test workbench/web/test/graph-community-drawer.test.ts
+node --import tsx --test workbench/web/test/graph-group-drawer.test.ts
 ```
 
-Expected: fail because `workbench/web/src/lib/graph-community-drawer.ts` does not exist.
+Expected: fail because `workbench/web/src/lib/graph-group-drawer.ts` does not exist.
 
-- [ ] **Step 3: Create the community drawer view model**
+- [ ] **Step 3: Create the shared group drawer view model**
 
-Create `workbench/web/src/lib/graph-community-drawer.ts`:
+Create `workbench/web/src/lib/graph-group-drawer.ts`:
 
 ```ts
 import type {
   GraphCommunitySummaryPayload,
+  Selection,
   SelectionAction,
   SelectionActionId,
   SelectionActionTone
 } from "@llm-wiki/graph-engine";
 
-export interface GraphCommunityDrawerFact {
+export interface GraphGroupDrawerFact {
   label: string;
   value: number;
 }
 
-export interface GraphCommunityDrawerAction extends SelectionAction {
+export interface GraphGroupDrawerAction extends SelectionAction {
   recommended: boolean;
 }
 
-export interface GraphCommunityDrawerViewModel {
+export interface GraphGroupDrawerNode {
+  nodeId: string;
+  label: string;
+  role: string;
+}
+
+export interface GraphGroupDrawerViewModel {
   kicker: string;
   title: string;
   description: string;
   canEnterCommunity: boolean;
   recommendedActionId: SelectionActionId;
-  facts: GraphCommunityDrawerFact[];
+  facts: GraphGroupDrawerFact[];
   tags: string[];
-  actions: GraphCommunityDrawerAction[];
-  coreNodes: GraphCommunitySummaryPayload["coreNodes"];
+  actions: GraphGroupDrawerAction[];
+  nodes: GraphGroupDrawerNode[];
 }
 
-const FIXED_COMMUNITY_ACTIONS: Array<SelectionAction & { id: SelectionActionId; tone: SelectionActionTone }> = [
+const FIXED_GROUP_ACTIONS: Array<SelectionAction & { id: SelectionActionId; tone: SelectionActionTone }> = [
   { id: "summarize_cluster", label: "总结这一簇", tone: "digest" },
   { id: "find_knowledge_gaps", label: "找知识缺口", tone: "lint" },
   { id: "create_topic_page", label: "生成主题页", tone: "write" },
   { id: "explore_potential_links", label: "探索潜在关系", tone: "bridge" }
 ];
 
-export function graphCommunityDrawerViewModel(payload: GraphCommunitySummaryPayload): GraphCommunityDrawerViewModel {
+export function graphCommunityDrawerViewModel(payload: GraphCommunitySummaryPayload): GraphGroupDrawerViewModel {
   const recommendedActionId = recommendedActionForCommunity(payload);
   return {
     kicker: "社区",
@@ -501,28 +700,65 @@ export function graphCommunityDrawerViewModel(payload: GraphCommunitySummaryPayl
     canEnterCommunity: payload.canEnterCommunity,
     recommendedActionId,
     facts: [
-      { label: "页", value: payload.pageCount },
-      { label: "链接", value: payload.linkCount },
+      { label: "页", value: payload.facts.pageCount },
+      { label: "链接", value: payload.facts.internalLinkCount },
       { label: "核心", value: payload.coreNodeIds.length },
-      { label: "孤立", value: payload.isolatedCount }
+      { label: "孤立", value: payload.facts.isolatedCount }
     ],
     tags: communityTags(payload),
-    actions: FIXED_COMMUNITY_ACTIONS.map((action) => ({
+    actions: FIXED_GROUP_ACTIONS.map((action) => ({
       ...action,
       recommended: action.id === recommendedActionId
     })),
-    coreNodes: payload.coreNodes.slice(0, 3)
+    nodes: payload.coreNodes.slice(0, 3).map((node) => ({
+      nodeId: node.nodeId,
+      label: node.label,
+      role: node.role
+    }))
   };
 }
 
-export function communityDrawerActionById(id: string | null): SelectionAction | null {
+export function graphSelectionGroupDrawerViewModel(title: string, selection: Selection): GraphGroupDrawerViewModel {
+  const recommendedActionId = recommendedActionForSelection(selection);
+  return {
+    kicker: "选区",
+    title,
+    description: "这些页面来自当前图谱选区。你可以直接让 agent 基于这组页面继续工作。",
+    canEnterCommunity: false,
+    recommendedActionId,
+    facts: [
+      { label: "页", value: selection.facts.pageCount },
+      { label: "链接", value: selection.facts.internalLinkCount },
+      { label: "社区", value: selection.facts.communityCount },
+      { label: "孤立", value: selection.facts.isolatedCount }
+    ],
+    tags: ["Shift+点击增删节点"],
+    actions: FIXED_GROUP_ACTIONS.map((action) => ({
+      ...action,
+      recommended: action.id === recommendedActionId
+    })),
+    nodes: selection.nodeIds.slice(0, 3).map((nodeId) => ({
+      nodeId,
+      label: nodeId,
+      role: "已选"
+    }))
+  };
+}
+
+export function groupDrawerActionById(id: string | null): SelectionAction | null {
   if (!id) return null;
-  return FIXED_COMMUNITY_ACTIONS.find((action) => action.id === id) ?? null;
+  return FIXED_GROUP_ACTIONS.find((action) => action.id === id) ?? null;
 }
 
 function recommendedActionForCommunity(payload: GraphCommunitySummaryPayload): SelectionActionId {
   if (payload.structureState === "ungrouped") return "explore_potential_links";
   if (payload.structureState === "loose") return "find_knowledge_gaps";
+  return "summarize_cluster";
+}
+
+function recommendedActionForSelection(selection: Selection): SelectionActionId {
+  if (selection.facts.internalLinkCount === 0) return "explore_potential_links";
+  if (selection.facts.communityCount > 1) return "explore_potential_links";
   return "summarize_cluster";
 }
 
@@ -545,7 +781,7 @@ function structureLabel(state: GraphCommunitySummaryPayload["structureState"]): 
 Run:
 
 ```bash
-node --import tsx --test workbench/web/test/graph-community-drawer.test.ts
+node --import tsx --test workbench/web/test/graph-group-drawer.test.ts
 ```
 
 Expected: pass.
@@ -555,8 +791,8 @@ Expected: pass.
 Run:
 
 ```bash
-git add workbench/web/src/lib/graph-community-drawer.ts workbench/web/test/graph-community-drawer.test.ts
-git commit -m "feat: add unified community drawer model"
+git add workbench/web/src/lib/graph-group-drawer.ts workbench/web/test/graph-group-drawer.test.ts
+git commit -m "feat: add unified graph group drawer model"
 ```
 
 Expected: commit succeeds.
@@ -567,9 +803,13 @@ Expected: commit succeeds.
 
 **Files:**
 - Modify: `workbench/web/src/lib/drawer-state.ts`
+- Modify: `workbench/web/src/lib/graph-selection.ts`
 - Modify: `workbench/web/src/lib/graph-summary-actions.ts`
+- Modify: `workbench/web/src/lib/graph-drawer-close.ts`
 - Modify: `workbench/web/src/App.tsx`
 - Test: `workbench/web/test/graph-summary-actions.test.ts`
+- Test: `workbench/web/test/graph-selection.test.ts`
+- Test: `workbench/web/test/graph-drawer-close.test.ts`
 
 - [ ] **Step 1: Write failing routing and preservation tests**
 
@@ -625,15 +865,64 @@ function graphFixtureWithUngroupedNodes(): GraphData {
 }
 ```
 
+- [ ] **Step 1b: Write failing ungrouped prompt formatting test**
+
+Add this test to `workbench/web/test/graph-selection.test.ts`:
+
+```ts
+it("uses the shared ungrouped community label when formatting selection prompts", () => {
+  const data = fixtureGraph();
+  data.nodes = [
+    { id: "loose-a", label: "Loose A", type: "topic", community: null, source_path: "wiki/loose/a.md" },
+    { id: "loose-b", label: "Loose B", type: "entity", source_path: "wiki/loose/b.md" }
+  ];
+  data.edges = [];
+  data.learning = {
+    ...data.learning!,
+    communities: []
+  };
+
+  const selection = resolveSelection(data, { kind: "community", id: UNGROUPED_COMMUNITY_ID });
+  const payload = buildSelectionPromptPayload(data, selection, null);
+
+  assert.match(payload.displayText, /@\[选区:未分组 · 2页\]/);
+  assert.match(payload.expandedText, /Loose A - 社区 未分组/);
+  assert.doesNotMatch(payload.expandedText, /社区 _none/);
+});
+```
+
+- [ ] **Step 1c: Write failing community close behavior test**
+
+Create `workbench/web/test/graph-drawer-close.test.ts`:
+
+```ts
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+
+import { graphCommunitySummaryDrawer, graphNodeSummaryDrawer, graphSelectionDrawer } from "../src/lib/drawer-state";
+import { graphCloseCommandForDrawer } from "../src/lib/graph-drawer-close";
+
+describe("graph drawer close behavior", () => {
+  it("clears graph selection when closing community and selection drawers", () => {
+    assert.deepEqual(graphCloseCommandForDrawer(graphCommunitySummaryDrawer(communitySummaryFixture()), "button")?.type, "clear-selection");
+    assert.deepEqual(graphCloseCommandForDrawer(graphSelectionDrawer(selectionFixture(), "选区"), "escape")?.type, "clear");
+  });
+
+  it("does not clear graph selection when closing a node summary drawer", () => {
+    assert.equal(graphCloseCommandForDrawer(graphNodeSummaryDrawer(nodeSummaryFixture()), "button"), null);
+  });
+});
+```
+
 - [ ] **Step 2: Run the failing routing tests**
 
 Run:
 
 ```bash
-node --import tsx --test workbench/web/test/graph-summary-actions.test.ts
+node --import tsx --test workbench/web/test/graph-summary-actions.test.ts workbench/web/test/graph-selection.test.ts workbench/web/test/graph-drawer-close.test.ts
 ```
 
-Expected: fail because `graph-community-summary` does not store `freeText`, and `_none` still falls back without Task 1 code.
+Expected: fail because `graph-community-summary` does not store `freeText`, `_none` still falls back without Task 1 code, prompt formatting still hardcodes `_none`, and close behavior is not extracted yet.
 
 - [ ] **Step 3: Store community free text in drawer state**
 
@@ -681,7 +970,60 @@ if (summary.kind === "community-summary") {
 }
 ```
 
-- [ ] **Step 5: Wire community dialogue handlers in `App.tsx`**
+- [ ] **Step 5: Use shared `_none` constants in prompt formatting**
+
+In `workbench/web/src/lib/graph-selection.ts`, import constants from the engine:
+
+```ts
+import {
+  UNGROUPED_COMMUNITY_ID,
+  UNGROUPED_COMMUNITY_LABEL,
+  wikiPathForGraphNode,
+  type GraphData,
+  type Selection,
+  type SelectionAction
+} from "@llm-wiki/graph-engine";
+```
+
+Update `selectionTitle()` and `selectionNodes()`:
+
+```ts
+export function selectionTitle(data: GraphData, selection: Selection): string {
+  if (selection.communityIds.length === 1) {
+    if (selection.communityIds[0] === UNGROUPED_COMMUNITY_ID) return UNGROUPED_COMMUNITY_LABEL;
+    const community = data.learning?.communities?.find((item) => String(item.id) === selection.communityIds[0]);
+    if (community?.label) return community.label;
+  }
+  const firstNode = data.nodes.find((node) => selection.nodeIds.includes(node.id));
+  return firstNode?.label || selection.nodeIds[0] || "图谱";
+}
+```
+
+```ts
+community: node.community ? String(node.community) : UNGROUPED_COMMUNITY_LABEL
+```
+
+- [ ] **Step 6: Extract close-to-clear helper**
+
+Create `workbench/web/src/lib/graph-drawer-close.ts`:
+
+```ts
+import type { DrawerState } from "./drawer-state";
+import type { GraphSelectionCommand } from "./graph-summary-actions";
+
+export function graphCloseCommandForDrawer(
+  drawer: DrawerState,
+  reason: "button" | "escape"
+): Extract<GraphSelectionCommand, { type: "clear" | "clear-selection" }> | null {
+  if (drawer.mode !== "graph-reader" && drawer.mode !== "graph-selection" && drawer.mode !== "graph-community-summary") return null;
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    type: reason === "button" ? "clear-selection" : "clear"
+  };
+}
+```
+
+- [ ] **Step 7: Wire community dialogue handlers in `App.tsx`**
 
 Import `graphCommunitySummaryDrawer` and the new action resolver:
 
@@ -696,7 +1038,8 @@ import {
   shouldApplyGraphReaderResult,
   wikiDrawer,
 } from "@/lib/drawer-state";
-import { communityDrawerActionById } from "@/lib/graph-community-drawer";
+import { graphCloseCommandForDrawer } from "@/lib/graph-drawer-close";
+import { groupDrawerActionById } from "@/lib/graph-group-drawer";
 ```
 
 Add handlers next to the existing graph selection handlers:
@@ -713,7 +1056,7 @@ const handleGraphCommunityTextChange = useCallback((value: string) => {
 const handleGraphCommunityAsk = (actionId: string | null, newConversation: boolean) => {
   if (!graphData || drawer.mode !== "graph-community-summary") return;
   const selection = resolveSelection(graphData, { kind: "community", id: drawer.payload.communityId });
-  const action = communityDrawerActionById(actionId);
+  const action = groupDrawerActionById(actionId);
   const payload = buildSelectionPromptPayload(graphData, selection, action, drawer.freeText);
   void handleAskSelection({
     message: payload.expandedText,
@@ -723,6 +1066,21 @@ const handleGraphCommunityAsk = (actionId: string | null, newConversation: boole
   setDrawer(closedDrawer());
   setSelectionCommand({ id: Math.random().toString(36).slice(2, 10), type: "clear" });
 };
+```
+
+Update `handleCloseDrawer`:
+
+```ts
+const handleCloseDrawer = useCallback((reason: "button" | "escape") => {
+  setDrawer((current) => {
+    const clearCommand = graphCloseCommandForDrawer(current, reason);
+    if (clearCommand) {
+      setSelectionCommand(clearCommand);
+      setGraphFocusPath(null);
+    }
+    return closedDrawer();
+  });
+}, []);
 ```
 
 Pass the handlers into `RightDrawer`:
@@ -751,22 +1109,22 @@ Pass the handlers into `RightDrawer`:
 />
 ```
 
-- [ ] **Step 6: Run the routing tests**
+- [ ] **Step 8: Run the routing tests**
 
 Run:
 
 ```bash
-node --import tsx --test workbench/web/test/graph-summary-actions.test.ts
+node --import tsx --test workbench/web/test/graph-summary-actions.test.ts workbench/web/test/graph-selection.test.ts workbench/web/test/graph-drawer-close.test.ts
 ```
 
 Expected: pass.
 
-- [ ] **Step 7: Commit drawer state and prompt flow**
+- [ ] **Step 9: Commit drawer state and prompt flow**
 
 Run:
 
 ```bash
-git add workbench/web/src/lib/drawer-state.ts workbench/web/src/lib/graph-summary-actions.ts workbench/web/src/App.tsx workbench/web/test/graph-summary-actions.test.ts
+git add workbench/web/src/lib/drawer-state.ts workbench/web/src/lib/graph-selection.ts workbench/web/src/lib/graph-summary-actions.ts workbench/web/src/lib/graph-drawer-close.ts workbench/web/src/App.tsx workbench/web/test/graph-summary-actions.test.ts workbench/web/test/graph-selection.test.ts workbench/web/test/graph-drawer-close.test.ts
 git commit -m "feat: route community drawer prompts"
 ```
 
@@ -774,15 +1132,18 @@ Expected: commit succeeds.
 
 ---
 
-### Task 4: Unified Community Drawer UI
+### Task 4: Unified Group Drawer UI
 
 **Files:**
+- Create: `workbench/web/src/components/GraphGroupDrawer.tsx`
+- Modify: `workbench/web/src/components/GraphSelection.tsx`
 - Modify: `workbench/web/src/components/GraphSummaryDrawer.tsx`
 - Modify: `workbench/web/src/components/RightDrawer.tsx`
 - Modify: `workbench/web/src/index.css`
 - Test: `workbench/web/test/right-drawer-graph-summary.test.tsx`
+- Test: `workbench/web/test/right-drawer-graph-selection.test.tsx`
 
-- [ ] **Step 1: Write failing render tests for the unified drawer**
+- [ ] **Step 1: Write failing render tests for the unified group drawer**
 
 Update the community render test in `workbench/web/test/right-drawer-graph-summary.test.tsx`:
 
@@ -823,12 +1184,30 @@ it("renders ungrouped community without enter-community and recommends relation 
 });
 ```
 
+Create `workbench/web/test/right-drawer-graph-selection.test.tsx`:
+
+```ts
+it("renders multi-node selections through the same group drawer skeleton", () => {
+  const html = renderDrawer(graphSelectionDrawer(selectionFixture(), "选区"));
+
+  assert.match(html, /data-testid="graph-selection-drawer"/);
+  assert.match(html, /选区/);
+  assert.match(html, /总结这一簇/);
+  assert.match(html, /找知识缺口/);
+  assert.match(html, /生成主题页/);
+  assert.match(html, /探索潜在关系/);
+  assert.match(html, /补充说明（可选）/);
+  assert.match(html, /发送/);
+  assert.match(html, /新对话/);
+  assert.match(html, /data-group-drawer="true"/);
+  assert.doesNotMatch(html, /graph-selection-actions/);
+});
+```
+
 Update `communitySummaryFixture()` so it includes the fields from Task 1:
 
 ```ts
-pageCount: 12,
-linkCount: 8,
-isolatedCount: 1,
+facts: { pageCount: 12, internalLinkCount: 8, communityCount: 1, isolatedCount: 1 },
 structureState: "clear",
 description: "这组页面围绕同一主题聚在一起。你可以先看结构，也可以直接让 agent 基于这一组页面继续工作。",
 canEnterCommunity: true,
@@ -848,7 +1227,7 @@ Run:
 node --import tsx --test workbench/web/test/right-drawer-graph-summary.test.tsx
 ```
 
-Expected: fail because the community drawer still renders the old heavy summary.
+Expected: fail because the community drawer still renders the old heavy summary and `GraphSelection` still renders the old standalone selection panel.
 
 - [ ] **Step 3: Update `RightDrawer` props and community render call**
 
@@ -890,13 +1269,58 @@ onGraphCommunityTextChange: noopString,
 onGraphCommunityAsk: noopSelectionAsk,
 ```
 
-- [ ] **Step 4: Replace the community summary component**
+- [ ] **Step 4: Create `GraphGroupDrawer` and replace both community and selection renderers**
+
+Create `workbench/web/src/components/GraphGroupDrawer.tsx`. It must own the shared skeleton:
+
+```tsx
+interface GraphGroupDrawerProps {
+  testId: "graph-community-summary" | "graph-selection-drawer";
+  view: GraphGroupDrawerViewModel;
+  freeText: string;
+  enterCommand?: GraphSummaryCommand | null;
+  nodeSectionTitle: string;
+  onFreeTextChange: (value: string) => void;
+  onAsk: (action: SelectionAction | null) => void;
+  onAskInNewConversation: (action: SelectionAction | null) => void;
+  onCommand?: (command: GraphSummaryCommand) => void;
+  onShowNodeSummary?: (nodeId: string) => void;
+  onPreviewNode?: (nodeId: string | null) => void;
+}
+```
+
+Implementation requirements:
+
+- Render `<article className="graph-group-drawer" data-group-drawer="true" data-testid={testId}>`.
+- Top overview renders kicker, title, description, facts, tags, and optional top-right “进入社区”.
+- Fixed action grid always renders the four group actions from the view model, preserving button order.
+- Node list renders `view.nodes` with optional preview/select callbacks. Use “核心节点” for community and “选中页面” for selection.
+- Dialogue area renders the same textarea, “发送”, and “新对话” controls for both community and selection.
+- “发送” stays disabled until free text exists. Fixed action buttons can always dispatch their action.
+
+Update `workbench/web/src/components/GraphSelection.tsx`:
+
+```tsx
+const view = graphSelectionGroupDrawerViewModel(title, selection);
+return (
+  <GraphGroupDrawer
+    testId="graph-selection-drawer"
+    view={view}
+    freeText={freeText}
+    nodeSectionTitle="选中页面"
+    onFreeTextChange={onFreeTextChange}
+    onAsk={onAsk}
+    onAskInNewConversation={onAskInNewConversation}
+  />
+);
+```
+
+The old selection-specific action row and `+邻居` button must be removed from `GraphSelection`; `+邻居` now lives in single-node summaries via `select-neighbors`.
 
 In `workbench/web/src/components/GraphSummaryDrawer.tsx`, update imports:
 
 ```ts
 import React, { useState } from "react";
-import { ArrowRight, MessageSquarePlus, Send } from "lucide-react";
 import type {
   GraphCommunitySummaryPayload,
   GraphExcludedObjectPayload,
@@ -907,7 +1331,8 @@ import type {
   GraphUnavailableObjectPayload,
   SelectionAction,
 } from "@llm-wiki/graph-engine";
-import { graphCommunityDrawerViewModel, type GraphCommunityDrawerAction } from "../lib/graph-community-drawer";
+import { GraphGroupDrawer } from "./GraphGroupDrawer";
+import { graphCommunityDrawerViewModel } from "../lib/graph-group-drawer";
 ```
 
 Update `CommunitySummaryProps`:
@@ -925,7 +1350,7 @@ interface CommunitySummaryProps {
 }
 ```
 
-Replace `GraphCommunitySummary` with:
+Replace `GraphCommunitySummary` with a thin wrapper:
 
 ```tsx
 export function GraphCommunitySummary({
@@ -938,137 +1363,32 @@ export function GraphCommunitySummary({
   onShowNodeSummary,
   onPreviewNode,
 }: CommunitySummaryProps) {
-  const [coreExpanded, setCoreExpanded] = useState(false);
   const view = graphCommunityDrawerViewModel(payload);
-  const coreNodes = coreExpanded ? payload.coreNodes : view.coreNodes;
   const enterCommand = payload.commands.find((command) => command.kind === "enter-community") ?? null;
-  const canSendFreeText = freeText.trim().length > 0;
-  const defaultAction = view.actions.find((action) => action.recommended) ?? view.actions[0] ?? null;
-
   return (
-    <article className="graph-community-drawer" data-testid="graph-community-summary">
-      <header className="graph-community-overview">
-        <div className="graph-community-overview-main">
-          <div className="graph-summary-kicker">{view.kicker}</div>
-          <h2 className="graph-summary-title">{view.title}</h2>
-          <p className="graph-summary-excerpt">{view.description}</p>
-        </div>
-        {view.canEnterCommunity && enterCommand && (
-          <button type="button" className="graph-community-enter" onClick={() => onCommand(enterCommand)}>
-            进入社区
-            <ArrowRight />
-          </button>
-        )}
-      </header>
-
-      <div className="graph-summary-facts">
-        {view.facts.map((fact) => (
-          <SummaryFact key={fact.label} label={fact.label} value={fact.value} />
-        ))}
-      </div>
-
-      <div className="graph-summary-meta">
-        {view.tags.map((tag) => <span key={tag}>{tag}</span>)}
-      </div>
-
-      <section className="graph-community-action-grid" aria-label="社区动作">
-        {view.actions.map((action) => (
-          <CommunityActionButton key={action.id} action={action} onClick={() => onAsk(action)} />
-        ))}
-      </section>
-
-      <section className="graph-summary-section">
-        <div className="graph-summary-section-header">
-          <h3>核心节点</h3>
-          {payload.coreNodes.length > 3 && (
-            <button
-              type="button"
-              className="graph-summary-inline-action"
-              onClick={() => setCoreExpanded((value) => !value)}
-            >
-              {coreExpanded ? "收起" : "查看全部"}
-            </button>
-          )}
-        </div>
-        {coreNodes.length === 0 ? (
-          <div className="graph-summary-muted">暂无核心节点</div>
-        ) : (
-          <ul className="graph-community-core-list">
-            {coreNodes.map((node) => (
-              <li key={node.nodeId}>
-                <button
-                  type="button"
-                  className="graph-community-core-node"
-                  onMouseEnter={() => onPreviewNode(node.nodeId)}
-                  onMouseLeave={() => onPreviewNode(null)}
-                  onFocus={() => onPreviewNode(node.nodeId)}
-                  onBlur={() => onPreviewNode(null)}
-                  onClick={() => onShowNodeSummary(node.nodeId)}
-                >
-                  <span>{node.label}</span>
-                  <small>{node.role}</small>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="graph-community-dialogue" aria-label="社区对话">
-        <textarea
-          className="graph-selection-textarea"
-          value={freeText}
-          onChange={(event) => onFreeTextChange(event.target.value)}
-          rows={3}
-          placeholder="补充说明（可选）"
-        />
-        <div className="graph-selection-footer">
-          <button
-            type="button"
-            className="graph-selection-send"
-            onClick={() => onAsk(null)}
-            disabled={!canSendFreeText}
-          >
-            <Send />
-            发送
-          </button>
-          <button
-            type="button"
-            className="graph-selection-secondary"
-            onClick={() => onAskInNewConversation(canSendFreeText ? null : defaultAction)}
-            disabled={!canSendFreeText && !defaultAction}
-          >
-            <MessageSquarePlus />
-            新对话
-          </button>
-        </div>
-      </section>
-    </article>
-  );
-}
-
-function CommunityActionButton({ action, onClick }: { action: GraphCommunityDrawerAction; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      className="graph-community-action"
-      data-action-id={action.id}
-      data-recommended={action.recommended ? "true" : "false"}
-      onClick={onClick}
-    >
-      <Send />
-      <span>{action.label}</span>
-    </button>
+    <GraphGroupDrawer
+      testId="graph-community-summary"
+      view={view}
+      freeText={freeText}
+      enterCommand={enterCommand}
+      nodeSectionTitle="核心节点"
+      onFreeTextChange={onFreeTextChange}
+      onAsk={onAsk}
+      onAskInNewConversation={onAskInNewConversation}
+      onCommand={onCommand}
+      onShowNodeSummary={onShowNodeSummary}
+      onPreviewNode={onPreviewNode}
+    />
   );
 }
 ```
 
-- [ ] **Step 5: Add CSS for the unified drawer**
+- [ ] **Step 5: Add CSS for the unified group drawer**
 
 In `workbench/web/src/index.css`, add these styles near the graph summary styles:
 
 ```css
-.graph-community-drawer {
+.graph-group-drawer {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -1079,19 +1399,19 @@ In `workbench/web/src/index.css`, add these styles near the graph summary styles
   padding: 18px;
 }
 
-.graph-community-overview {
+.graph-group-overview {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: start;
 }
 
-.graph-community-overview-main {
+.graph-group-overview-main {
   min-width: 0;
 }
 
-.graph-community-enter,
-.graph-community-action {
+.graph-group-enter,
+.graph-group-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1107,31 +1427,31 @@ In `workbench/web/src/index.css`, add these styles near the graph summary styles
   box-shadow: var(--shadow);
 }
 
-.graph-community-enter svg,
-.graph-community-action svg {
+.graph-group-enter svg,
+.graph-group-action svg {
   width: 15px;
   height: 15px;
   flex: 0 0 auto;
 }
 
-.graph-community-enter:hover,
-.graph-community-action:hover {
+.graph-group-enter:hover,
+.graph-group-action:hover {
   background: rgba(255, 255, 255, 0.92);
   border-color: rgba(94, 72, 48, 0.28);
 }
 
-.graph-community-action-grid {
+.graph-group-action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.graph-community-action[data-recommended="true"] {
+.graph-group-action[data-recommended="true"] {
   border-color: rgba(124, 92, 46, 0.42);
   background: rgba(238, 220, 184, 0.54);
 }
 
-.graph-community-core-list {
+.graph-group-node-list {
   display: grid;
   gap: 7px;
   margin: 0;
@@ -1139,7 +1459,7 @@ In `workbench/web/src/index.css`, add these styles near the graph summary styles
   list-style: none;
 }
 
-.graph-community-core-node {
+.graph-group-node {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
@@ -1153,18 +1473,18 @@ In `workbench/web/src/index.css`, add these styles near the graph summary styles
   text-align: left;
 }
 
-.graph-community-core-node span {
+.graph-group-node span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.graph-community-core-node small {
+.graph-group-node small {
   color: var(--muted-foreground);
   font-size: 12px;
 }
 
-.graph-community-dialogue {
+.graph-group-dialogue {
   display: grid;
   gap: 10px;
 }
@@ -1174,15 +1494,15 @@ Add a compact media query in the existing responsive area:
 
 ```css
 @media (max-width: 720px) {
-  .graph-community-overview {
+  .graph-group-overview {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .graph-community-enter {
+  .graph-group-enter {
     justify-self: start;
   }
 
-  .graph-community-action-grid {
+  .graph-group-action-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -1193,7 +1513,7 @@ Add a compact media query in the existing responsive area:
 Run:
 
 ```bash
-node --import tsx --test workbench/web/test/right-drawer-graph-summary.test.tsx
+node --import tsx --test workbench/web/test/right-drawer-graph-summary.test.tsx workbench/web/test/right-drawer-graph-selection.test.tsx
 ```
 
 Expected: pass.
@@ -1203,8 +1523,8 @@ Expected: pass.
 Run:
 
 ```bash
-git add workbench/web/src/components/GraphSummaryDrawer.tsx workbench/web/src/components/RightDrawer.tsx workbench/web/src/index.css workbench/web/test/right-drawer-graph-summary.test.tsx
-git commit -m "feat: unify community drawer layout"
+git add workbench/web/src/components/GraphGroupDrawer.tsx workbench/web/src/components/GraphSelection.tsx workbench/web/src/components/GraphSummaryDrawer.tsx workbench/web/src/components/RightDrawer.tsx workbench/web/src/index.css workbench/web/test/right-drawer-graph-summary.test.tsx workbench/web/test/right-drawer-graph-selection.test.tsx
+git commit -m "feat: unify graph group drawer layout"
 ```
 
 Expected: commit succeeds.
@@ -1225,6 +1545,10 @@ Expected: commit succeeds.
 - Test: `packages/graph-engine/test/summary-contract.test.ts`
 - Test: `packages/graph-engine/test/select.test.ts`
 - Test: `packages/graph-engine/test/sigma-global-renderer.test.ts`
+- Test: `packages/graph-engine/test/facade.test.ts`
+- Test: `workbench/web/test/graph-summary-actions.test.ts`
+- Test: `workbench/web/test/right-drawer-graph-summary.test.tsx`
+- Test: `workbench/web/test/right-drawer-interactions.test.tsx`
 
 - [ ] **Step 1: Write failing tests for node neighbor command**
 
@@ -1244,6 +1568,16 @@ assert.deepEqual(selectNeighbors, {
   label: "+邻居"
 });
 ```
+
+Update every existing command-order test that asserts node command lists:
+
+- `packages/graph-engine/test/summary-contract.test.ts`
+- `packages/graph-engine/test/facade.test.ts`, if facade summary snapshots include node commands
+- `workbench/web/test/graph-summary-actions.test.ts`
+- `workbench/web/test/right-drawer-graph-summary.test.tsx`
+- `workbench/web/test/graph-drawer-state.test.ts`, if drawer equality or refresh tests include commands
+
+Add a UI interaction assertion in `workbench/web/test/right-drawer-interactions.test.tsx`: render a node summary with a `select-neighbors` command, click `+邻居`, and assert the captured command has `kind: "select-neighbors"` and `nodeId` for the clicked node.
 
 - [ ] **Step 2: Add `select-neighbors` to node summary commands**
 
@@ -1290,6 +1624,15 @@ if (command.kind === "select-neighbors") {
   });
   return;
 }
+```
+
+Add a tiny test seam if needed: extract `graphSelectionCommandForSummaryCommand(command)` into `workbench/web/src/lib/graph-summary-actions.ts` so the command mapping can be unit-tested without rendering the full app. The required assertion is:
+
+```ts
+assert.deepEqual(graphSelectionCommandForSummaryCommand({ kind: "select-neighbors", nodeId: "a", label: "+邻居" }), {
+  id: "a",
+  type: "neighbors"
+});
 ```
 
 - [ ] **Step 4: Write failing Shift toggle tests**
@@ -1360,6 +1703,23 @@ Update `toSelectionNode`:
 community: String(node.community || UNGROUPED_COMMUNITY_ID),
 ```
 
+Update `selectionFacts()` semantics if needed:
+
+```ts
+const selected = new Set(nodeIds);
+const internalLinkCount = index.edges.filter((edge) => selected.has(edge.source) && selected.has(edge.target)).length;
+const isolatedCount = nodeIds.filter((id) => {
+  const neighbors = index.neighborsById.get(id) ?? new Set<NodeId>();
+  return [...neighbors].every((neighborId) => !selected.has(neighborId));
+}).length;
+```
+
+Important fact semantics:
+
+- `internalLinkCount` counts only selected-set internal links.
+- `isolatedCount` counts nodes with no selected-set internal neighbor.
+- A node connected only to pages outside the selected community still counts as isolated for this drawer. This keeps the drawer’s “孤立” number aligned with the selected group structure.
+
 - [ ] **Step 6: Write failing Sigma additive event test**
 
 In `packages/graph-engine/test/sigma-global-renderer.test.ts`, add a test near the existing click tests:
@@ -1388,6 +1748,28 @@ it("passes Shift-click additive context from Sigma node clicks", () => {
   renderer.destroy();
 });
 ```
+
+In `packages/graph-engine/test/facade.test.ts`, add a facade-level regression for the production hit conversion helper. The test must not call `toggleNodeInSelection()` from the test body or fake renderer; it must call the helper that production `handleSigmaHitTarget()` uses.
+
+```ts
+it("converts additive Sigma node hits into manual multi-node selections", () => {
+  assert.deepEqual(selectionInputForSigmaHit(multicommGraph(), { kind: "node", id: "a1" }, { kind: "node", id: "a2" }, { additive: true }), {
+    kind: "nodes",
+    ids: ["a1", "a2"]
+  });
+  assert.deepEqual(selectionInputForSigmaHit(multicommGraph(), { kind: "nodes", ids: ["a1", "a2"] }, { kind: "node", id: "a1" }, { additive: true }), {
+    kind: "node",
+    id: "a2"
+  });
+  assert.equal(selectionInputForSigmaHit(multicommGraph(), { kind: "node", id: "a1" }, { kind: "node", id: "a1" }, { additive: true }), null);
+  assert.deepEqual(selectionInputForSigmaHit(multicommGraph(), { kind: "node", id: "a1" }, { kind: "node", id: "b1" }, { additive: false }), {
+    kind: "node",
+    id: "b1"
+  });
+});
+```
+
+Production `handleSigmaHitTarget()` must call this helper. Keep the helper small and exported from `facade.ts` only if needed for tests.
 
 - [ ] **Step 7: Pass additive context from Sigma renderer**
 
@@ -1467,50 +1849,72 @@ Import the context type:
 import type { SigmaGlobalHitContext } from "./render/sigma-global-types";
 ```
 
+Add the production helper near the Sigma route code:
+
+```ts
+export function selectionInputForSigmaHit(
+  data: GraphData,
+  current: SelectionInput | null | undefined,
+  target: GraphGestureTarget,
+  context: SigmaGlobalHitContext
+): SelectionInput | null {
+  if (target.kind === "node") {
+    if (!target.id) return current ?? null;
+    return context.additive
+      ? toggleNodeInSelection(data, current, target.id)
+      : { kind: "node", id: target.id };
+  }
+  if (target.kind === "community-wash") return target.id ? { kind: "community", id: target.id } : null;
+  if (target.kind === "aggregation-container") return target.communityId ? { kind: "community", id: target.communityId } : null;
+  return null;
+}
+```
+
 Update the handler signature and node branch:
 
 ```ts
 function handleSigmaHitTarget(target: GraphGestureTarget, context: SigmaGlobalHitContext): void {
-  switch (target.kind) {
-    case "node":
-      if (target.id) selectSigmaNode(target.id, context.additive);
-      break;
-```
-
-Add this helper near `selectOnSigma`:
-
-```ts
-function selectSigmaNode(nodeId: NodeId, additive: boolean): void {
-  if (!additive) {
-    selectOnSigma({ kind: "node", id: nodeId });
+  const nextSelection = selectionInputForSigmaHit(options.data, options.selection, target, context);
+  if (nextSelection) {
+    selectOnSigma(nextSelection);
     return;
   }
-  const nextSelection = toggleNodeInSelection(options.data, options.selection, nodeId);
-  if (!nextSelection) {
+  if (context.additive && target.kind === "node") {
     input.options.callbacks.onSelectionClearRequested?.();
     updateSigmaSelection(null);
     return;
   }
-  selectOnSigma(nextSelection);
-}
+  switch (target.kind) {
 ```
+
+Important: this helper must read the current route selection from `options.selection`. If the facade test shows stale selection after the first additive click, update the facade route state before calling renderer updates so the next Shift click toggles against the latest selection.
 
 - [ ] **Step 9: Run targeted graph-engine tests**
 
 Run:
 
 ```bash
-node --import tsx --test packages/graph-engine/test/summary-contract.test.ts packages/graph-engine/test/select.test.ts packages/graph-engine/test/sigma-global-renderer.test.ts
+node --import tsx --test packages/graph-engine/test/summary-contract.test.ts packages/graph-engine/test/select.test.ts packages/graph-engine/test/sigma-global-renderer.test.ts packages/graph-engine/test/facade.test.ts
 ```
 
 Expected: pass.
+
+- [ ] **Step 9b: Run targeted workbench command/UI tests**
+
+Run:
+
+```bash
+node --import tsx --test workbench/web/test/graph-summary-actions.test.ts workbench/web/test/right-drawer-graph-summary.test.tsx workbench/web/test/right-drawer-interactions.test.tsx
+```
+
+Expected: pass, including the explicit `+邻居` click-to-`neighbors` assertion.
 
 - [ ] **Step 10: Commit selection entries**
 
 Run:
 
 ```bash
-git add packages/graph-engine/src/types.ts packages/graph-engine/src/summary/index.ts packages/graph-engine/src/select/index.ts packages/graph-engine/src/render/sigma-hit-projector.ts packages/graph-engine/src/render/sigma-global-types.ts packages/graph-engine/src/render/sigma-global-renderer.ts packages/graph-engine/src/facade.ts packages/graph-engine/test/summary-contract.test.ts packages/graph-engine/test/select.test.ts packages/graph-engine/test/sigma-global-renderer.test.ts workbench/web/src/App.tsx
+git add packages/graph-engine/src/types.ts packages/graph-engine/src/summary/index.ts packages/graph-engine/src/select/index.ts packages/graph-engine/src/render/sigma-hit-projector.ts packages/graph-engine/src/render/sigma-global-types.ts packages/graph-engine/src/render/sigma-global-renderer.ts packages/graph-engine/src/facade.ts packages/graph-engine/test/summary-contract.test.ts packages/graph-engine/test/select.test.ts packages/graph-engine/test/sigma-global-renderer.test.ts packages/graph-engine/test/facade.test.ts workbench/web/src/App.tsx workbench/web/test/graph-summary-actions.test.ts workbench/web/test/right-drawer-graph-summary.test.tsx workbench/web/test/right-drawer-interactions.test.tsx
 git commit -m "fix: restore graph selection entry points"
 ```
 
@@ -1539,7 +1943,7 @@ Expected: all graph-engine tests pass.
 Run:
 
 ```bash
-node --import tsx --test workbench/web/test/graph-community-drawer.test.ts workbench/web/test/graph-summary-actions.test.ts workbench/web/test/right-drawer-graph-summary.test.tsx workbench/web/test/graph-selection-drawer.test.ts
+node --import tsx --test workbench/web/test/graph-group-drawer.test.ts workbench/web/test/graph-summary-actions.test.ts workbench/web/test/graph-selection.test.ts workbench/web/test/graph-drawer-close.test.ts workbench/web/test/right-drawer-graph-summary.test.tsx workbench/web/test/right-drawer-graph-selection.test.tsx workbench/web/test/right-drawer-interactions.test.tsx workbench/web/test/graph-drawer-state.test.ts
 ```
 
 Expected: all targeted web tests pass.
@@ -1555,6 +1959,18 @@ npm run typecheck
 ```
 
 Expected: all commands exit with code 0.
+
+- [ ] **Step 3b: Run offline HTML and production Sigma regressions**
+
+Run:
+
+```bash
+tests/graph-offline-phase-6.regression-1.sh
+tests/graph-html-insights.regression-1.sh
+tests/graph-sigma-global-production.regression-1.sh
+```
+
+Expected: all commands exit with code 0. This is mandatory because ADR-21 says the same `@llm-wiki/graph-engine` powers both the workbench and generated offline HTML.
 
 - [ ] **Step 4: Update changelog**
 
@@ -1634,6 +2050,15 @@ In Chrome at `http://localhost:5180/`, validate:
 10. Type a short note in the community drawer and click “发送”. The chat view receives a compact selection mention rather than a long pasted structure block.
 ```
 
+Also validate the offline artifact:
+
+```md
+1. Build a fixture HTML with `bash scripts/build-graph-html.sh tests/fixtures/graph-interactive-multicomm`.
+2. Open the generated `wiki/knowledge-graph.html`.
+3. Confirm the graph loads through the IIFE engine and still shows the selection hint.
+4. Shift+click behavior and community/ungrouped behavior must not regress in offline mode; if offline mode lacks chat capabilities, it should degrade to visible selection facts rather than a broken drawer.
+```
+
 Stop the dev server after validation.
 
 - [ ] **Step 8: Commit docs and verification updates**
@@ -1667,3 +2092,224 @@ Expected: branch is `codex/unified-community-drawer-design`; working tree is cle
 **Placeholder scan:** The plan avoids deferred work markers and gives concrete file paths, snippets, commands, and expected outcomes for each step.
 
 **Type consistency:** New fields are introduced in `GraphCommunitySummaryPayload` before frontend code uses them. `select-neighbors` is added to `GraphSummaryCommand` before `App.tsx` handles it. Community fixed action IDs use existing `SelectionActionId` values.
+
+---
+
+## What Already Exists
+
+- `SelectionFacts` already exists in `packages/graph-engine/src/types.ts` and is computed by `selectionFacts()` in `packages/graph-engine/src/select/index.ts`. Reuse it for community summary facts instead of creating a second page/link/island counting algorithm.
+- `SelectionInput` already supports `{ kind: "neighbors" }` and `{ kind: "nodes" }`. This plan restores missing Sigma entry points instead of inventing a new selection model.
+- `GraphSelection` already owns the textarea and agent prompt flow. The new `GraphGroupDrawer` must reuse the same prompt payload path through `buildSelectionPromptPayload()`.
+- `GraphSummaryCommand` already drives node/community summary actions. `+邻居` belongs there as a `select-neighbors` command, not as a special button hidden inside the old selection drawer.
+- `createGraphEngine()` is shared by the workbench ESM host and offline HTML IIFE host. The verification plan therefore includes both workbench tests and offline HTML regressions.
+- The existing Sigma renderer already has a hit pipeline: Sigma event -> hit projector -> facade selection callback. Shift/additive context should travel through that pipeline, not bypass it in React.
+
+## NOT In Scope
+
+- Freeform lasso selection is not included. ADR-21 explicitly chose structured selection over spatial lasso because spatial closeness is not semantic closeness.
+- Rebuilding community detection or changing graph data generation is not included. `_none` is a UI/selection virtual community over existing nodes, not a new persisted community in wiki data.
+- Redesigning node summary, search result summary, or graph reader content is not included. Only the community and multi-node/neighbor selection group drawer is unified.
+- Reworking the offline HTML into a full chat host is not included. Offline mode should preserve graph selection facts and not break; agent dialogue remains a workbench capability.
+- New backend APIs are not included. The plan continues to use the current `/api/prompt` text-channel behavior through existing prompt payload construction.
+
+## Review Findings
+
+### Architecture Review
+
+1. `[P1] (confidence: 9/10) packages/graph-engine/src/summary/index.ts:72-80 — summary layer does not recognize the `_none` virtual community.`
+   Evidence: `summarizeGraphCommunity()` calls `nodesForCommunity(data, communityId)`, then returns unavailable when no real community record exists. `nodesForCommunity()` currently matches `node.community === communityId`, while ungrouped nodes have `community: null`.
+   Decision: accepted. Task 1 makes `_none` a first-class virtual summary and routes facts through `SelectionFacts`.
+
+2. `[P1] (confidence: 9/10) workbench/web/src/components/GraphSelection.tsx:29-61 and workbench/web/src/components/GraphSummaryDrawer.tsx:56-110 — community and selection drawers are separate structures.`
+   Evidence: `GraphSelection` renders `graph-selection-drawer` with its own action row, while `GraphCommunitySummary` renders `graph-summary-drawer` with search hits, fixed nodes, and bridge relation sections.
+   Decision: accepted. Tasks 2 and 4 introduce one shared `GraphGroupDrawer` skeleton for community, multi-node selection, and neighbor selection.
+
+3. `[P1] (confidence: 9/10) packages/graph-engine/src/render/sigma-global-renderer.ts:321-326 and packages/graph-engine/src/facade.ts:984-1009 — Sigma clicks lose Shift/additive intent before selection resolution.`
+   Evidence: `nodeClick` only passes `{ nodeId }`; `handleSigmaHitTarget()` only selects `{ kind: "node" }` or `{ kind: "community" }`.
+   Decision: accepted. Task 5 carries additive click context through Sigma renderer, facade, and selection helper tests.
+
+### Code Quality Review
+
+1. `[P1] (confidence: 9/10) packages/graph-engine/src/select/index.ts:177-182 and workbench/web/src/lib/graph-selection.ts:66-84 — `_none` is hardcoded in multiple layers.`
+   Evidence: selection maps `node.community || "_none"` and prompt formatting prints `"_none"` when no label exists.
+   Decision: accepted. Tasks 1 and 3 export engine constants and use them in workbench prompt formatting.
+
+2. `[P2] (confidence: 8/10) workbench/web/src/App.tsx:638-649 — closing community summary does not clear graph selection/highlight.`
+   Evidence: close handling clears only `graph-reader` and `graph-selection`, while community clicks now also create selected/highlighted graph state.
+   Decision: accepted. Task 3 extracts `graphCloseCommandForDrawer()` and includes community drawers in close-to-clear behavior.
+
+3. `[P2] (confidence: 8/10) workbench/web/src/components/GraphSelection.tsx:39-48 — old `+邻居` lives in the selection drawer, not the node summary command model.`
+   Evidence: `GraphSelection` owns a neighbor button whose availability depends on `selection.nodeIds.length === 1`, but the issue asks for a single-node graph entry after the Sigma migration.
+   Decision: accepted. Task 5 moves `+邻居` to node summary commands and tests the UI click.
+
+### Test Review
+
+The plan now treats missing tests as blockers, not follow-up polish.
+
+```text
+CODE PATHS                                                   USER FLOWS
+[+] _none community summary                                  [+] Click "未分组" in Sigma global graph
+  ├── [GAP -> Task 1] null community -> _none nodes              ├── [GAP -> Task 3/4] opens same group drawer structure
+  ├── [GAP -> Task 1] linked ungrouped facts                     └── [GAP -> Task 4/6] recommends 探索潜在关系, no 进入社区
+  └── [GAP -> Task 1] no enter-community command
+
+[+] Shared group drawer model/UI                              [+] Click normal community
+  ├── [GAP -> Task 2] normal community actions/order             ├── [GAP -> Task 4/6] sees top 进入社区
+  ├── [GAP -> Task 2] ungrouped recommendation                   ├── [GAP -> Task 4/6] enters community through explicit button
+  ├── [GAP -> Task 2] selection uses same skeleton                └── [GAP -> Task 4/6] switching normal <-> 未分组 does not change mental model
+  └── [GAP -> Task 4] render tests for community + selection
+
+[+] Prompt/close state                                         [+] Ask agent from community drawer
+  ├── [GAP -> Task 3] preserve community free text                ├── [GAP -> Task 3/6] sends compact selection mention
+  ├── [GAP -> Task 3] prompt uses 未分组 label                     └── [GAP -> Task 3] clears graph selection after send
+  └── [GAP -> Task 3] close clears community highlight
+
+[+] +邻居 command                                              [+] Click a node then +邻居
+  ├── [GAP -> Task 5] command exists in summary contract          ├── [GAP -> Task 5] UI dispatches neighbors command
+  ├── [GAP -> Task 5] App maps command to neighbors               └── [GAP -> Task 5/6] drawer shows one-hop neighbor selection
+  └── [GAP -> Task 5] all command-order tests updated
+
+[+] Sigma Shift multi-select                                   [+] Shift+click two nodes
+  ├── [GAP -> Task 5] renderer extracts additive context          ├── [GAP -> Task 5] facade creates nodes selection
+  ├── [GAP -> Task 5] toggle helper handles add/remove/clear      ├── [GAP -> Task 5/6] drawer opens shared selection drawer
+  └── [GAP -> Task 6] production Sigma regression runs            └── [GAP -> Task 6] offline HTML does not regress
+
+COVERAGE TARGET: all listed gaps must be covered by the task that names them.
+QUALITY TARGET: unit tests for pure logic, render tests for drawer markup, route/facade tests for Sigma boundary, browser QA for end-to-end confidence.
+```
+
+### Performance Review
+
+1. `[P2] (confidence: 8/10) packages/graph-engine/src/select/index.ts:115-153 — repeated selection fact calculation can scan all nodes/edges on every click.`
+   Evidence: `buildSelectionGraphIndex()` maps all nodes and edges, and `selectionFacts()` filters all edges for selected internal links.
+   Decision: accepted as acceptable for current scope because this path already exists and Task 5 only reuses it. Verification must run `tests/graph-sigma-global-production.regression-1.sh` to catch real-path regressions.
+
+2. `[P3] (confidence: 7/10) GraphGroupDrawer node display could accidentally render huge lists if future code passes every selected node.`
+   Evidence: the plan limits display through `slice(0, 3)` in the view model snippets.
+   Decision: accepted. Keep the compact node preview in the view model and avoid rendering full community member lists in the first viewport.
+
+### Outside Voice Review
+
+Codex outside voice returned 12 findings. The review did not introduce a competing direction; it reinforced the complete implementation path and was folded into the plan as concrete test and sequencing requirements.
+
+| Outside voice concern | Plan response |
+|-----------------------|---------------|
+| `_none` cannot stop at summary payloads; it must be clickable, selectable, highlighted, and visible in render model, adapter data, legend, and offline HTML. | Task 1 now includes render model, adapter, legend, offline reader, and browser offline regression checks. |
+| Offline HTML is a separate no-chat host, not a React drawer host. | Task 1 and Task 6 explicitly require offline selection facts to keep working without workbench chat actions. |
+| `SelectionFacts` semantics must be internal to the selected set. | Review-locked decision 9 and Task 5 define `internalLinkCount` and `isolatedCount` in selected-set terms. |
+| Sigma Shift tests must exercise the production facade path, not fake the behavior in a test renderer. | Task 5 requires `selectionInputForSigmaHit()` facade tests and forbids calling `toggleNodeInSelection()` from the fake renderer test. |
+| Browser QA needs a named knowledge base or fixture that covers normal community, ungrouped nodes, linked/isolated ungrouped nodes, neighbor expansion, and visible Sigma nodes. | Task 0 requires naming or creating that fixture before browser QA, and Task 6 requires reporting it. |
+| “发送” and “新对话” cannot collapse into the same behavior. | Review-locked decision 10 preserves free-text-only send and default/recommended-action new conversation behavior. |
+| Close button and Escape can use different commands internally, but the visual result must be identical. | Review-locked decision 11 and Task 3 require close-to-clear tests for community and selection drawers. |
+| Older context-specific actions should not reappear as first-screen drawer actions. | Review-locked decision 8 keeps the first screen to the four fixed group actions. |
+| `+邻居` must update all command-order and UI-click tests that observe node summary commands. | Review-locked decision 6 and Task 5 list every affected graph-engine and workbench test family. |
+| Production Sigma performance and offline HTML can regress even when unit tests pass. | Task 6 requires `tests/graph-sigma-global-production.regression-1.sh` and both offline HTML regressions. |
+| Community and selection drawers can drift again if only the visual component is shared. | Task 2 requires a shared view model and Task 4 requires a shared `data-group-drawer` render assertion. |
+| Implementation can drift if the plan leaves old file names or old test names around. | The final review scan removes legacy drawer names, old payload field names, and stale removed task references. |
+
+Cross-model tension: none. The outside voice agreed with the full-scope option the user selected and only pushed for stricter coverage and host-boundary clarity.
+
+## Failure Modes
+
+| Codepath | Realistic failure | Test/handling required | User impact if missed |
+|----------|-------------------|------------------------|-----------------------|
+| `_none` summary | Ungrouped nodes still fall through to unavailable summary | Task 1 `_none` summary tests and Task 3 drawer routing test | User sees old selection drawer or unavailable state |
+| Linked `_none` facts | Internal links or isolated counts are wrong | Task 1 linked ungrouped fixture | Drawer recommends the wrong action |
+| Shared drawer view model | Community and selection drift into two structures again | Task 2 shared view-model tests and Task 4 shared `data-group-drawer` render assertion | User sees different layouts for similar group selections |
+| Community free text | Refreshing same drawer clears typed note | Task 3 preservation test | User loses typed intent |
+| Prompt formatting | Prompt exposes `_none` instead of “未分组” | Task 3 prompt test | Agent context looks technical and confusing |
+| Community close | Drawer closes but graph stays highlighted | Task 3 close behavior test | User thinks old selection is still active |
+| `+邻居` command | Node summary renders button but click does nothing | Task 5 UI click test and App command mapping test | User cannot expand from a node |
+| Sigma additive context | Shift key is dropped by renderer payload shape | Task 5 renderer test with multiple payload shapes | Shift+click behaves like normal click |
+| Facade toggle state | Second Shift+click toggles against stale selection | Task 5 facade route regression | Multi-select feels random |
+| Offline HTML | IIFE host breaks after engine contract changes | Task 6 offline regressions | Generated graph HTML regresses outside workbench |
+| Production Sigma path | Unit tests pass but live canvas path regresses | Task 6 Sigma production regression | Large graph browsing regresses |
+
+No silent critical gap remains after the accepted Task 1-6 updates: each user-visible failure has a named unit, render, route, regression, or browser QA check.
+
+## Worktree Parallelization Strategy
+
+| Step | Modules touched | Depends on |
+|------|-----------------|------------|
+| Task 1: `_none` summary contract | `packages/graph-engine/src`, `packages/graph-engine/test` | — |
+| Task 2: shared drawer view model | `workbench/web/src/lib`, `workbench/web/test` | Task 1 types |
+| Task 3: drawer state and prompt flow | `workbench/web/src/lib`, `workbench/web/src/App.tsx` | Task 1, Task 2 action model |
+| Task 4: unified drawer UI | `workbench/web/src/components`, `workbench/web/src/index.css`, `workbench/web/test` | Task 2, Task 3 state |
+| Task 5: `+邻居` and Shift multi-select | `packages/graph-engine/src`, `workbench/web/src/App.tsx`, tests | Task 1 constants/types |
+| Task 6: verification and docs | `README.md`, `CHANGELOG.md`, browser regressions | Tasks 1-5 |
+
+Parallel lanes:
+
+- Lane A: Task 1 -> Task 5 engine/facade pieces. Shared graph-engine modules, run sequentially inside this lane.
+- Lane B: Task 2 -> Task 3 -> Task 4 workbench drawer pieces. Depends on Task 1 type contract before final typecheck.
+- Lane C: Task 6 docs and verification. Starts only after A + B merge.
+
+Execution order:
+
+1. Start Lane A Task 1 first because it defines the engine contract.
+2. After Task 1 passes, Lane A can continue Task 5 while Lane B starts Task 2.
+3. Merge A + B, then run Task 6.
+
+Conflict flags:
+
+- Task 3 and Task 5 both touch `workbench/web/src/App.tsx`; coordinate or do them sequentially near merge time.
+- Task 1 and Task 5 both touch `packages/graph-engine/src/types.ts` and `summary/index.ts`; do Task 1 first, then Task 5.
+
+## Implementation Tasks
+
+Synthesized from this review's findings. Each task derives from a specific finding above. Run with Claude Code or Codex; checkbox as you ship.
+
+- [ ] **T1 (P1, human: ~2h / CC: ~20min)** — engine summary — Make `_none` a real virtual community summary.
+  - Surfaced by: Architecture Review finding 1.
+  - Files: `packages/graph-engine/src/types.ts`, `packages/graph-engine/src/summary/index.ts`, `packages/graph-engine/src/select/index.ts`, `packages/graph-engine/src/render/model.ts`, `packages/graph-engine/src/render/adapter.ts`, `packages/graph-engine/src/render/legend.ts`, `packages/graph-engine/src/render/offline-reader.ts`, `packages/graph-engine/test/summary-contract.test.ts`, `packages/graph-engine/test/render-model.test.ts`, `packages/graph-engine/test/renderer-adapter-contract.test.ts`, `packages/graph-engine/test/legend.test.ts`, `tests/browser/graph-html-insights.mjs`.
+  - Verify: `node --import tsx --test packages/graph-engine/test/summary-contract.test.ts packages/graph-engine/test/render-model.test.ts packages/graph-engine/test/renderer-adapter-contract.test.ts packages/graph-engine/test/legend.test.ts` and `tests/graph-html-insights.regression-1.sh`.
+
+- [ ] **T2 (P1, human: ~2h / CC: ~25min)** — workbench drawer — Build one shared group drawer skeleton for communities and selections.
+  - Surfaced by: Architecture Review finding 2.
+  - Files: `workbench/web/src/lib/graph-group-drawer.ts`, `workbench/web/src/components/GraphGroupDrawer.tsx`, `workbench/web/src/components/GraphSelection.tsx`, `workbench/web/src/components/GraphSummaryDrawer.tsx`, `workbench/web/src/components/RightDrawer.tsx`, `workbench/web/src/index.css`.
+  - Verify: `node --import tsx --test workbench/web/test/graph-group-drawer.test.ts workbench/web/test/right-drawer-graph-summary.test.tsx workbench/web/test/right-drawer-graph-selection.test.tsx`.
+
+- [ ] **T3 (P1, human: ~90min / CC: ~20min)** — prompt and drawer state — Route community asks through the existing selection prompt pipeline.
+  - Surfaced by: Code Quality Review findings 1 and 2.
+  - Files: `workbench/web/src/lib/drawer-state.ts`, `workbench/web/src/lib/graph-selection.ts`, `workbench/web/src/lib/graph-summary-actions.ts`, `workbench/web/src/lib/graph-drawer-close.ts`, `workbench/web/src/App.tsx`.
+  - Verify: `node --import tsx --test workbench/web/test/graph-summary-actions.test.ts workbench/web/test/graph-selection.test.ts workbench/web/test/graph-drawer-close.test.ts`.
+
+- [ ] **T4 (P1, human: ~2h / CC: ~25min)** — selection entry points — Restore node `+邻居` and Sigma Shift multi-select.
+  - Surfaced by: Architecture Review finding 3 and Code Quality Review finding 3.
+  - Files: `packages/graph-engine/src/types.ts`, `packages/graph-engine/src/summary/index.ts`, `packages/graph-engine/src/select/index.ts`, `packages/graph-engine/src/render/sigma-hit-projector.ts`, `packages/graph-engine/src/render/sigma-global-types.ts`, `packages/graph-engine/src/render/sigma-global-renderer.ts`, `packages/graph-engine/src/facade.ts`, `workbench/web/src/App.tsx`.
+  - Verify: `node --import tsx --test packages/graph-engine/test/summary-contract.test.ts packages/graph-engine/test/select.test.ts packages/graph-engine/test/sigma-global-renderer.test.ts packages/graph-engine/test/facade.test.ts workbench/web/test/right-drawer-interactions.test.tsx`.
+
+- [ ] **T5 (P1, human: ~2h / CC: ~30min)** — final verification — Run full tests, offline HTML, production Sigma, and browser QA.
+  - Surfaced by: Test Review and Performance Review.
+  - Files: `CHANGELOG.md`, `README.md`, generated local test artifacts only.
+  - Verify: all commands in Task 6, plus Chrome validation at `http://localhost:5180/`.
+
+## Review Completion Summary
+
+- Step 0 Scope Challenge: scope accepted as the complete branch, not split or reduced.
+- Architecture Review: 3 issues found, all folded into Tasks 1, 2, and 5.
+- Code Quality Review: 3 issues found, all folded into Tasks 1, 3, and 5.
+- Test Review: coverage diagram produced, 5 coverage groups hardened with required tests and regressions.
+- Performance Review: 2 issues found, both handled through bounded rendering and production Sigma regression.
+- Outside Voice: Codex plan review ran and returned 12 findings; no cross-model tension remained after the accepted updates.
+- NOT In Scope: written.
+- What Already Exists: written.
+- TODOS.md updates: 0 items proposed; no follow-up TODO is needed because the complete scope is in this branch.
+- Failure modes: 0 critical silent gaps remain.
+- Parallelization: 3 lanes, 2 useful implementation lanes after Task 1, final verification sequential.
+- Lake Score: 8/8 review recommendations chose the complete option.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | Not run for this plan |
+| Codex Review | `/codex review` | Independent 2nd opinion | 1 | issues_found | 12 outside-voice findings, all absorbed or explicitly rejected as not first-screen scope |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean | 13 issues/test groups reviewed, 0 critical gaps, 0 unresolved |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | Visual reference already included; full design review can run before UI implementation if desired |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | Not needed for this feature plan |
+
+- **CODEX:** Outside voice reinforced full `_none`, offline HTML, Shift path, and QA-fixture coverage.
+- **CROSS-MODEL:** No tension. Both reviews point to one shared drawer skeleton, engine-owned `_none`, and production Sigma/offline regressions.
+- **VERDICT:** ENG CLEARED — ready to implement from Task 0 through Task 6.
+NO UNRESOLVED DECISIONS
