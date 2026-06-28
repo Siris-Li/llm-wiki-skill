@@ -96,12 +96,31 @@ describe("Sigma graphology render model", () => {
     const nodeChanged = adapterDataFixture({ alphaId: "alpha-next" });
     const edgeChanged = adapterDataFixture({ edgeId: "edge-next" });
     const targetChanged = adapterDataFixture({ betaId: "beta-next" });
+    const nodeAdded = {
+      ...adapterData,
+      nodes: [
+        ...adapterData.nodes,
+        nodeFixture("gamma", "community-a", { point: { x: 50, y: 60 } })
+      ]
+    };
+    const edgeAdded = {
+      ...adapterData,
+      edges: [
+        ...adapterData.edges,
+        {
+          ...adapterData.edges[0],
+          id: "edge-added"
+        }
+      ]
+    };
 
     assert.equal(canPatchSigmaGlobalGraphAttributes(adapterData, sameShape, "shan-shui", "shan-shui"), true);
     assert.equal(canPatchSigmaGlobalGraphAttributes(adapterData, sameShape, "shan-shui", "mo-ye"), false);
     assert.equal(canPatchSigmaGlobalGraphAttributes(adapterData, nodeChanged, "shan-shui", "shan-shui"), false);
     assert.equal(canPatchSigmaGlobalGraphAttributes(adapterData, edgeChanged, "shan-shui", "shan-shui"), false);
     assert.equal(canPatchSigmaGlobalGraphAttributes(adapterData, targetChanged, "shan-shui", "shan-shui"), false);
+    assert.equal(canPatchSigmaGlobalGraphAttributes(adapterData, nodeAdded, "shan-shui", "shan-shui"), false);
+    assert.equal(canPatchSigmaGlobalGraphAttributes(adapterData, edgeAdded, "shan-shui", "shan-shui"), false);
   });
 
   it("patches graph attributes in place", () => {

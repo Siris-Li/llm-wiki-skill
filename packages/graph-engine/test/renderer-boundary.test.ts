@@ -27,8 +27,7 @@ const HOST_CALLBACK_IDENTIFIERS = [
 const HOST_CALLBACK_ALLOWED_FILES = new Set(["facade.ts", "types.ts"]);
 const RAW_GRAPH_EVENT_ALLOWED_FILES = new Set([
   "render/gestures.ts",
-  "render/sigma-global-drag.ts",
-  "render/sigma-overlay-dom.ts"
+  "render/sigma-global-drag.ts"
 ]);
 const RAW_GRAPH_EVENT_PATTERNS = [
   /\baddEventListener\s*\(\s*["'](?:wheel|pointerdown|pointermove|pointerup|pointercancel|lostpointercapture)["']/,
@@ -47,6 +46,13 @@ const SIGMA_OVERLAY_DOM_ALLOWED_RAW_GRAPH_EVENT_PATTERNS = [
   /\baddEventListener\s*\(\s*["'](?:pointerdown)["']/,
   /\baddEventListener\s*\(\s*["'](?:mousedown|click|dragstart)["']/,
   /\bclassName = "sigma-global-node-hit-target"/
+];
+const SIGMA_OVERLAY_DOM_FORBIDDEN_RAW_GRAPH_EVENT_PATTERNS = [
+  /\baddEventListener\s*\(\s*["'](?:wheel|pointermove|pointerup|pointercancel|lostpointercapture)["']/,
+  /\bremoveEventListener\s*\(\s*["'](?:wheel|pointerdown|pointermove|pointerup|pointercancel|lostpointercapture)["']/,
+  /\bsetPointerCapture(?:\?\.)?\s*\(/,
+  /\breleasePointerCapture(?:\?\.)?\s*\(/,
+  /\bclassifyGraph(?:EventTarget|WheelTarget|WheelTargetFromGraphTarget|PointerDownTarget|PointerDownTargetFromGraphTarget)\s*\(/
 ];
 const DRAWING_MODULES = [
   "render/nodes.ts",
@@ -141,7 +147,9 @@ describe("renderer and facade boundary contract", () => {
       const text = await readFile(file, "utf8");
       const patterns = rel === "render/sigma-global-renderer.ts"
         ? SIGMA_RENDERER_FORBIDDEN_RAW_GRAPH_EVENT_PATTERNS
-        : RAW_GRAPH_EVENT_PATTERNS;
+        : rel === "render/sigma-overlay-dom.ts"
+          ? SIGMA_OVERLAY_DOM_FORBIDDEN_RAW_GRAPH_EVENT_PATTERNS
+          : RAW_GRAPH_EVENT_PATTERNS;
       for (const pattern of patterns) {
         if (pattern.test(text)) violations.push(`${rel}: ${pattern}`);
       }
@@ -165,8 +173,10 @@ describe("renderer and facade boundary contract", () => {
     assert.equal(/\breleasePointerCapture(?:\?\.)?\s*\(/.test(sigmaRendererText), false);
     assert.match(sigmaOverlayDomText, /className = "sigma-global-node-hit-target"/);
     assert.match(sigmaOverlayDomText, /\baddEventListener\s*\(\s*"pointerdown"/);
-    assert.equal(/\baddEventListener\s*\(\s*["'](?:pointermove|pointerup|pointercancel|lostpointercapture)["']/.test(sigmaOverlayDomText), false);
-    assert.equal(/\bremoveEventListener\s*\(\s*["'](?:pointermove|pointerup|pointercancel|lostpointercapture)["']/.test(sigmaOverlayDomText), false);
+    assert.equal(/\baddEventListener\s*\(\s*["'](?:wheel|pointermove|pointerup|pointercancel|lostpointercapture)["']/.test(sigmaOverlayDomText), false);
+    assert.equal(/\bremoveEventListener\s*\(\s*["'](?:wheel|pointerdown|pointermove|pointerup|pointercancel|lostpointercapture)["']/.test(sigmaOverlayDomText), false);
+    assert.equal(/\bsetPointerCapture(?:\?\.)?\s*\(/.test(sigmaOverlayDomText), false);
+    assert.equal(/\breleasePointerCapture(?:\?\.)?\s*\(/.test(sigmaOverlayDomText), false);
     for (const pattern of SIGMA_OVERLAY_DOM_ALLOWED_RAW_GRAPH_EVENT_PATTERNS) {
       assert.match(sigmaOverlayDomText, pattern);
     }

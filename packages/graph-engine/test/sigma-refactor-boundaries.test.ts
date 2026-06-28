@@ -1,25 +1,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 
-const helperFiles = [
-  "sigma-global-types.ts",
-  "sigma-events.ts",
-  "sigma-graphology-model.ts",
-  "sigma-hit-projector.ts",
-  "sigma-global-camera.ts",
-  "sigma-wheel-zoom.ts",
-  "sigma-overlay-dom.ts"
-];
+const renderDir = new URL("../src/render/", import.meta.url);
 
-const existingTypeOnlyFiles = [
-  "sigma-coordinates.ts",
-  "community-cloud-geometry.ts"
-];
+const rendererBoundaryExcludedFiles = new Set(["sigma-global-renderer.ts"]);
+const existingTypeOnlyFiles = ["community-cloud-geometry.ts"];
 
 describe("Sigma global renderer refactor boundaries", () => {
   it("keeps shared helper modules from importing the renderer", async () => {
-    for (const file of [...helperFiles, ...existingTypeOnlyFiles]) {
+    for (const file of [...await sigmaHelperFiles(), ...existingTypeOnlyFiles]) {
       const source = await readFile(new URL(`../src/render/${file}`, import.meta.url), "utf8");
       assert.doesNotMatch(source, /from\s+["']\.\/sigma-global-renderer(?:\.[jt]s)?["']/);
     }
@@ -27,7 +17,7 @@ describe("Sigma global renderer refactor boundaries", () => {
 
   it("keeps new Sigma internal helpers out of the render package barrel", async () => {
     const source = await readFile(new URL("../src/render/index.ts", import.meta.url), "utf8");
-    for (const file of helperFiles) {
+    for (const file of await sigmaHelperFiles()) {
       const moduleName = file.replace(/\.ts$/, "");
       assert.doesNotMatch(source, new RegExp(`from\\s+["']\\./${moduleName}(?:\\.js)?["']`));
     }
@@ -38,3 +28,11 @@ describe("Sigma global renderer refactor boundaries", () => {
     assert.doesNotMatch(source, /^\s*export\s+(?!type\b|interface\b)/m);
   });
 });
+
+async function sigmaHelperFiles(): Promise<string[]> {
+  const entries = await readdir(renderDir);
+  return entries
+    .filter((file) => file.startsWith("sigma-") && file.endsWith(".ts"))
+    .filter((file) => !rendererBoundaryExcludedFiles.has(file))
+    .sort();
+}
