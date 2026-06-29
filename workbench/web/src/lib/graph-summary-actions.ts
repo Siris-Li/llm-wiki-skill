@@ -186,3 +186,10 @@ function fallbackPayloadForOpenDetail(command: Extract<GraphSummaryCommand, { ki
 function isIsolatedNode(data: GraphData, id: string): boolean {
 	return data.edges.every((edge) => edge.from !== id && edge.to !== id);
 }
+
+export function graphSelectionCommandForSummaryCommand(command: GraphSummaryCommand): GraphSelectionCommand | null {
+	if (command.kind === "select-neighbors") {
+		return { id: command.nodeId, type: "neighbors" };
+	}
+	return null;
+}

@@ -69,10 +69,11 @@ describe("graph summary contract", () => {
 
     assert.equal(node.kind, "node-summary");
     assert.equal(community.kind, "community-summary");
-    assert.deepEqual(commandKinds(node.commands), ["open-detail-read", "set-fixed-position", "enter-community"]);
+    assert.deepEqual(commandKinds(node.commands), ["open-detail-read", "select-neighbors", "set-fixed-position", "enter-community"]);
     assert.deepEqual(commandKinds(community.commands), ["enter-community"]);
 
     const openDetail = node.commands.find((command) => command.kind === "open-detail-read");
+    const selectNeighbors = node.commands.find((command) => command.kind === "select-neighbors");
     const enterCommunity = node.commands.find((command) => command.kind === "enter-community");
 
     assert.deepEqual(openDetail, {
@@ -80,6 +81,11 @@ describe("graph summary contract", () => {
       nodeId: "a",
       path: "wiki/alpha/a.md",
       label: "打开详情"
+    });
+    assert.deepEqual(selectNeighbors, {
+      kind: "select-neighbors",
+      nodeId: "a",
+      label: "+邻居"
     });
     assert.deepEqual(enterCommunity, {
       kind: "enter-community",

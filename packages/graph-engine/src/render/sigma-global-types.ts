@@ -58,12 +58,16 @@ export interface SigmaGlobalRendererRuntime extends SigmaGlobalGraphologyRuntime
   Sigma: new (graph: SigmaGlobalGraphologyGraph, container: HTMLElement, settings?: Record<string, unknown>) => SigmaGlobalSigmaLike;
 }
 
+export interface SigmaGlobalHitContext {
+  additive: boolean;
+}
+
 export interface SigmaGlobalRendererCreateOptions {
   container: HTMLElement;
   adapterData: GraphRendererAdapterData;
   theme: ThemeId;
   edgeStyle?: GraphEdgeStyleOptions;
-  onHitTarget?: (target: GraphGestureTarget) => void;
+  onHitTarget?: (target: GraphGestureTarget, context: SigmaGlobalHitContext) => void;
   onPinsChanged?: (pins: PinMap) => void;
   onDragActiveChange?: (dragging: boolean) => void;
   onFatalError?: (error: unknown) => void;

@@ -10,6 +10,7 @@ import type {
   SelectionFacts,
   SelectionInput
 } from "../types";
+import { UNGROUPED_COMMUNITY_ID } from "../types";
 import { wikiPathForGraphNode } from "../graph-node";
 
 interface SelectionNode {
@@ -69,6 +70,26 @@ export function pageReaderActions(): PageReaderAction[] {
 
 export function resolveSelection(data: GraphData, input: SelectionInput): Selection {
   return resolveSelectionForCapabilities(data, input, { canAsk: true });
+}
+
+export function toggleNodeInSelection(
+  data: GraphData,
+  current: SelectionInput | null | undefined,
+  nodeId: NodeId
+): SelectionInput | null {
+  const index = buildSelectionGraphIndex(data);
+  if (!index.nodeById.has(nodeId)) return current ?? null;
+  const currentIds = current ? selectionNodeIds(index, current) : [];
+  const selected = new Set<NodeId>(currentIds);
+  if (selected.has(nodeId)) {
+    selected.delete(nodeId);
+  } else {
+    selected.add(nodeId);
+  }
+  const ids = index.nodes.map((node) => node.id).filter((id) => selected.has(id));
+  if (ids.length === 0) return null;
+  if (ids.length === 1) return { kind: "node", id: ids[0] };
+  return { kind: "nodes", ids };
 }
 
 export function resolveSelectionForCapabilities(
@@ -178,7 +199,7 @@ function toSelectionNode(node: GraphNode): SelectionNode {
   return {
     id: node.id,
     label: node.label || node.id,
-    community: String(node.community || "_none"),
+    community: String(node.community || UNGROUPED_COMMUNITY_ID),
     sourcePath: wikiPathForGraphNode(node)
   };
 }

@@ -5,8 +5,9 @@ import { fireEvent } from "@testing-library/react";
 
 import { RightDrawer } from "../src/components/RightDrawer";
 import { SearchPanel } from "../src/components/SearchPanel";
-import { artifactDrawer, wikiDrawer, type DrawerState } from "../src/lib/drawer-state";
+import { artifactDrawer, graphNodeSummaryDrawer, wikiDrawer, type DrawerState } from "../src/lib/drawer-state";
 import type { ArtifactManifest } from "../src/lib/api";
+import type { GraphNodeSummaryPayload, GraphSummaryCommand } from "@llm-wiki/graph-engine";
 import { click, pressKey, render, screen } from "./render";
 
 describe("RightDrawer interactions", () => {
@@ -116,7 +117,49 @@ describe("RightDrawer interactions", () => {
 
 		assert.deepEqual(selectedIds, ["art-pdf"]);
 	});
+
+	it("dispatches select-neighbors when the +邻居 command is clicked", async () => {
+		const commands: GraphSummaryCommand[] = [];
+		renderDrawer(graphNodeSummaryDrawer(nodeSummaryFixture()), {
+			onGraphSummaryCommand: (command) => commands.push(command),
+		});
+
+		await click(screen.getByRole("button", { name: "+邻居" }));
+
+		assert.deepEqual(commands, [{ kind: "select-neighbors", nodeId: "alpha-node", label: "+邻居" }]);
+	});
 });
+
+function nodeSummaryFixture(): GraphNodeSummaryPayload {
+	return {
+		kind: "node-summary",
+		object: { kind: "node", nodeId: "alpha-node" },
+		nodeId: "alpha-node",
+		label: "Alpha node",
+		type: "topic",
+		communityId: "alpha",
+		sourcePath: "wiki/alpha.md",
+		summary: null,
+		connectionCount: 2,
+		searchHit: false,
+		pinHint: { nodeId: "alpha-node", wikiPath: "wiki/alpha.md", pinned: false, position: null },
+		selection: {
+			input: { kind: "node", id: "alpha-node" },
+			selectionId: "node:alpha-node",
+			selectedNodeIds: ["alpha-node"],
+			selectedCommunityIds: ["alpha"],
+			containsCurrentObject: true,
+		},
+		strongestRelations: [],
+		bridgeRelations: [],
+		aggregationMarkers: [],
+		commands: [
+			{ kind: "open-detail-read", nodeId: "alpha-node", path: "wiki/alpha.md", label: "打开详情" },
+			{ kind: "select-neighbors", nodeId: "alpha-node", label: "+邻居" },
+			{ kind: "set-fixed-position", mode: "fix", nodeId: "alpha-node", wikiPath: "wiki/alpha.md", label: "固定位置" },
+		],
+	};
+}
 
 function renderDrawer(drawer: DrawerState, props: Partial<RightDrawerProps> = {}) {
 	return render(drawerElement(drawer, props));
@@ -133,10 +176,9 @@ function drawerElement(drawer: DrawerState, props: Partial<RightDrawerProps> = {
 			onOpenPage={noopString}
 			onWikiLinkSeen={noopString}
 			onGraphReaderAction={noopString}
-			onGraphSummaryCommand={() => {}}
+			onGraphSummaryCommand={props.onGraphSummaryCommand ?? noop}
 			onGraphSummaryNodePreview={noopPreviewNode}
 			onGraphSelectionTextChange={noopString}
-			onGraphSelectionNeighbors={noop}
 			onGraphSelectionAsk={noopSelectionAsk}
 			onResize={props.onResize ?? noopNumber}
 			onToggleFullscreen={props.onToggleFullscreen ?? noop}

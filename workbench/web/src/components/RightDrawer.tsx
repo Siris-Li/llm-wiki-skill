@@ -35,7 +35,6 @@ interface Props {
 	onGraphSummaryNodeSelect?: (nodeId: string) => void;
 	onGraphSummaryNodePreview?: (nodeId: string | null) => void;
 	onGraphSelectionTextChange: (value: string) => void;
-	onGraphSelectionNeighbors: () => void;
 	onGraphSelectionAsk: (actionId: string | null, newConversation: boolean) => void;
 	onGraphCommunityTextChange?: (value: string) => void;
 	onGraphCommunityAsk?: (actionId: string | null, newConversation: boolean) => void;

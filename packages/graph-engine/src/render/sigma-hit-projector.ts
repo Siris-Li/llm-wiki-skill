@@ -14,6 +14,7 @@ export interface SigmaGlobalHitInput {
   nodeId?: string | null;
   screenPoint?: GraphScreenPoint | null;
   renderedObject?: SigmaGlobalRenderedObject | null;
+  additive?: boolean;
 }
 
 export interface SigmaGlobalHitProjectorInput {
@@ -64,6 +65,21 @@ export function createSigmaGlobalHitProjector(input: SigmaGlobalHitProjectorInpu
 export function sigmaNodeIdFromPayload(payload: unknown): string | null {
   const candidate = payload as { node?: unknown } | null;
   return typeof candidate?.node === "string" ? candidate.node : null;
+}
+
+export function sigmaAdditiveFromPayload(payload: unknown): boolean {
+  const candidate = payload as {
+    shiftKey?: unknown;
+    event?: { shiftKey?: unknown; original?: { shiftKey?: unknown }; originalEvent?: { shiftKey?: unknown } };
+    originalEvent?: { shiftKey?: unknown };
+  } | null;
+  return (
+    candidate?.shiftKey === true ||
+    candidate?.event?.shiftKey === true ||
+    candidate?.event?.original?.shiftKey === true ||
+    candidate?.event?.originalEvent?.shiftKey === true ||
+    candidate?.originalEvent?.shiftKey === true
+  );
 }
 
 export function sigmaScreenPointFromPayload(payload: unknown): GraphScreenPoint | null {

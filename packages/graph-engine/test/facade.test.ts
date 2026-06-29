@@ -14,6 +14,7 @@ import {
   createGraphOfflineCapabilities,
   createGraphStandaloneCapabilities,
   createGraphWorkbenchCapabilities,
+  selectionInputForSigmaHit,
   type GraphFacadeRenderer,
   type GraphFacadeRouteRendererFactoryInput,
   type GraphFacadeState
@@ -179,7 +180,7 @@ describe("GraphFacade", () => {
     assert.equal(node.nodeId, "a");
     assert.equal(node.pinHint.pinned, true);
     assert.equal(node.selection.containsCurrentObject, true);
-    assert.deepEqual(node.commands.map((command) => command.kind), ["open-detail-read", "set-fixed-position", "enter-community"]);
+    assert.deepEqual(node.commands.map((command) => command.kind), ["open-detail-read", "select-neighbors", "set-fixed-position", "enter-community"]);
 
     assert.equal(community.kind, "community-summary");
     assert.equal(community.communityId, "c1");
@@ -1191,6 +1192,39 @@ describe("GraphFacade", () => {
     assert.equal(sigmaCreateCount, 2);
   });
 });
+
+describe("selectionInputForSigmaHit", () => {
+  it("converts additive Sigma node hits into manual multi-node selections", () => {
+    const data = sigmaHitGraph();
+
+    assert.deepEqual(selectionInputForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "node", id: "a2" }, { additive: true }), {
+      kind: "nodes",
+      ids: ["a1", "a2"]
+    });
+    assert.deepEqual(selectionInputForSigmaHit(data, { kind: "nodes", ids: ["a1", "a2"] }, { kind: "node", id: "a1" }, { additive: true }), {
+      kind: "node",
+      id: "a2"
+    });
+    assert.equal(selectionInputForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "node", id: "a1" }, { additive: true }), null);
+    assert.deepEqual(selectionInputForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "node", id: "b1" }, { additive: false }), {
+      kind: "node",
+      id: "b1"
+    });
+  });
+});
+
+function sigmaHitGraph(): GraphData {
+  return {
+    meta: { build_date: "2026-06-12", wiki_title: "Sigma hit graph", total_nodes: 4, total_edges: 0 },
+    nodes: [
+      { id: "a1", label: "Alpha 1", type: "topic", community: "alpha", source_path: "wiki/a1.md" },
+      { id: "a2", label: "Alpha 2", type: "entity", community: "alpha", source_path: "wiki/a2.md" },
+      { id: "a3", label: "Alpha 3", type: "entity", community: "alpha", source_path: "wiki/a3.md" },
+      { id: "b1", label: "Beta 1", type: "entity", community: "beta", source_path: "wiki/b1.md" }
+    ],
+    edges: []
+  };
+}
 
 function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
   const calls: unknown[][] = [];

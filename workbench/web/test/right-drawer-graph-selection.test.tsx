@@ -46,7 +46,6 @@ function renderDrawer(drawer: DrawerState): string {
 			onGraphSummaryCommand: noopCommand,
 			onGraphSummaryNodePreview: noopPreviewNode,
 			onGraphSelectionTextChange: noopString,
-			onGraphSelectionNeighbors: noop,
 			onGraphSelectionAsk: noopSelectionAsk,
 			onGraphCommunityTextChange: noopString,
 			onGraphCommunityAsk: noopSelectionAsk,

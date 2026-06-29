@@ -341,6 +341,11 @@ function nodeSummaryCommands(node: GraphNode, pinHint: GraphPinHint): GraphSumma
       label: "打开详情"
     },
     {
+      kind: "select-neighbors",
+      nodeId: node.id,
+      label: "+邻居"
+    },
+    {
       kind: "set-fixed-position",
       mode: pinHint.pinned ? "unfix" : "fix",
       nodeId: node.id,

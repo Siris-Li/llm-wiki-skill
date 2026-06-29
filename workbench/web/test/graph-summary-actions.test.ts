@@ -9,6 +9,7 @@ import {
 	graphOpenPagePayloadForCommand,
 	graphObjectVisibilityReason,
 	graphSelectionCommandForOpenDetail,
+	graphSelectionCommandForSummaryCommand,
 } from "../src/lib/graph-summary-actions";
 import { closedDrawer, graphCommunitySummaryDrawer } from "../src/lib/drawer-state";
 import type { GraphData, GraphSummaryCommand, Selection } from "@llm-wiki/graph-engine";
@@ -22,7 +23,7 @@ describe("graph summary actions", () => {
 		assert.equal(drawer.mode === "graph-node-summary" ? drawer.payload.label : null, "Alpha");
 		assert.deepEqual(
 			drawer.mode === "graph-node-summary" ? drawer.payload.commands.map((command) => command.kind) : [],
-			["open-detail-read", "set-fixed-position", "enter-community"],
+			["open-detail-read", "select-neighbors", "set-fixed-position", "enter-community"],
 		);
 	});
 
@@ -139,6 +140,14 @@ describe("graph summary actions", () => {
 
 		const unavailable = drawerForUnavailableGraphObject({ ...data, nodes: data.nodes.filter((node) => node.id !== "b") }, object, "missing-node", closedDrawer());
 		assert.equal(unavailable.mode, "graph-unavailable-object");
+	});
+
+	it("maps a select-neighbors summary command to a neighbors selection command", () => {
+		assert.deepEqual(
+			graphSelectionCommandForSummaryCommand({ kind: "select-neighbors", nodeId: "a", label: "+邻居" }),
+			{ id: "a", type: "neighbors" },
+		);
+		assert.equal(graphSelectionCommandForSummaryCommand({ kind: "enter-community", communityId: "alpha", label: "进入社区" }), null);
 	});
 });
 

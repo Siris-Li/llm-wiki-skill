@@ -20,6 +20,7 @@ import {
   type GraphRendererAdapterData,
   type GraphGestureTarget
 } from "./render";
+import type { SigmaGlobalHitContext } from "./render/sigma-global-types";
 import {
   createSigmaGlobalRenderer,
   sigmaGlobalRendererRuntimeBoundary,
@@ -28,7 +29,7 @@ import {
 import { buildCommunityLegend, nextToolbarPanelState, resolveGraphSearchState, readToolbarPanelState, writeToolbarPanelState } from "./render";
 import { createCommunityLegend, createGraphToolbar, createSearchControl, createSigmaZoomControls } from "./render/controls";
 import { ensureGraphRendererStyles } from "./render/render-styles";
-import { resolveSelectionForCapabilities } from "./select";
+import { resolveSelectionForCapabilities, toggleNodeInSelection } from "./select";
 import { graphNodeTypeLabel, wikiPathForGraphNode } from "./graph-node";
 import { getThemeTokens, themeTokensToCssVars } from "./themes";
 import {
@@ -39,6 +40,23 @@ import {
   summarizeGraphSearchResults,
   summarizeUnavailableGraphObject
 } from "./summary";
+
+export function selectionInputForSigmaHit(
+  data: GraphData,
+  current: SelectionInput | null | undefined,
+  target: GraphGestureTarget,
+  context: SigmaGlobalHitContext
+): SelectionInput | null {
+  if (target.kind === "node") {
+    if (!target.id) return current ?? null;
+    return context.additive
+      ? toggleNodeInSelection(data, current, target.id)
+      : { kind: "node", id: target.id };
+  }
+  if (target.kind === "community-wash") return target.id ? { kind: "community", id: target.id } : null;
+  if (target.kind === "aggregation-container") return target.communityId ? { kind: "community", id: target.communityId } : null;
+  return null;
+}
 
 export type GraphFacadeHostMode = "workbench" | "offline" | "standalone";
 
@@ -981,16 +999,18 @@ function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererFactoryI
     updateSigmaRenderer();
   }
 
-  function handleSigmaHitTarget(target: GraphGestureTarget): void {
+  function handleSigmaHitTarget(target: GraphGestureTarget, context: SigmaGlobalHitContext): void {
+    const nextSelection = selectionInputForSigmaHit(options.data, options.selection, target, context);
+    if (nextSelection) {
+      selectOnSigma(nextSelection);
+      return;
+    }
     switch (target.kind) {
       case "node":
-        if (target.id) selectOnSigma({ kind: "node", id: target.id });
-        break;
       case "community-wash":
-        if (target.id) selectOnSigma({ kind: "community", id: target.id });
-        break;
       case "aggregation-container":
-        if (target.communityId) selectOnSigma({ kind: "community", id: target.communityId });
+        input.options.callbacks.onSelectionClearRequested?.();
+        updateSigmaSelection(null);
         break;
       case "edge":
         break;

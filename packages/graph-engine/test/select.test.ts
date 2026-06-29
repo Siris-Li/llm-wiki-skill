@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveSelection, resolveSelectionForCapabilities } from "../src/select";
+import { resolveSelection, resolveSelectionForCapabilities, toggleNodeInSelection } from "../src/select";
 import type { GraphData, SelectionActionId } from "../src/types";
 
 describe("structured graph selection", () => {
@@ -116,6 +116,24 @@ describe("structured graph selection", () => {
       isolatedCount: 0
     });
     assert.deepEqual(actionIds(selection), []);
+  });
+
+  it("toggles Sigma Shift node clicks into stable manual node selections", () => {
+    const data = multicommGraph();
+
+    assert.deepEqual(toggleNodeInSelection(data, null, "a1"), { kind: "node", id: "a1" });
+    assert.deepEqual(toggleNodeInSelection(data, { kind: "node", id: "a1" }, "a2"), { kind: "nodes", ids: ["a1", "a2"] });
+    assert.deepEqual(toggleNodeInSelection(data, { kind: "nodes", ids: ["a1", "a2"] }, "a1"), { kind: "node", id: "a2" });
+    assert.equal(toggleNodeInSelection(data, { kind: "node", id: "a1" }, "a1"), null);
+  });
+
+  it("toggles from a community selection without losing graph order", () => {
+    const data = multicommGraph();
+
+    assert.deepEqual(toggleNodeInSelection(data, { kind: "community", id: "alpha" }, "b1"), {
+      kind: "nodes",
+      ids: ["a1", "a2", "a3", "b1"]
+    });
   });
 });
 

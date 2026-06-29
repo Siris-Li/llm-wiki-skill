@@ -66,6 +66,7 @@ import {
 	graphOpenPagePayloadForCommand,
 	graphObjectVisibilityReason,
 	graphSelectionCommandForOpenDetail,
+	graphSelectionCommandForSummaryCommand,
 	type GraphSelectionCommand,
 } from "@/lib/graph-summary-actions";
 import { WIKI_LINK_SEEN_EVENT } from "@/lib/wiki-links";
@@ -144,6 +145,7 @@ function graphSummaryCommandSignature(commands: readonly GraphSummaryCommand[]):
 	return commands.map((command) => {
 		if (command.kind === "set-fixed-position") return `${command.kind}:${command.mode}:${command.nodeId}`;
 		if (command.kind === "open-detail-read") return `${command.kind}:${command.nodeId}`;
+		if (command.kind === "select-neighbors") return `${command.kind}:${command.nodeId}`;
 		if (command.kind === "enter-community") return `${command.kind}:${command.communityId}`;
 		if (command.kind === "show-this-object") return `${command.kind}:${JSON.stringify(command.object)}`;
 		return command.kind;
@@ -593,14 +595,6 @@ function App() {
 		));
 	}, []);
 
-	const handleGraphSelectionNeighbors = useCallback(() => {
-		if (drawer.mode !== "graph-selection" || drawer.selection.nodeIds.length !== 1) return;
-		setSelectionCommand({
-			id: drawer.selection.nodeIds[0],
-			type: "neighbors",
-		});
-	}, [drawer]);
-
 	const handleGraphSelectionAsk = (actionId: string | null, newConversation: boolean) => {
 		if (!graphData || drawer.mode !== "graph-selection") return;
 		const action = actionId
@@ -745,6 +739,11 @@ function App() {
 		}
 		if (command.kind === "enter-community") {
 			setSelectionCommand({ id: command.communityId, type: "enter-community" });
+			return;
+		}
+		if (command.kind === "select-neighbors") {
+			const neighborsCommand = graphSelectionCommandForSummaryCommand(command);
+			if (neighborsCommand) setSelectionCommand(neighborsCommand);
 			return;
 		}
 		if (command.kind === "set-fixed-position") {
@@ -1146,7 +1145,6 @@ function App() {
 						onGraphSummaryNodeSelect={handleGraphSummaryNodeSelect}
 						onGraphSummaryNodePreview={handleGraphSummaryNodePreview}
 						onGraphSelectionTextChange={handleGraphSelectionTextChange}
-						onGraphSelectionNeighbors={handleGraphSelectionNeighbors}
 						onGraphSelectionAsk={handleGraphSelectionAsk}
 						onGraphCommunityTextChange={handleGraphCommunityTextChange}
 						onGraphCommunityAsk={handleGraphCommunityAsk}

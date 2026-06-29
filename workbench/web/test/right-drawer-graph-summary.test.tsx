@@ -166,7 +166,6 @@ function renderDrawer(drawer: DrawerState): string {
 			onGraphSummaryCommand: noopCommand,
 			onGraphSummaryNodePreview: noopPreviewNode,
 			onGraphSelectionTextChange: noopString,
-			onGraphSelectionNeighbors: noop,
 			onGraphSelectionAsk: noopSelectionAsk,
 			onGraphCommunityTextChange: noopString,
 			onGraphCommunityAsk: noopSelectionAsk,
@@ -212,6 +211,7 @@ function nodeSummaryFixture(): GraphNodeSummaryPayload {
 		aggregationMarkers: [],
 		commands: [
 			{ kind: "open-detail-read", nodeId: "alpha-node", path: "wiki/alpha.md", label: "打开详情" },
+			{ kind: "select-neighbors", nodeId: "alpha-node", label: "+邻居" },
 			{ kind: "set-fixed-position", mode: "fix", nodeId: "alpha-node", wikiPath: "wiki/alpha.md", label: "固定位置" },
 		],
 	};
