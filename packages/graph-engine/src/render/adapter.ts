@@ -229,7 +229,7 @@ export function buildGraphRendererAdapterData(
   });
 
   const communities = renderable.communities.map((community): GraphRendererAdapterCommunity => {
-    const nodeIds = data.nodes.filter((node) => node.community === community.id).map((node) => node.id);
+    const nodeIds = renderable.nodes.filter((node) => node.community === community.id).map((node) => node.id);
     const communityMarkers = markersContainingCommunity(markers, community.id);
     const pinHints = nodeIds.map((id) => pinHintForNode(nodeById.get(id), id, null, options.pins)).filter((hint) => hint.pinned);
     return {

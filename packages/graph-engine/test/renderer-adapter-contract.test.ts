@@ -6,6 +6,7 @@ import {
   buildGraphRendererAdapterData,
   buildGraphRendererBehaviorContract
 } from "../src/render";
+import { UNGROUPED_COMMUNITY_ID } from "../src/types";
 import type {
   GraphAggregationMarker,
   GraphData,
@@ -186,6 +187,20 @@ describe("graph renderer adapter contract", () => {
       command: { kind: "enter-community", communityId: "alpha", label: "进入社区" }
     });
   });
+
+  it("exposes ungrouped adapter community node ids and drawer target", () => {
+    const adapter = buildGraphRendererAdapterData(graphFixtureWithUngroupedNodes(), {
+      selection: { kind: "community", id: UNGROUPED_COMMUNITY_ID }
+    });
+    const ungrouped = adapter.communities.find((community) => community.id === UNGROUPED_COMMUNITY_ID);
+
+    assert.deepEqual(ungrouped?.nodeIds, ["loose-a", "loose-b"]);
+    assert.equal(ungrouped?.selected, true);
+    assert.deepEqual(ungrouped?.drawerTarget, {
+      summaryKind: "community-summary",
+      object: { kind: "community", communityId: UNGROUPED_COMMUNITY_ID }
+    });
+  });
 });
 
 function contractsForAllRoutes(): GraphRendererBehaviorContract[] {
@@ -267,5 +282,21 @@ function graphFixture(): GraphData {
         { id: "beta", label: "Beta", node_count: 2, color_index: 1, members: ["c", "d"] }
       ]
     }
+  };
+}
+
+function graphFixtureWithUngroupedNodes(): GraphData {
+  const base = graphFixture();
+  return {
+    ...base,
+    meta: {
+      ...base.meta,
+      total_nodes: base.meta.total_nodes + 2
+    },
+    nodes: [
+      ...base.nodes,
+      { id: "loose-a", label: "Loose A", type: "topic", community: null, source_path: "wiki/loose/a.md", score: 2, x: 20, y: 50 },
+      { id: "loose-b", label: "Loose B", type: "entity", source_path: "wiki/loose/b.md", weight: 1, x: 80, y: 50 }
+    ]
   };
 }

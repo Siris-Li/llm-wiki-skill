@@ -1,9 +1,12 @@
 import { wikiPathForGraphNode } from "../graph-node";
 import { resolveSelectionForCapabilities } from "../select";
+import { UNGROUPED_COMMUNITY_ID, UNGROUPED_COMMUNITY_LABEL } from "../types";
 import type {
   CommunityId,
   EdgeId,
   GraphAggregationMarker,
+  GraphCommunityCoreNode,
+  GraphCommunityStructureState,
   GraphCommunitySummaryPayload,
   GraphData,
   GraphEdge,
@@ -21,6 +24,7 @@ import type {
   GraphUnavailableObjectPayload,
   NodeId,
   PinMap,
+  SelectionFacts,
   SelectionInput,
   WikiPath
 } from "../types";
@@ -89,22 +93,30 @@ export function summarizeGraphCommunity(
   const resultIds = options.searchResultIds ?? [];
   const searchHits = resultIds.filter((id) => nodeIds.has(id));
   const pinHints = nodes.map((node) => pinHintForNode(node, options.pins)).filter((hint) => hint.pinned);
+  const selection = resolveSelectionForCapabilities(data, { kind: "community", id: communityId }, { canAsk: false });
+  const facts = selection.facts;
+  const structureState = communityStructureState(communityId, facts.pageCount, facts.internalLinkCount, facts.isolatedCount);
+  const canEnterCommunity = communityId !== UNGROUPED_COMMUNITY_ID && Boolean(community);
+  const coreIds = coreNodeIds(data, nodes);
   return {
     kind: "community-summary",
     object: { kind: "community", communityId },
     communityId,
-    label: community?.label || communityId,
+    label: communityLabel(community?.label, communityId),
     nodeCount: Number(community?.node_count ?? nodes.length),
-    coreNodeIds: coreNodeIds(data, nodes),
+    facts,
+    structureState,
+    description: communityDescription(structureState),
+    canEnterCommunity,
+    coreNodeIds: coreIds,
+    coreNodes: coreNodeSummaries(data, coreIds),
     searchResultIds: searchHits,
     pinHints,
     selection: selectionStateForObject(data, { kind: "community", communityId }, options.selection),
     strongestRelations: topRelations(relations, DEFAULT_LIMIT),
     bridgeRelations: topRelations(relations.filter((relation) => relation.bridge), DEFAULT_LIMIT),
     aggregationMarkers: markersContainingCommunity(options.aggregationMarkers, communityId),
-    commands: [
-      { kind: "enter-community", communityId, label: "进入社区" }
-    ]
+    commands: communitySummaryCommands(communityId, canEnterCommunity)
   };
 }
 
@@ -346,6 +358,48 @@ function nodeSummaryCommands(node: GraphNode, pinHint: GraphPinHint): GraphSumma
   return commands;
 }
 
+function communitySummaryCommands(communityId: CommunityId, canEnterCommunity: boolean): GraphSummaryCommand[] {
+  return canEnterCommunity
+    ? [{ kind: "enter-community", communityId, label: "进入社区" }]
+    : [];
+}
+
+function communityLabel(label: string | null | undefined, communityId: CommunityId): string {
+  if (communityId === UNGROUPED_COMMUNITY_ID) return UNGROUPED_COMMUNITY_LABEL;
+  return label || communityId;
+}
+
+function communityDescription(state: GraphCommunityStructureState): string {
+  if (state === "ungrouped") return "这些页面暂未形成明确社区。你可以让 agent 探索它们之间是否存在潜在关系。";
+  if (state === "loose") return "这组页面结构还比较松散。你可以先找知识缺口，也可以继续探索潜在关系。";
+  return "这组页面围绕同一主题聚在一起。你可以先看结构，也可以直接让 agent 基于这一组页面继续工作。";
+}
+
+function communityStructureState(
+  communityId: CommunityId,
+  nodeCount: number,
+  internalLinkCount: number,
+  isolatedCount: number
+): GraphCommunityStructureState {
+  if (communityId === UNGROUPED_COMMUNITY_ID) return "ungrouped";
+  if (nodeCount <= 1 || internalLinkCount === 0 || isolatedCount > Math.floor(nodeCount / 2)) return "loose";
+  return "clear";
+}
+
+function coreNodeSummaries(data: GraphData, ids: NodeId[]): GraphCommunityCoreNode[] {
+  const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
+  return ids.flatMap((id, index) => {
+    const node = nodeById.get(id);
+    if (!node) return [];
+    return [{
+      nodeId: node.id,
+      label: node.label || node.id,
+      type: node.type,
+      role: index === 0 ? "核心" : node.type === "topic" ? "主题" : "相关"
+    }];
+  });
+}
+
 function pinHintForNode(node: GraphNode, pins?: PinMap): GraphPinHint {
   const wikiPath = wikiPathForGraphNode(node);
   const position = pins?.[wikiPath] ?? null;
@@ -367,7 +421,11 @@ function pinHintsForNodeIds(data: GraphData, nodeIds: NodeId[], pins?: PinMap): 
 }
 
 function nodesForCommunity(data: GraphData, communityId: CommunityId): GraphNode[] {
-  return data.nodes.filter((node) => node.community === communityId);
+  return data.nodes.filter((node) => communityIdForNode(node) === communityId);
+}
+
+function communityIdForNode(node: GraphNode): CommunityId {
+  return String(node.community || UNGROUPED_COMMUNITY_ID);
 }
 
 function stableExistingNodeIds(data: GraphData, ids: NodeId[]): NodeId[] {
@@ -378,9 +436,7 @@ function stableExistingNodeIds(data: GraphData, ids: NodeId[]): NodeId[] {
 function communityIds(data: GraphData): CommunityId[] {
   const ids = new Set<CommunityId>();
   for (const community of data.learning?.communities ?? []) ids.add(community.id);
-  for (const node of data.nodes) {
-    if (node.community) ids.add(node.community);
-  }
+  for (const node of data.nodes) ids.add(communityIdForNode(node));
   return [...ids];
 }
 
