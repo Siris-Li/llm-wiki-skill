@@ -15,6 +15,7 @@
 - Clicking a normal community opens the unified community drawer with top “进入社区”, overview facts, fixed actions, compact core nodes, and dialogue controls.
 - Clicking “未分组” opens the same drawer structure, does not show “进入社区”, and recommends “探索潜在关系”.
 - Normal communities always show “探索潜在关系” as a secondary action.
+- When a normal community is structurally loose (`structureState === "loose"`), the top “进入社区” button is highlighted as a recommended action (reusing the fixed-action recommended styling); when the structure is clear, it is not highlighted. Ungrouped never shows the button. (ADR-26 §4: drawer is the routing decision point.)
 - Search hits, fixed nodes, and bridge relations no longer appear as large empty first-screen sections.
 - Single-node summaries show a clear “+邻居” command.
 - Sigma global Shift+click adds or removes nodes from a multi-selection.
@@ -528,6 +529,7 @@ describe("graph group drawer view model", () => {
     assert.equal(view.title, "Knowledge Build");
     assert.equal(view.canEnterCommunity, true);
     assert.equal(view.recommendedActionId, "summarize_cluster");
+    assert.equal(view.recommendEnterCommunity, false);
     assert.deepEqual(view.facts, [
       { label: "页", value: 6 },
       { label: "链接", value: 5 },
@@ -558,6 +560,16 @@ describe("graph group drawer view model", () => {
     assert.equal(view.recommendedActionId, "explore_potential_links");
     assert.equal(view.actions.find((action) => action.id === "explore_potential_links")?.recommended, true);
     assert.equal(view.tags.includes("暂未成组"), true);
+  });
+
+  it("highlights enter-community for loose-structure communities", () => {
+    const view = graphCommunityDrawerViewModel(summaryFixture({
+      structureState: "loose",
+      facts: { pageCount: 8, internalLinkCount: 1, communityCount: 1, isolatedCount: 5 },
+    }));
+
+    assert.equal(view.recommendEnterCommunity, true);
+    assert.equal(view.recommendedActionId, "find_knowledge_gaps");
   });
 
   it("uses the same skeleton for manual multi-node selections", () => {
@@ -678,6 +690,7 @@ export interface GraphGroupDrawerViewModel {
   description: string;
   canEnterCommunity: boolean;
   recommendedActionId: SelectionActionId;
+  recommendEnterCommunity: boolean;
   facts: GraphGroupDrawerFact[];
   tags: string[];
   actions: GraphGroupDrawerAction[];
@@ -699,6 +712,7 @@ export function graphCommunityDrawerViewModel(payload: GraphCommunitySummaryPayl
     description: payload.description,
     canEnterCommunity: payload.canEnterCommunity,
     recommendedActionId,
+    recommendEnterCommunity: payload.structureState === "loose",
     facts: [
       { label: "页", value: payload.facts.pageCount },
       { label: "链接", value: payload.facts.internalLinkCount },
@@ -725,6 +739,7 @@ export function graphSelectionGroupDrawerViewModel(title: string, selection: Sel
     title,
     description: "这些页面来自当前图谱选区。你可以直接让 agent 基于这组页面继续工作。",
     canEnterCommunity: false,
+    recommendEnterCommunity: false,
     recommendedActionId,
     facts: [
       { label: "页", value: selection.facts.pageCount },
@@ -1162,6 +1177,7 @@ it("renders unified community drawer with overview, fixed actions, core nodes, a
   assert.match(html, /发送/);
   assert.match(html, /新对话/);
   assert.match(html, /Alpha node/);
+  assert.doesNotMatch(html, /data-recommended="true"[^>]*>[\s\S]*进入社区/);
   assert.doesNotMatch(html, /暂无搜索命中/);
   assert.doesNotMatch(html, /暂无固定节点/);
   assert.doesNotMatch(html, /暂无桥接关系/);
@@ -1181,6 +1197,16 @@ it("renders ungrouped community without enter-community and recommends relation 
   assert.match(html, /暂未形成明确社区/);
   assert.match(html, /data-recommended="true"[^>]*>[\s\S]*探索潜在关系/);
   assert.doesNotMatch(html, /进入社区/);
+});
+
+it("highlights enter-community as recommended for loose-structure community", () => {
+  const html = renderDrawer(graphCommunitySummaryDrawer(communitySummaryFixture({
+    structureState: "loose",
+    facts: { pageCount: 8, internalLinkCount: 1, communityCount: 1, isolatedCount: 5 },
+  })));
+
+  assert.match(html, /进入社区/);
+  assert.match(html, /data-recommended="true"[^>]*>[\s\S]*进入社区/);
 });
 ```
 
@@ -1292,7 +1318,7 @@ interface GraphGroupDrawerProps {
 Implementation requirements:
 
 - Render `<article className="graph-group-drawer" data-group-drawer="true" data-testid={testId}>`.
-- Top overview renders kicker, title, description, facts, tags, and optional top-right “进入社区”.
+- Top overview renders kicker, title, description, facts, tags, and optional top-right “进入社区”. When `view.recommendEnterCommunity` is `true`, the “进入社区” button must carry `data-recommended="true"` (reuses the fixed-action recommended styling); otherwise it renders without that attribute.
 - Fixed action grid always renders the four group actions from the view model, preserving button order.
 - Node list renders `view.nodes` with optional preview/select callbacks. Use “核心节点” for community and “选中页面” for selection.
 - Dialogue area renders the same textarea, “发送”, and “新对话” controls for both community and selection.
@@ -1446,6 +1472,7 @@ In `workbench/web/src/index.css`, add these styles near the graph summary styles
   gap: 8px;
 }
 
+.graph-group-enter[data-recommended="true"],
 .graph-group-action[data-recommended="true"] {
   border-color: rgba(124, 92, 46, 0.42);
   background: rgba(238, 220, 184, 0.54);
