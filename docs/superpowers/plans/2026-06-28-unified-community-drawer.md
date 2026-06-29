@@ -30,7 +30,7 @@
 
 ## Review-Locked Decisions
 
-These decisions were confirmed during `/plan-eng-review` and are mandatory for implementation:
+These decisions were confirmed during `/plan-eng-review` and are mandatory for implementation. Decisions 1-11 are from the first pass; decisions 12-17 are from a second multi-perspective pass (architecture + product/coherence + tests + code-fact verification, 2026-06-29) that caught drift introduced after the first pass:
 
 1. Keep the full scope in this branch: community drawer, `_none`, `+邻居`, and Sigma Shift multi-select.
 2. Community drawers and multi-node selection drawers must share one group-drawer skeleton. Do not rebuild two separate drawer structures.
@@ -43,6 +43,12 @@ These decisions were confirmed during `/plan-eng-review` and are mandatory for i
 9. “链接” in the drawer means `SelectionFacts.internalLinkCount`: direct links where both endpoints are inside the current selected set. “孤立” means no direct link inside the current selected set, not no link in the whole graph.
 10. “发送” requires free text. “新对话” must preserve the old behavior of using the recommended/default action when free text is empty.
 11. Closing with the top-right button and closing with Escape may use different internal command names, but the user-visible result is the same: the drawer closes and graph selection/highlight is cleared for community and selection drawers.
+12. **Removed `recommendEnterCommunity`.** An earlier draft added a `recommendEnterCommunity: structureState === "loose"` signal that highlighted the top “进入社区” button for loose communities. The second review (architecture + product lenses) found it directionally wrong: the community view’s value is dense relations (ADR-26 §2), so the dense `clear` communities are the ones worth entering, while `loose` communities have little to show. It also produced a competing second highlight alongside the `find_knowledge_gaps` action, and pointed at a nonexistent button when `communityId !== "_none" && !community`. Do **not** re-introduce a structure-driven “enter community” recommendation. “进入社区” stays neutral-but-prominent at the top for every enterable community; the single per-screen recommended highlight is the action button (`summarize_cluster` for clear, `find_knowledge_gaps` for loose, `explore_potential_links` for ungrouped/selection).
+13. `enter-community` **already exists** in the `GraphSummaryCommand` union (`packages/graph-engine/src/types.ts`). Task 1 Step 3 must only add `select-neighbors`; re-declaring `enter-community` causes a duplicate/type conflict.
+14. **Enter-community navigation must clear graph highlight too.** Decision 5 only covers the close path. When the user clicks “进入社区” (the `enter-community` command, handled in `App.tsx`), the handler must also clear graph selection/highlight, not just swap the drawer. Add a test alongside `graph-drawer-close.test.ts` covering the enter path.
+15. `communityStructureState()` heuristics (`nodeCount <= 1 || internalLinkCount === 0 || isolatedCount > Math.floor(nodeCount / 2)`) need boundary tests in `packages/graph-engine/test/summary-contract.test.ts`: single-node community, `internalLinkCount === 0` with no isolated nodes, and the `isolatedCount` threshold boundary (`=== floor(n/2)` vs `=== floor(n/2) + 1`). Without these, the loose/clear split that drives the recommended action can silently flip.
+16. The render test must assert the “发送” button is **disabled** when free text is empty, not just that the word “发送” appears. Otherwise a regression that always enables send passes the test.
+17. Add a behavior test for `handleGraphCommunityAsk(null, true)` (new conversation, empty free text) verifying it falls back to the recommended/default action — locking Review-locked decision 10’s actual dispatch path, which the current Task 3 tests do not exercise.
 
 ## File Structure
 
@@ -2298,6 +2304,7 @@ Synthesized from this review's findings. Each task derives from a specific findi
 - Failure modes: 0 critical silent gaps remain.
 - Parallelization: 3 lanes, 2 useful implementation lanes after Task 1, final verification sequential.
 - Lake Score: 8/8 review recommendations chose the complete option.
+- Pass 2 (2026-06-29): multi-perspective review via 4 parallel subagents (code-fact verification, architecture, product/coherence, tests). Three lenses converged on one core issue — a `recommendEnterCommunity` signal added after pass 1 pointed the wrong way (recommended entering the community view precisely for sparse `loose` communities, where the view has least value, per ADR-26 §2). Removed it (revert `9aee7be`); “进入社区” is now neutral for all enterable communities. Secondary findings locked as decisions 12-17.
 
 ## GSTACK REVIEW REPORT
 
@@ -2305,11 +2312,11 @@ Synthesized from this review's findings. Each task derives from a specific findi
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | Not run for this plan |
 | Codex Review | `/codex review` | Independent 2nd opinion | 1 | issues_found | 12 outside-voice findings, all absorbed or explicitly rejected as not first-screen scope |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean | 13 issues/test groups reviewed, 0 critical gaps, 0 unresolved |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | clean (pass 1) → issues_resolved (pass 2) | Pass 1: 13 issues/test groups, 0 critical. Pass 2 (2026-06-29, multi-perspective via 4 subagents): caught drift added after pass 1 — removed a directionally-wrong `recommendEnterCommunity` signal and locked 6 follow-ups (decisions 12-17) |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | Visual reference already included; full design review can run before UI implementation if desired |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | Not needed for this feature plan |
 
 - **CODEX:** Outside voice reinforced full `_none`, offline HTML, Shift path, and QA-fixture coverage.
 - **CROSS-MODEL:** No tension. Both reviews point to one shared drawer skeleton, engine-owned `_none`, and production Sigma/offline regressions.
-- **VERDICT:** ENG CLEARED — ready to implement from Task 0 through Task 6.
+- **VERDICT:** ENG CLEARED — ready to implement from Task 0 through Task 6. Pass 2 reverted the flawed `recommendEnterCommunity` addition and locked decisions 12-17; no outstanding architectural question remains.
 NO UNRESOLVED DECISIONS
