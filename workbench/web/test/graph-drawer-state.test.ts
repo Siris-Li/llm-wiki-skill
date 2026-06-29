@@ -72,6 +72,7 @@ describe("drawer state", () => {
 		assert.deepEqual(graphCommunitySummaryDrawer(community), {
 			mode: "graph-community-summary",
 			payload: community,
+			freeText: "",
 		});
 		assert.deepEqual(graphSearchResultsDrawer(search), {
 			mode: "graph-search-results",

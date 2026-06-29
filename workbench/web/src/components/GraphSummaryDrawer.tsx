@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 
 import type {
 	GraphCommunitySummaryPayload,
@@ -8,7 +8,11 @@ import type {
 	GraphSearchResultsPayload,
 	GraphSummaryCommand,
 	GraphUnavailableObjectPayload,
+	SelectionAction,
 } from "@llm-wiki/graph-engine";
+
+import { GraphGroupDrawer } from "./GraphGroupDrawer";
+import { graphCommunityDrawerViewModel } from "../lib/graph-group-drawer";
 
 interface NodeSummaryProps {
 	payload: GraphNodeSummaryPayload;
@@ -17,6 +21,10 @@ interface NodeSummaryProps {
 
 interface CommunitySummaryProps {
 	payload: GraphCommunitySummaryPayload;
+	freeText: string;
+	onFreeTextChange: (value: string) => void;
+	onAsk: (action: SelectionAction | null) => void;
+	onAskInNewConversation: (action: SelectionAction | null) => void;
 	onCommand: (command: GraphSummaryCommand) => void;
 	onShowNodeSummary: (nodeId: string) => void;
 	onPreviewNode: (nodeId: string | null) => void;
@@ -53,62 +61,32 @@ export function GraphNodeSummary({ payload, onCommand }: NodeSummaryProps) {
 	);
 }
 
-export function GraphCommunitySummary({ payload, onCommand, onShowNodeSummary, onPreviewNode }: CommunitySummaryProps) {
-	const [coreExpanded, setCoreExpanded] = useState(false);
-	const coreIds = coreExpanded ? payload.coreNodeIds : payload.coreNodeIds.slice(0, 3);
+export function GraphCommunitySummary({
+	payload,
+	freeText,
+	onFreeTextChange,
+	onAsk,
+	onAskInNewConversation,
+	onCommand,
+	onShowNodeSummary,
+	onPreviewNode,
+}: CommunitySummaryProps) {
+	const view = graphCommunityDrawerViewModel(payload);
+	const enterCommand = payload.commands.find((c) => c.kind === "enter-community") ?? null;
 	return (
-		<article className="graph-summary-drawer" data-testid="graph-community-summary">
-			<div className="graph-summary-kicker">社区</div>
-			<h2 className="graph-summary-title">{payload.label}</h2>
-			<div className="graph-summary-facts">
-				<SummaryFact label="节点" value={payload.nodeCount} />
-				<SummaryFact label="核心" value={payload.coreNodeIds.length} />
-				<SummaryFact label="命中" value={payload.searchResultIds.length} />
-			</div>
-			<div className="graph-summary-meta">
-				<span className="graph-summary-community-chip">{payload.communityId}</span>
-				<span>{payload.pinHints.length > 0 ? `${payload.pinHints.length} 个固定` : "无固定"}</span>
-			</div>
-			<section className="graph-summary-section">
-				<div className="graph-summary-section-header">
-					<h3>核心节点</h3>
-					{payload.coreNodeIds.length > 3 && (
-						<button
-							type="button"
-							className="graph-summary-inline-action"
-							onClick={() => setCoreExpanded((value) => !value)}
-						>
-							{coreExpanded ? "收起" : "查看全部"}
-						</button>
-					)}
-				</div>
-				{coreIds.length === 0 ? (
-					<div className="graph-summary-muted">暂无核心节点</div>
-				) : (
-					<ul className="graph-summary-list graph-summary-click-list">
-						{coreIds.map((id) => (
-							<li key={id}>
-								<button
-									type="button"
-									className="graph-summary-node-link"
-									onMouseEnter={() => onPreviewNode(id)}
-									onMouseLeave={() => onPreviewNode(null)}
-									onFocus={() => onPreviewNode(id)}
-									onBlur={() => onPreviewNode(null)}
-									onClick={() => onShowNodeSummary(id)}
-								>
-									{id}
-								</button>
-							</li>
-						))}
-					</ul>
-				)}
-			</section>
-			<IdList title="搜索命中" ids={payload.searchResultIds} emptyText="暂无搜索命中" />
-			<IdList title="固定节点" ids={payload.pinHints.map((hint) => hint.nodeId)} emptyText="暂无固定节点" />
-			<RelationList title="桥接关系" relations={payload.bridgeRelations} emptyText="暂无桥接关系" />
-			<CommandRow commands={payload.commands} onCommand={onCommand} />
-		</article>
+		<GraphGroupDrawer
+			testId="graph-community-summary"
+			view={view}
+			freeText={freeText}
+			enterCommand={enterCommand}
+			nodeSectionTitle="核心节点"
+			onFreeTextChange={onFreeTextChange}
+			onAsk={onAsk}
+			onAskInNewConversation={onAskInNewConversation}
+			onCommand={onCommand}
+			onShowNodeSummary={onShowNodeSummary}
+			onPreviewNode={onPreviewNode}
+		/>
 	);
 }
 

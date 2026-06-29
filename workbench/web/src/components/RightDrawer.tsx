@@ -65,7 +65,6 @@ export function RightDrawer({
 	onGraphSummaryNodeSelect = () => {},
 	onGraphSummaryNodePreview = () => {},
 	onGraphSelectionTextChange,
-	onGraphSelectionNeighbors,
 	onGraphSelectionAsk,
 	onGraphCommunityTextChange = () => {},
 	onGraphCommunityAsk = () => {},
@@ -74,9 +73,6 @@ export function RightDrawer({
 	onClose,
 }: Props) {
 	const dragStart = useRef<{ x: number; width: number } | null>(null);
-	// Task 4 wires these into the community summary panel; reserved here so App compiles.
-	void onGraphCommunityTextChange;
-	void onGraphCommunityAsk;
 
 	useEffect(() => {
 		return () => {
@@ -234,7 +230,6 @@ export function RightDrawer({
 						selection={drawer.selection}
 						freeText={drawer.freeText}
 						onFreeTextChange={onGraphSelectionTextChange}
-						onNeighbors={onGraphSelectionNeighbors}
 						onAsk={(action) => onGraphSelectionAsk(action?.id ?? null, false)}
 						onAskInNewConversation={(action) => onGraphSelectionAsk(action?.id ?? null, true)}
 					/>
@@ -245,6 +240,10 @@ export function RightDrawer({
 				{drawer.mode === "graph-community-summary" && (
 					<GraphCommunitySummary
 						payload={drawer.payload}
+						freeText={drawer.freeText}
+						onFreeTextChange={onGraphCommunityTextChange}
+						onAsk={(action) => onGraphCommunityAsk(action?.id ?? null, false)}
+						onAskInNewConversation={(action) => onGraphCommunityAsk(action?.id ?? null, true)}
 						onCommand={onGraphSummaryCommand}
 						onShowNodeSummary={onGraphSummaryNodeSelect}
 						onPreviewNode={onGraphSummaryNodePreview}
