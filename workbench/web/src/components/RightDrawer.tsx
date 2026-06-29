@@ -37,6 +37,8 @@ interface Props {
 	onGraphSelectionTextChange: (value: string) => void;
 	onGraphSelectionNeighbors: () => void;
 	onGraphSelectionAsk: (actionId: string | null, newConversation: boolean) => void;
+	onGraphCommunityTextChange?: (value: string) => void;
+	onGraphCommunityAsk?: (actionId: string | null, newConversation: boolean) => void;
 	onResize: (width: number) => void;
 	onToggleFullscreen: () => void;
 	onClose: (reason: "button" | "escape") => void;
@@ -65,11 +67,16 @@ export function RightDrawer({
 	onGraphSelectionTextChange,
 	onGraphSelectionNeighbors,
 	onGraphSelectionAsk,
+	onGraphCommunityTextChange = () => {},
+	onGraphCommunityAsk = () => {},
 	onResize,
 	onToggleFullscreen,
 	onClose,
 }: Props) {
 	const dragStart = useRef<{ x: number; width: number } | null>(null);
+	// Task 4 wires these into the community summary panel; reserved here so App compiles.
+	void onGraphCommunityTextChange;
+	void onGraphCommunityAsk;
 
 	useEffect(() => {
 		return () => {

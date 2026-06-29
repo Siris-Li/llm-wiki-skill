@@ -5,6 +5,7 @@ import {
 	graphCommunityDrawerViewModel,
 	graphSelectionGroupDrawerViewModel,
 	groupDrawerActionById,
+	resolveCommunityAskAction,
 } from "../src/lib/graph-group-drawer";
 import type { GraphCommunitySummaryPayload, Selection } from "@llm-wiki/graph-engine";
 
@@ -84,6 +85,20 @@ describe("graph group drawer view model", () => {
 		assert.equal(groupDrawerActionById("find_knowledge_gaps")?.label, "找知识缺口");
 		assert.equal(groupDrawerActionById("missing"), null);
 		assert.equal(groupDrawerActionById(null), null);
+	});
+
+	it("resolves a null action to the community's recommended action", () => {
+		assert.equal(resolveCommunityAskAction(summaryFixture(), null).id, "summarize_cluster");
+		assert.equal(resolveCommunityAskAction(summaryFixture({ structureState: "loose" }), null).id, "find_knowledge_gaps");
+		assert.equal(
+			resolveCommunityAskAction(summaryFixture({
+				communityId: "_none",
+				structureState: "ungrouped",
+				canEnterCommunity: false,
+			}), null).id,
+			"explore_potential_links",
+		);
+		assert.equal(resolveCommunityAskAction(summaryFixture(), "create_topic_page").id, "create_topic_page");
 	});
 });
 

@@ -24,6 +24,10 @@ import {
 } from "./drawer-state";
 import { selectionTitle } from "./graph-selection";
 
+function communityFreeText(current: DrawerState, communityId: string): string {
+	return current.mode === "graph-community-summary" && current.payload.communityId === communityId ? current.freeText : "";
+}
+
 export type GraphSelectionCommand =
 	| { id: string; type: "clear" | "clear-selection" | "neighbors" | "enter-community" }
 	| { id: string; commandId?: string; nodeId: string; type: "enter-community-node" }
@@ -52,7 +56,7 @@ export function drawerForGraphSelection(
 			selection: { kind: "community", id: selection.communityIds[0] },
 			searchResultIds: options.searchResultIds ?? [],
 		});
-		if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary);
+		if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary, communityFreeText(current, selection.communityIds[0]));
 	}
 
 	const freeText = current.mode === "graph-selection" ? current.freeText : "";
@@ -122,7 +126,7 @@ export function drawerForGraphSummaryCommunity(
 		...options,
 		selection: { kind: "community", id: communityId },
 	});
-	if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary);
+	if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary, communityFreeText(current, communityId));
 	return graphUnavailableObjectDrawer(summary);
 }
 

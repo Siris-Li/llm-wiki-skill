@@ -47,6 +47,7 @@ import {
 	artifactDrawer,
 	closedDrawer,
 	type DrawerState,
+	graphCommunitySummaryDrawer,
 	graphReaderDrawer,
 	graphSelectionDrawer,
 	shouldApplyGraphReaderResult,
@@ -54,6 +55,8 @@ import {
 } from "@/lib/drawer-state";
 import type { GraphReaderActionId } from "@/lib/graph-reader";
 import { buildSelectionPromptPayload } from "@/lib/graph-selection";
+import { graphCloseCommandForDrawer } from "@/lib/graph-drawer-close";
+import { resolveCommunityAskAction } from "@/lib/graph-group-drawer";
 import {
 	drawerForGraphSelection,
 	drawerForExcludedGraphObject,
@@ -613,6 +616,28 @@ function App() {
 		setSelectionCommand({ id: Math.random().toString(36).slice(2, 10), type: "clear" });
 	};
 
+	const handleGraphCommunityTextChange = useCallback((value: string) => {
+		setDrawer((current) => (
+			current.mode === "graph-community-summary"
+				? graphCommunitySummaryDrawer(current.payload, value)
+				: current
+		));
+	}, []);
+
+	const handleGraphCommunityAsk = (actionId: string | null, newConversation: boolean) => {
+		if (!graphData || drawer.mode !== "graph-community-summary") return;
+		const selection = resolveSelection(graphData, { kind: "community", id: drawer.payload.communityId });
+		const action = resolveCommunityAskAction(drawer.payload, actionId);
+		const payload = buildSelectionPromptPayload(graphData, selection, action, drawer.freeText);
+		void handleAskSelection({
+			message: payload.expandedText,
+			displayText: payload.displayText,
+			newConversation,
+		});
+		setDrawer(closedDrawer());
+		setSelectionCommand({ id: Math.random().toString(36).slice(2, 10), type: "clear" });
+	};
+
 	const handleGraphReaderAction = (actionId: GraphReaderActionId) => {
 		if (drawer.mode !== "graph-reader") return;
 		if (actionId === "find_related_pages") {
@@ -637,11 +662,9 @@ function App() {
 
 	const handleCloseDrawer = useCallback((reason: "button" | "escape") => {
 		setDrawer((current) => {
-			if (current.mode === "graph-reader" || current.mode === "graph-selection") {
-				setSelectionCommand({
-					id: Math.random().toString(36).slice(2, 10),
-					type: reason === "button" ? "clear-selection" : "clear",
-				});
+			const clearCommand = graphCloseCommandForDrawer(current, reason);
+			if (clearCommand) {
+				setSelectionCommand(clearCommand);
 				setGraphFocusPath(null);
 			}
 			return closedDrawer();
@@ -1125,6 +1148,8 @@ function App() {
 						onGraphSelectionTextChange={handleGraphSelectionTextChange}
 						onGraphSelectionNeighbors={handleGraphSelectionNeighbors}
 						onGraphSelectionAsk={handleGraphSelectionAsk}
+						onGraphCommunityTextChange={handleGraphCommunityTextChange}
+						onGraphCommunityAsk={handleGraphCommunityAsk}
 						onResize={setDrawerWidth}
 						onToggleFullscreen={() => setDrawerFullscreen((value) => !value)}
 						onClose={handleCloseDrawer}

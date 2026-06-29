@@ -99,6 +99,11 @@ export function groupDrawerActionById(id: string | null): SelectionAction | null
 	return FIXED_GROUP_ACTIONS.find((action) => action.id === id) ?? null;
 }
 
+export function resolveCommunityAskAction(payload: GraphCommunitySummaryPayload, actionId: string | null): SelectionAction {
+	const recommendedId = graphCommunityDrawerViewModel(payload).recommendedActionId;
+	return groupDrawerActionById(actionId ?? recommendedId) ?? groupDrawerActionById(recommendedId)!;
+}
+
 function recommendedActionForCommunity(payload: GraphCommunitySummaryPayload): SelectionActionId {
 	if (payload.structureState === "ungrouped") return "explore_potential_links";
 	if (payload.structureState === "loose") return "find_knowledge_gaps";

@@ -1,4 +1,11 @@
-import { wikiPathForGraphNode, type GraphData, type Selection, type SelectionAction } from "@llm-wiki/graph-engine";
+import {
+	UNGROUPED_COMMUNITY_ID,
+	UNGROUPED_COMMUNITY_LABEL,
+	wikiPathForGraphNode,
+	type GraphData,
+	type Selection,
+	type SelectionAction,
+} from "@llm-wiki/graph-engine";
 
 export interface SelectionPromptPayload {
 	selection: Selection;
@@ -65,6 +72,7 @@ export function buildSelectionPromptPayload(
 
 export function selectionTitle(data: GraphData, selection: Selection): string {
 	if (selection.communityIds.length === 1) {
+		if (selection.communityIds[0] === UNGROUPED_COMMUNITY_ID) return UNGROUPED_COMMUNITY_LABEL;
 		const community = data.learning?.communities?.find((item) => String(item.id) === selection.communityIds[0]);
 		if (community?.label) return community.label;
 	}
@@ -80,7 +88,7 @@ function selectionNodes(data: GraphData, selection: Selection): SelectionNodeInf
 			id: node.id,
 			label: node.label || node.id,
 			path: wikiPathForGraphNode(node),
-			community: String(node.community || "_none")
+			community: node.community ? String(node.community) : UNGROUPED_COMMUNITY_LABEL
 		}));
 }
 

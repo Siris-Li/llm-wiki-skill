@@ -23,6 +23,7 @@ import {
 	rebuildGraph,
 } from "../lib/api";
 import type { GraphSelectionCommand } from "../lib/graph-summary-actions";
+import { applyCommunityEnter } from "../lib/graph-community-enter";
 import { cn } from "../lib/utils";
 import { DEFAULT_GRAPH_STATUS, type GraphStatusKind, type GraphStatusSnapshot } from "../lib/view-status";
 
@@ -471,7 +472,7 @@ export function GraphPanel({
 			if (selected) onSelectionChangeRef.current?.(selected);
 		}
 		if (selectionCommand.type === "enter-community") {
-			const selected = engineRef.current?.focusCommunity(selectionCommand.id);
+			const selected = engineRef.current ? applyCommunityEnter(engineRef.current, selectionCommand.id) : null;
 			if (selected) onSelectionChangeRef.current?.(selected);
 		}
 		if (selectionCommand.type === "enter-community-node") {

@@ -10,7 +10,7 @@ import {
 	graphObjectVisibilityReason,
 	graphSelectionCommandForOpenDetail,
 } from "../src/lib/graph-summary-actions";
-import { closedDrawer } from "../src/lib/drawer-state";
+import { closedDrawer, graphCommunitySummaryDrawer } from "../src/lib/drawer-state";
 import type { GraphData, GraphSummaryCommand, Selection } from "@llm-wiki/graph-engine";
 
 describe("graph summary actions", () => {
@@ -89,6 +89,25 @@ describe("graph summary actions", () => {
 		});
 	});
 
+	it("turns an ungrouped community selection into a community summary drawer", () => {
+		const drawer = drawerForGraphSelection(graphFixtureWithUngroupedNodes(), ungroupedSelection(), closedDrawer());
+
+		assert.equal(drawer.mode, "graph-community-summary");
+		assert.equal(drawer.mode === "graph-community-summary" ? drawer.payload.communityId : null, "_none");
+		assert.equal(drawer.mode === "graph-community-summary" ? drawer.payload.canEnterCommunity : null, false);
+	});
+
+	it("preserves community free text while refreshing the same community drawer", () => {
+		const current = drawerForGraphSelection(graphFixture(), communitySelection(), closedDrawer());
+		assert.equal(current.mode, "graph-community-summary");
+		const withText = current.mode === "graph-community-summary"
+			? graphCommunitySummaryDrawer(current.payload, "请重点看缺口")
+			: current;
+		const next = drawerForGraphSelection(graphFixture(), communitySelection(), withText);
+		assert.equal(next.mode, "graph-community-summary");
+		assert.equal(next.mode === "graph-community-summary" ? next.freeText : null, "请重点看缺口");
+	});
+
 	it("classifies selected objects excluded by filters or search without clearing state", () => {
 		const data = graphFixture();
 		const object = { kind: "node" as const, nodeId: "b" };
@@ -155,6 +174,28 @@ function communitySelection(): Selection {
 
 function communitySummaryDrawer() {
 	return drawerForGraphSelection(graphFixture(), communitySelection(), closedDrawer());
+}
+
+function ungroupedSelection(): Selection {
+	return {
+		id: "community:loose-a,loose-b",
+		nodeIds: ["loose-a", "loose-b"],
+		communityIds: ["_none"],
+		facts: { pageCount: 2, internalLinkCount: 0, communityCount: 1, isolatedCount: 2 },
+		actions: [],
+	};
+}
+
+function graphFixtureWithUngroupedNodes(): GraphData {
+	const base = graphFixture();
+	return {
+		...base,
+		nodes: [
+			...base.nodes,
+			{ id: "loose-a", label: "Loose A", type: "topic", community: null, source_path: "wiki/loose/a.md" },
+			{ id: "loose-b", label: "Loose B", type: "entity", source_path: "wiki/loose/b.md" },
+		],
+	};
 }
 
 function graphFixture(): GraphData {

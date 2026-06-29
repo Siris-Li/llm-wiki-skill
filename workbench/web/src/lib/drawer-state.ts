@@ -50,6 +50,7 @@ export type DrawerState =
 		| {
 			mode: "graph-community-summary";
 			payload: GraphCommunitySummaryPayload;
+			freeText: string;
 		}
 		| {
 			mode: "graph-search-results";
@@ -131,8 +132,8 @@ export function graphNodeSummaryDrawer(payload: GraphNodeSummaryPayload): Drawer
 	return { mode: "graph-node-summary", payload };
 }
 
-export function graphCommunitySummaryDrawer(payload: GraphCommunitySummaryPayload): DrawerState {
-	return { mode: "graph-community-summary", payload };
+export function graphCommunitySummaryDrawer(payload: GraphCommunitySummaryPayload, freeText = ""): DrawerState {
+	return { mode: "graph-community-summary", payload, freeText };
 }
 
 export function graphSearchResultsDrawer(payload: GraphSearchResultsPayload): DrawerState {
