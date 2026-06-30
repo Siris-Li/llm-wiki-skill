@@ -84,19 +84,6 @@ export type {
   SigmaGlobalSigmaLike
 } from "./sigma-global-types";
 
-export {
-  buildSigmaGlobalGraphologyGraph,
-  sigmaGlobalEdgeStyle
-} from "./sigma-graphology-model";
-export type { SigmaGlobalEdgeStyle } from "./sigma-graphology-model";
-export { createSigmaGlobalHitProjector } from "./sigma-hit-projector";
-export type {
-  SigmaGlobalHitInput,
-  SigmaGlobalHitProjector,
-  SigmaGlobalHitProjectorInput,
-  SigmaGlobalRenderedObject
-} from "./sigma-hit-projector";
-
 export const SIGMA_GLOBAL_RENDERER_ID = "sigma-global" as const;
 
 export const SIGMA_GLOBAL_RENDERER_ROUTE_MANAGER_OWNER = "facade" as const;

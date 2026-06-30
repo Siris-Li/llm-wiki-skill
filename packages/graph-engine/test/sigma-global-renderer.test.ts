@@ -6,14 +6,16 @@ import GraphologyGraph from "graphology";
 import {
   SIGMA_GLOBAL_RENDERER_BUNDLE_BOUNDARY,
   SIGMA_GLOBAL_RENDERER_ROUTE_MANAGER_OWNER,
-  buildSigmaGlobalGraphologyGraph,
-  createSigmaGlobalHitProjector,
   createSigmaGlobalRenderer,
-  sigmaGlobalEdgeStyle,
   type SigmaGlobalGraphologyGraph,
   type SigmaGlobalRendererRuntime,
   type SigmaGlobalSigmaLike
 } from "../src/render/sigma-global-renderer";
+import {
+  buildSigmaGlobalGraphologyGraph,
+  sigmaGlobalEdgeStyle
+} from "../src/render/sigma-graphology-model";
+import { createSigmaGlobalHitProjector } from "../src/render/sigma-hit-projector";
 import type {
   GraphRendererAdapterData
 } from "../src";
