@@ -11,18 +11,30 @@ import type { GraphCommunitySummaryPayload, Selection } from "@llm-wiki/graph-en
 
 describe("graph group drawer view model", () => {
 	it("keeps normal community actions stable and enter-community available", () => {
-		const view = graphCommunityDrawerViewModel(summaryFixture());
+		const view = graphCommunityDrawerViewModel(summaryFixture({
+			coreNodeIds: ["a", "b", "c", "d"],
+			coreNodes: [
+				{ nodeId: "a", label: "Alpha", type: "topic", role: "核心" },
+				{ nodeId: "b", label: "Beta", type: "entity", role: "相关" },
+				{ nodeId: "c", label: "Gamma", type: "source", role: "相关" },
+				{ nodeId: "d", label: "Delta", type: "entity", role: "相关" },
+			],
+		}));
 
 		assert.equal(view.kicker, "社区");
 		assert.equal(view.title, "Knowledge Build");
 		assert.equal(view.canEnterCommunity, true);
 		assert.equal(view.recommendedActionId, "summarize_cluster");
+		assert.equal(view.nodeListExpandable, true);
+		assert.equal(view.nodeListKey, JSON.stringify(["community", "build", ["a", "b", "c", "d"]]));
+		assert.equal(view.dialogueHint, "当前社区会带入对话");
 		assert.deepEqual(view.facts, [
 			{ label: "页", value: 6 },
 			{ label: "链接", value: 5 },
-			{ label: "核心", value: 3 },
+			{ label: "核心", value: 4 },
 			{ label: "孤立", value: 0 }
 		]);
+		assert.deepEqual(view.nodes.map((node) => node.nodeId), ["a", "b", "c", "d"]);
 		assert.deepEqual(view.actions.map((action) => action.label), [
 			"总结这一簇",
 			"找知识缺口",
@@ -61,12 +73,19 @@ describe("graph group drawer view model", () => {
 	});
 
 	it("uses the same skeleton for manual multi-node selections", () => {
-		const view = graphSelectionGroupDrawerViewModel("选区", selectionFixture());
+		const view = graphSelectionGroupDrawerViewModel("选区", selectionFixture({
+			id: "nodes:a,b,c,d",
+			nodeIds: ["a", "b", "c", "d"],
+		}));
 
 		assert.equal(view.kicker, "选区");
 		assert.equal(view.title, "选区");
 		assert.equal(view.canEnterCommunity, false);
 		assert.equal(view.recommendedActionId, "explore_potential_links");
+		assert.equal(view.nodeListExpandable, false);
+		assert.equal(view.nodeListKey, JSON.stringify(["selection", "nodes:a,b,c,d"]));
+		assert.equal(view.dialogueHint, "当前选区会带入对话");
+		assert.deepEqual(view.nodes.map((node) => node.nodeId), ["a", "b", "c"]);
 		assert.deepEqual(view.facts, [
 			{ label: "页", value: 3 },
 			{ label: "链接", value: 0 },
@@ -85,6 +104,17 @@ describe("graph group drawer view model", () => {
 		assert.equal(groupDrawerActionById("find_knowledge_gaps")?.label, "找知识缺口");
 		assert.equal(groupDrawerActionById("missing"), null);
 		assert.equal(groupDrawerActionById(null), null);
+	});
+
+	it("uses unambiguous community node-list keys when node ids contain separators", () => {
+		const first = graphCommunityDrawerViewModel(summaryFixture({
+			coreNodeIds: ["wiki/a,b.md", "wiki/c.md"],
+		}));
+		const second = graphCommunityDrawerViewModel(summaryFixture({
+			coreNodeIds: ["wiki/a.md", "wiki/b,c.md"],
+		}));
+
+		assert.notEqual(first.nodeListKey, second.nodeListKey);
 	});
 
 	it("keeps free-text sends free and uses the recommended action only for empty new conversations", () => {
