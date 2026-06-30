@@ -38,6 +38,8 @@ const forbiddenRendererEntrypointImportPattern =
   /import\s+(?:type\s+)?\{[\s\S]*?\}\s+from\s+["'][^"']*sigma-global-renderer(?:\.[jt]s)?["']/g;
 const forbiddenRendererEntrypointNamespaceImportPattern =
   /import\s+\*\s+as\s+\w+\s+from\s+["'][^"']*sigma-global-renderer(?:\.[jt]s)?["']/;
+const rendererEntrypointNamedExportPattern =
+  /export\s+(?:type\s+)?\{[\s\S]*?\}(?:\s+from\s+["'][^"']*["'])?/g;
 const forbiddenSigmaInternalHostIdentifiers = [
   "GraphEngineCapabilities",
   "GraphFacadeRendererCallbacks",
@@ -85,11 +87,15 @@ describe("Sigma global renderer refactor boundaries", () => {
 
   it("keeps the renderer entrypoint from re-exporting Sigma internal helpers", async () => {
     const source = await readFile(new URL("../src/render/sigma-global-renderer.ts", import.meta.url), "utf8");
+    const forbiddenNamePattern = new RegExp(`\\b(?:${forbiddenRendererEntrypointInternalNames.join("|")})\\b`);
     for (const moduleName of forbiddenRendererEntrypointExportModules) {
       const pattern = new RegExp(
         `export\\s+(?:type\\s+)?(?:\\*|\\*\\s+as\\s+\\w+|\\{[\\s\\S]*?\\})\\s+from\\s+["']\\./${moduleName}(?:\\.[jt]s)?["']`
       );
       assert.doesNotMatch(source, pattern);
+    }
+    for (const match of source.matchAll(rendererEntrypointNamedExportPattern)) {
+      assert.doesNotMatch(match[0], forbiddenNamePattern);
     }
   });
 

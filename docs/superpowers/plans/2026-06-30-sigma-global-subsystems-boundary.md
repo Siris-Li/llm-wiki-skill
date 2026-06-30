@@ -205,6 +205,8 @@ const forbiddenRendererEntrypointImportPattern =
   /import\s+(?:type\s+)?\{[\s\S]*?\}\s+from\s+["'][^"']*sigma-global-renderer(?:\.[jt]s)?["']/g;
 const forbiddenRendererEntrypointNamespaceImportPattern =
   /import\s+\*\s+as\s+\w+\s+from\s+["'][^"']*sigma-global-renderer(?:\.[jt]s)?["']/;
+const rendererEntrypointNamedExportPattern =
+  /export\s+(?:type\s+)?\{[\s\S]*?\}(?:\s+from\s+["'][^"']*["'])?/g;
 const forbiddenSigmaInternalHostIdentifiers = [
   "GraphEngineCapabilities",
   "GraphFacadeRendererCallbacks",
@@ -252,11 +254,15 @@ describe("Sigma global renderer refactor boundaries", () => {
 
   it("keeps the renderer entrypoint from re-exporting Sigma internal helpers", async () => {
     const source = await readFile(new URL("../src/render/sigma-global-renderer.ts", import.meta.url), "utf8");
+    const forbiddenNamePattern = new RegExp(`\\b(?:${forbiddenRendererEntrypointInternalNames.join("|")})\\b`);
     for (const moduleName of forbiddenRendererEntrypointExportModules) {
       const pattern = new RegExp(
         `export\\s+(?:type\\s+)?(?:\\*|\\*\\s+as\\s+\\w+|\\{[\\s\\S]*?\\})\\s+from\\s+["']\\./${moduleName}(?:\\.[jt]s)?["']`
       );
       assert.doesNotMatch(source, pattern);
+    }
+    for (const match of source.matchAll(rendererEntrypointNamedExportPattern)) {
+      assert.doesNotMatch(match[0], forbiddenNamePattern);
     }
   });
 
@@ -461,6 +467,8 @@ const rendererEntrypointImportPattern =
   /import\s+(?:type\s+)?\{[\s\S]*?\}\s+from\s+["'][^"']*sigma-global-renderer(?:\.[jt]s)?["']/g;
 const rendererEntrypointNamespaceImportPattern =
   /import\s+\*\s+as\s+\w+\s+from\s+["'][^"']*sigma-global-renderer(?:\.[jt]s)?["']/;
+const rendererEntrypointNamedExportPattern =
+  /export\s+(?:type\s+)?\{[\s\S]*?\}(?:\s+from\s+["'][^"']*["'])?/g;
 
 const violations = [];
 const rendererSource = await readFile(rendererFile, "utf8");
@@ -470,6 +478,11 @@ for (const moduleName of forbiddenExportModules) {
   );
   if (exportPattern.test(rendererSource)) {
     violations.push(`${rendererFile}: re-exports ${moduleName}`);
+  }
+}
+for (const match of rendererSource.matchAll(rendererEntrypointNamedExportPattern)) {
+  if (forbiddenNamePattern.test(match[0])) {
+    violations.push(`${rendererFile}: re-exports internal helper ${match[0].replace(/\s+/g, " ")}`);
   }
 }
 
@@ -804,6 +817,7 @@ CODE PATHS                                                COVERAGE
   +-- sigma internals cannot leak through render barrel   *** boundary test
   +-- sigma-global-types stays type-only                  *** boundary test
   +-- renderer cannot re-export internal helpers          *** regression test
+  +-- renderer cannot locally re-export imported helpers  *** regression test
   +-- renderer test cannot import internals via renderer  *** regression test
   +-- internals cannot own host callback names            *** boundary test
 
@@ -834,6 +848,7 @@ Legend: `***` behavior plus regression guard, `**` targeted verification, `[=]` 
 | Area | Realistic failure | Covered by plan | User impact |
 |------|-------------------|-----------------|-------------|
 | Renderer helper exports | Internal helpers remain exported from `sigma-global-renderer.ts` | Boundary regression test plus whole-file smoke check | No user-visible bug, but boundary stays leaky |
+| Renderer local re-exports | The renderer imports an internal helper for its own use, then accidentally exposes it with a local named export | Boundary regression test plus whole-file smoke check | No user-visible bug, but the entrypoint becomes a helper barrel again |
 | Renderer test imports | Tests keep importing internals through the renderer entrypoint | Boundary regression test plus whole-file smoke check | No user-visible bug, but future refactors get misleading safety |
 | Render barrel drift | Sigma internal helpers become public through `render/index.ts` | Strengthened boundary test includes `community-cloud-geometry.ts` and Sigma helpers | Public API surface grows accidentally |
 | Host callback ownership | Internal Sigma modules start referencing facade/web callbacks | Strengthened boundary test plus existing `renderer-boundary.test.ts` | Future behavior can split ownership between layers |
