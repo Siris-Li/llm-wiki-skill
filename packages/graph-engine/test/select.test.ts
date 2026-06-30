@@ -1,7 +1,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveSelection, resolveSelectionForCapabilities, toggleNodeInSelection } from "../src/select";
+import {
+  groupDrawerActionById,
+  groupDrawerActions,
+  recommendedGroupActionForCommunity,
+  recommendedGroupActionForSelection,
+  resolveSelection,
+  resolveSelectionForCapabilities,
+  toggleNodeInSelection
+} from "../src/select";
 import type { GraphData, SelectionActionId } from "../src/types";
 
 describe("structured graph selection", () => {
@@ -134,6 +142,26 @@ describe("structured graph selection", () => {
       kind: "nodes",
       ids: ["a1", "a2", "a3", "b1"]
     });
+  });
+
+  it("exposes unified drawer actions and recommendations from one catalog", () => {
+    assert.deepEqual(groupDrawerActions().map((action) => action.label), [
+      "总结这一簇",
+      "找知识缺口",
+      "生成主题页",
+      "探索潜在关系"
+    ]);
+    assert.equal(groupDrawerActionById("find_knowledge_gaps")?.tone, "lint");
+    assert.equal(recommendedGroupActionForCommunity("loose"), "find_knowledge_gaps");
+    assert.equal(recommendedGroupActionForCommunity("ungrouped"), "explore_potential_links");
+    assert.equal(
+      recommendedGroupActionForSelection({ pageCount: 3, internalLinkCount: 0, communityCount: 1, isolatedCount: 3 }),
+      "explore_potential_links"
+    );
+    assert.equal(
+      recommendedGroupActionForSelection({ pageCount: 3, internalLinkCount: 2, communityCount: 1, isolatedCount: 0 }),
+      "summarize_cluster"
+    );
   });
 });
 

@@ -1226,7 +1226,6 @@ export function createGraphFacadeFromRenderer(
       assertActive();
       container.dataset.llmWikiGraphFocus = `community:${id}`;
       facadeState.focus = { kind: "community", id };
-      facadeState.selection = { kind: "community", id };
       renderer.focusCommunity(id);
       return resolveForHostCapabilities({ kind: "community", id });
     },

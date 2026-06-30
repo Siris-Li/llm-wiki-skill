@@ -3,8 +3,15 @@ import type {
 	Selection,
 	SelectionAction,
 	SelectionActionId,
-	SelectionActionTone
 } from "@llm-wiki/graph-engine";
+import {
+	groupDrawerActionById,
+	groupDrawerActions,
+	recommendedGroupActionForCommunity,
+	recommendedGroupActionForSelection,
+} from "@llm-wiki/graph-engine";
+
+export { groupDrawerActionById };
 
 export interface GraphGroupDrawerFact {
 	label: string;
@@ -33,15 +40,8 @@ export interface GraphGroupDrawerViewModel {
 	nodes: GraphGroupDrawerNode[];
 }
 
-const FIXED_GROUP_ACTIONS: Array<SelectionAction & { id: SelectionActionId; tone: SelectionActionTone }> = [
-	{ id: "summarize_cluster", label: "总结这一簇", tone: "digest" },
-	{ id: "find_knowledge_gaps", label: "找知识缺口", tone: "lint" },
-	{ id: "create_topic_page", label: "生成主题页", tone: "write" },
-	{ id: "explore_potential_links", label: "探索潜在关系", tone: "bridge" }
-];
-
 export function graphCommunityDrawerViewModel(payload: GraphCommunitySummaryPayload): GraphGroupDrawerViewModel {
-	const recommendedActionId = recommendedActionForCommunity(payload);
+	const recommendedActionId = recommendedGroupActionForCommunity(payload.structureState);
 	return {
 		kicker: "社区",
 		title: payload.label,
@@ -55,7 +55,7 @@ export function graphCommunityDrawerViewModel(payload: GraphCommunitySummaryPayl
 			{ label: "孤立", value: payload.facts.isolatedCount }
 		],
 		tags: communityTags(payload),
-		actions: FIXED_GROUP_ACTIONS.map((action) => ({
+		actions: groupDrawerActions().map((action) => ({
 			...action,
 			recommended: action.id === recommendedActionId
 		})),
@@ -68,7 +68,7 @@ export function graphCommunityDrawerViewModel(payload: GraphCommunitySummaryPayl
 }
 
 export function graphSelectionGroupDrawerViewModel(title: string, selection: Selection): GraphGroupDrawerViewModel {
-	const recommendedActionId = recommendedActionForSelection(selection);
+	const recommendedActionId = recommendedGroupActionForSelection(selection.facts);
 	return {
 		kicker: "选区",
 		title,
@@ -82,7 +82,7 @@ export function graphSelectionGroupDrawerViewModel(title: string, selection: Sel
 			{ label: "孤立", value: selection.facts.isolatedCount }
 		],
 		tags: ["Shift+点击增删节点"],
-		actions: FIXED_GROUP_ACTIONS.map((action) => ({
+		actions: groupDrawerActions().map((action) => ({
 			...action,
 			recommended: action.id === recommendedActionId
 		})),
@@ -94,26 +94,10 @@ export function graphSelectionGroupDrawerViewModel(title: string, selection: Sel
 	};
 }
 
-export function groupDrawerActionById(id: string | null): SelectionAction | null {
-	if (!id) return null;
-	return FIXED_GROUP_ACTIONS.find((action) => action.id === id) ?? null;
-}
-
-export function resolveCommunityAskAction(payload: GraphCommunitySummaryPayload, actionId: string | null): SelectionAction {
-	const recommendedId = graphCommunityDrawerViewModel(payload).recommendedActionId;
-	return groupDrawerActionById(actionId ?? recommendedId) ?? groupDrawerActionById(recommendedId)!;
-}
-
-function recommendedActionForCommunity(payload: GraphCommunitySummaryPayload): SelectionActionId {
-	if (payload.structureState === "ungrouped") return "explore_potential_links";
-	if (payload.structureState === "loose") return "find_knowledge_gaps";
-	return "summarize_cluster";
-}
-
-function recommendedActionForSelection(selection: Selection): SelectionActionId {
-	if (selection.facts.internalLinkCount === 0) return "explore_potential_links";
-	if (selection.facts.communityCount > 1) return "explore_potential_links";
-	return "summarize_cluster";
+export function graphGroupDrawerPromptAction(actionId: string | null, recommendedActionId: SelectionActionId, freeText: string, newConversation: boolean): SelectionAction | null {
+	if (actionId) return groupDrawerActionById(actionId);
+	if (newConversation && freeText.trim().length === 0) return groupDrawerActionById(recommendedActionId);
+	return null;
 }
 
 function communityTags(payload: GraphCommunitySummaryPayload): string[] {

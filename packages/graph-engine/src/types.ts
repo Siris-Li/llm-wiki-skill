@@ -272,6 +272,7 @@ export interface Selection {
   nodeIds: NodeId[];
   communityIds: CommunityId[];
   facts: SelectionFacts;
+  input: SelectionInput;
   actions?: SelectionAction[];
 }
 

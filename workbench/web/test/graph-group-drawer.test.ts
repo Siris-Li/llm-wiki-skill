@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 
 import {
 	graphCommunityDrawerViewModel,
+	graphGroupDrawerPromptAction,
 	graphSelectionGroupDrawerViewModel,
 	groupDrawerActionById,
-	resolveCommunityAskAction,
 } from "../src/lib/graph-group-drawer";
 import type { GraphCommunitySummaryPayload, Selection } from "@llm-wiki/graph-engine";
 
@@ -87,18 +87,11 @@ describe("graph group drawer view model", () => {
 		assert.equal(groupDrawerActionById(null), null);
 	});
 
-	it("resolves a null action to the community's recommended action", () => {
-		assert.equal(resolveCommunityAskAction(summaryFixture(), null).id, "summarize_cluster");
-		assert.equal(resolveCommunityAskAction(summaryFixture({ structureState: "loose" }), null).id, "find_knowledge_gaps");
-		assert.equal(
-			resolveCommunityAskAction(summaryFixture({
-				communityId: "_none",
-				structureState: "ungrouped",
-				canEnterCommunity: false,
-			}), null).id,
-			"explore_potential_links",
-		);
-		assert.equal(resolveCommunityAskAction(summaryFixture(), "create_topic_page").id, "create_topic_page");
+	it("keeps free-text sends free and uses the recommended action only for empty new conversations", () => {
+		assert.equal(graphGroupDrawerPromptAction(null, "summarize_cluster", "请只看风险", false), null);
+		assert.equal(graphGroupDrawerPromptAction(null, "summarize_cluster", "请只看风险", true), null);
+		assert.equal(graphGroupDrawerPromptAction(null, "summarize_cluster", "", true)?.id, "summarize_cluster");
+		assert.equal(graphGroupDrawerPromptAction("create_topic_page", "summarize_cluster", "", false)?.id, "create_topic_page");
 	});
 });
 
@@ -142,6 +135,7 @@ function selectionFixture(overrides: Partial<Selection> = {}): Selection {
 		nodeIds: ["a", "b", "c"],
 		communityIds: ["alpha", "beta"],
 		facts: { pageCount: 3, internalLinkCount: 0, communityCount: 2, isolatedCount: 1 },
+		input: { kind: "nodes", ids: ["a", "b", "c"] },
 		actions: [{ id: "explore_potential_links", label: "探索潜在关系", tone: "bridge" }],
 		...overrides
 	};

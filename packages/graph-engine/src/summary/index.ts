@@ -36,6 +36,12 @@ interface SummaryIndex {
   edgesByNodeId: Map<NodeId, GraphEdge[]>;
 }
 
+interface NodeRankContext {
+  index: SummaryIndex;
+  recommendedStartNodeId: NodeId | null;
+  bridgeNodeIds: Set<NodeId>;
+}
+
 export function summarizeGraphNode(
   data: GraphData,
   nodeId: NodeId,
@@ -85,19 +91,20 @@ export function summarizeGraphCommunity(
   }
   const index = buildSummaryIndex(data);
   const nodeIds = new Set(nodes.map((node) => node.id));
+  const relatedEdges = data.edges.filter((edge) => nodeIds.has(endpointId(edge.from) || "") || nodeIds.has(endpointId(edge.to) || ""));
   const relations = relationSummariesForEdges(
     data,
-    data.edges.filter((edge) => nodeIds.has(endpointId(edge.from) || "") || nodeIds.has(endpointId(edge.to) || "")),
+    relatedEdges,
     index
   );
   const resultIds = options.searchResultIds ?? [];
   const searchHits = resultIds.filter((id) => nodeIds.has(id));
   const pinHints = nodes.map((node) => pinHintForNode(node, options.pins)).filter((hint) => hint.pinned);
-  const selection = resolveSelectionForCapabilities(data, { kind: "community", id: communityId }, { canAsk: false });
-  const facts = selection.facts;
+  const facts = communityFacts(nodes, nodeIds, relatedEdges, index);
   const structureState = communityStructureState(communityId, facts.pageCount, facts.internalLinkCount, facts.isolatedCount);
-  const canEnterCommunity = communityId !== UNGROUPED_COMMUNITY_ID && Boolean(community);
-  const coreIds = coreNodeIds(data, nodes);
+  const canEnterCommunity = communityId !== UNGROUPED_COMMUNITY_ID && nodes.length > 0;
+  const rankContext = nodeRankContext(data, index);
+  const coreIds = coreNodeIds(data, nodes, DEFAULT_LIMIT, rankContext);
   return {
     kind: "community-summary",
     object: { kind: "community", communityId },
@@ -109,7 +116,7 @@ export function summarizeGraphCommunity(
     description: communityDescription(structureState),
     canEnterCommunity,
     coreNodeIds: coreIds,
-    coreNodes: coreNodeSummaries(data, coreIds),
+    coreNodes: coreNodeSummaries(index, coreIds),
     searchResultIds: searchHits,
     pinHints,
     selection: selectionStateForObject(data, { kind: "community", communityId }, options.selection),
@@ -281,18 +288,54 @@ function topRelations(relations: GraphRelationSummary[], limit: number): GraphRe
     .slice(0, limit);
 }
 
-function coreNodeIds(data: GraphData, nodes: GraphNode[], limit = DEFAULT_LIMIT): NodeId[] {
-  const index = buildSummaryIndex(data);
+function communityFacts(
+  nodes: GraphNode[],
+  nodeIds: Set<NodeId>,
+  edges: GraphEdge[],
+  index: SummaryIndex
+): SelectionFacts {
+  const linkedNodeIds = new Set<NodeId>();
+  let internalLinkCount = 0;
+  for (const edge of edges) {
+    const from = endpointId(edge.from);
+    const to = endpointId(edge.to);
+    if (!from || !to || from === to || !index.nodeById.has(from) || !index.nodeById.has(to)) continue;
+    const fromSelected = nodeIds.has(from);
+    const toSelected = nodeIds.has(to);
+    if (!fromSelected && !toSelected) continue;
+    if (fromSelected) linkedNodeIds.add(from);
+    if (toSelected) linkedNodeIds.add(to);
+    if (fromSelected && toSelected) internalLinkCount += 1;
+  }
+  return {
+    pageCount: nodes.length,
+    internalLinkCount,
+    communityCount: new Set(nodes.map(communityIdForNode)).size,
+    isolatedCount: nodes.filter((node) => !linkedNodeIds.has(node.id)).length
+  };
+}
+
+function coreNodeIds(data: GraphData, nodes: GraphNode[], limit = DEFAULT_LIMIT, context?: NodeRankContext): NodeId[] {
+  const rankContext = context ?? nodeRankContext(data);
   return [...nodes]
-    .sort((left, right) => nodeRank(data, index, right) - nodeRank(data, index, left) || left.id.localeCompare(right.id))
+    .map((node) => ({ id: node.id, rank: nodeRank(rankContext, node) }))
+    .sort((left, right) => right.rank - left.rank || left.id.localeCompare(right.id))
     .slice(0, limit)
     .map((node) => node.id);
 }
 
-function nodeRank(data: GraphData, index: SummaryIndex, node: GraphNode): number {
-  const recommended = data.learning?.entry.recommended_start_node_id === node.id ? 10000 : 0;
-  const bridge = data.insights?.bridge_nodes.some((item) => item.id === node.id) ? 1000 : 0;
-  return recommended + bridge + numericWeight(node.score) * 100 + numericWeight(node.weight) * 10 + (index.edgesByNodeId.get(node.id)?.length ?? 0);
+function nodeRankContext(data: GraphData, index = buildSummaryIndex(data)): NodeRankContext {
+  return {
+    index,
+    recommendedStartNodeId: data.learning?.entry.recommended_start_node_id ?? null,
+    bridgeNodeIds: new Set((data.insights?.bridge_nodes ?? []).map((item) => item.id))
+  };
+}
+
+function nodeRank(context: NodeRankContext, node: GraphNode): number {
+  const recommended = context.recommendedStartNodeId === node.id ? 10000 : 0;
+  const bridge = context.bridgeNodeIds.has(node.id) ? 1000 : 0;
+  return recommended + bridge + numericWeight(node.score) * 100 + numericWeight(node.weight) * 10 + (context.index.edgesByNodeId.get(node.id)?.length ?? 0);
 }
 
 function selectionStateForObject(
@@ -391,16 +434,15 @@ function communityStructureState(
   return "clear";
 }
 
-function coreNodeSummaries(data: GraphData, ids: NodeId[]): GraphCommunityCoreNode[] {
-  const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
-  return ids.flatMap((id, index) => {
-    const node = nodeById.get(id);
+function coreNodeSummaries(index: SummaryIndex, ids: NodeId[]): GraphCommunityCoreNode[] {
+  return ids.flatMap((id, order) => {
+    const node = index.nodeById.get(id);
     if (!node) return [];
     return [{
       nodeId: node.id,
       label: node.label || node.id,
       type: node.type,
-      role: index === 0 ? "核心" : node.type === "topic" ? "主题" : "相关"
+      role: order === 0 ? "核心" : node.type === "topic" ? "主题" : "相关"
     }];
   });
 }

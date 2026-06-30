@@ -200,6 +200,16 @@ describe("graph renderer adapter contract", () => {
       summaryKind: "community-summary",
       object: { kind: "community", communityId: UNGROUPED_COMMUNITY_ID }
     });
+    assert.deepEqual(ungrouped?.commands, []);
+  });
+
+  it("omits enter-community behavior for the ungrouped virtual community", () => {
+    const contract = buildGraphRendererBehaviorContract(
+      buildGraphRendererAdapterData(graphFixtureWithUngroupedNodes()),
+      "candidate-global"
+    );
+
+    assert.equal(contract.enterCommunity.some((item) => item.communityId === UNGROUPED_COMMUNITY_ID), false);
   });
 });
 

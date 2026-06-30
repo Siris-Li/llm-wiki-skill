@@ -1,5 +1,6 @@
 import { wikiPathForGraphNode } from "../graph-node";
 import { resolveSelectionForCapabilities } from "../select";
+import { UNGROUPED_COMMUNITY_ID } from "../types";
 import type {
   CommunityId,
   Confidence,
@@ -246,7 +247,7 @@ export function buildGraphRendererAdapterData(
         summaryKind: "community-summary",
         object: { kind: "community", communityId: community.id }
       },
-      commands: [enterCommunityCommand(community.id)]
+      commands: community.id === UNGROUPED_COMMUNITY_ID ? [] : [enterCommunityCommand(community.id)]
     };
   });
 
@@ -374,10 +375,12 @@ export function buildGraphRendererBehaviorContract(
         pinHints: aggregation.pinHints,
         drawerTarget: aggregation.drawerTarget
       })),
-    enterCommunity: adapter.communities.map((community) => ({
-      communityId: community.id,
-      command: enterCommunityCommand(community.id)
-    }))
+    enterCommunity: adapter.communities
+      .filter((community) => community.id !== UNGROUPED_COMMUNITY_ID)
+      .map((community) => ({
+        communityId: community.id,
+        command: enterCommunityCommand(community.id)
+      }))
   };
 }
 

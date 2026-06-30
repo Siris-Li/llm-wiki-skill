@@ -9,5 +9,6 @@ import type { GraphEngine, Selection } from "@llm-wiki/graph-engine";
  */
 export function applyCommunityEnter(engine: GraphEngine, communityId: string): Selection | null {
 	engine.clearSelection();
-	return engine.focusCommunity(communityId);
+	engine.focusCommunity(communityId);
+	return null;
 }

@@ -42,6 +42,7 @@ export function drawerForGraphSelection(
 	current: DrawerState,
 	options: GraphSummaryOptions = {},
 ): DrawerState {
+	const selectionInput = options.selection ?? selection.input ?? null;
 	if (data && selection.nodeIds.length === 1) {
 		const summary = summarizeGraphNode(data, selection.nodeIds[0], {
 			...options,
@@ -50,10 +51,10 @@ export function drawerForGraphSelection(
 		if (summary.kind === "node-summary") return graphNodeSummaryDrawer(summary);
 	}
 
-	if (data && selection.nodeIds.length > 1 && selection.communityIds.length === 1) {
+	if (data && selectionInput?.kind === "community" && selection.nodeIds.length > 1 && selection.communityIds.length === 1) {
 		const summary = summarizeGraphCommunity(data, selection.communityIds[0], {
 			...options,
-			selection: { kind: "community", id: selection.communityIds[0] },
+			selection: selectionInput,
 			searchResultIds: options.searchResultIds ?? [],
 		});
 		if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary, communityFreeText(current, selection.communityIds[0]));

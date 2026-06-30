@@ -62,6 +62,7 @@ function selectionFixture(): Selection {
 		nodeIds: ["a", "b"],
 		communityIds: ["alpha", "beta"],
 		facts: { pageCount: 2, internalLinkCount: 1, communityCount: 2, isolatedCount: 0 },
+		input: { kind: "nodes", ids: ["a", "b"] },
 		actions: [],
 	};
 }

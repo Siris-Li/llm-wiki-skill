@@ -59,6 +59,7 @@ function selectionFixture(overrides: Partial<Selection> = {}): Selection {
 		nodeIds: ["a", "b"],
 		communityIds: ["build"],
 		facts: { pageCount: 2, internalLinkCount: 1, communityCount: 1, isolatedCount: 0 },
+		input: { kind: "community", id: "build" },
 		actions: [],
 		...overrides,
 	};

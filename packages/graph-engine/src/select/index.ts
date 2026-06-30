@@ -7,6 +7,7 @@ import type {
   NodeId,
   Selection,
   SelectionAction,
+  SelectionActionId,
   SelectionFacts,
   SelectionInput
 } from "../types";
@@ -106,6 +107,7 @@ export function resolveSelectionForCapabilities(
     nodeIds,
     communityIds,
     facts,
+    input,
     actions: capabilities.canAsk === false ? [] : selectionActions(facts, input)
   };
 }
@@ -131,6 +133,32 @@ export function selectionActions(facts: SelectionFacts, input?: SelectionInput):
     return [ACTIONS.explorePotentialLinks, ACTIONS.compareDifferences];
   }
   return [ACTIONS.explorePotentialLinks];
+}
+
+export function groupDrawerActions(): SelectionAction[] {
+  return [
+    ACTIONS.summarizeCluster,
+    ACTIONS.findKnowledgeGaps,
+    ACTIONS.createTopicPage,
+    { ...ACTIONS.explorePotentialLinks, label: "探索潜在关系" }
+  ];
+}
+
+export function groupDrawerActionById(id: string | null): SelectionAction | null {
+  if (!id) return null;
+  return groupDrawerActions().find((action) => action.id === id) ?? null;
+}
+
+export function recommendedGroupActionForCommunity(state: "clear" | "loose" | "ungrouped"): SelectionActionId {
+  if (state === "ungrouped") return "explore_potential_links";
+  if (state === "loose") return "find_knowledge_gaps";
+  return "summarize_cluster";
+}
+
+export function recommendedGroupActionForSelection(facts: SelectionFacts): SelectionActionId {
+  if (facts.internalLinkCount === 0) return "explore_potential_links";
+  if (facts.communityCount > 1) return "explore_potential_links";
+  return "summarize_cluster";
 }
 
 function buildSelectionGraphIndex(data: GraphData): SelectionGraphIndex {

@@ -12,6 +12,7 @@ describe("applyCommunityEnter", () => {
 			nodeIds: ["a1"],
 			communityIds: ["alpha"],
 			facts: { pageCount: 1, internalLinkCount: 0, communityCount: 1, isolatedCount: 1 },
+			input: { kind: "community", id: "alpha" },
 			actions: [],
 		};
 		const engine = {
@@ -27,6 +28,6 @@ describe("applyCommunityEnter", () => {
 		const result = applyCommunityEnter(engine, "alpha");
 
 		assert.deepEqual(calls, ["clear", "focus:alpha"]);
-		assert.equal(result, selection);
+		assert.equal(result, null);
 	});
 });

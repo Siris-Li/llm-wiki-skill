@@ -127,7 +127,7 @@ describe("GraphFacade", () => {
     const renderer = createFakeRenderer();
     const viewResets: number[] = [];
     const selectionClears: number[] = [];
-    const facadeState: GraphFacadeState = { data: DATA, pins: {} };
+    const facadeState: GraphFacadeState = { data: DATA, pins: {}, selection: null, temporaryObject: null };
     const engine = createGraphFacadeFromRenderer(container, renderer, {
       data: DATA,
       theme: "shan-shui",
@@ -137,9 +137,11 @@ describe("GraphFacade", () => {
       }
     }, facadeState);
 
-    engine.focusCommunity("c1");
+    const focused = engine.focusCommunity("c1");
     assert.equal(container.dataset.llmWikiGraphFocus, "community:c1");
-    assert.deepEqual(facadeState.selection, { kind: "community", id: "c1" });
+    assert.equal(facadeState.selection, null);
+    assert.deepEqual(focused.communityIds, ["c1"]);
+    assert.deepEqual(focused.nodeIds, ["a", "b"]);
 
     engine.resetLayout();
     assert.equal(container.dataset.llmWikiGraphFocus, "community:c1");
@@ -153,7 +155,7 @@ describe("GraphFacade", () => {
     assert.equal(facadeState.temporaryObject, null);
     assert.deepEqual(renderer.calls.at(-1), ["resetView"]);
     assert.deepEqual(viewResets, [1]);
-    assert.deepEqual(selectionClears, [1]);
+    assert.deepEqual(selectionClears, []);
   });
 
   it("exposes shared summary payloads from current facade data and pins", () => {

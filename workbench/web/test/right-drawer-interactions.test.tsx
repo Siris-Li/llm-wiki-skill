@@ -5,9 +5,9 @@ import { fireEvent } from "@testing-library/react";
 
 import { RightDrawer } from "../src/components/RightDrawer";
 import { SearchPanel } from "../src/components/SearchPanel";
-import { artifactDrawer, graphNodeSummaryDrawer, wikiDrawer, type DrawerState } from "../src/lib/drawer-state";
+import { artifactDrawer, graphCommunitySummaryDrawer, graphNodeSummaryDrawer, graphSelectionDrawer, wikiDrawer, type DrawerState } from "../src/lib/drawer-state";
 import type { ArtifactManifest } from "../src/lib/api";
-import type { GraphNodeSummaryPayload, GraphSummaryCommand } from "@llm-wiki/graph-engine";
+import type { GraphCommunitySummaryPayload, GraphNodeSummaryPayload, GraphSummaryCommand, Selection } from "@llm-wiki/graph-engine";
 import { click, pressKey, render, screen } from "./render";
 
 describe("RightDrawer interactions", () => {
@@ -128,6 +128,46 @@ describe("RightDrawer interactions", () => {
 
 		assert.deepEqual(commands, [{ kind: "select-neighbors", nodeId: "alpha-node", label: "+邻居" }]);
 	});
+
+	it("dispatches free-text send as a free graph selection question", async () => {
+		const asks: Array<{ actionId: string | null; newConversation: boolean }> = [];
+		renderDrawer(graphSelectionDrawer(selectionFixture(), "Alpha/Beta", "只看这两页的差异"), {
+			onGraphSelectionAsk: (actionId, newConversation) => asks.push({ actionId, newConversation }),
+		});
+
+		await click(screen.getByRole("button", { name: "发送" }));
+
+		assert.deepEqual(asks, [{ actionId: null, newConversation: false }]);
+	});
+
+	it("dispatches empty new-conversation from selection drawer with no explicit clicked action", async () => {
+		const asks: Array<{ actionId: string | null; newConversation: boolean }> = [];
+		renderDrawer(graphSelectionDrawer(selectionFixture(), "Alpha/Beta", ""), {
+			onGraphSelectionAsk: (actionId, newConversation) => asks.push({ actionId, newConversation }),
+		});
+
+		await click(screen.getByRole("button", { name: "新对话" }));
+
+		assert.deepEqual(asks, [{ actionId: null, newConversation: true }]);
+	});
+
+	it("dispatches community free-text send and empty new-conversation without an explicit clicked action", async () => {
+		const asks: Array<{ actionId: string | null; newConversation: boolean }> = [];
+		const { rerender } = renderDrawer(graphCommunitySummaryDrawer(communitySummaryFixture(), "帮我判断下一步读什么"), {
+			onGraphCommunityAsk: (actionId, newConversation) => asks.push({ actionId, newConversation }),
+		});
+
+		await click(screen.getByRole("button", { name: "发送" }));
+		assert.deepEqual(asks, [{ actionId: null, newConversation: false }]);
+
+		asks.length = 0;
+		rerender(drawerElement(graphCommunitySummaryDrawer(communitySummaryFixture(), ""), {
+			onGraphCommunityAsk: (actionId, newConversation) => asks.push({ actionId, newConversation }),
+		}));
+		await click(screen.getByRole("button", { name: "新对话" }));
+
+		assert.deepEqual(asks, [{ actionId: null, newConversation: true }]);
+	});
 });
 
 function nodeSummaryFixture(): GraphNodeSummaryPayload {
@@ -161,6 +201,49 @@ function nodeSummaryFixture(): GraphNodeSummaryPayload {
 	};
 }
 
+function communitySummaryFixture(): GraphCommunitySummaryPayload {
+	return {
+		kind: "community-summary",
+		object: { kind: "community", communityId: "alpha" },
+		communityId: "alpha",
+		label: "Alpha community",
+		nodeCount: 2,
+		facts: { pageCount: 2, internalLinkCount: 1, communityCount: 1, isolatedCount: 0 },
+		structureState: "clear",
+		description: "这组页面围绕同一主题聚在一起。你可以先看结构，也可以直接让 agent 基于这一组页面继续工作。",
+		canEnterCommunity: true,
+		coreNodeIds: ["alpha-node", "beta-node"],
+		coreNodes: [
+			{ nodeId: "alpha-node", label: "Alpha node", type: "topic", role: "核心" },
+			{ nodeId: "beta-node", label: "Beta node", type: "entity", role: "相关" },
+		],
+		searchResultIds: [],
+		pinHints: [],
+		selection: {
+			input: { kind: "community", id: "alpha" },
+			selectionId: "community:alpha-node,beta-node",
+			selectedNodeIds: ["alpha-node", "beta-node"],
+			selectedCommunityIds: ["alpha"],
+			containsCurrentObject: true,
+		},
+		strongestRelations: [],
+		bridgeRelations: [],
+		aggregationMarkers: [],
+		commands: [{ kind: "enter-community", communityId: "alpha", label: "进入社区" }],
+	};
+}
+
+function selectionFixture(): Selection {
+	return {
+		id: "nodes:a,b",
+		nodeIds: ["a", "b"],
+		communityIds: ["alpha", "beta"],
+		facts: { pageCount: 2, internalLinkCount: 0, communityCount: 2, isolatedCount: 0 },
+		input: { kind: "nodes", ids: ["a", "b"] },
+		actions: [],
+	};
+}
+
 function renderDrawer(drawer: DrawerState, props: Partial<RightDrawerProps> = {}) {
 	return render(drawerElement(drawer, props));
 }
@@ -179,7 +262,9 @@ function drawerElement(drawer: DrawerState, props: Partial<RightDrawerProps> = {
 			onGraphSummaryCommand={props.onGraphSummaryCommand ?? noop}
 			onGraphSummaryNodePreview={noopPreviewNode}
 			onGraphSelectionTextChange={noopString}
-			onGraphSelectionAsk={noopSelectionAsk}
+			onGraphSelectionAsk={props.onGraphSelectionAsk ?? noopSelectionAsk}
+			onGraphCommunityTextChange={noopString}
+			onGraphCommunityAsk={props.onGraphCommunityAsk ?? noopSelectionAsk}
 			onResize={props.onResize ?? noopNumber}
 			onToggleFullscreen={props.onToggleFullscreen ?? noop}
 			onClose={props.onClose ?? noopClose}

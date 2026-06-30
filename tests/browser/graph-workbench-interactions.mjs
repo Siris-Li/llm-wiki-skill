@@ -52,15 +52,17 @@ async function runPhaseOneChecks(browser, viewport, theme) {
   assert.equal(evidence.communitySummary.route.renderer, "sigma-global", "community region selection should stay in Sigma global");
   assert.equal(evidence.communitySummary.drawerTestId, "graph-community-summary", "community region selection should open community summary");
 
-  evidence.labelClick = await clickPassiveCommunityLabel(page);
+  evidence.labelClick = await clickPassiveCommunityLabel(page, "t1");
   assert.equal(evidence.labelClick.drawerTestId, "graph-community-summary", "passive community label area should delegate to map hit handling");
   assert.equal(evidence.labelClick.route.renderer, "sigma-global", "passive label click should not enter a DOM control route");
 
+  evidence.communitySummary = await openCommunitySummaryFromRegion(page, "t1");
   await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
   await waitForDomCommunity(page, "t1");
   evidence.focusedCommunity = await domCommunitySnapshot(page);
   assert.deepEqual(evidence.focusedCommunity.visibleNodes, T1_NODE_IDS, "enter community should use DOM/SVG community reading");
   assert.equal(evidence.focusedCommunity.sigmaRendererCount, 0, "community reading route should not keep Sigma global mounted");
+  evidence.communityMultiSelect = await runCommunityNodeMultiSelectCheck(page);
 
   await clickReturnGlobal(page);
   await waitForSigmaGlobal(page);
@@ -196,12 +198,54 @@ async function domCommunitySnapshot(page) {
   }));
 }
 
+async function runCommunityNodeMultiSelectCheck(page) {
+  await clickDomNode(page, "A", { shiftKey: false });
+  await page.waitForSelector('[data-testid="graph-node-summary"]');
+  const single = await drawerSelectionSnapshot(page);
+  assert.equal(single.drawerTestId, "graph-node-summary", "community node click should select that node");
+  assert.equal(single.title, "节点A", "community node click should open node summary");
+
+  await clickDomNode(page, "B", { modifiers: ["Shift"] });
+  await page.waitForSelector('[data-testid="graph-selection-drawer"]');
+  const multi = await drawerSelectionSnapshot(page);
+  assert.equal(multi.drawerTestId, "graph-selection-drawer", "Shift+click should show an exact multi-node selection");
+  assert.match(multi.title, /选中 2 个节点/, "Shift+click should not widen the selection to the whole community");
+  assert.equal(multi.hasEnterCommunity, false, "manual multi-node selection should not show the community enter action");
+  return { single, multi };
+}
+
+async function clickDomNode(page, nodeId, options = {}) {
+  const locator = page.locator(`.node[data-id="${cssString(nodeId)}"]`);
+  await locator.waitFor();
+  await locator.click(options);
+}
+
+async function drawerSelectionSnapshot(page) {
+  return page.evaluate(() => ({
+    drawerTestId: document.querySelector(".drawer-panel-open [data-testid]")?.getAttribute("data-testid") || "",
+    title: document.querySelector(".drawer-panel-open h2")?.textContent || "",
+    hasEnterCommunity: [...document.querySelectorAll(".drawer-panel-open button")]
+      .some((button) => button.textContent?.includes("进入社区")),
+    text: document.querySelector(".drawer-panel-open")?.textContent || ""
+  }));
+}
+
 async function runRouteCycleAccumulationCheck(page, communityId, cycles) {
   await closeDrawerIfOpen(page);
   await waitForSigmaGlobal(page);
   await openSearch(page);
-  await setGraphSearchQuery(page, "");
-  await page.waitForFunction(() => document.querySelectorAll(".sigma-global-node-hit-target").length > 1);
+  await setGraphSearchQuery(page, "节点");
+  try {
+    await page.waitForFunction(() => document.querySelectorAll(".sigma-global-node-hit-target").length > 1);
+  } catch (err) {
+    const diagnostics = await searchDiagnostics(page);
+    throw new assert.AssertionError({
+      message: `graph search should expose multiple nodes before route cycles: ${JSON.stringify(diagnostics)}`,
+      actual: err,
+      expected: "more than one node hit target",
+      operator: "strictEqual"
+    });
+  }
   const baseline = await sigmaGlobalSnapshot(page);
   const snapshots = [];
 
@@ -246,14 +290,20 @@ async function openCommunitySummaryFromRegion(page, communityId) {
       operator: "strictEqual"
     });
   }
+  const summary = await communitySummaryDrawerSnapshot(page);
+  assert.ok(
+    summary.hasEnterCommunity,
+    `community ${communityId} summary should expose enter-community: ${JSON.stringify({ point, summary })}`
+  );
   return {
     route: await sigmaGlobalSnapshot(page),
-    drawerTestId: await drawerTestId(page)
+    drawerTestId: await drawerTestId(page),
+    summary
   };
 }
 
-async function clickPassiveCommunityLabel(page) {
-  const point = await page.locator(".sigma-global-community-label").first().evaluate((label) => {
+async function clickPassiveCommunityLabel(page, communityId) {
+  const point = await page.locator(`.sigma-global-community-label[data-community-id="${cssString(communityId)}"]`).evaluate((label) => {
     const rect = label.getBoundingClientRect();
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   });
@@ -301,10 +351,24 @@ async function findCommunityRegionPoint(page, communityId) {
       const x = rect.left + rect.width * rx;
       const y = rect.top + rect.height * ry;
       const hit = document.elementFromPoint(x, y);
-      if (!hit?.closest?.(".sigma-global-node-hit-target")) return { x, y };
+      const hitRegionId = hit?.closest?.(".sigma-global-community-region")?.getAttribute("data-community-id") || "";
+      if (hitRegionId === communityId && !hit?.closest?.(".sigma-global-node-hit-target")) return { x, y };
     }
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   }, communityId);
+}
+
+async function communitySummaryDrawerSnapshot(page) {
+  return page.evaluate(() => {
+    const drawer = document.querySelector('[data-testid="graph-community-summary"]');
+    return {
+      title: drawer?.querySelector("h2")?.textContent || "",
+      buttons: [...(drawer?.querySelectorAll("button") || [])].map((button) => button.textContent?.trim() || ""),
+      hasEnterCommunity: [...(drawer?.querySelectorAll("button") || [])].some((button) => button.textContent?.includes("进入社区")),
+      selectedRegions: [...document.querySelectorAll(".sigma-global-community-region[data-selected='true']")].map((region) => region.getAttribute("data-community-id") || ""),
+      selectedLabels: [...document.querySelectorAll(".sigma-global-community-label[data-selected='true']")].map((label) => label.getAttribute("data-community-id") || "")
+    };
+  });
 }
 
 async function communityClickDiagnostics(page, point, communityId) {
@@ -647,10 +711,24 @@ async function setGraphSearchQuery(page, query) {
     input.value = query;
     input.dispatchEvent(new InputEvent("input", {
       bubbles: true,
-      inputType: "insertText",
-      data: query
+      inputType: query ? "insertText" : "deleteContentBackward",
+      data: query || null
     }));
   }, query);
+  try {
+    await page.waitForFunction((query) => {
+      const input = document.querySelector(".graph-search-input");
+      return input instanceof HTMLInputElement && input.value === query;
+    }, query, { timeout: 5000 });
+  } catch (err) {
+    const diagnostics = await searchDiagnostics(page);
+    throw new assert.AssertionError({
+      message: `graph search input should settle to ${JSON.stringify(query)}: ${JSON.stringify(diagnostics)}`,
+      actual: err,
+      expected: query,
+      operator: "strictEqual"
+    });
+  }
 }
 
 async function drawerTestId(page) {

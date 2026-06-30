@@ -51,6 +51,7 @@ function selectionFixture(input: Pick<Selection, "nodeIds" | "facts" | "actions"
 		nodeIds: input.nodeIds,
 		communityIds: [],
 		facts: input.facts,
+		input: input.nodeIds.length === 1 ? { kind: "node", id: input.nodeIds[0] } : { kind: "nodes", ids: input.nodeIds },
 		actions: input.actions,
 	};
 }

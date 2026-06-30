@@ -150,6 +150,17 @@ describe("graph summary contract", () => {
     assert.deepEqual(summary.aggregationMarkers.map((marker) => marker.id), ["agg-alpha"]);
   });
 
+  it("lets legacy node-only community data enter real communities", () => {
+    const data = graphFixture();
+    data.learning = data.learning ? { ...data.learning, communities: [] } : undefined;
+
+    const summary = summarizeGraphCommunity(data, "alpha");
+
+    assert.equal(summary.kind, "community-summary");
+    assert.equal(summary.canEnterCommunity, true);
+    assert.deepEqual(summary.commands.map((command) => command.kind), ["enter-community"]);
+  });
+
   it("summarizes the ungrouped virtual community as a community payload", () => {
     const data = graphFixtureWithUngroupedNodes();
     const summary = summarizeGraphCommunity(data, "_none", {
@@ -347,6 +358,61 @@ describe("graph summary contract", () => {
 
     engine.clearSelection();
     assert.deepEqual(engine.summarizeGlobal().selection.selectedNodeIds, []);
+  });
+
+  it("summarizes large ungrouped communities without repeated bridge-node scans", () => {
+    const bridgeNodes = Array.from({ length: 400 }, (_, index) => ({
+      id: `n${index}`,
+      label: `Node ${index}`,
+      community: null,
+      connected_communities: [],
+      community_count: 0
+    }));
+    const data: GraphData = {
+      meta: {
+        build_date: "2026-06-20T00:00:00.000Z",
+        wiki_title: "Large ungrouped",
+        total_nodes: 400,
+        total_edges: 0
+      },
+      nodes: bridgeNodes.map((node, index) => ({
+        id: node.id,
+        label: node.label,
+        type: "topic",
+        community: null,
+        source_path: `wiki/${node.id}.md`,
+        score: index % 7,
+        weight: index % 5
+      })),
+      edges: [],
+      insights: {
+        surprising_connections: [],
+        isolated_nodes: [],
+        bridge_nodes: bridgeNodes,
+        sparse_communities: [],
+        meta: {
+          degraded: false,
+          node_count: 400,
+          edge_count: 0,
+          max_insight_nodes: 400,
+          max_insight_edges: 0
+        }
+      }
+    };
+    let bridgeNodeReads = 0;
+    Object.defineProperty(data.insights, "bridge_nodes", {
+      configurable: true,
+      get() {
+        bridgeNodeReads += 1;
+        return bridgeNodes;
+      }
+    });
+
+    const summary = summarizeGraphCommunity(data, "_none");
+
+    assert.equal(summary.kind, "community-summary");
+    assert.equal(summary.coreNodeIds.length, 5);
+    assert.equal(bridgeNodeReads, 1);
   });
 
   it("route manager carries search query and temporary object state when switching renderers", () => {

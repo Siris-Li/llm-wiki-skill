@@ -38,6 +38,14 @@ describe("graph summary actions", () => {
 		);
 	});
 
+	it("keeps manual same-community multi-select as an exact selection instead of widening to the full community", () => {
+		const drawer = drawerForGraphSelection(graphFixtureWithThreeNodeCommunity(), manualSameCommunitySelection(), closedDrawer());
+
+		assert.equal(drawer.mode, "graph-selection");
+		assert.deepEqual(drawer.mode === "graph-selection" ? drawer.selection.nodeIds : [], ["a", "b"]);
+		assert.equal(drawer.mode === "graph-selection" ? drawer.title : null, "选中 2 个节点");
+	});
+
 	it("switches a community core node list click to node summary without entering community", () => {
 		const drawer = drawerForGraphSummaryNode(graphFixture(), "b", communitySummaryDrawer());
 
@@ -162,6 +170,7 @@ function nodeSelection(): Selection {
 			communityCount: 1,
 			isolatedCount: 0,
 		},
+		input: { kind: "node", id: "a" },
 		actions: [],
 	};
 }
@@ -177,6 +186,7 @@ function communitySelection(): Selection {
 			communityCount: 1,
 			isolatedCount: 0,
 		},
+		input: { kind: "community", id: "c1" },
 		actions: [],
 	};
 }
@@ -185,12 +195,29 @@ function communitySummaryDrawer() {
 	return drawerForGraphSelection(graphFixture(), communitySelection(), closedDrawer());
 }
 
+function manualSameCommunitySelection(): Selection {
+	return {
+		id: "nodes:a,b",
+		nodeIds: ["a", "b"],
+		communityIds: ["c1"],
+		facts: {
+			pageCount: 2,
+			internalLinkCount: 1,
+			communityCount: 1,
+			isolatedCount: 0,
+		},
+		input: { kind: "nodes", ids: ["a", "b"] },
+		actions: [],
+	};
+}
+
 function ungroupedSelection(): Selection {
 	return {
 		id: "community:loose-a,loose-b",
 		nodeIds: ["loose-a", "loose-b"],
 		communityIds: ["_none"],
 		facts: { pageCount: 2, internalLinkCount: 0, communityCount: 1, isolatedCount: 2 },
+		input: { kind: "community", id: "_none" },
 		actions: [],
 	};
 }
@@ -204,6 +231,26 @@ function graphFixtureWithUngroupedNodes(): GraphData {
 			{ id: "loose-a", label: "Loose A", type: "topic", community: null, source_path: "wiki/loose/a.md" },
 			{ id: "loose-b", label: "Loose B", type: "entity", source_path: "wiki/loose/b.md" },
 		],
+	};
+}
+
+function graphFixtureWithThreeNodeCommunity(): GraphData {
+	const base = graphFixture();
+	return {
+		...base,
+		meta: { ...base.meta, total_nodes: 3 },
+		nodes: [
+			...base.nodes,
+			{ id: "c", label: "Gamma", type: "source", community: "c1", source_path: "wiki/c.md" },
+		],
+		learning: base.learning
+			? {
+					...base.learning,
+					communities: [
+						{ id: "c1", label: "Community", node_count: 3, color_index: 0, members: ["a", "b", "c"] },
+					],
+				}
+			: base.learning,
 	};
 }
 

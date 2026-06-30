@@ -56,7 +56,11 @@ import {
 import type { GraphReaderActionId } from "@/lib/graph-reader";
 import { buildSelectionPromptPayload } from "@/lib/graph-selection";
 import { graphCloseCommandForDrawer } from "@/lib/graph-drawer-close";
-import { resolveCommunityAskAction } from "@/lib/graph-group-drawer";
+import {
+	graphCommunityDrawerViewModel,
+	graphGroupDrawerPromptAction,
+	graphSelectionGroupDrawerViewModel,
+} from "@/lib/graph-group-drawer";
 import {
 	drawerForGraphSelection,
 	drawerForExcludedGraphObject,
@@ -533,6 +537,7 @@ function App() {
 		}
 		setDrawer((current) => drawerForGraphSelection(graphData, selection, current, {
 			pins: graphPins,
+			selection: selection.input,
 			searchResultIds: graphVisibilityState?.searchResultIds ?? [],
 		}));
 	}, [graphData, graphPins, graphVisibilityState, drawer]);
@@ -597,9 +602,8 @@ function App() {
 
 	const handleGraphSelectionAsk = (actionId: string | null, newConversation: boolean) => {
 		if (!graphData || drawer.mode !== "graph-selection") return;
-		const action = actionId
-			? drawer.selection.actions?.find((item) => item.id === actionId) ?? null
-			: null;
+		const recommendedActionId = graphSelectionGroupDrawerViewModel(drawer.title, drawer.selection).recommendedActionId;
+		const action = graphGroupDrawerPromptAction(actionId, recommendedActionId, drawer.freeText, newConversation);
 		const payload = buildSelectionPromptPayload(graphData, drawer.selection, action, drawer.freeText);
 		void handleAskSelection({
 			message: payload.expandedText,
@@ -621,7 +625,8 @@ function App() {
 	const handleGraphCommunityAsk = (actionId: string | null, newConversation: boolean) => {
 		if (!graphData || drawer.mode !== "graph-community-summary") return;
 		const selection = resolveSelection(graphData, { kind: "community", id: drawer.payload.communityId });
-		const action = resolveCommunityAskAction(drawer.payload, actionId);
+		const recommendedActionId = graphCommunityDrawerViewModel(drawer.payload).recommendedActionId;
+		const action = graphGroupDrawerPromptAction(actionId, recommendedActionId, drawer.freeText, newConversation);
 		const payload = buildSelectionPromptPayload(graphData, selection, action, drawer.freeText);
 		void handleAskSelection({
 			message: payload.expandedText,
