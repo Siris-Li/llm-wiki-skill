@@ -41,23 +41,46 @@ describe("RightDrawer graph lightweight summaries", () => {
 		assert.doesNotMatch(html, /summary-left-rail|ai-slop|border-left/);
 	});
 
-	it("renders community summary with different fields and actions", () => {
+	it("renders unified community drawer with overview, fixed actions, core nodes, and dialogue controls", () => {
 		const html = renderDrawer(graphCommunitySummaryDrawer(communitySummaryFixture()));
 
 		assert.match(html, /data-testid="graph-community-summary"/);
 		assert.match(html, /Alpha community/);
-		assert.match(html, /社区/);
-		assert.match(html, /graph-summary-community-chip/);
-		assert.match(html, /核心节点/);
-		assert.match(html, /查看全部/);
-		assert.match(html, /alpha-node/);
-		assert.match(html, /搜索命中/);
-		assert.match(html, /beta-node/);
-		assert.match(html, /固定节点/);
-		assert.match(html, /gamma-node/);
 		assert.match(html, /进入社区/);
-		assert.doesNotMatch(html, /打开详情/);
-		assert.doesNotMatch(html, /graph-reader-drawer/);
+		assert.match(html, /总结这一簇/);
+		assert.match(html, /找知识缺口/);
+		assert.match(html, /生成主题页/);
+		assert.match(html, /探索潜在关系/);
+		assert.match(html, /补充说明（可选）/);
+		assert.match(html, /发送/);
+		assert.match(html, /新对话/);
+		assert.match(html, /Alpha node/);
+		assert.doesNotMatch(html, /暂无搜索命中/);
+		assert.doesNotMatch(html, /暂无固定节点/);
+		assert.doesNotMatch(html, /暂无桥接关系/);
+	});
+
+	it("renders ungrouped community without enter-community and recommends relation exploration", () => {
+		const html = renderDrawer(graphCommunitySummaryDrawer(communitySummaryFixture({
+			communityId: "_none",
+			label: "未分组",
+			structureState: "ungrouped",
+			description: "这些页面暂未形成明确社区。你可以让 agent 探索它们之间是否存在潜在关系。",
+			canEnterCommunity: false,
+			commands: [],
+		})));
+
+		assert.match(html, /未分组/);
+		assert.match(html, /暂未形成明确社区/);
+		assert.match(html, /data-recommended="true"[^>]*>[\s\S]*探索潜在关系/);
+		assert.doesNotMatch(html, /进入社区/);
+	});
+
+	it("disables send until free text exists and enables it once typed", () => {
+		const empty = renderDrawer(graphCommunitySummaryDrawer(communitySummaryFixture()));
+		assert.match(empty, /<button[^>]*data-group-drawer="send"[^>]*disabled/);
+		const filled = renderDrawer(graphCommunitySummaryDrawer(communitySummaryFixture(), "看一下缺口"));
+		assert.doesNotMatch(filled, /<button[^>]*data-group-drawer="send"[^>]*disabled/);
 	});
 
 	it("renders graph empty, excluded, and unavailable states", () => {
@@ -109,8 +132,8 @@ describe("RightDrawer graph lightweight summaries", () => {
 
 		assert.match(node, /<button[^>]*class="graph-summary-action"[^>]*>打开详情<\/button>/);
 		assert.match(node, /<button[^>]*class="graph-summary-action"[^>]*>固定位置<\/button>/);
-		assert.match(community, /<button[^>]*class="graph-summary-inline-action"[^>]*>查看全部<\/button>/);
-		assert.match(community, /<button[^>]*class="graph-summary-action"[^>]*>进入社区<\/button>/);
+		assert.match(community, /<button[^>]*class="graph-group-enter"[^>]*>进入社区<\/button>/);
+		assert.match(community, /<button[^>]*class="graph-group-action"[^>]*data-group-drawer="action"[^>]*>总结这一簇<\/button>/);
 		assert.match(excluded, /<button[^>]*class="graph-summary-action"[^>]*>显示这个对象<\/button>/);
 		assert.doesNotMatch(`${node}${community}${excluded}`, /tabindex="-1"/i);
 	});
@@ -143,8 +166,9 @@ function renderDrawer(drawer: DrawerState): string {
 			onGraphSummaryCommand: noopCommand,
 			onGraphSummaryNodePreview: noopPreviewNode,
 			onGraphSelectionTextChange: noopString,
-			onGraphSelectionNeighbors: noop,
 			onGraphSelectionAsk: noopSelectionAsk,
+			onGraphCommunityTextChange: noopString,
+			onGraphCommunityAsk: noopSelectionAsk,
 			onResize: noopNumber,
 			onToggleFullscreen: noop,
 			onClose: noopClose,
@@ -187,6 +211,7 @@ function nodeSummaryFixture(): GraphNodeSummaryPayload {
 		aggregationMarkers: [],
 		commands: [
 			{ kind: "open-detail-read", nodeId: "alpha-node", path: "wiki/alpha.md", label: "打开详情" },
+			{ kind: "select-neighbors", nodeId: "alpha-node", label: "+邻居" },
 			{ kind: "set-fixed-position", mode: "fix", nodeId: "alpha-node", wikiPath: "wiki/alpha.md", label: "固定位置" },
 		],
 	};
@@ -209,14 +234,24 @@ function graphPayload() {
 	};
 }
 
-function communitySummaryFixture(): GraphCommunitySummaryPayload {
+function communitySummaryFixture(overrides: Partial<GraphCommunitySummaryPayload> = {}): GraphCommunitySummaryPayload {
 	return {
 		kind: "community-summary",
 		object: { kind: "community", communityId: "alpha" },
 		communityId: "alpha",
 		label: "Alpha community",
 		nodeCount: 12,
+		facts: { pageCount: 12, internalLinkCount: 8, communityCount: 1, isolatedCount: 1 },
+		structureState: "clear",
+		description: "这组页面围绕同一主题聚在一起。你可以先看结构，也可以直接让 agent 基于这一组页面继续工作。",
+		canEnterCommunity: true,
 		coreNodeIds: ["alpha-node", "beta-node", "gamma-node", "delta-node"],
+		coreNodes: [
+			{ nodeId: "alpha-node", label: "Alpha node", type: "topic", role: "核心" },
+			{ nodeId: "beta-node", label: "Beta node", type: "entity", role: "相关" },
+			{ nodeId: "gamma-node", label: "Gamma node", type: "source", role: "相关" },
+			{ nodeId: "delta-node", label: "Delta node", type: "entity", role: "相关" },
+		],
 		searchResultIds: ["beta-node"],
 		pinHints: [
 			{ nodeId: "gamma-node", wikiPath: "wiki/gamma.md", pinned: true, position: { x: 12, y: 18, coordinateSpace: "world" } },
@@ -234,6 +269,7 @@ function communitySummaryFixture(): GraphCommunitySummaryPayload {
 		commands: [
 			{ kind: "enter-community", communityId: "alpha", label: "进入社区" },
 		],
+		...overrides,
 	};
 }
 

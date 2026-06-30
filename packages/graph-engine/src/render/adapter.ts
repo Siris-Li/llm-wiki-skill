@@ -1,5 +1,6 @@
 import { wikiPathForGraphNode } from "../graph-node";
 import { resolveSelectionForCapabilities } from "../select";
+import { UNGROUPED_COMMUNITY_ID } from "../types";
 import type {
   CommunityId,
   Confidence,
@@ -229,7 +230,7 @@ export function buildGraphRendererAdapterData(
   });
 
   const communities = renderable.communities.map((community): GraphRendererAdapterCommunity => {
-    const nodeIds = data.nodes.filter((node) => node.community === community.id).map((node) => node.id);
+    const nodeIds = renderable.nodes.filter((node) => node.community === community.id).map((node) => node.id);
     const communityMarkers = markersContainingCommunity(markers, community.id);
     const pinHints = nodeIds.map((id) => pinHintForNode(nodeById.get(id), id, null, options.pins)).filter((hint) => hint.pinned);
     return {
@@ -246,7 +247,7 @@ export function buildGraphRendererAdapterData(
         summaryKind: "community-summary",
         object: { kind: "community", communityId: community.id }
       },
-      commands: [enterCommunityCommand(community.id)]
+      commands: community.id === UNGROUPED_COMMUNITY_ID ? [] : [enterCommunityCommand(community.id)]
     };
   });
 
@@ -374,10 +375,12 @@ export function buildGraphRendererBehaviorContract(
         pinHints: aggregation.pinHints,
         drawerTarget: aggregation.drawerTarget
       })),
-    enterCommunity: adapter.communities.map((community) => ({
-      communityId: community.id,
-      command: enterCommunityCommand(community.id)
-    }))
+    enterCommunity: adapter.communities
+      .filter((community) => community.id !== UNGROUPED_COMMUNITY_ID)
+      .map((community) => ({
+        communityId: community.id,
+        command: enterCommunityCommand(community.id)
+      }))
   };
 }
 

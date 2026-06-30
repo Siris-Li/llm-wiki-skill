@@ -49,6 +49,7 @@ import {
 } from "./sigma-graphology-model";
 import {
   createSigmaGlobalHitProjector,
+  sigmaAdditiveFromPayload,
   sigmaNodeIdFromPayload,
   sigmaScreenPointFromPayload,
   type SigmaGlobalHitInput,
@@ -321,9 +322,12 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     const nodeClick = (payload?: unknown): void => {
       const nodeId = sigmaNodeIdFromPayload(payload);
       if (consumeSuppressedNodeClick(nodeId)) return;
-      handleSigmaHit({ nodeId });
+      handleSigmaHit({ nodeId, additive: sigmaAdditiveFromPayload(payload) });
     };
-    const stageClick = (payload?: unknown): void => handleSigmaHit({ screenPoint: sigmaScreenPointFromPayload(payload) });
+    const stageClick = (payload?: unknown): void => handleSigmaHit({
+      screenPoint: sigmaScreenPointFromPayload(payload),
+      additive: sigmaAdditiveFromPayload(payload)
+    });
     const cameraUpdated = (): void => overlayDomController?.reposition();
     const nodeDown = (payload?: unknown): void => beginNodeDrag(sigmaNodeIdFromPayload(payload), sigmaScreenPointFromPayload(payload), payload);
     const nodeMove = (payload?: unknown): void => moveNodeDrag(sigmaScreenPointFromPayload(payload), payload);
@@ -436,7 +440,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     const target = projector.targetFromSigmaHit(input);
     if (destroyed || eventGeneration !== generation) return;
     lastHitTarget = target;
-    options.onHitTarget?.(target);
+    options.onHitTarget?.(target, { additive: Boolean(input.additive) });
   }
 
   function beginNodeDrag(nodeId: string | null, screenPoint: GraphScreenPoint | null, payload?: unknown): void {

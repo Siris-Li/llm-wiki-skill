@@ -9,8 +9,9 @@ import {
 	graphOpenPagePayloadForCommand,
 	graphObjectVisibilityReason,
 	graphSelectionCommandForOpenDetail,
+	graphSelectionCommandForSummaryCommand,
 } from "../src/lib/graph-summary-actions";
-import { closedDrawer } from "../src/lib/drawer-state";
+import { closedDrawer, graphCommunitySummaryDrawer } from "../src/lib/drawer-state";
 import type { GraphData, GraphSummaryCommand, Selection } from "@llm-wiki/graph-engine";
 
 describe("graph summary actions", () => {
@@ -22,7 +23,7 @@ describe("graph summary actions", () => {
 		assert.equal(drawer.mode === "graph-node-summary" ? drawer.payload.label : null, "Alpha");
 		assert.deepEqual(
 			drawer.mode === "graph-node-summary" ? drawer.payload.commands.map((command) => command.kind) : [],
-			["open-detail-read", "set-fixed-position", "enter-community"],
+			["open-detail-read", "select-neighbors", "set-fixed-position", "enter-community"],
 		);
 	});
 
@@ -35,6 +36,14 @@ describe("graph summary actions", () => {
 			drawer.mode === "graph-community-summary" ? drawer.payload.commands.map((command) => command.kind) : [],
 			["enter-community"],
 		);
+	});
+
+	it("keeps manual same-community multi-select as an exact selection instead of widening to the full community", () => {
+		const drawer = drawerForGraphSelection(graphFixtureWithThreeNodeCommunity(), manualSameCommunitySelection(), closedDrawer());
+
+		assert.equal(drawer.mode, "graph-selection");
+		assert.deepEqual(drawer.mode === "graph-selection" ? drawer.selection.nodeIds : [], ["a", "b"]);
+		assert.equal(drawer.mode === "graph-selection" ? drawer.title : null, "选中 2 个节点");
 	});
 
 	it("switches a community core node list click to node summary without entering community", () => {
@@ -89,6 +98,25 @@ describe("graph summary actions", () => {
 		});
 	});
 
+	it("turns an ungrouped community selection into a community summary drawer", () => {
+		const drawer = drawerForGraphSelection(graphFixtureWithUngroupedNodes(), ungroupedSelection(), closedDrawer());
+
+		assert.equal(drawer.mode, "graph-community-summary");
+		assert.equal(drawer.mode === "graph-community-summary" ? drawer.payload.communityId : null, "_none");
+		assert.equal(drawer.mode === "graph-community-summary" ? drawer.payload.canEnterCommunity : null, false);
+	});
+
+	it("preserves community free text while refreshing the same community drawer", () => {
+		const current = drawerForGraphSelection(graphFixture(), communitySelection(), closedDrawer());
+		assert.equal(current.mode, "graph-community-summary");
+		const withText = current.mode === "graph-community-summary"
+			? graphCommunitySummaryDrawer(current.payload, "请重点看缺口")
+			: current;
+		const next = drawerForGraphSelection(graphFixture(), communitySelection(), withText);
+		assert.equal(next.mode, "graph-community-summary");
+		assert.equal(next.mode === "graph-community-summary" ? next.freeText : null, "请重点看缺口");
+	});
+
 	it("classifies selected objects excluded by filters or search without clearing state", () => {
 		const data = graphFixture();
 		const object = { kind: "node" as const, nodeId: "b" };
@@ -121,6 +149,14 @@ describe("graph summary actions", () => {
 		const unavailable = drawerForUnavailableGraphObject({ ...data, nodes: data.nodes.filter((node) => node.id !== "b") }, object, "missing-node", closedDrawer());
 		assert.equal(unavailable.mode, "graph-unavailable-object");
 	});
+
+	it("maps a select-neighbors summary command to a neighbors selection command", () => {
+		assert.deepEqual(
+			graphSelectionCommandForSummaryCommand({ kind: "select-neighbors", nodeId: "a", label: "+邻居" }),
+			{ id: "a", type: "neighbors" },
+		);
+		assert.equal(graphSelectionCommandForSummaryCommand({ kind: "enter-community", communityId: "alpha", label: "进入社区" }), null);
+	});
 });
 
 function nodeSelection(): Selection {
@@ -134,6 +170,7 @@ function nodeSelection(): Selection {
 			communityCount: 1,
 			isolatedCount: 0,
 		},
+		input: { kind: "node", id: "a" },
 		actions: [],
 	};
 }
@@ -149,12 +186,72 @@ function communitySelection(): Selection {
 			communityCount: 1,
 			isolatedCount: 0,
 		},
+		input: { kind: "community", id: "c1" },
 		actions: [],
 	};
 }
 
 function communitySummaryDrawer() {
 	return drawerForGraphSelection(graphFixture(), communitySelection(), closedDrawer());
+}
+
+function manualSameCommunitySelection(): Selection {
+	return {
+		id: "nodes:a,b",
+		nodeIds: ["a", "b"],
+		communityIds: ["c1"],
+		facts: {
+			pageCount: 2,
+			internalLinkCount: 1,
+			communityCount: 1,
+			isolatedCount: 0,
+		},
+		input: { kind: "nodes", ids: ["a", "b"] },
+		actions: [],
+	};
+}
+
+function ungroupedSelection(): Selection {
+	return {
+		id: "community:loose-a,loose-b",
+		nodeIds: ["loose-a", "loose-b"],
+		communityIds: ["_none"],
+		facts: { pageCount: 2, internalLinkCount: 0, communityCount: 1, isolatedCount: 2 },
+		input: { kind: "community", id: "_none" },
+		actions: [],
+	};
+}
+
+function graphFixtureWithUngroupedNodes(): GraphData {
+	const base = graphFixture();
+	return {
+		...base,
+		nodes: [
+			...base.nodes,
+			{ id: "loose-a", label: "Loose A", type: "topic", community: null, source_path: "wiki/loose/a.md" },
+			{ id: "loose-b", label: "Loose B", type: "entity", source_path: "wiki/loose/b.md" },
+		],
+	};
+}
+
+function graphFixtureWithThreeNodeCommunity(): GraphData {
+	const base = graphFixture();
+	return {
+		...base,
+		meta: { ...base.meta, total_nodes: 3 },
+		nodes: [
+			...base.nodes,
+			{ id: "c", label: "Gamma", type: "source", community: "c1", source_path: "wiki/c.md" },
+		],
+		learning: base.learning
+			? {
+					...base.learning,
+					communities: [
+						{ id: "c1", label: "Community", node_count: 3, color_index: 0, members: ["a", "b", "c"] },
+					],
+				}
+			: base.learning,
+	};
 }
 
 function graphFixture(): GraphData {

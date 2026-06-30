@@ -72,6 +72,7 @@ describe("drawer state", () => {
 		assert.deepEqual(graphCommunitySummaryDrawer(community), {
 			mode: "graph-community-summary",
 			payload: community,
+			freeText: "",
 		});
 		assert.deepEqual(graphSearchResultsDrawer(search), {
 			mode: "graph-search-results",
@@ -135,6 +136,7 @@ function selectionFixture(): Selection {
 			communityCount: 1,
 			isolatedCount: 0,
 		},
+		input: { kind: "node", id: "a" },
 		actions: [
 			{ id: "summarize_page", label: "总结这一页", tone: "digest" },
 		],

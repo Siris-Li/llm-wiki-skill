@@ -84,11 +84,55 @@ for (const node of data.nodes) {
   node.content = `# ${node.label}\n\n这是${node.label}的内容。\n`;
   if (node.id === "C") node.type = "source";
 }
-const t1 = data.learning?.communities?.find((community) => community.id === "t1");
-if (t1) {
-  t1.members = data.nodes.filter((node) => node.community === "t1").map((node) => node.id);
-  t1.node_count = t1.members.length;
+const t1Members = data.nodes.filter((node) => node.community === "t1").map((node) => node.id);
+if (!data.learning) {
+  data.learning = {
+    version: 1,
+    entry: {
+      recommended_start_node_id: "A",
+      recommended_start_reason: "测试入口",
+      default_mode: "global"
+    },
+    views: {
+      path: { enabled: false, start_node_id: null, node_ids: [], degraded: false },
+      community: { enabled: true, community_id: "t1", label: "t1", node_ids: t1Members, is_weak: false, degraded: false },
+      global: { enabled: true, node_ids: data.nodes.map((node) => node.id), degraded: false }
+    },
+    communities: []
+  };
 }
+let community = data.learning.communities.find((item) => item.id === "t1");
+if (!community) {
+  community = { id: "t1", label: "t1", node_count: t1Members.length, members: t1Members };
+  data.learning.communities.push(community);
+}
+if (community) {
+  community.members = t1Members;
+  community.label = community.label || "t1";
+  community.is_primary = true;
+  community.recommended_start_node_id = "A";
+  community.color_index = 0;
+  community.node_count = community.members.length;
+}
+if (data.learning.views?.community) {
+  data.learning.views.community.enabled = true;
+  data.learning.views.community.community_id = "t1";
+  data.learning.views.community.label = "t1";
+  data.learning.views.community.node_ids = t1Members;
+  data.learning.views.community.is_weak = false;
+  data.learning.views.community.degraded = false;
+}
+if (data.learning.views?.global) {
+  data.learning.views.global.enabled = true;
+  data.learning.views.global.node_ids = data.nodes.map((node) => node.id);
+  data.learning.views.global.degraded = false;
+}
+if (data.learning.entry) {
+  data.learning.entry.recommended_start_node_id = "A";
+  data.learning.entry.recommended_start_reason = "测试入口";
+  data.learning.entry.default_mode = "global";
+}
+community.summary = "t1 测试社区";
 if (data.meta) {
   data.meta.total_nodes = data.nodes.length;
   data.meta.total_edges = data.edges.length;

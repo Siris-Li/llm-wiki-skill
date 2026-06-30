@@ -35,8 +35,9 @@ interface Props {
 	onGraphSummaryNodeSelect?: (nodeId: string) => void;
 	onGraphSummaryNodePreview?: (nodeId: string | null) => void;
 	onGraphSelectionTextChange: (value: string) => void;
-	onGraphSelectionNeighbors: () => void;
 	onGraphSelectionAsk: (actionId: string | null, newConversation: boolean) => void;
+	onGraphCommunityTextChange?: (value: string) => void;
+	onGraphCommunityAsk?: (actionId: string | null, newConversation: boolean) => void;
 	onResize: (width: number) => void;
 	onToggleFullscreen: () => void;
 	onClose: (reason: "button" | "escape") => void;
@@ -63,8 +64,9 @@ export function RightDrawer({
 	onGraphSummaryNodeSelect = () => {},
 	onGraphSummaryNodePreview = () => {},
 	onGraphSelectionTextChange,
-	onGraphSelectionNeighbors,
 	onGraphSelectionAsk,
+	onGraphCommunityTextChange = () => {},
+	onGraphCommunityAsk = () => {},
 	onResize,
 	onToggleFullscreen,
 	onClose,
@@ -227,7 +229,6 @@ export function RightDrawer({
 						selection={drawer.selection}
 						freeText={drawer.freeText}
 						onFreeTextChange={onGraphSelectionTextChange}
-						onNeighbors={onGraphSelectionNeighbors}
 						onAsk={(action) => onGraphSelectionAsk(action?.id ?? null, false)}
 						onAskInNewConversation={(action) => onGraphSelectionAsk(action?.id ?? null, true)}
 					/>
@@ -238,6 +239,10 @@ export function RightDrawer({
 				{drawer.mode === "graph-community-summary" && (
 					<GraphCommunitySummary
 						payload={drawer.payload}
+						freeText={drawer.freeText}
+						onFreeTextChange={onGraphCommunityTextChange}
+						onAsk={(action) => onGraphCommunityAsk(action?.id ?? null, false)}
+						onAskInNewConversation={(action) => onGraphCommunityAsk(action?.id ?? null, true)}
 						onCommand={onGraphSummaryCommand}
 						onShowNodeSummary={onGraphSummaryNodeSelect}
 						onPreviewNode={onGraphSummaryNodePreview}

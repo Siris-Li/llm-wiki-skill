@@ -24,6 +24,10 @@ import {
 } from "./drawer-state";
 import { selectionTitle } from "./graph-selection";
 
+function communityFreeText(current: DrawerState, communityId: string): string {
+	return current.mode === "graph-community-summary" && current.payload.communityId === communityId ? current.freeText : "";
+}
+
 export type GraphSelectionCommand =
 	| { id: string; type: "clear" | "clear-selection" | "neighbors" | "enter-community" }
 	| { id: string; commandId?: string; nodeId: string; type: "enter-community-node" }
@@ -38,6 +42,7 @@ export function drawerForGraphSelection(
 	current: DrawerState,
 	options: GraphSummaryOptions = {},
 ): DrawerState {
+	const selectionInput = options.selection ?? selection.input ?? null;
 	if (data && selection.nodeIds.length === 1) {
 		const summary = summarizeGraphNode(data, selection.nodeIds[0], {
 			...options,
@@ -46,13 +51,13 @@ export function drawerForGraphSelection(
 		if (summary.kind === "node-summary") return graphNodeSummaryDrawer(summary);
 	}
 
-	if (data && selection.nodeIds.length > 1 && selection.communityIds.length === 1) {
+	if (data && selectionInput?.kind === "community" && selection.nodeIds.length > 1 && selection.communityIds.length === 1) {
 		const summary = summarizeGraphCommunity(data, selection.communityIds[0], {
 			...options,
-			selection: { kind: "community", id: selection.communityIds[0] },
+			selection: selectionInput,
 			searchResultIds: options.searchResultIds ?? [],
 		});
-		if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary);
+		if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary, communityFreeText(current, selection.communityIds[0]));
 	}
 
 	const freeText = current.mode === "graph-selection" ? current.freeText : "";
@@ -122,7 +127,7 @@ export function drawerForGraphSummaryCommunity(
 		...options,
 		selection: { kind: "community", id: communityId },
 	});
-	if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary);
+	if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary, communityFreeText(current, communityId));
 	return graphUnavailableObjectDrawer(summary);
 }
 
@@ -181,4 +186,11 @@ function fallbackPayloadForOpenDetail(command: Extract<GraphSummaryCommand, { ki
 
 function isIsolatedNode(data: GraphData, id: string): boolean {
 	return data.edges.every((edge) => edge.from !== id && edge.to !== id);
+}
+
+export function graphSelectionCommandForSummaryCommand(command: GraphSummaryCommand): GraphSelectionCommand | null {
+	if (command.kind === "select-neighbors") {
+		return { id: command.nodeId, type: "neighbors" };
+	}
+	return null;
 }

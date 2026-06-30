@@ -997,6 +997,29 @@ describe("Sigma global renderer production boundary", () => {
     assert.deepEqual(renderer.lastHitTarget, { kind: "node", id: "render-beta" });
   });
 
+  it("passes Shift-click additive context from Sigma node clicks", () => {
+    const runtime = fakeRuntime();
+    const hits: Array<{ target: unknown; additive: boolean }> = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target, context) => hits.push({ target, additive: Boolean(context?.additive) })
+    });
+    const sigma = runtime.instances[0];
+
+    sigma.emit("clickNode", { node: "render-beta", event: { shiftKey: true } });
+    sigma.emit("clickNode", { node: "render-alpha", event: { shiftKey: false } });
+
+    assert.deepEqual(hits, [
+      { target: { kind: "node", id: "render-beta" }, additive: true },
+      { target: { kind: "node", id: "render-alpha" }, additive: false }
+    ]);
+
+    renderer.destroy();
+  });
+
   it("patches node spotlight attributes in place when community selection changes", () => {
     const runtime = fakeRuntime();
     const renderer = createSigmaGlobalRenderer({

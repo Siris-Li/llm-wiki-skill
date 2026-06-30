@@ -3,6 +3,18 @@ export type EdgeId = string;
 export type CommunityId = string;
 export type WikiPath = string;
 
+export const UNGROUPED_COMMUNITY_ID = "_none";
+export const UNGROUPED_COMMUNITY_LABEL = "未分组";
+
+export type GraphCommunityStructureState = "clear" | "loose" | "ungrouped";
+
+export interface GraphCommunityCoreNode {
+  nodeId: NodeId;
+  label: string;
+  type: GraphNodeType;
+  role: "核心" | "主题" | "相关";
+}
+
 export type ThemeId = "shan-shui" | "mo-ye";
 
 export interface GraphEdgeStyleOptions {
@@ -260,6 +272,7 @@ export interface Selection {
   nodeIds: NodeId[];
   communityIds: CommunityId[];
   facts: SelectionFacts;
+  input: SelectionInput;
   actions?: SelectionAction[];
 }
 
@@ -314,6 +327,11 @@ export type GraphSummaryCommand =
   | {
       kind: "enter-community";
       communityId: CommunityId;
+      label: string;
+    }
+  | {
+      kind: "select-neighbors";
+      nodeId: NodeId;
       label: string;
     }
   | {
@@ -372,7 +390,12 @@ export interface GraphCommunitySummaryPayload {
   communityId: CommunityId;
   label: string;
   nodeCount: number;
+  facts: SelectionFacts;
+  structureState: GraphCommunityStructureState;
+  description: string;
+  canEnterCommunity: boolean;
   coreNodeIds: NodeId[];
+  coreNodes: GraphCommunityCoreNode[];
   searchResultIds: NodeId[];
   pinHints: GraphPinHint[];
   selection: GraphSummarySelectionState;

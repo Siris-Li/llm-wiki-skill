@@ -47,6 +47,7 @@ import {
 	artifactDrawer,
 	closedDrawer,
 	type DrawerState,
+	graphCommunitySummaryDrawer,
 	graphReaderDrawer,
 	graphSelectionDrawer,
 	shouldApplyGraphReaderResult,
@@ -54,6 +55,12 @@ import {
 } from "@/lib/drawer-state";
 import type { GraphReaderActionId } from "@/lib/graph-reader";
 import { buildSelectionPromptPayload } from "@/lib/graph-selection";
+import { graphCloseCommandForDrawer } from "@/lib/graph-drawer-close";
+import {
+	graphCommunityDrawerViewModel,
+	graphGroupDrawerPromptAction,
+	graphSelectionGroupDrawerViewModel,
+} from "@/lib/graph-group-drawer";
 import {
 	drawerForGraphSelection,
 	drawerForExcludedGraphObject,
@@ -63,6 +70,7 @@ import {
 	graphOpenPagePayloadForCommand,
 	graphObjectVisibilityReason,
 	graphSelectionCommandForOpenDetail,
+	graphSelectionCommandForSummaryCommand,
 	type GraphSelectionCommand,
 } from "@/lib/graph-summary-actions";
 import { WIKI_LINK_SEEN_EVENT } from "@/lib/wiki-links";
@@ -141,6 +149,7 @@ function graphSummaryCommandSignature(commands: readonly GraphSummaryCommand[]):
 	return commands.map((command) => {
 		if (command.kind === "set-fixed-position") return `${command.kind}:${command.mode}:${command.nodeId}`;
 		if (command.kind === "open-detail-read") return `${command.kind}:${command.nodeId}`;
+		if (command.kind === "select-neighbors") return `${command.kind}:${command.nodeId}`;
 		if (command.kind === "enter-community") return `${command.kind}:${command.communityId}`;
 		if (command.kind === "show-this-object") return `${command.kind}:${JSON.stringify(command.object)}`;
 		return command.kind;
@@ -528,6 +537,7 @@ function App() {
 		}
 		setDrawer((current) => drawerForGraphSelection(graphData, selection, current, {
 			pins: graphPins,
+			selection: selection.input,
 			searchResultIds: graphVisibilityState?.searchResultIds ?? [],
 		}));
 	}, [graphData, graphPins, graphVisibilityState, drawer]);
@@ -590,20 +600,34 @@ function App() {
 		));
 	}, []);
 
-	const handleGraphSelectionNeighbors = useCallback(() => {
-		if (drawer.mode !== "graph-selection" || drawer.selection.nodeIds.length !== 1) return;
-		setSelectionCommand({
-			id: drawer.selection.nodeIds[0],
-			type: "neighbors",
-		});
-	}, [drawer]);
-
 	const handleGraphSelectionAsk = (actionId: string | null, newConversation: boolean) => {
 		if (!graphData || drawer.mode !== "graph-selection") return;
-		const action = actionId
-			? drawer.selection.actions?.find((item) => item.id === actionId) ?? null
-			: null;
+		const recommendedActionId = graphSelectionGroupDrawerViewModel(drawer.title, drawer.selection).recommendedActionId;
+		const action = graphGroupDrawerPromptAction(actionId, recommendedActionId, drawer.freeText, newConversation);
 		const payload = buildSelectionPromptPayload(graphData, drawer.selection, action, drawer.freeText);
+		void handleAskSelection({
+			message: payload.expandedText,
+			displayText: payload.displayText,
+			newConversation,
+		});
+		setDrawer(closedDrawer());
+		setSelectionCommand({ id: Math.random().toString(36).slice(2, 10), type: "clear" });
+	};
+
+	const handleGraphCommunityTextChange = useCallback((value: string) => {
+		setDrawer((current) => (
+			current.mode === "graph-community-summary"
+				? graphCommunitySummaryDrawer(current.payload, value)
+				: current
+		));
+	}, []);
+
+	const handleGraphCommunityAsk = (actionId: string | null, newConversation: boolean) => {
+		if (!graphData || drawer.mode !== "graph-community-summary") return;
+		const selection = resolveSelection(graphData, { kind: "community", id: drawer.payload.communityId });
+		const recommendedActionId = graphCommunityDrawerViewModel(drawer.payload).recommendedActionId;
+		const action = graphGroupDrawerPromptAction(actionId, recommendedActionId, drawer.freeText, newConversation);
+		const payload = buildSelectionPromptPayload(graphData, selection, action, drawer.freeText);
 		void handleAskSelection({
 			message: payload.expandedText,
 			displayText: payload.displayText,
@@ -637,11 +661,9 @@ function App() {
 
 	const handleCloseDrawer = useCallback((reason: "button" | "escape") => {
 		setDrawer((current) => {
-			if (current.mode === "graph-reader" || current.mode === "graph-selection") {
-				setSelectionCommand({
-					id: Math.random().toString(36).slice(2, 10),
-					type: reason === "button" ? "clear-selection" : "clear",
-				});
+			const clearCommand = graphCloseCommandForDrawer(current, reason);
+			if (clearCommand) {
+				setSelectionCommand(clearCommand);
 				setGraphFocusPath(null);
 			}
 			return closedDrawer();
@@ -722,6 +744,11 @@ function App() {
 		}
 		if (command.kind === "enter-community") {
 			setSelectionCommand({ id: command.communityId, type: "enter-community" });
+			return;
+		}
+		if (command.kind === "select-neighbors") {
+			const neighborsCommand = graphSelectionCommandForSummaryCommand(command);
+			if (neighborsCommand) setSelectionCommand(neighborsCommand);
 			return;
 		}
 		if (command.kind === "set-fixed-position") {
@@ -1123,8 +1150,9 @@ function App() {
 						onGraphSummaryNodeSelect={handleGraphSummaryNodeSelect}
 						onGraphSummaryNodePreview={handleGraphSummaryNodePreview}
 						onGraphSelectionTextChange={handleGraphSelectionTextChange}
-						onGraphSelectionNeighbors={handleGraphSelectionNeighbors}
 						onGraphSelectionAsk={handleGraphSelectionAsk}
+						onGraphCommunityTextChange={handleGraphCommunityTextChange}
+						onGraphCommunityAsk={handleGraphCommunityAsk}
 						onResize={setDrawerWidth}
 						onToggleFullscreen={() => setDrawerFullscreen((value) => !value)}
 						onClose={handleCloseDrawer}

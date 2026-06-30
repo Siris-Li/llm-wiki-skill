@@ -14,6 +14,7 @@ import {
   nodeDisplayModeForDensity,
   screenEffectiveDensityMode
 } from "../src/render";
+import { UNGROUPED_COMMUNITY_ID, UNGROUPED_COMMUNITY_LABEL } from "../src/types";
 import type { GraphData } from "../src/types";
 
 function sampleGraph(): GraphData {
@@ -953,6 +954,20 @@ describe("buildRenderableGraph", () => {
     assert.ok(outlier.point.x > community.wash.cx + community.wash.rx, "the node can sit outside the capped visual wash");
     assert.equal(outlier.community, "c1");
   });
+
+  it("normalizes ungrouped nodes into a selectable render community", () => {
+    const graph = buildRenderableGraph(graphFixtureWithUngroupedNodes(), {
+      selection: { kind: "community", id: UNGROUPED_COMMUNITY_ID }
+    });
+
+    const ungrouped = graph.communities.find((community) => community.id === UNGROUPED_COMMUNITY_ID);
+    assert.equal(ungrouped?.label, UNGROUPED_COMMUNITY_LABEL);
+    assert.ok(ungrouped?.wash, "ungrouped community should be clickable when its nodes are visible");
+    assert.deepEqual(
+      graph.nodes.filter((node) => node.community === UNGROUPED_COMMUNITY_ID && node.selected).map((node) => node.id),
+      ["loose-a", "loose-b"]
+    );
+  });
 });
 
 function communityWashStates(graph: ReturnType<typeof buildRenderableGraph>): Array<[string, boolean]> {
@@ -1028,3 +1043,35 @@ describe("edge drawing helpers", () => {
     assert.equal(path, "M 100 136 Q 274 284 600 476");
   });
 });
+
+function graphFixtureWithUngroupedNodes(): GraphData {
+  return {
+    meta: {
+      build_date: "2026-06-18T00:00:00.000Z",
+      wiki_title: "Ungrouped render graph",
+      total_nodes: 4,
+      total_edges: 1
+    },
+    nodes: [
+      { id: "a", label: "Alpha", type: "topic", community: "alpha", source_path: "wiki/alpha/a.md", weight: 2 },
+      { id: "b", label: "Beta", type: "entity", community: "alpha", source_path: "wiki/alpha/b.md" },
+      { id: "loose-a", label: "Loose A", type: "topic", community: null, source_path: "wiki/loose/a.md", score: 2 },
+      { id: "loose-b", label: "Loose B", type: "entity", source_path: "wiki/loose/b.md", weight: 1 }
+    ],
+    edges: [
+      { id: "a-b", from: "a", to: "b", type: "EXTRACTED", relation_type: "实现", weight: 0.6 }
+    ],
+    learning: {
+      version: 1,
+      entry: { recommended_start_node_id: "a", recommended_start_reason: "hub", default_mode: "global" },
+      views: {
+        path: { enabled: false, start_node_id: null, node_ids: [], degraded: true },
+        community: { enabled: false, community_id: null, label: null, node_ids: [], is_weak: false, degraded: true },
+        global: { enabled: true, node_ids: ["a", "b"], degraded: false }
+      },
+      communities: [
+        { id: "alpha", label: "Alpha", node_count: 2, color_index: 0, members: ["a", "b"] }
+      ]
+    }
+  };
+}

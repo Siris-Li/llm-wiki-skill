@@ -69,10 +69,11 @@ describe("graph summary contract", () => {
 
     assert.equal(node.kind, "node-summary");
     assert.equal(community.kind, "community-summary");
-    assert.deepEqual(commandKinds(node.commands), ["open-detail-read", "set-fixed-position", "enter-community"]);
+    assert.deepEqual(commandKinds(node.commands), ["open-detail-read", "select-neighbors", "set-fixed-position", "enter-community"]);
     assert.deepEqual(commandKinds(community.commands), ["enter-community"]);
 
     const openDetail = node.commands.find((command) => command.kind === "open-detail-read");
+    const selectNeighbors = node.commands.find((command) => command.kind === "select-neighbors");
     const enterCommunity = node.commands.find((command) => command.kind === "enter-community");
 
     assert.deepEqual(openDetail, {
@@ -80,6 +81,11 @@ describe("graph summary contract", () => {
       nodeId: "a",
       path: "wiki/alpha/a.md",
       label: "打开详情"
+    });
+    assert.deepEqual(selectNeighbors, {
+      kind: "select-neighbors",
+      nodeId: "a",
+      label: "+邻居"
     });
     assert.deepEqual(enterCommunity, {
       kind: "enter-community",
@@ -142,6 +148,101 @@ describe("graph summary contract", () => {
     assert.deepEqual(summary.selection.selectedCommunityIds, ["alpha"]);
     assert.equal(summary.selection.containsCurrentObject, true);
     assert.deepEqual(summary.aggregationMarkers.map((marker) => marker.id), ["agg-alpha"]);
+  });
+
+  it("lets legacy node-only community data enter real communities", () => {
+    const data = graphFixture();
+    data.learning = data.learning ? { ...data.learning, communities: [] } : undefined;
+
+    const summary = summarizeGraphCommunity(data, "alpha");
+
+    assert.equal(summary.kind, "community-summary");
+    assert.equal(summary.canEnterCommunity, true);
+    assert.deepEqual(summary.commands.map((command) => command.kind), ["enter-community"]);
+  });
+
+  it("summarizes the ungrouped virtual community as a community payload", () => {
+    const data = graphFixtureWithUngroupedNodes();
+    const summary = summarizeGraphCommunity(data, "_none", {
+      selection: { kind: "community", id: "_none" },
+      searchResultIds: ["loose-a"]
+    });
+
+    assert.equal(summary.kind, "community-summary");
+    assert.equal(summary.communityId, "_none");
+    assert.equal(summary.label, "未分组");
+    assert.equal(summary.nodeCount, 2);
+    assert.deepEqual(summary.facts, {
+      pageCount: 2,
+      internalLinkCount: 0,
+      communityCount: 1,
+      isolatedCount: 2
+    });
+    assert.equal(summary.structureState, "ungrouped");
+    assert.equal(summary.canEnterCommunity, false);
+    assert.equal(summary.description, "这些页面暂未形成明确社区。你可以让 agent 探索它们之间是否存在潜在关系。");
+    assert.deepEqual(summary.searchResultIds, ["loose-a"]);
+    assert.deepEqual(summary.selection.selectedNodeIds, ["loose-a", "loose-b"]);
+    assert.deepEqual(summary.selection.selectedCommunityIds, ["_none"]);
+    assert.deepEqual(summary.commands.map((command) => command.kind), []);
+    assert.deepEqual(summary.coreNodes.map((node) => node.nodeId), ["loose-a", "loose-b"]);
+    assert.deepEqual(summary.coreNodes.map((node) => node.label), ["Loose A", "Loose B"]);
+  });
+
+  it("counts internal links inside the ungrouped virtual community", () => {
+    const data = graphFixtureWithLinkedUngroupedNodes();
+    const summary = summarizeGraphCommunity(data, "_none", {
+      selection: { kind: "community", id: "_none" }
+    });
+
+    assert.equal(summary.kind, "community-summary");
+    assert.deepEqual(summary.facts, {
+      pageCount: 2,
+      internalLinkCount: 1,
+      communityCount: 1,
+      isolatedCount: 0
+    });
+    assert.equal(summary.structureState, "ungrouped");
+  });
+
+  it("classifies loose communities when the community has a single node", () => {
+    const data = graphFixtureWithSingleNodeCommunity();
+    const summary = summarizeGraphCommunity(data, "gamma", {
+      selection: { kind: "community", id: "gamma" }
+    });
+
+    assert.equal(summary.structureState, "loose");
+    assert.equal(summary.description, "这组页面结构还比较松散。你可以先找知识缺口，也可以继续探索潜在关系。");
+  });
+
+  it("classifies a real community as loose when it has no internal links", () => {
+    const data = graphFixtureWithEmptyCommunityGamma();
+    const summary = summarizeGraphCommunity(data, "gamma", {
+      selection: { kind: "community", id: "gamma" }
+    });
+
+    assert.equal(summary.structureState, "loose");
+    assert.equal(summary.facts.internalLinkCount, 0);
+    assert.equal(summary.facts.isolatedCount, 0);
+  });
+
+  it("treats the isolated-count threshold boundary between clear and loose", () => {
+    // nodeCount = 6, floor(nodeCount/2) = 3.
+    // clear variant: exactly 3 isolated nodes (=== floor) -> clear.
+    const clear = summarizeGraphCommunity(graphFixtureWithIsolatedBoundary(false), "gamma", {
+      selection: { kind: "community", id: "gamma" }
+    });
+    assert.equal(clear.facts.pageCount, 6);
+    assert.equal(clear.facts.isolatedCount, 3);
+    assert.equal(clear.structureState, "clear");
+
+    // loose variant: 4 isolated nodes (=== floor + 1) -> loose.
+    const loose = summarizeGraphCommunity(graphFixtureWithIsolatedBoundary(true), "gamma", {
+      selection: { kind: "community", id: "gamma" }
+    });
+    assert.equal(loose.facts.pageCount, 6);
+    assert.equal(loose.facts.isolatedCount, 4);
+    assert.equal(loose.structureState, "loose");
   });
 
   it("builds community aggregation markers for large communities with pinned-node metadata", () => {
@@ -257,6 +358,61 @@ describe("graph summary contract", () => {
 
     engine.clearSelection();
     assert.deepEqual(engine.summarizeGlobal().selection.selectedNodeIds, []);
+  });
+
+  it("summarizes large ungrouped communities without repeated bridge-node scans", () => {
+    const bridgeNodes = Array.from({ length: 400 }, (_, index) => ({
+      id: `n${index}`,
+      label: `Node ${index}`,
+      community: null,
+      connected_communities: [],
+      community_count: 0
+    }));
+    const data: GraphData = {
+      meta: {
+        build_date: "2026-06-20T00:00:00.000Z",
+        wiki_title: "Large ungrouped",
+        total_nodes: 400,
+        total_edges: 0
+      },
+      nodes: bridgeNodes.map((node, index) => ({
+        id: node.id,
+        label: node.label,
+        type: "topic",
+        community: null,
+        source_path: `wiki/${node.id}.md`,
+        score: index % 7,
+        weight: index % 5
+      })),
+      edges: [],
+      insights: {
+        surprising_connections: [],
+        isolated_nodes: [],
+        bridge_nodes: bridgeNodes,
+        sparse_communities: [],
+        meta: {
+          degraded: false,
+          node_count: 400,
+          edge_count: 0,
+          max_insight_nodes: 400,
+          max_insight_edges: 0
+        }
+      }
+    };
+    let bridgeNodeReads = 0;
+    Object.defineProperty(data.insights, "bridge_nodes", {
+      configurable: true,
+      get() {
+        bridgeNodeReads += 1;
+        return bridgeNodes;
+      }
+    });
+
+    const summary = summarizeGraphCommunity(data, "_none");
+
+    assert.equal(summary.kind, "community-summary");
+    assert.equal(summary.coreNodeIds.length, 5);
+    assert.equal(bridgeNodeReads, 1);
   });
 
   it("route manager carries search query and temporary object state when switching renderers", () => {
@@ -418,5 +574,91 @@ function graphFixture(): GraphData {
         { id: "beta", label: "Beta", node_count: 2, color_index: 1, members: ["c", "d"] }
       ]
     }
+  };
+}
+
+function graphFixtureWithUngroupedNodes(): GraphData {
+  const base = graphFixture();
+  return {
+    ...base,
+    meta: {
+      ...base.meta,
+      total_nodes: base.meta.total_nodes + 2
+    },
+    nodes: [
+      ...base.nodes,
+      { id: "loose-a", label: "Loose A", type: "topic", community: null, source_path: "wiki/loose/a.md", score: 2 },
+      { id: "loose-b", label: "Loose B", type: "entity", source_path: "wiki/loose/b.md", weight: 1 }
+    ]
+  };
+}
+
+function graphFixtureWithLinkedUngroupedNodes(): GraphData {
+  const base = graphFixtureWithUngroupedNodes();
+  return {
+    ...base,
+    meta: {
+      ...base.meta,
+      total_edges: base.meta.total_edges + 1
+    },
+    edges: [
+      ...base.edges,
+      { id: "loose-a-loose-b", from: "loose-a", to: "loose-b", type: "INFERRED", relation_type: "潜在关联", weight: 0.6 }
+    ]
+  };
+}
+
+function graphFixtureWithSingleNodeCommunity(): GraphData {
+  const base = graphFixture();
+  return {
+    ...base,
+    nodes: [
+      ...base.nodes,
+      { id: "g1", label: "Gamma only", type: "entity", community: "gamma", source_path: "wiki/gamma/g1.md" }
+    ]
+  };
+}
+
+function graphFixtureWithEmptyCommunityGamma(): GraphData {
+  const base = graphFixture();
+  return {
+    ...base,
+    nodes: [
+      ...base.nodes,
+      { id: "g1", label: "Gamma one", type: "entity", community: "gamma", source_path: "wiki/gamma/g1.md" },
+      { id: "g2", label: "Gamma two", type: "entity", community: "gamma", source_path: "wiki/gamma/g2.md" }
+    ],
+    edges: [
+      ...base.edges,
+      { id: "g1-a", from: "g1", to: "a", type: "INFERRED", relation_type: "潜在关联", weight: 0.5 },
+      { id: "g2-a", from: "g2", to: "a", type: "INFERRED", relation_type: "潜在关联", weight: 0.5 }
+    ]
+  };
+}
+
+function graphFixtureWithIsolatedBoundary(loose: boolean): GraphData {
+  const base = graphFixture();
+  const linked = loose
+    ? [{ id: "g1", label: "Gamma hub", type: "topic", community: "gamma", source_path: "wiki/gamma/g1.md" },
+       { id: "g2", label: "Gamma leaf", type: "entity", community: "gamma", source_path: "wiki/gamma/g2.md" }]
+    : [{ id: "g1", label: "Gamma one", type: "topic", community: "gamma", source_path: "wiki/gamma/g1.md" },
+       { id: "g2", label: "Gamma two", type: "entity", community: "gamma", source_path: "wiki/gamma/g2.md" },
+       { id: "g3", label: "Gamma three", type: "entity", community: "gamma", source_path: "wiki/gamma/g3.md" }];
+  const edges = loose
+    ? [{ id: "g1-g2", from: "g1", to: "g2", type: "EXTRACTED", relation_type: "实现", weight: 0.7 }]
+    : [{ id: "g1-g2", from: "g1", to: "g2", type: "EXTRACTED", relation_type: "实现", weight: 0.7 },
+       { id: "g2-g3", from: "g2", to: "g3", type: "EXTRACTED", relation_type: "实现", weight: 0.7 }];
+  const isolated = loose
+    ? [{ id: "i1", label: "Isolated one", type: "entity", community: "gamma", source_path: "wiki/gamma/i1.md" },
+       { id: "i2", label: "Isolated two", type: "entity", community: "gamma", source_path: "wiki/gamma/i2.md" },
+       { id: "i3", label: "Isolated three", type: "entity", community: "gamma", source_path: "wiki/gamma/i3.md" },
+       { id: "i4", label: "Isolated four", type: "entity", community: "gamma", source_path: "wiki/gamma/i4.md" }]
+    : [{ id: "i1", label: "Isolated one", type: "entity", community: "gamma", source_path: "wiki/gamma/i1.md" },
+       { id: "i2", label: "Isolated two", type: "entity", community: "gamma", source_path: "wiki/gamma/i2.md" },
+       { id: "i3", label: "Isolated three", type: "entity", community: "gamma", source_path: "wiki/gamma/i3.md" }];
+  return {
+    ...base,
+    nodes: [...base.nodes, ...linked, ...isolated],
+    edges: [...base.edges, ...edges]
   };
 }

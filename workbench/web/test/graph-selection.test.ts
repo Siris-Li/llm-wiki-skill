@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveSelection, type GraphData } from "@llm-wiki/graph-engine";
+import { resolveSelection, UNGROUPED_COMMUNITY_ID, type GraphData } from "@llm-wiki/graph-engine";
 import { buildSelectionPromptPayload } from "../src/lib/graph-selection";
 
 describe("graph selection prompt payload", () => {
@@ -19,6 +19,21 @@ describe("graph selection prompt payload", () => {
 		assert.match(payload.expandedText, /链接关系：/);
 		assert.match(payload.expandedText, /- a -> b \(EXTRACTED\)/);
 		assert.match(payload.expandedText, /请基于上面的选区信息回答/);
+	});
+
+	it("uses the shared ungrouped community label when formatting selection prompts", () => {
+		const data = fixtureGraph();
+		data.nodes = [
+			{ id: "loose-a", label: "Loose A", type: "topic", community: null, source_path: "wiki/loose/a.md" },
+			{ id: "loose-b", label: "Loose B", type: "entity", source_path: "wiki/loose/b.md" },
+		];
+		data.edges = [];
+		data.learning = { ...data.learning!, communities: [] };
+		const selection = resolveSelection(data, { kind: "community", id: UNGROUPED_COMMUNITY_ID });
+		const payload = buildSelectionPromptPayload(data, selection, null);
+		assert.match(payload.displayText, /@\[选区:未分组 · 2页\]/);
+		assert.match(payload.expandedText, /Loose A - 社区 未分组/);
+		assert.doesNotMatch(payload.expandedText, /社区 _none/);
 	});
 
 	it("uses stored synthesis session paths when sending graph nodes into chat", () => {

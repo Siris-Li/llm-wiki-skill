@@ -1,9 +1,12 @@
 import { wikiPathForGraphNode } from "../graph-node";
 import { resolveSelectionForCapabilities } from "../select";
+import { UNGROUPED_COMMUNITY_ID, UNGROUPED_COMMUNITY_LABEL } from "../types";
 import type {
   CommunityId,
   EdgeId,
   GraphAggregationMarker,
+  GraphCommunityCoreNode,
+  GraphCommunityStructureState,
   GraphCommunitySummaryPayload,
   GraphData,
   GraphEdge,
@@ -21,6 +24,7 @@ import type {
   GraphUnavailableObjectPayload,
   NodeId,
   PinMap,
+  SelectionFacts,
   SelectionInput,
   WikiPath
 } from "../types";
@@ -30,6 +34,12 @@ const DEFAULT_LIMIT = 5;
 interface SummaryIndex {
   nodeById: Map<NodeId, GraphNode>;
   edgesByNodeId: Map<NodeId, GraphEdge[]>;
+}
+
+interface NodeRankContext {
+  index: SummaryIndex;
+  recommendedStartNodeId: NodeId | null;
+  bridgeNodeIds: Set<NodeId>;
 }
 
 export function summarizeGraphNode(
@@ -81,30 +91,39 @@ export function summarizeGraphCommunity(
   }
   const index = buildSummaryIndex(data);
   const nodeIds = new Set(nodes.map((node) => node.id));
+  const relatedEdges = data.edges.filter((edge) => nodeIds.has(endpointId(edge.from) || "") || nodeIds.has(endpointId(edge.to) || ""));
   const relations = relationSummariesForEdges(
     data,
-    data.edges.filter((edge) => nodeIds.has(endpointId(edge.from) || "") || nodeIds.has(endpointId(edge.to) || "")),
+    relatedEdges,
     index
   );
   const resultIds = options.searchResultIds ?? [];
   const searchHits = resultIds.filter((id) => nodeIds.has(id));
   const pinHints = nodes.map((node) => pinHintForNode(node, options.pins)).filter((hint) => hint.pinned);
+  const facts = communityFacts(nodes, nodeIds, relatedEdges, index);
+  const structureState = communityStructureState(communityId, facts.pageCount, facts.internalLinkCount, facts.isolatedCount);
+  const canEnterCommunity = communityId !== UNGROUPED_COMMUNITY_ID && nodes.length > 0;
+  const rankContext = nodeRankContext(data, index);
+  const coreIds = coreNodeIds(data, nodes, DEFAULT_LIMIT, rankContext);
   return {
     kind: "community-summary",
     object: { kind: "community", communityId },
     communityId,
-    label: community?.label || communityId,
+    label: communityLabel(community?.label, communityId),
     nodeCount: Number(community?.node_count ?? nodes.length),
-    coreNodeIds: coreNodeIds(data, nodes),
+    facts,
+    structureState,
+    description: communityDescription(structureState),
+    canEnterCommunity,
+    coreNodeIds: coreIds,
+    coreNodes: coreNodeSummaries(index, coreIds),
     searchResultIds: searchHits,
     pinHints,
     selection: selectionStateForObject(data, { kind: "community", communityId }, options.selection),
     strongestRelations: topRelations(relations, DEFAULT_LIMIT),
     bridgeRelations: topRelations(relations.filter((relation) => relation.bridge), DEFAULT_LIMIT),
     aggregationMarkers: markersContainingCommunity(options.aggregationMarkers, communityId),
-    commands: [
-      { kind: "enter-community", communityId, label: "进入社区" }
-    ]
+    commands: communitySummaryCommands(communityId, canEnterCommunity)
   };
 }
 
@@ -269,18 +288,54 @@ function topRelations(relations: GraphRelationSummary[], limit: number): GraphRe
     .slice(0, limit);
 }
 
-function coreNodeIds(data: GraphData, nodes: GraphNode[], limit = DEFAULT_LIMIT): NodeId[] {
-  const index = buildSummaryIndex(data);
+function communityFacts(
+  nodes: GraphNode[],
+  nodeIds: Set<NodeId>,
+  edges: GraphEdge[],
+  index: SummaryIndex
+): SelectionFacts {
+  const linkedNodeIds = new Set<NodeId>();
+  let internalLinkCount = 0;
+  for (const edge of edges) {
+    const from = endpointId(edge.from);
+    const to = endpointId(edge.to);
+    if (!from || !to || from === to || !index.nodeById.has(from) || !index.nodeById.has(to)) continue;
+    const fromSelected = nodeIds.has(from);
+    const toSelected = nodeIds.has(to);
+    if (!fromSelected && !toSelected) continue;
+    if (fromSelected) linkedNodeIds.add(from);
+    if (toSelected) linkedNodeIds.add(to);
+    if (fromSelected && toSelected) internalLinkCount += 1;
+  }
+  return {
+    pageCount: nodes.length,
+    internalLinkCount,
+    communityCount: new Set(nodes.map(communityIdForNode)).size,
+    isolatedCount: nodes.filter((node) => !linkedNodeIds.has(node.id)).length
+  };
+}
+
+function coreNodeIds(data: GraphData, nodes: GraphNode[], limit = DEFAULT_LIMIT, context?: NodeRankContext): NodeId[] {
+  const rankContext = context ?? nodeRankContext(data);
   return [...nodes]
-    .sort((left, right) => nodeRank(data, index, right) - nodeRank(data, index, left) || left.id.localeCompare(right.id))
+    .map((node) => ({ id: node.id, rank: nodeRank(rankContext, node) }))
+    .sort((left, right) => right.rank - left.rank || left.id.localeCompare(right.id))
     .slice(0, limit)
     .map((node) => node.id);
 }
 
-function nodeRank(data: GraphData, index: SummaryIndex, node: GraphNode): number {
-  const recommended = data.learning?.entry.recommended_start_node_id === node.id ? 10000 : 0;
-  const bridge = data.insights?.bridge_nodes.some((item) => item.id === node.id) ? 1000 : 0;
-  return recommended + bridge + numericWeight(node.score) * 100 + numericWeight(node.weight) * 10 + (index.edgesByNodeId.get(node.id)?.length ?? 0);
+function nodeRankContext(data: GraphData, index = buildSummaryIndex(data)): NodeRankContext {
+  return {
+    index,
+    recommendedStartNodeId: data.learning?.entry.recommended_start_node_id ?? null,
+    bridgeNodeIds: new Set((data.insights?.bridge_nodes ?? []).map((item) => item.id))
+  };
+}
+
+function nodeRank(context: NodeRankContext, node: GraphNode): number {
+  const recommended = context.recommendedStartNodeId === node.id ? 10000 : 0;
+  const bridge = context.bridgeNodeIds.has(node.id) ? 1000 : 0;
+  return recommended + bridge + numericWeight(node.score) * 100 + numericWeight(node.weight) * 10 + (context.index.edgesByNodeId.get(node.id)?.length ?? 0);
 }
 
 function selectionStateForObject(
@@ -329,6 +384,11 @@ function nodeSummaryCommands(node: GraphNode, pinHint: GraphPinHint): GraphSumma
       label: "打开详情"
     },
     {
+      kind: "select-neighbors",
+      nodeId: node.id,
+      label: "+邻居"
+    },
+    {
       kind: "set-fixed-position",
       mode: pinHint.pinned ? "unfix" : "fix",
       nodeId: node.id,
@@ -344,6 +404,47 @@ function nodeSummaryCommands(node: GraphNode, pinHint: GraphPinHint): GraphSumma
     });
   }
   return commands;
+}
+
+function communitySummaryCommands(communityId: CommunityId, canEnterCommunity: boolean): GraphSummaryCommand[] {
+  return canEnterCommunity
+    ? [{ kind: "enter-community", communityId, label: "进入社区" }]
+    : [];
+}
+
+function communityLabel(label: string | null | undefined, communityId: CommunityId): string {
+  if (communityId === UNGROUPED_COMMUNITY_ID) return UNGROUPED_COMMUNITY_LABEL;
+  return label || communityId;
+}
+
+function communityDescription(state: GraphCommunityStructureState): string {
+  if (state === "ungrouped") return "这些页面暂未形成明确社区。你可以让 agent 探索它们之间是否存在潜在关系。";
+  if (state === "loose") return "这组页面结构还比较松散。你可以先找知识缺口，也可以继续探索潜在关系。";
+  return "这组页面围绕同一主题聚在一起。你可以先看结构，也可以直接让 agent 基于这一组页面继续工作。";
+}
+
+function communityStructureState(
+  communityId: CommunityId,
+  nodeCount: number,
+  internalLinkCount: number,
+  isolatedCount: number
+): GraphCommunityStructureState {
+  if (communityId === UNGROUPED_COMMUNITY_ID) return "ungrouped";
+  if (nodeCount <= 1 || internalLinkCount === 0 || isolatedCount > Math.floor(nodeCount / 2)) return "loose";
+  return "clear";
+}
+
+function coreNodeSummaries(index: SummaryIndex, ids: NodeId[]): GraphCommunityCoreNode[] {
+  return ids.flatMap((id, order) => {
+    const node = index.nodeById.get(id);
+    if (!node) return [];
+    return [{
+      nodeId: node.id,
+      label: node.label || node.id,
+      type: node.type,
+      role: order === 0 ? "核心" : node.type === "topic" ? "主题" : "相关"
+    }];
+  });
 }
 
 function pinHintForNode(node: GraphNode, pins?: PinMap): GraphPinHint {
@@ -367,7 +468,11 @@ function pinHintsForNodeIds(data: GraphData, nodeIds: NodeId[], pins?: PinMap): 
 }
 
 function nodesForCommunity(data: GraphData, communityId: CommunityId): GraphNode[] {
-  return data.nodes.filter((node) => node.community === communityId);
+  return data.nodes.filter((node) => communityIdForNode(node) === communityId);
+}
+
+function communityIdForNode(node: GraphNode): CommunityId {
+  return String(node.community || UNGROUPED_COMMUNITY_ID);
 }
 
 function stableExistingNodeIds(data: GraphData, ids: NodeId[]): NodeId[] {
@@ -378,9 +483,7 @@ function stableExistingNodeIds(data: GraphData, ids: NodeId[]): NodeId[] {
 function communityIds(data: GraphData): CommunityId[] {
   const ids = new Set<CommunityId>();
   for (const community of data.learning?.communities ?? []) ids.add(community.id);
-  for (const node of data.nodes) {
-    if (node.community) ids.add(node.community);
-  }
+  for (const node of data.nodes) ids.add(communityIdForNode(node));
   return [...ids];
 }
 

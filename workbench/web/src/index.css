@@ -3172,6 +3172,113 @@
     box-shadow: 0 10px 24px color-mix(in srgb, var(--app-accent) 12%, transparent);
   }
 
+  .graph-group-drawer {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(94, 72, 48, 0.14);
+    background: var(--paper-grain), rgba(255, 252, 246, 0.94);
+    box-shadow: var(--shadow-lg);
+    padding: 18px;
+  }
+
+  .graph-group-overview {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: start;
+  }
+
+  .graph-group-overview-main {
+    min-width: 0;
+  }
+
+  .graph-group-enter,
+  .graph-group-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 36px;
+    border: 1px solid rgba(94, 72, 48, 0.16);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.2;
+    box-shadow: var(--shadow);
+  }
+
+  .graph-group-enter svg,
+  .graph-group-action svg {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 auto;
+  }
+
+  .graph-group-enter:hover,
+  .graph-group-action:hover {
+    background: rgba(255, 255, 255, 0.92);
+    border-color: rgba(94, 72, 48, 0.28);
+  }
+
+  .graph-group-action-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .graph-group-action[data-recommended="true"] {
+    border-color: rgba(124, 92, 46, 0.42);
+    background: rgba(238, 220, 184, 0.54);
+  }
+
+  .graph-group-node-list {
+    display: grid;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .graph-group-node {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    border: 1px solid rgba(94, 72, 48, 0.12);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.52);
+    padding: 9px 10px;
+    color: inherit;
+    text-align: left;
+  }
+
+  .graph-group-node span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .graph-group-node small {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+
+  .graph-group-dialogue {
+    display: grid;
+    gap: 10px;
+  }
+
+  .graph-group-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
   .batch-panel {
     position: fixed;
     right: 22px;
@@ -4201,4 +4308,18 @@
   --app-accent-deep: #b14a4d;
   --app-user: var(--app-accent);
   --app-accent-soft: color-mix(in srgb, var(--app-accent) 13%, var(--card));
+}
+
+@media (max-width: 720px) {
+  .graph-group-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .graph-group-enter {
+    justify-self: start;
+  }
+
+  .graph-group-action-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
