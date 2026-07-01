@@ -160,6 +160,72 @@ describe("Sigma overlay DOM controller", () => {
     assert.match(alphaBefore?.style.left ?? "", /px$/);
   });
 
+  it("uses an overlay root transform during camera animation without recomputing cloud geometry", () => {
+    const fixture = controllerFixture();
+    fixture.controller.rebuild();
+    const childrenBefore = [...fixture.overlayRoot.children];
+    const alphaBefore = nodeTarget(fixture.overlayRoot, "alpha");
+    const regionBefore = communityRegion(fixture.overlayRoot, "community-a");
+    const labelBefore = communityLabel(fixture.overlayRoot, "community-a");
+    fixture.resetCloudCalls();
+
+    fixture.setSigma(sigmaTransform({ scale: 1.5, translateX: 40, translateY: 30 }));
+    fixture.controller.repositionForCameraAnimation();
+
+    assert.equal(fixture.cloudCalls(), 0);
+    assert.match(fixture.overlayRoot.style.transform || "", /^translate\(/);
+    assert.match(fixture.overlayRoot.style.transform || "", /scale\(1\.5\)$/);
+    assert.equal(fixture.overlayRoot.style.transformOrigin, "0 0");
+    assert.equal(fixture.overlayRoot.style.willChange, "transform");
+    assert.deepEqual(fixture.overlayRoot.children, childrenBefore);
+    assert.equal(nodeTarget(fixture.overlayRoot, "alpha"), alphaBefore);
+    assert.equal(communityRegion(fixture.overlayRoot, "community-a"), regionBefore);
+    assert.equal(communityLabel(fixture.overlayRoot, "community-a"), labelBefore);
+    assert.equal(alphaBefore?.style.transform || "", "");
+    assert.equal(regionBefore?.style.transform || "", "");
+    assert.equal(labelBefore?.style.transform || "", "");
+  });
+
+  it("settles an animation frame with exact reposition and clears the root transform", () => {
+    const fixture = controllerFixture();
+    fixture.controller.rebuild();
+    fixture.setSigma(sigmaTransform({ scale: 1.5, translateX: 40, translateY: 30 }));
+    fixture.controller.repositionForCameraAnimation();
+    fixture.resetCloudCalls();
+
+    fixture.controller.reposition();
+
+    assert.equal(fixture.overlayRoot.style.transform, "");
+    assert.equal(fixture.overlayRoot.style.transformOrigin, "");
+    assert.equal(fixture.overlayRoot.style.willChange, "");
+    assert.ok(fixture.cloudCalls() > 0);
+  });
+
+  it("falls back to exact reposition when animation has no valid baseline", () => {
+    const fixture = controllerFixture();
+    fixture.controller.rebuild();
+    fixture.controller.invalidateAnimationBaseline();
+    fixture.resetCloudCalls();
+
+    fixture.controller.repositionForCameraAnimation();
+
+    assert.equal(fixture.overlayRoot.style.transform, "");
+    assert.ok(fixture.cloudCalls() > 0);
+  });
+
+  it("clears an active animation transform on destroy", () => {
+    const fixture = controllerFixture();
+    fixture.controller.rebuild();
+    fixture.setSigma(sigmaTransform({ scale: 1.5, translateX: 40, translateY: 30 }));
+    fixture.controller.repositionForCameraAnimation();
+
+    fixture.controller.destroy();
+
+    assert.equal(fixture.overlayRoot.style.transform, "");
+    assert.equal(fixture.overlayRoot.style.transformOrigin, "");
+    assert.equal(fixture.overlayRoot.style.willChange, "");
+  });
+
   it("keeps community label cap at eight and prioritizes selected communities", () => {
     const communities = Array.from({ length: 10 }, (_, index) => communityFixture(`community-${index + 1}`, {
       selected: index === 1,
@@ -206,10 +272,13 @@ describe("Sigma overlay DOM controller", () => {
 function controllerFixture(options: {
   adapterData?: GraphRendererAdapterData;
   pointerEvents?: boolean;
+  sigma?: SigmaGlobalSigmaLike;
 } = {}) {
   const document = new FakeDocument(options.pointerEvents ?? true);
   const overlayRoot = document.createElement("div");
   let adapterData = options.adapterData ?? adapterDataFixture();
+  let sigma = options.sigma || sigmaIdentity();
+  let cloudCalls = 0;
   let activeNodeId: string | null = null;
   const hits: unknown[] = [];
   const dragCalls: string[] = [];
@@ -217,21 +286,24 @@ function controllerFixture(options: {
     overlayRoot: overlayRoot as unknown as HTMLElement,
     cloudFilterId: "test-cloud-filter",
     getAdapterData: () => adapterData,
-    getSigma: () => sigmaIdentity(),
+    getSigma: () => sigma,
     getOptions: () => ({
       adapterData,
       viewportSize: { width: 500, height: 500 },
       viewport: { x: 0, y: 0, scale: 1 }
     }),
-    communityCloudFor: (_communityId, wash) => ({
-      box: {
-        left: wash.cx - wash.rx,
-        top: wash.cy - wash.ry,
-        width: wash.rx * 2,
-        height: wash.ry * 2
-      },
-      localPoints: null
-    }),
+    communityCloudFor: (_communityId, wash) => {
+      cloudCalls += 1;
+      return {
+        box: {
+          left: wash.cx - wash.rx,
+          top: wash.cy - wash.ry,
+          width: wash.rx * 2,
+          height: wash.ry * 2
+        },
+        localPoints: null
+      };
+    },
     isDestroyed: () => false,
     onHit: (object) => hits.push(object),
     beginNodeDrag: (nodeId, point) => {
@@ -262,6 +334,13 @@ function controllerFixture(options: {
     adapterData: () => adapterData,
     setAdapterData: (next: GraphRendererAdapterData) => {
       adapterData = next;
+    },
+    setSigma: (next: SigmaGlobalSigmaLike) => {
+      sigma = next;
+    },
+    cloudCalls: () => cloudCalls,
+    resetCloudCalls: () => {
+      cloudCalls = 0;
     }
   };
 }
@@ -424,12 +503,25 @@ function sigmaIdentity(): SigmaGlobalSigmaLike {
   };
 }
 
+function sigmaTransform(input: { scale: number; translateX: number; translateY: number }): SigmaGlobalSigmaLike {
+  return {
+    graphToViewport: (point) => ({
+      x: point.x * input.scale + input.translateX,
+      y: point.y * input.scale + input.translateY
+    })
+  };
+}
+
 function nodeTarget(root: FakeElement, nodeId: string): FakeElement | undefined {
   return root.children.find((child) => child.dataset.nodeId === nodeId);
 }
 
 function communityRegion(root: FakeElement, communityId: string): FakeElement | undefined {
   return root.children.find((child) => child.className === "sigma-global-community-region" && child.dataset.communityId === communityId);
+}
+
+function communityLabel(root: FakeElement, communityId: string): FakeElement | undefined {
+  return root.children.find((child) => child.className === "sigma-global-community-label" && child.dataset.communityId === communityId);
 }
 
 function communityShape(root: FakeElement, communityId: string): FakeElement | undefined {
