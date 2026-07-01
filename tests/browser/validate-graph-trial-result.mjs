@@ -14,6 +14,7 @@ const requiredActions = [
   "search_highlight",
   "point_select",
   "container_select",
+  "spotlight_animation",
   "drawer_open",
   "enter_community",
   "return_global",
@@ -21,7 +22,7 @@ const requiredActions = [
 ];
 
 // Actions where fps + frame p95 are mandatory (wheel/drag), and the hard gates.
-const FRAME_SAMPLED_ACTIONS = new Set(["wheel_zoom", "drag"]);
+const FRAME_SAMPLED_ACTIONS = new Set(["wheel_zoom", "drag", "spotlight_animation"]);
 const FPS_FLOOR = 45;
 const FRAME_P95_CEILING_MS = 22.3;
 const DURATION_GATED_ACTIONS = new Set(["initial_render", "search_highlight", "drawer_open", "return_global"]);
