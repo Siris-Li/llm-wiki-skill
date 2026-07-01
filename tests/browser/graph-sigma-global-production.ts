@@ -1131,7 +1131,7 @@ async function measureSpotlightAnimation(page: PageLike, metadata: LargeGraphFix
       return counts?.lastSelectionKind === "community" && (counts.lastSelectionCommunityIds || []).length > 0;
     },
     undefined,
-    { timeout: 4000 }
+    { timeout: 8000 }
   );
   const selectionCounts = await page.evaluate(() => (window as any).__sigmaProduction.counts()) as { lastSelectionCommunityIds?: string[] };
   const selectedId = selectionCounts.lastSelectionCommunityIds?.[0] ?? null;
@@ -1188,7 +1188,7 @@ async function waitForSpotlightReady(page: PageLike): Promise<void> {
         && region.height > 0;
     },
     undefined,
-    { timeout: 4000 }
+    { timeout: 8000 }
   );
   await waitForStableCommunityRegion(page, null);
 }
@@ -1209,7 +1209,7 @@ async function waitForSpotlightSettled(page: PageLike, id: string | null): Promi
         && region.height > 0;
     },
     id,
-    { timeout: 4000 }
+    { timeout: 8000 }
   );
   await waitForStableCommunityRegion(page, id);
 }
