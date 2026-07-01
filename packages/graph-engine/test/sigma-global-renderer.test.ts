@@ -775,6 +775,222 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("uses the overlay animation fast path while the Sigma camera is animated and settles exactly afterward", () => {
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectionKind: null }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.update({ adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }) });
+    sigma.emit("afterRender");
+
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+
+    sigma.camera.finishAnimation();
+    sigma.emit("afterRender");
+
+    assert.equal(renderer.overlayRoot.style.transform, "");
+    assert.equal(renderer.overlayRoot.style.willChange, "");
+
+    renderer.destroy();
+  });
+
+  it("keeps exact overlay reposition after wheel setState until a prior camera animation settles", () => {
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.zoomIn();
+    sigma.emit("afterRender");
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+
+    sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
+    sigma.emit("afterRender");
+
+    assert.equal(renderer.overlayRoot.style.transform, "");
+    assert.equal(renderer.overlayRoot.style.willChange, "");
+
+    sigma.emit("afterRender");
+    assert.equal(renderer.overlayRoot.style.transform, "");
+
+    sigma.camera.finishAnimation();
+    sigma.emit("afterRender");
+    assert.equal(renderer.overlayRoot.style.transform, "");
+
+    renderer.destroy();
+  });
+
+  it("keeps exact overlay reposition after resetView until an active camera animation settles", () => {
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.zoomIn();
+    sigma.emit("afterRender");
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+
+    renderer.resetView();
+    sigma.emit("afterRender");
+    assert.equal(renderer.overlayRoot.style.transform, "");
+
+    sigma.emit("afterRender");
+    assert.equal(renderer.overlayRoot.style.transform, "");
+
+    sigma.camera.finishAnimation();
+    sigma.emit("afterRender");
+    assert.equal(renderer.overlayRoot.style.transform, "");
+
+    renderer.destroy();
+  });
+
+  it("settles exact overlay geometry even when no afterRender fires after animation completion", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    const container = fakeContainer({
+      requestAnimationFrame: (callback: FrameRequestCallback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      },
+      cancelAnimationFrame: () => undefined
+    });
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container,
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.zoomIn();
+    sigma.emit("afterRender");
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+    assert.equal(animationFrames.length, 1);
+
+    sigma.camera.finishAnimation();
+    animationFrames.shift()?.(0);
+
+    assert.equal(renderer.overlayRoot.style.transform, "");
+    assert.equal(renderer.overlayRoot.style.willChange, "");
+
+    renderer.destroy();
+  });
+
+  it("disables the overlay animation fast path while a node drag is active", () => {
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture({ betaPinned: false }),
+      theme: "shan-shui",
+      runtime,
+      pins: {},
+      onPinsChanged: () => undefined
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.zoomIn();
+    sigma.emit("afterRender");
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+
+    sigma.emit("downNode", sigmaEventPayload("render-alpha", 111, 222));
+    sigma.emit("moveBody", sigmaEventPayload(null, 151, 262));
+    sigma.emit("afterRender");
+
+    assert.equal(renderer.overlayRoot.style.transform, "");
+
+    sigma.emit("upStage", sigmaEventPayload(null, 171, 282));
+    renderer.destroy();
+  });
+
+  it("clears the animation transform when data updates during an active camera animation", () => {
+    const runtime = fakeRuntime();
+    const initialData = adapterDataFixture();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: initialData,
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.zoomIn();
+    sigma.emit("afterRender");
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+
+    renderer.update({ adapterData: adapterDataWithAddedNodeAndEdge(initialData) });
+
+    assert.equal(renderer.overlayRoot.style.transform, "");
+    assert.equal(renderer.overlayRoot.style.willChange, "");
+
+    renderer.destroy();
+  });
+
+  it("suppresses the overlay animation fast path after resize until the active camera animation settles", () => {
+    let resizeCallback: ResizeObserverCallback | null = null;
+    class FakeResizeObserver implements ResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer({ ResizeObserver: FakeResizeObserver as typeof ResizeObserver }),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.zoomIn();
+    sigma.emit("afterRender");
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+
+    resizeCallback?.([resizeObserverEntry(480, 320)], {} as ResizeObserver);
+    sigma.emit("afterRender");
+    assert.equal(renderer.overlayRoot.style.transform, "");
+
+    sigma.emit("afterRender");
+    assert.equal(renderer.overlayRoot.style.transform, "");
+
+    renderer.destroy();
+  });
+
+  it("can destroy the renderer while an overlay animation transform is active", () => {
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.zoomIn();
+    sigma.emit("afterRender");
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+
+    renderer.destroy();
+
+    assert.equal(renderer.overlayRoot.style.transform, "");
+    assert.equal(renderer.overlayRoot.children.length, 0);
+  });
+
   it("reuses overlay elements across data updates and prunes removed communities", () => {
     const runtime = fakeRuntime();
     const renderer = createSigmaGlobalRenderer({
@@ -2581,6 +2797,10 @@ class FakeCamera {
 
   isAnimated(): boolean {
     return this.animated;
+  }
+
+  finishAnimation(): void {
+    this.animated = false;
   }
 
   // 乐观同步模拟：animate 立刻 setState 到目标，animated 仅在 duration>1 时为 true。

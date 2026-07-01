@@ -153,6 +153,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   let resizeObserver: ResizeObserver | null = null;
   let resizeAnimationFrame: number | null = null;
   let lastObservedRootSize: RendererViewportSize | null = null;
+  let suppressOverlayAnimationFastPathUntilCameraSettles = false;
+  let overlayAnimationSettleFrame: number | null = null;
 
   try {
     sigma = new runtime.Sigma(graph, sigmaRoot, sigmaSettingsForTheme(currentTheme));
@@ -208,6 +210,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       assertActive();
       cameraSpotlightCommunityId = null;
       sigma.getCamera?.().setState?.(sigmaGlobalCameraState(sigma, adapterData));
+      suppressOverlayAnimationFastPathUntilSettled();
     },
     zoomIn() {
       assertActive();
@@ -292,6 +295,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       overlayDomController = null;
       unbindSigmaEvents();
       cancelScheduledResizeRefresh();
+      cancelOverlayAnimationSettleCheck();
       resizeObserver?.disconnect();
       resizeObserver = null;
       try {
@@ -315,7 +319,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       screenPoint: sigmaScreenPointFromPayload(payload),
       additive: sigmaAdditiveFromPayload(payload)
     });
-    const cameraUpdated = (): void => overlayDomController?.reposition();
+    const cameraUpdated = (): void => refreshOverlayForCameraFrame();
     const nodeDown = (payload?: unknown): void => beginNodeDrag(sigmaNodeIdFromPayload(payload), sigmaScreenPointFromPayload(payload), payload);
     const nodeMove = (payload?: unknown): void => moveNodeDrag(sigmaScreenPointFromPayload(payload), payload);
     const nodeUp = (payload?: unknown): void => commitNodeDrag(sigmaScreenPointFromPayload(payload), payload);
@@ -341,6 +345,65 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     eventBindings = [];
   }
 
+  // 相机帧调度：动画中走 overlay 轻量 transform 快路径，稳定后精确 reposition 校准。
+  // wheel/reset/resize/drag 等直接 setState 的入口会 suppress 快路径直到相机真正静止，
+  // 因为 Sigma 的 setState() 不会取消已排队的 animate()（见 sigma_camera_setstate_does_not_cancel_animation）。
+  function refreshOverlayForCameraFrame(): void {
+    if (destroyed) return;
+    try {
+      const camera = sigma.getCamera?.();
+      const animated = Boolean(camera?.isAnimated?.());
+      if (activeNodeDrag || suppressOverlayAnimationFastPathUntilCameraSettles || !animated) {
+        overlayDomController?.reposition();
+        if (!animated) {
+          suppressOverlayAnimationFastPathUntilCameraSettles = false;
+          cancelOverlayAnimationSettleCheck();
+        }
+        return;
+      }
+      overlayDomController?.repositionForCameraAnimation();
+      scheduleOverlayAnimationSettleCheck();
+    } catch (error) {
+      options.onFatalError?.(error);
+    }
+  }
+
+  function suppressOverlayAnimationFastPathUntilSettled(): void {
+    suppressOverlayAnimationFastPathUntilCameraSettles = true;
+    overlayDomController?.invalidateAnimationBaseline();
+  }
+
+  // Sigma 不保证动画结束后一定派发最后一帧 afterRender，用 rAF 轮询 once isAnimated() 翻 false 就精确校准。
+  function scheduleOverlayAnimationSettleCheck(): void {
+    if (overlayAnimationSettleFrame !== null) return;
+    const view = sigmaRoot.ownerDocument.defaultView;
+    if (!view?.requestAnimationFrame) {
+      if (!Boolean(sigma.getCamera?.().isAnimated?.())) {
+        suppressOverlayAnimationFastPathUntilCameraSettles = false;
+        overlayDomController?.reposition();
+      }
+      return;
+    }
+    const run = (): void => {
+      overlayAnimationSettleFrame = null;
+      if (destroyed) return;
+      const animated = Boolean(sigma.getCamera?.().isAnimated?.());
+      if (animated) {
+        overlayAnimationSettleFrame = view.requestAnimationFrame(run);
+        return;
+      }
+      suppressOverlayAnimationFastPathUntilCameraSettles = false;
+      overlayDomController?.reposition();
+    };
+    overlayAnimationSettleFrame = view.requestAnimationFrame(run);
+  }
+
+  function cancelOverlayAnimationSettleCheck(): void {
+    if (overlayAnimationSettleFrame === null) return;
+    sigmaRoot.ownerDocument.defaultView?.cancelAnimationFrame?.(overlayAnimationSettleFrame);
+    overlayAnimationSettleFrame = null;
+  }
+
   function zoomSigmaCameraAtViewportPoint(
     point: GraphScreenPoint,
     target: "in" | "out" | number,
@@ -360,6 +423,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     // 滚轮/触控板始终即时 setState，不排队动画（设计 §5）。即使按钮或社区聚焦动画
     // 仍在进行，滚轮也直接覆盖相机；Sigma camera 没有公开的取消动画接口，接受聚焦
     // 动画末期（约 380ms）与滚轮的轻微拉锯，换取触控板高频输入的连续手感。
+    suppressOverlayAnimationFastPathUntilSettled();
     camera?.setState?.(nextState);
   }
 
@@ -385,6 +449,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       resizeAnimationFrame = null;
       try {
         if (destroyed) return;
+        suppressOverlayAnimationFastPathUntilSettled();
         sigma.refresh?.();
         overlayDomController?.reposition();
       } catch (error) {
@@ -434,6 +499,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     if (destroyed || !nodeId || !screenPoint || !graph.hasNode(nodeId)) return;
     preventSigmaDefault(payload);
     cancelNodeDrag();
+    suppressOverlayAnimationFastPathUntilSettled();
     const startPoint = sigmaNodeWorldPoint(nodeId);
     const pointerWorldPoint = sigmaScreenPointToWorldPoint(sigma, screenPoint, options);
     activeNodeDrag = createSigmaGlobalNodeDragSession({
