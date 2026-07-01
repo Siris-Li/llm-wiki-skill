@@ -371,6 +371,15 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   function suppressOverlayAnimationFastPathUntilSettled(): void {
     suppressOverlayAnimationFastPathUntilCameraSettles = true;
     overlayDomController?.invalidateAnimationBaseline();
+    if (!Boolean(sigma.getCamera?.().isAnimated?.())) {
+      // 相机已静止（无残留 animate），立即恢复快路径并重建精确基线。相机静止后 Sigma
+      // 不再派发 afterRender，单纯依赖 settle watcher 的 rAF 可能被宿主节流，所以这里
+      // 同步兜底，避免 suppress 卡住后续的相机动画（如 spotlight）。
+      suppressOverlayAnimationFastPathUntilCameraSettles = false;
+      overlayDomController?.reposition();
+      return;
+    }
+    scheduleOverlayAnimationSettleCheck();
   }
 
   // Sigma 不保证动画结束后一定派发最后一帧 afterRender，用 rAF 轮询 once isAnimated() 翻 false 就精确校准。
