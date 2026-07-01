@@ -18,9 +18,10 @@ export interface SigmaOverlayCameraTransform {
   scale: number;
 }
 
-const MIN_ANCHOR_DISTANCE = 1;
-// 保守阈值：拒绝边界变换后会回落到精确 reposition。快路径只是优化，
-// 永远不是最终几何真值的来源。
+// 仅作 anchor 重合时的除零保护：真实 Sigma graphToViewport 返回像素坐标，
+// 归一化测试投影可能只有零点几的间距。reject 边界变换由 SCALE_TOLERANCE 与
+// AXIS_ALIGNMENT_FLOOR 负责；任何不确定都回落到精确 reposition，快路径只是优化。
+const MIN_ANCHOR_DISTANCE = 1e-6;
 const SCALE_TOLERANCE = 0.08;
 const AXIS_ALIGNMENT_FLOOR = 0.985;
 
