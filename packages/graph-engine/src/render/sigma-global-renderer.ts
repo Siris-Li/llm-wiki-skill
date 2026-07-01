@@ -388,8 +388,12 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     const view = sigmaRoot.ownerDocument.defaultView;
     if (!view?.requestAnimationFrame) {
       if (!Boolean(sigma.getCamera?.().isAnimated?.())) {
-        suppressOverlayAnimationFastPathUntilCameraSettles = false;
-        overlayDomController?.reposition();
+        try {
+          suppressOverlayAnimationFastPathUntilCameraSettles = false;
+          overlayDomController?.reposition();
+        } catch (error) {
+          options.onFatalError?.(error);
+        }
       }
       return;
     }
@@ -401,8 +405,12 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
         overlayAnimationSettleFrame = view.requestAnimationFrame(run);
         return;
       }
-      suppressOverlayAnimationFastPathUntilCameraSettles = false;
-      overlayDomController?.reposition();
+      try {
+        suppressOverlayAnimationFastPathUntilCameraSettles = false;
+        overlayDomController?.reposition();
+      } catch (error) {
+        options.onFatalError?.(error);
+      }
     };
     overlayAnimationSettleFrame = view.requestAnimationFrame(run);
   }
