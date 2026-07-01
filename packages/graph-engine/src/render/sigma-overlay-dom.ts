@@ -9,7 +9,8 @@ import {
   bindSigmaGlobalOverlayPointerDrag
 } from "./sigma-global-drag";
 import {
-  sigmaWorldPointToScreenPoint
+  sigmaWorldPointToScreenPoint,
+  sigmaWorldPointToScreenPointForCameraState
 } from "./sigma-coordinates";
 import {
   projectSigmaOverlayCameraAnchors,
@@ -46,7 +47,7 @@ const SIGMA_GLOBAL_NODE_HIT_TARGET_LIMIT = 160;
 export interface SigmaOverlayDomController {
   rebuild(): void;
   reposition(): void;
-  repositionForCameraAnimation(): void;
+  repositionForCameraAnimation(): boolean;
   invalidateAnimationBaseline(): void;
   clearActiveDragListeners(): void;
   destroy(): void;
@@ -208,27 +209,31 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
     refreshCameraAnimationBaseline(adapterData, sigma, options);
   }
 
-  function repositionForCameraAnimation(): void {
-    if (input.isDestroyed()) return;
+  function repositionForCameraAnimation(): boolean {
+    if (input.isDestroyed()) return false;
     if (!cameraAnimationBaseline) {
       reposition();
-      return;
+      return false;
     }
     const sigma = input.getSigma();
     const options = input.getOptions();
+    const cameraState = sigma.getCamera?.().getState?.();
     const current = projectSigmaOverlayCameraAnchors(
       cameraAnimationBaseline.world,
-      (point) => sigmaWorldPointToScreenPoint(sigma, point, options)
+      (point) => cameraState
+        ? sigmaWorldPointToScreenPointForCameraState(sigma, point, cameraState, options)
+        : sigmaWorldPointToScreenPoint(sigma, point, options)
     );
     const transform = sigmaOverlayCameraTransform(cameraAnimationBaseline.screen, current);
     const css = sigmaOverlayCameraTransformCss(transform);
     if (!css) {
       reposition();
-      return;
+      return false;
     }
     input.overlayRoot.style.transformOrigin = "0 0";
     input.overlayRoot.style.transform = css;
     input.overlayRoot.style.willChange = "transform";
+    return true;
   }
 
   function invalidateAnimationBaseline(): void {

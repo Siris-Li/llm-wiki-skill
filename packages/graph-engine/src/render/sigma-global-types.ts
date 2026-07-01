@@ -18,10 +18,16 @@ export interface SigmaGlobalCameraState {
   ratio: number;
 }
 
+export interface SigmaGlobalCoordinateConversionOverride {
+  cameraState?: Partial<SigmaGlobalCameraState>;
+}
+
 export interface SigmaGlobalCameraLike {
   getState?: () => SigmaGlobalCameraState;
   setState?: (state: Partial<SigmaGlobalCameraState>) => unknown;
   isAnimated?: () => boolean;
+  on?: (event: "updated", listener: (state?: SigmaGlobalCameraState) => void) => unknown;
+  off?: (event: "updated", listener: (state?: SigmaGlobalCameraState) => void) => unknown;
   animate?: (
     state: Partial<SigmaGlobalCameraState>,
     options?: { duration?: number; easing?: string }
@@ -43,7 +49,10 @@ export interface SigmaGlobalSigmaLike {
   setSetting?: (key: string, value: unknown) => unknown;
   viewportToGraph?: (point: GraphScreenPoint) => { x: number; y: number };
   viewportToFramedGraph?: (point: GraphScreenPoint) => { x: number; y: number };
-  graphToViewport?: (point: { x: number; y: number }) => GraphScreenPoint;
+  graphToViewport?: (
+    point: { x: number; y: number },
+    override?: SigmaGlobalCoordinateConversionOverride
+  ) => GraphScreenPoint;
   refresh?: () => unknown;
   on?: (event: string, listener: (payload?: unknown) => void) => unknown;
   off?: (event: string, listener: (payload?: unknown) => void) => unknown;

@@ -775,6 +775,51 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("fake camera advances intermediate animation frames and emits updated events", () => {
+    const camera = new FakeCamera();
+    const updates: Array<{ x: number; y: number; angle: number; ratio: number }> = [];
+    camera.on("updated", (state) => updates.push(state));
+
+    void camera.animate({ x: 10, y: 20, ratio: 0.5 }, { duration: 380, easing: "quadraticInOut" });
+    assert.equal(camera.isAnimated(), true);
+
+    camera.advanceAnimation(0.5);
+
+    assert.equal(camera.isAnimated(), true);
+    assert.deepEqual(camera.getState(), { x: 5, y: 10, angle: 0, ratio: 0.75 });
+    assert.deepEqual(updates.at(-1), { x: 5, y: 10, angle: 0, ratio: 0.75 });
+
+    camera.finishAnimation();
+
+    assert.equal(camera.isAnimated(), false);
+    assert.deepEqual(camera.getState(), { x: 10, y: 20, angle: 0, ratio: 0.5 });
+    assert.deepEqual(updates.at(-1), { x: 10, y: 20, angle: 0, ratio: 0.5 });
+  });
+
+  it("fake sigma keeps the render matrix stale until afterRender unless cameraState override is passed", () => {
+    const runtime = fakeRuntime({ worldScale: 100 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    const before = sigma.graphToViewport({ x: 100, y: 100 });
+    sigma.camera.setState({ x: 10, y: 20, ratio: 0.5 });
+    const stale = sigma.graphToViewport({ x: 100, y: 100 });
+    const current = sigma.graphToViewport({ x: 100, y: 100 }, { cameraState: sigma.camera.getState() });
+
+    assert.deepEqual(stale, before);
+    assert.notDeepEqual(current, stale);
+
+    sigma.emit("afterRender");
+    assert.deepEqual(sigma.graphToViewport({ x: 100, y: 100 }), current);
+
+    renderer.destroy();
+  });
+
   it("uses the overlay animation fast path while the Sigma camera is animated and settles exactly afterward", () => {
     const runtime = fakeRuntime({ worldScale: 200 });
     const renderer = createSigmaGlobalRenderer({
@@ -792,6 +837,202 @@ describe("Sigma global renderer production boundary", () => {
 
     sigma.camera.finishAnimation();
     sigma.emit("afterRender");
+
+    assert.equal(renderer.overlayRoot.style.transform, "");
+    assert.equal(renderer.overlayRoot.style.willChange, "");
+
+    renderer.destroy();
+  });
+
+  it("drives spotlight overlay animation from project rAF without manual afterRender", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer({
+        requestAnimationFrame: (callback: FrameRequestCallback) => {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        cancelAnimationFrame: () => undefined
+      }),
+      adapterData: nodeSpotlightAdapterData({ selectionKind: null }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.update({ adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }) });
+    assert.equal(sigma.camera.animateCalls.length, 0);
+    animationFrames.shift()?.(0);
+    assert.equal(sigma.camera.animateCalls.length, 1);
+
+    sigma.camera.advanceAnimation(0.5);
+    animationFrames.shift()?.(16);
+
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+
+    sigma.camera.finishAnimation();
+    animationFrames.shift()?.(32);
+
+    assert.equal(renderer.overlayRoot.style.transform, "");
+    assert.equal(renderer.overlayRoot.style.willChange, "");
+
+    renderer.destroy();
+  });
+
+  it("keeps one fast-path spotlight frame when the browser skips the animation window", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    let now = 0;
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer({
+        requestAnimationFrame: (callback: FrameRequestCallback) => {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        cancelAnimationFrame: () => undefined,
+        performance: { now: () => now }
+      }),
+      adapterData: nodeSpotlightAdapterData({ selectionKind: null }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.update({ adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }) });
+    animationFrames.shift()?.(0);
+    assert.equal(sigma.camera.animateCalls.length, 1);
+
+    now = 900;
+    sigma.camera.finishAnimation();
+    animationFrames.shift()?.(900);
+
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+
+    animationFrames.shift()?.(916);
+
+    assert.equal(renderer.overlayRoot.style.transform, "");
+    assert.equal(renderer.overlayRoot.style.willChange, "");
+
+    renderer.destroy();
+  });
+
+  it("drives project-owned spotlight frames when Sigma does not report camera animation state", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    let now = 0;
+    const runtime = fakeRuntime({ worldScale: 200, cameraReportsAnimated: false });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer({
+        requestAnimationFrame: (callback: FrameRequestCallback) => {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        cancelAnimationFrame: () => undefined,
+        performance: { now: () => now }
+      }),
+      adapterData: nodeSpotlightAdapterData({ selectionKind: null }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.update({ adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }) });
+    animationFrames.shift()?.(0);
+    assert.equal(sigma.camera.animateCalls.length, 1);
+
+    now = 16;
+    sigma.camera.advanceAnimation(0.5);
+    animationFrames.shift()?.(16);
+
+    assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
+
+    now = 381;
+    animationFrames.shift()?.(381);
+
+    assert.equal(renderer.overlayRoot.style.transform, "");
+    assert.equal(renderer.overlayRoot.style.willChange, "");
+    assert.equal(animationFrames.length, 0);
+
+    renderer.destroy();
+  });
+
+  it("does not bind the removed cameraUpdated renderer event", () => {
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    assert.equal(sigma.listeners.has("cameraUpdated"), false);
+    assert.equal(sigma.camera.listenerCount("updated"), 1);
+
+    renderer.destroy();
+    assert.equal(sigma.camera.listenerCount("updated"), 0);
+  });
+
+  it("uses camera updated events to schedule an overlay refresh", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    const runtime = fakeRuntime({ worldScale: 100 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer({
+        requestAnimationFrame: (callback: FrameRequestCallback) => {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        cancelAnimationFrame: () => undefined
+      }),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+    const node = renderer.overlayRoot.children.find((child) => child.dataset.nodeId === "render-alpha");
+    assert.ok(node, "fixture should render a node hit target");
+    const beforeLeft = node.style.left;
+    sigma.graphToViewport = (point: { x: number; y: number }) => {
+      const cameraState = sigma.camera.getState();
+      return {
+        x: point.x / 100 - cameraState.x,
+        y: point.y / 100 - cameraState.y
+      };
+    };
+
+    sigma.camera.setState({ x: 0.5, y: 0.25 });
+
+    assert.equal(animationFrames.length, 1);
+    animationFrames.shift()?.(16);
+    assert.notEqual(node.style.left, beforeLeft);
+
+    renderer.destroy();
+  });
+
+  it("ignores stale animation frame owners after wheel invalidates the baseline", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer({
+        requestAnimationFrame: (callback: FrameRequestCallback) => {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        cancelAnimationFrame: () => undefined
+      }),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.zoomIn();
+    sigma.camera.advanceAnimation(0.5);
+    const staleFrame = animationFrames.shift();
+    assert.ok(staleFrame, "zoom animation should schedule an owned overlay frame");
+
+    sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
+    staleFrame?.(16);
 
     assert.equal(renderer.overlayRoot.style.transform, "");
     assert.equal(renderer.overlayRoot.style.willChange, "");
@@ -876,12 +1117,14 @@ describe("Sigma global renderer production boundary", () => {
     const sigma = runtime.instances[0];
 
     renderer.zoomIn();
-    sigma.emit("afterRender");
+    assert.equal(animationFrames.length, 1);
+    sigma.camera.advanceAnimation(0.5);
+    animationFrames.shift()?.(0);
     assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
     assert.equal(animationFrames.length, 1);
 
     sigma.camera.finishAnimation();
-    animationFrames.shift()?.(0);
+    animationFrames.shift()?.(16);
 
     assert.equal(renderer.overlayRoot.style.transform, "");
     assert.equal(renderer.overlayRoot.style.willChange, "");
@@ -1292,8 +1535,8 @@ describe("Sigma global renderer production boundary", () => {
       state: { x: 0.48, y: 0.6, angle: 0, ratio: 0.92 },
       options: { duration: 380, easing: "quadraticInOut" }
     });
-    assert.deepEqual(sigma.camera.activeAnimationTarget, { x: 0.63, y: 0.7, angle: 0, ratio: 0.846 });
-    assert.deepEqual(sigma.camera.getState(), { x: 0.63, y: 0.7, angle: 0, ratio: 0.846 });
+    assert.deepEqual(sigma.camera.activeAnimationTarget, { x: 0.63, y: 0.7, angle: 0, ratio: 0.92 });
+    assert.deepEqual(sigma.camera.getState(), { x: 0, y: 0, angle: 0, ratio: 1 });
 
     renderer.destroy();
   });
@@ -1736,7 +1979,7 @@ describe("Sigma global renderer production boundary", () => {
     assert.equal(sigma.camera.animateCalls.at(-1)?.options?.duration, 140);
 
     renderer.zoomOut();
-    assertClose(sigma.zoomTargets.at(-1)?.ratio ?? 0, 1);
+    assertClose(sigma.zoomTargets.at(-1)?.ratio ?? 0, 1.18);
 
     // 按钮动画仍在进行（FakeCamera.animated=true），但滚轮必须直接 setState，
     // 不再排队 animate(duration:1)——这是触控板连续手感的关键（设计 §5）。
@@ -2490,6 +2733,7 @@ function renderableCommunityFixture(count: number): GraphRendererAdapterData["re
 
 type FakeDefaultView = Partial<Pick<Window, "ResizeObserver" | "requestAnimationFrame" | "cancelAnimationFrame">> & {
   matchMedia?: Window["matchMedia"];
+  performance?: Pick<Performance, "now">;
 };
 
 function fakeContainer(defaultView?: FakeDefaultView): HTMLElement & { children: HTMLElement[] } {
@@ -2588,6 +2832,7 @@ function fakeRuntime(options: {
   setGraphError?: Error;
   killError?: Error;
   worldScale?: number;
+  cameraReportsAnimated?: boolean;
 } = {}): SigmaGlobalRendererRuntime & { instances: FakeSigma[] } {
   const instances: FakeSigma[] = [];
   class RuntimeSigma extends FakeSigma {
@@ -2678,7 +2923,8 @@ class FakeSigma implements SigmaGlobalSigmaLike {
   graph: SigmaGlobalGraphologyGraph;
   readonly container: HTMLElement;
   readonly settings: Record<string, unknown>;
-  readonly camera = new FakeCamera();
+  readonly camera: FakeCamera;
+  private renderedCameraState: { x: number; y: number; angle: number; ratio: number };
   readonly listeners = new Map<string, Set<(payload?: unknown) => void>>();
   readonly setGraphCalls: SigmaGlobalGraphologyGraph[] = [];
   readonly mouseCaptor = new FakeMouseCaptor();
@@ -2689,11 +2935,13 @@ class FakeSigma implements SigmaGlobalSigmaLike {
     graph: SigmaGlobalGraphologyGraph,
     container: HTMLElement,
     settings: Record<string, unknown> = {},
-    private readonly options: { setGraphError?: Error; killError?: Error; worldScale?: number } = {}
+    private readonly options: { setGraphError?: Error; killError?: Error; worldScale?: number; cameraReportsAnimated?: boolean } = {}
   ) {
     this.graph = graph;
     this.container = container;
     this.settings = settings;
+    this.camera = new FakeCamera(options.cameraReportsAnimated ?? true);
+    this.renderedCameraState = this.camera.getState();
   }
 
   getCamera(): FakeCamera {
@@ -2727,9 +2975,17 @@ class FakeSigma implements SigmaGlobalSigmaLike {
     return { x: point.x, y: point.y };
   }
 
-  graphToViewport(point: { x: number; y: number }): { x: number; y: number } {
+  graphToViewport(
+    point: { x: number; y: number },
+    override: { cameraState?: Partial<{ x: number; y: number; angle: number; ratio: number }> } = {}
+  ): { x: number; y: number } {
     const scale = this.options.worldScale ?? 1;
-    return { x: point.x / scale, y: point.y / scale };
+    const cameraState = { ...this.renderedCameraState, ...(override.cameraState ?? {}) };
+    const ratio = cameraState.ratio || 1;
+    return {
+      x: (point.x / scale - cameraState.x) / ratio,
+      y: (point.y / scale - cameraState.y) / ratio
+    };
   }
 
   getMouseCaptor(): FakeMouseCaptor {
@@ -2767,6 +3023,9 @@ class FakeSigma implements SigmaGlobalSigmaLike {
   }
 
   emit(event: string, payload?: unknown): void {
+    if (event === "afterRender") {
+      this.renderedCameraState = this.camera.getState();
+    }
     for (const listener of this.listeners.get(event) ?? []) listener(payload);
   }
 
@@ -2778,6 +3037,9 @@ class FakeSigma implements SigmaGlobalSigmaLike {
 
 class FakeCamera {
   private state = { x: 0, y: 0, angle: 0, ratio: 1 };
+  private animationStart = { x: 0, y: 0, angle: 0, ratio: 1 };
+  private nextAnimationError: Error | null = null;
+  private readonly listeners = new Map<"updated", Set<(state: { x: number; y: number; angle: number; ratio: number }) => void>>();
   readonly setStateCalls: Array<Partial<{ x: number; y: number; angle: number; ratio: number }>> = [];
   readonly animateCalls: Array<{
     state: Partial<{ x: number; y: number; angle: number; ratio: number }>;
@@ -2786,36 +3048,85 @@ class FakeCamera {
   activeAnimationTarget: Partial<{ x: number; y: number; angle: number; ratio: number }> | null = null;
   animated = false;
 
+  constructor(private readonly reportsAnimated = true) {}
+
   getState(): { x: number; y: number; angle: number; ratio: number } {
     return { ...this.state };
   }
 
   setState(state: Partial<{ x: number; y: number; angle: number; ratio: number }>): void {
     this.setStateCalls.push({ ...state });
-    this.state = { ...this.state, ...state };
+    const next = { ...this.state, ...state };
+    const changed = next.x !== this.state.x
+      || next.y !== this.state.y
+      || next.angle !== this.state.angle
+      || next.ratio !== this.state.ratio;
+    this.state = next;
+    if (changed) this.emit("updated", this.getState());
   }
 
   isAnimated(): boolean {
-    return this.animated;
+    return this.reportsAnimated ? this.animated : false;
+  }
+
+  on(event: "updated", listener: (state: { x: number; y: number; angle: number; ratio: number }) => void): void {
+    const listeners = this.listeners.get(event) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+  }
+
+  off(event: "updated", listener: (state: { x: number; y: number; angle: number; ratio: number }) => void): void {
+    this.listeners.get(event)?.delete(listener);
+  }
+
+  listenerCount(event: "updated"): number {
+    return this.listeners.get(event)?.size ?? 0;
+  }
+
+  rejectNextAnimation(error: Error): void {
+    this.nextAnimationError = error;
+  }
+
+  advanceAnimation(progress: number): void {
+    if (!this.activeAnimationTarget) return;
+    const clamped = Math.max(0, Math.min(1, progress));
+    const target = { ...this.animationStart, ...this.activeAnimationTarget };
+    this.setState({
+      x: this.animationStart.x + (target.x - this.animationStart.x) * clamped,
+      y: this.animationStart.y + (target.y - this.animationStart.y) * clamped,
+      angle: this.animationStart.angle + (target.angle - this.animationStart.angle) * clamped,
+      ratio: this.animationStart.ratio + (target.ratio - this.animationStart.ratio) * clamped
+    });
   }
 
   finishAnimation(): void {
+    if (this.activeAnimationTarget) {
+      this.setState(this.activeAnimationTarget);
+    }
     this.animated = false;
+    this.activeAnimationTarget = null;
   }
 
-  // 乐观同步模拟：animate 立刻 setState 到目标，animated 仅在 duration>1 时为 true。
-  // 这不反映真实 Sigma 3.x camera.animate 的逐帧 rAF 插值（见 sigma.esm.js），因此
-  // "wheel 不积压动画""按钮动画被滚轮即时接管"等设计 §5 语义在单测层无法真正证伪
-  // ——FakeCamera 抹平了动画的进行中状态。这类交互由浏览器回归（smallMove<largeMove）
-  // 与实机手感兜底。
   animate(
     state: Partial<{ x: number; y: number; angle: number; ratio: number }>,
     options?: { duration?: number; easing?: string }
   ): Promise<void> {
-    this.animated = Boolean(options?.duration && options.duration > 1);
     this.animateCalls.push({ state: { ...state }, options: options ? { ...options } : undefined });
+    if (this.nextAnimationError) {
+      const error = this.nextAnimationError;
+      this.nextAnimationError = null;
+      return Promise.reject(error);
+    }
+    this.animationStart = this.getState();
     this.activeAnimationTarget = { ...state };
-    this.setState(state);
+    this.animated = Boolean(options?.duration && options.duration > 1);
+    if (!this.animated) {
+      this.setState(state);
+    }
     return Promise.resolve();
+  }
+
+  private emit(event: "updated", state: { x: number; y: number; angle: number; ratio: number }): void {
+    for (const listener of this.listeners.get(event) ?? []) listener(state);
   }
 }
