@@ -36,6 +36,16 @@ describe("large graph fixture generation", () => {
     assert.deepEqual(second.pins, first.pins);
   });
 
+  it("keeps the 1000 node many-community fixture inside the Sigma global route limit", () => {
+    const fixture = generateLargeGraphFixture("nodes-1000-many-communities");
+
+    assert.equal(fixture.metadata.nodes, 1000);
+    assert.equal(fixture.metadata.communities, 200);
+    assert.equal(fixture.metadata.largest_community, 5);
+    assert.equal(fixture.metadata.oversized_community, false);
+    assert.equal(fixture.data.meta.degraded, false);
+  });
+
   it("does not require committed generated graph artifacts", () => {
     const fixture = generateLargeGraphFixture("nodes-10000-high-edge");
 
