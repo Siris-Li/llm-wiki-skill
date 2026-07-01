@@ -87,4 +87,34 @@ describe("sigma overlay camera transform", () => {
       }
     );
   });
+
+  it("rejects collapsed anchors that would divide by zero", () => {
+    const collapsed = {
+      center: { x: 100, y: 100 },
+      right: { x: 100, y: 100 },
+      down: { x: 100, y: 100 }
+    };
+    const moved = {
+      center: { x: 140, y: 130 },
+      right: { x: 160, y: 130 },
+      down: { x: 140, y: 150 }
+    };
+
+    assert.equal(sigmaOverlayCameraTransform(collapsed, moved), null);
+  });
+
+  it("rejects a non-finite projected scale and falls back to exact reposition", () => {
+    const base = {
+      center: { x: 100, y: 100 },
+      right: { x: 200, y: 100 },
+      down: { x: 100, y: 200 }
+    };
+    const nonFinite = {
+      center: { x: Number.NaN, y: 100 },
+      right: { x: 200, y: 100 },
+      down: { x: 100, y: 200 }
+    };
+
+    assert.equal(sigmaOverlayCameraTransform(base, nonFinite), null);
+  });
 });
