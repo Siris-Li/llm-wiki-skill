@@ -22,7 +22,9 @@ export interface SigmaOverlayCameraTransform {
 // 归一化测试投影可能只有零点几的间距。reject 边界变换由 SCALE_TOLERANCE 与
 // AXIS_ALIGNMENT_FLOOR 负责；任何不确定都回落到精确 reposition，快路径只是优化。
 const MIN_ANCHOR_DISTANCE = 1e-6;
+// 允许的各向异性缩放偏差（scaleX 与 scaleY 之差），超出即视为含旋转，回落精确 reposition。
 const SCALE_TOLERANCE = 0.08;
+// anchor 轴向量余弦相似度下限（约 10°），低于说明坐标轴发生旋转，快路径不适用。
 const AXIS_ALIGNMENT_FLOOR = 0.985;
 
 export function sigmaOverlayCameraAnchorWorldPoints(bounds: {
@@ -93,7 +95,7 @@ export function sigmaOverlayCameraTransform(
 
 export function sigmaOverlayCameraTransformCss(transform: SigmaOverlayCameraTransform | null): string {
   if (!transform) return "";
-  return `translate(${formatCssNumber(transform.translateX)}px, ${formatCssNumber(transform.translateY)}px) scale(${formatCssNumber(transform.scale)})`;
+  return `translate(${transform.translateX}px, ${transform.translateY}px) scale(${transform.scale})`;
 }
 
 function vector(from: GraphScreenPoint, to: GraphScreenPoint): GraphScreenPoint {
@@ -117,8 +119,4 @@ function finiteNumber(value: number, fallback: number): number {
 
 function roundCssNumber(value: number): number {
   return Math.round(value * 1000) / 1000;
-}
-
-function formatCssNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : String(value);
 }
