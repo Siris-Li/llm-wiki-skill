@@ -1234,6 +1234,7 @@ async function waitForStableCommunityRegion(page: PageLike, id: string | null, m
     if (stable) return;
     previous = current;
   }
+  throw new Error(`waitForStableCommunityRegion never stabilized for ${id ?? "(first)"}: ${JSON.stringify(previous)}`);
 }
 
 async function measureDrawerOpen(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
@@ -1597,7 +1598,8 @@ async function frameSampleRecord(
   const probe = await page.evaluate(() => (window as any).__sigmaProduction.productionProbe({ canvasSignal: false }));
   const frameFailure = frameSampleFailureClass({ fps, frame_p95_ms: p95 });
   const productionFailure = (probe as { productionPath?: boolean }).productionPath ? null : "production_path_missing";
-  const failureClass = input.failureClass || productionFailure || frameFailure;
+  // productionFailure（生产路径缺失）致命，优先于 settle 失败和帧指标，避免被表面错误掩盖。
+  const failureClass = productionFailure || input.failureClass || frameFailure;
   const metricDetail = `median_fps=${fps}; median_frame_p95_ms=${p95}; floor=${FPS_FLOOR}; ceiling=${FRAME_P95_CEILING_MS}; production_path=${(probe as { productionPath?: boolean }).productionPath}`;
   const failureDetail = failureClass
     ? [input.failureDetail, metricDetail].filter(Boolean).join("; ")
