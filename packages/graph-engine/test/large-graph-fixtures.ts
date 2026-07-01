@@ -4,6 +4,7 @@ export type LargeGraphFixtureId =
   | "real-snapshot-proxy"
   | "nodes-1000-sparse"
   | "nodes-1000-dense"
+  | "nodes-1000-many-communities"
   | "nodes-5000-sparse"
   | "nodes-5000-dense"
   | "nodes-10000-aggregation"
@@ -78,6 +79,17 @@ export const LARGE_GRAPH_FIXTURE_SPECS: LargeGraphFixtureSpec[] = [
     pinCount: 50,
     oversizedCommunity: false,
     seed: 102
+  },
+  {
+    id: "nodes-1000-many-communities",
+    nodes: 1000,
+    edges: 1400,
+    communities: 200,
+    largestCommunity: 5,
+    searchHits: 80,
+    pinCount: 40,
+    oversizedCommunity: false,
+    seed: 175
   },
   {
     id: "nodes-5000-sparse",

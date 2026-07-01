@@ -12,6 +12,14 @@ import {
   sigmaWorldPointToScreenPoint
 } from "./sigma-coordinates";
 import {
+  projectSigmaOverlayCameraAnchors,
+  sigmaOverlayCameraAnchorWorldPoints,
+  sigmaOverlayCameraTransform,
+  sigmaOverlayCameraTransformCss,
+  type SigmaOverlayCameraAnchorProjection,
+  type SigmaOverlayCameraAnchorWorldPoints
+} from "./sigma-overlay-camera-transform";
+import {
   sigmaGlobalNodeSize,
   sigmaGlobalNodeSpotlightState,
   sigmaSelectedCommunityIds,
@@ -38,6 +46,8 @@ const SIGMA_GLOBAL_NODE_HIT_TARGET_LIMIT = 160;
 export interface SigmaOverlayDomController {
   rebuild(): void;
   reposition(): void;
+  repositionForCameraAnimation(): void;
+  invalidateAnimationBaseline(): void;
   clearActiveDragListeners(): void;
   destroy(): void;
 }
@@ -65,10 +75,16 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
   const overlayNodeEntries = new Map<string, HTMLButtonElement>();
   const overlayLabelEntries = new Map<string, HTMLElement>();
   let overlayPointerDragCleanup: (() => void) | null = null;
+  let cameraAnimationBaseline: {
+    world: SigmaOverlayCameraAnchorWorldPoints;
+    screen: SigmaOverlayCameraAnchorProjection;
+  } | null = null;
 
   return {
     rebuild,
     reposition,
+    repositionForCameraAnimation,
+    invalidateAnimationBaseline,
     clearActiveDragListeners,
     destroy
   };
@@ -150,6 +166,7 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
 
   function reposition(): void {
     if (input.isDestroyed()) return;
+    clearCameraAnimationTransform();
     const adapterData = input.getAdapterData();
     const sigma = input.getSigma();
     const options = input.getOptions();
@@ -188,9 +205,57 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
         height: 22
       });
     }
+    refreshCameraAnimationBaseline(adapterData, sigma, options);
+  }
+
+  function repositionForCameraAnimation(): void {
+    if (input.isDestroyed()) return;
+    if (!cameraAnimationBaseline) {
+      reposition();
+      return;
+    }
+    const sigma = input.getSigma();
+    const options = input.getOptions();
+    const current = projectSigmaOverlayCameraAnchors(
+      cameraAnimationBaseline.world,
+      (point) => sigmaWorldPointToScreenPoint(sigma, point, options)
+    );
+    const transform = sigmaOverlayCameraTransform(cameraAnimationBaseline.screen, current);
+    const css = sigmaOverlayCameraTransformCss(transform);
+    if (!css) {
+      reposition();
+      return;
+    }
+    input.overlayRoot.style.transformOrigin = "0 0";
+    input.overlayRoot.style.transform = css;
+    input.overlayRoot.style.willChange = "transform";
+  }
+
+  function invalidateAnimationBaseline(): void {
+    cameraAnimationBaseline = null;
+    clearCameraAnimationTransform();
+  }
+
+  function refreshCameraAnimationBaseline(
+    adapterData: GraphRendererAdapterData,
+    sigma: SigmaGlobalSigmaLike,
+    options: Pick<SigmaGlobalRendererCreateOptions, "viewport" | "viewportSize" | "adapterData">
+  ): void {
+    const world = sigmaOverlayCameraAnchorWorldPoints(adapterData.renderable.worldBounds);
+    cameraAnimationBaseline = {
+      world,
+      screen: projectSigmaOverlayCameraAnchors(world, (point) => sigmaWorldPointToScreenPoint(sigma, point, options))
+    };
+  }
+
+  function clearCameraAnimationTransform(): void {
+    input.overlayRoot.style.transform = "";
+    input.overlayRoot.style.transformOrigin = "";
+    input.overlayRoot.style.willChange = "";
   }
 
   function destroy(): void {
+    invalidateAnimationBaseline();
     clearActiveDragListeners();
     overlayRegionEntries.clear();
     overlayNodeEntries.clear();

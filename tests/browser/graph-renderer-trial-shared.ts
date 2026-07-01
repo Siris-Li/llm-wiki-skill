@@ -4,6 +4,7 @@ export const FULL_TRIAL_SHAPES: LargeGraphFixtureId[] = [
   "real-snapshot-proxy",
   "nodes-1000-sparse",
   "nodes-1000-dense",
+  "nodes-1000-many-communities",
   "nodes-5000-sparse",
   "nodes-5000-dense",
   "nodes-10000-aggregation",
@@ -21,6 +22,7 @@ export const REQUIRED_TRIAL_ACTIONS = [
   "search_highlight",
   "point_select",
   "container_select",
+  "spotlight_animation",
   "drawer_open",
   "enter_community",
   "return_global",
@@ -30,7 +32,7 @@ export const REQUIRED_TRIAL_ACTIONS = [
 export type TrialAction = typeof REQUIRED_TRIAL_ACTIONS[number];
 
 // Actions where fps + frame p95 are mandatory-to-measure (wheel/drag).
-export const FRAME_SAMPLED_ACTIONS = new Set<string>(["wheel_zoom", "drag"]);
+export const FRAME_SAMPLED_ACTIONS = new Set<string>(["wheel_zoom", "drag", "spotlight_animation"]);
 // Actions where wall-clock duration has an upper bound per the hard-gate table.
 export const DURATION_GATED_ACTIONS = new Set<string>([
   "initial_render",
