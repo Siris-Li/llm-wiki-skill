@@ -162,6 +162,7 @@ export interface RenderableNode {
   communityMapDotSize: number;
   communityMapLabelSide: "left" | "right" | "top" | "bottom";
   communityMapRelationLabel: boolean;
+  communityColor: string;
 }
 
 export interface RenderableEdge {
@@ -234,6 +235,7 @@ interface BuildRenderableGraphOptions {
   pathCache?: RenderPathCache;
   searchResultIds?: NodeId[];
   aggregationMarkers?: GraphAggregationMarker[];
+  viewportSize?: { width: number; height: number };
 }
 
 type AtlasNode = {
@@ -410,7 +412,20 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
 
   const allFilteredNodes = applyNodeTypeFilters(model.nodes, typeFilters);
   const pointById = new Map(allFilteredNodes.map((node) => [node.id, renderPointForNode(node, options)]));
-  const worldBounds = worldBoundsForPoints([...pointById.values()]);
+  const communityColorById = new Map(
+    model.communities.map((community, index) => [community.id, getCommunityColor(theme, Number(community.color_index ?? index))])
+  );
+  // fit-aware: focus=community 时把 worldBounds aspect-lock 到 viewport 宽高比，
+  // 消除 DOM 层各轴独立归一化（CSS%）造成的各向异性畸变。sigma-global 路由不调
+  // buildRenderableGraph（用独立 graphology graph + 相机），此条件化不影响它。
+  const communityViewportAspect =
+    focus?.kind === "community" && options.viewportSize && options.viewportSize.width > 0 && options.viewportSize.height > 0
+      ? options.viewportSize.width / options.viewportSize.height
+      : undefined;
+  const worldBounds = worldBoundsForPoints(
+    [...pointById.values()],
+    communityViewportAspect ? { aspectRatio: communityViewportAspect } : {}
+  );
   const pinnedNodeSet = resolvePinnedNodeIds(model.nodes, options.pins);
   const searchResultSet = new Set(options.searchResultIds || []);
   const aggregationMarkers = options.aggregationMarkers ?? [];
@@ -529,6 +544,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       type: node.type,
       kind: node.kind,
       community: node.community,
+      communityColor: communityColorById.get(node.community) ?? getCommunityColor(theme, 0),
       sourcePath: wikiPathForGraphNode(node),
       x: round(cssPoint.x),
       y: round(cssPoint.y),
@@ -620,7 +636,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     return {
       id: community.id,
       label: community.label || community.id,
-      color: getCommunityColor(theme, Number(community.color_index ?? index)),
+      color: communityColorById.get(community.id) ?? getCommunityColor(theme, index),
       nodeCount: Number(community.node_count ?? allCommunityNodes.length),
       boundaryCertainty: communityQuality.boundaryCertainty,
       wash: wash ? { ...wash, opacity: communityWashOpacity(wash.opacity, communityQuality.boundaryCertainty) } : null

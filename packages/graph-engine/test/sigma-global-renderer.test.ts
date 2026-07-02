@@ -9,7 +9,8 @@ import {
   createSigmaGlobalRenderer,
   type SigmaGlobalGraphologyGraph,
   type SigmaGlobalRendererRuntime,
-  type SigmaGlobalSigmaLike
+  type SigmaGlobalSigmaLike,
+  sigmaSettingsForTheme
 } from "../src/render/sigma-global-renderer";
 import {
   buildSigmaGlobalGraphologyGraph,
@@ -20,6 +21,7 @@ import type {
   GraphRendererAdapterData
 } from "../src";
 import { buildGraphRendererAdapterData } from "../src";
+import { getThemeTokens } from "../src/themes";
 import type { GraphData } from "../src/types";
 
 describe("Sigma global renderer production boundary", () => {
@@ -60,7 +62,7 @@ describe("Sigma global renderer production boundary", () => {
       y: 222,
       label: "Adapter Alpha",
       size: 10,
-      color: "#ef4444",
+      color: "#8b2e24",
       type: "circle",
       graphNodeType: "topic",
       communityId: "adapter-community",
@@ -85,7 +87,7 @@ describe("Sigma global renderer production boundary", () => {
       y: 444,
       label: "",
       size: 10,
-      color: "#f59e0b",
+      color: "#b7791f",
       type: "circle",
       graphNodeType: "source",
       communityId: "adapter-community",
@@ -3130,3 +3132,15 @@ class FakeCamera {
     for (const listener of this.listeners.get(event) ?? []) listener(state);
   }
 }
+
+describe("sigmaSettingsForTheme label font", () => {
+  it("uses --font-ui so sigma labels match DOM sans-serif", () => {
+    const settings = sigmaSettingsForTheme("shan-shui") as Record<string, unknown>;
+    assert.equal(settings.labelFont, getThemeTokens("shan-shui").vars["--font-ui"]);
+    assert.ok(String(settings.labelFont).includes("Noto Sans SC"));
+  });
+  it("applies the same font for mo-ye", () => {
+    const settings = sigmaSettingsForTheme("mo-ye") as Record<string, unknown>;
+    assert.equal(settings.labelFont, getThemeTokens("mo-ye").vars["--font-ui"]);
+  });
+});

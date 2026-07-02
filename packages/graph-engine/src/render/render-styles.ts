@@ -1081,20 +1081,12 @@ const STATIC_RENDERER_CSS = `
   box-shadow: 0 17px 30px color-mix(in srgb, var(--cinnabar) 18%, transparent), 0 0 0 4px color-mix(in srgb, var(--cinnabar) 11%, transparent);
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] {
-  --community-map-paper: #f8f1e6;
-  --community-map-paper-2: #fffaf2;
-  --community-map-line: rgba(76, 109, 118, .32);
-  --community-map-line-strong: rgba(76, 109, 118, .68);
   --community-map-label-bg: rgba(255, 252, 246, .68);
   --community-map-label-border: rgba(121, 102, 80, .14);
   --community-map-label-shadow: rgba(58, 42, 26, .06);
   background:
-    linear-gradient(rgba(68, 58, 49, .025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(68, 58, 49, .018) 1px, transparent 1px),
-    radial-gradient(ellipse at 52% 48%, rgba(255, 255, 255, .72), transparent 55%),
-    linear-gradient(180deg, rgba(255, 250, 242, .72), rgba(245, 237, 225, .54)),
-    var(--community-map-paper);
-  background-size: 42px 42px, 42px 42px, auto, auto, auto;
+    var(--paper-glow),
+    var(--bg);
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .community-wash {
   fill: rgba(113, 152, 164, .055);
@@ -1108,23 +1100,23 @@ const STATIC_RENDERER_CSS = `
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .edge {
   stroke-width: max(1.1px, min(1.65px, var(--edge-map-width, 1.45px))) !important;
-  opacity: .32 !important;
+  opacity: .5 !important;
   transition: opacity .18s ease, stroke-width .18s ease, stroke .18s ease;
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .edge.relation-implementation {
-  stroke: rgba(76, 109, 118, .34);
+  stroke: color-mix(in srgb, var(--night) 34%, transparent);
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .edge.relation-dependency {
-  stroke: rgba(91, 116, 128, .36);
+  stroke: color-mix(in srgb, var(--night) 36%, transparent);
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .edge.relation-derivation {
-  stroke: rgba(93, 132, 118, .34);
+  stroke: color-mix(in srgb, var(--night) 34%, transparent);
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .edge.relation-contrast {
-  stroke: rgba(178, 139, 80, .4);
+  stroke: color-mix(in srgb, var(--amber) 40%, transparent);
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .edge.relation-conflict {
-  stroke: rgba(183, 96, 112, .42);
+  stroke: rgba(183, 96, 112, .42); /* conflict 色 token 化待 ADR-23 关系边系统整体演进，spec §3.4 */
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"][data-relation-focus="active"] .edge[data-relation-focus-depth="first"] {
   opacity: .74 !important;
@@ -1172,26 +1164,27 @@ const STATIC_RENDERER_CSS = `
   height: var(--node-size, 13px);
   border: 1px solid rgba(255, 252, 246, .82);
   border-radius: 999px;
-  background: var(--night);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--night) 15%, transparent);
+  background: var(--node-community-color, var(--night));
   transition: transform .16s ease, box-shadow .16s ease, background .16s ease, opacity .16s ease;
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-type="topic"] .dot-core {
   background: var(--cinnabar);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cinnabar) 15%, transparent);
 }
-.llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-type="source"] .dot-core {
-  background: var(--jade);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--jade) 15%, transparent);
+.llm-wiki-graph-engine[data-community-map-state="lightweight"] .node:hover .dot-core {
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--night) 45%, transparent);
 }
-.llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-type="comparison"] .dot-core,
-.llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-type="synthesis"] .dot-core {
-  background: var(--amber);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 15%, transparent);
+.llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-type="topic"]:hover .dot-core {
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--cinnabar) 45%, transparent);
 }
-.llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-type="query"] .dot-core {
-  background: var(--violet);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--violet) 15%, transparent);
+.llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-type="source"]:hover .dot-core {
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--jade) 45%, transparent);
+}
+.llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-type="synthesis"]:hover .dot-core,
+.llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-type="comparison"]:hover .dot-core {
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--amber) 45%, transparent);
+}
+.llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-type="query"]:hover .dot-core {
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--violet) 45%, transparent);
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[aria-pressed="true"] .dot-core,
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .node[data-relation-focus-depth="focus"] .dot-core {
