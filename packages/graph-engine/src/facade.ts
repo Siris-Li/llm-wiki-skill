@@ -80,7 +80,8 @@ export interface GraphFacadeRenderer {
   focusNode(path: string): void;
   focusCommunity(id: string): void;
   setSourceCommunityContext?(id: string | null): void;
-  setTypeFilters(filters: NonNullable<GraphEngineOptions["typeFilters"]>): void;  showTemporaryObject(object: GraphSummaryObjectRef): void;
+  setTypeFilters(filters: NonNullable<GraphEngineOptions["typeFilters"]>): void;
+  showTemporaryObject(object: GraphSummaryObjectRef): void;
   clearTemporaryObjectDisplay(): void;
   resetView(): void;
   select(selection: SelectionInput): void;
@@ -312,9 +313,14 @@ export function createGraphFacadeRouteManager(
       assertActive();
       state.data = data;
       if (pins) state.pins = pins;
+      let clearedSourceCommunity = false;
       // Drop a stale source highlight when refreshed data no longer contains it.
       if (state.sourceCommunityId && !dataHasCommunity(state.data, state.sourceCommunityId)) {
         state.sourceCommunityId = null;
+        clearedSourceCommunity = true;
+      }
+      if (clearedSourceCommunity) {
+        currentRenderer().setSourceCommunityContext?.(null);
       }
       if (graphExceedsGlobalNodeLimit(state.data)) {
         if (routeId === "over-limit-notice" && active) {
@@ -395,16 +401,20 @@ export function createGraphFacadeRouteManager(
     },
     clearSelection() {
       assertActive();
+      const hadSourceCommunity = state.sourceCommunityId != null;
       state.selection = null;
       state.sourceCommunityId = null;
+      if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
       currentRenderer().clearSelection();
     },
     clearInteraction() {
       assertActive();
+      const hadSourceCommunity = state.sourceCommunityId != null;
       state.focus = null;
       state.selection = null;
       state.sourceCommunityId = null;
       state.temporaryObject = null;
+      if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
       currentRenderer().clearInteraction();
     },
     setNodeFixed(id, mode) {
@@ -491,16 +501,21 @@ export function createGraphFacadeRouteManager(
     const previousRouteId = routeId;
     // Explicit reset clears the source community context (unlike the toolbar
     // "return to global", which keeps it so the source stays highlighted).
+    const hadSourceCommunity = state.sourceCommunityId != null;
     state.sourceCommunityId = null;
     if (previousRouteId === "sigma-global" && state.selection?.kind === "community") {
       clearCommunitySelectionForGlobalReset();
+      if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
       currentRenderer().resetView();
       return;
     }
     state.focus = null;
     clearCommunitySelectionForGlobalReset();
     switchToGlobalRoute();
-    if (previousRouteId === routeId) currentRenderer().resetView();
+    if (previousRouteId === routeId) {
+      if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
+      currentRenderer().resetView();
+    }
   }
 
   function clearCommunitySelectionForGlobalReset(): void {
@@ -880,9 +895,12 @@ export function createGraphFacadeFromRenderer(
       assertActive();
       facadeState.data = data;
       if (pins) facadeState.pins = pins;
+      let clearedSourceCommunity = false;
       if (facadeState.sourceCommunityId && !dataHasCommunity(data, facadeState.sourceCommunityId)) {
         facadeState.sourceCommunityId = null;
+        clearedSourceCommunity = true;
       }
+      if (clearedSourceCommunity) renderer.setSourceCommunityContext?.(null);
       renderer.setData(data, pins);
     },
 
@@ -952,7 +970,9 @@ export function createGraphFacadeFromRenderer(
         capabilities?.onSelectionClear?.();
       }
       facadeState.focus = null;
+      const hadSourceCommunity = facadeState.sourceCommunityId != null;
       facadeState.sourceCommunityId = null;
+      if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
       renderer.resetView();
       capabilities?.onViewReset?.();
     },
@@ -1010,19 +1030,23 @@ export function createGraphFacadeFromRenderer(
 
     clearSelection(): void {
       assertActive();
+      const hadSourceCommunity = facadeState.sourceCommunityId != null;
       facadeState.selection = null;
       facadeState.sourceCommunityId = null;
+      if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
       renderer.clearSelection();
     },
 
     clearInteraction(): void {
       assertActive();
-      renderer.clearInteraction();
       delete container.dataset.llmWikiGraphFocus;
+      const hadSourceCommunity = facadeState.sourceCommunityId != null;
       facadeState.focus = null;
       facadeState.selection = null;
       facadeState.sourceCommunityId = null;
       facadeState.temporaryObject = null;
+      if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
+      renderer.clearInteraction();
     },
 
     setNodeFixed(id: string, mode: "fix" | "unfix"): boolean {

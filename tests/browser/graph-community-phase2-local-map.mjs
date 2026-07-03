@@ -17,8 +17,10 @@ const T1_NODE_IDS = ["A", "B", "C", "D", "E", "F"];
 const browser = await chromium.launch(executablePath ? { executablePath } : {});
 
 try {
-  const desktop = await runFlow({ width: 1440, height: 900 }, "desktop", { testDrag: true });
+  // Mobile runs first so the desktop drag/pin path cannot contaminate the
+  // narrow-viewport baseline in the shared temporary knowledge base.
   const mobile = await runFlow({ width: 390, height: 844 }, "mobile", { testDrag: false });
+  const desktop = await runFlow({ width: 1440, height: 900 }, "desktop", { testDrag: true });
   const evidence = { desktop, mobile };
   if (artifactDir) {
     await fs.mkdir(artifactDir, { recursive: true });
@@ -34,6 +36,8 @@ async function runFlow(viewport, label, { testDrag }) {
   await page.addInitScript(() => {
     window.localStorage.setItem("llm-wiki-agent-main-view", "graph");
     window.localStorage.setItem("llm-wiki-agent-theme", "light");
+    window.localStorage.setItem("llm-wiki-agent-drawer-width", "320");
+    window.localStorage.setItem("llm-wiki-agent-sidebar-collapsed", "true");
   });
   await page.goto(workbenchUrl);
   await page.waitForSelector(".app-shell");
@@ -87,30 +91,32 @@ async function runFlow(viewport, label, { testDrag }) {
     await page.screenshot({ path: path.join(artifactDir, `community-phase2-${label}-community.png`), fullPage: true });
   }
 
-  // 5. Return to global keeps the source community highlighted.
-  // Desktop-only: on narrow mobile viewports the community reading drawer overlays
-  // the toolbar/map, so the return + highlight interaction is verified on desktop
-  // and by graph-engine facade unit tests. Mobile still captures the local-map
-  // screenshot above for visual review (spec 9.2).
-  let returned = null;
-  if (testDrag) {
-    await clickReturnGlobal(page);
-    await waitForSigmaGlobal(page);
-    await page.waitForFunction(
-      () => Array.from(document.querySelectorAll(".sigma-global-community-region[data-selected='true']"))
-        .some((region) => region.getAttribute("data-community-id") === "t1"),
-      undefined,
-      { timeout: 5000 }
-    ).catch(() => undefined);
-    returned = await sigmaSnapshot(page);
-    assert.deepEqual(returned.selectedRegions, ["t1"], "returning global should keep the source community highlighted");
-    if (artifactDir) {
-      await page.screenshot({ path: path.join(artifactDir, `community-phase2-${label}-returned-global.png`), fullPage: true });
-    }
+  // 5. Return to global keeps the source community highlighted until a real
+  // clear/replace action removes it.
+  await clickReturnGlobal(page);
+  await waitForSigmaGlobal(page);
+  await waitForSelectedCommunity(page, "t1");
+  const returned = await sigmaSnapshot(page);
+  assert.deepEqual(returned.selectedRegions, ["t1"], "returning global should keep the source community region highlighted");
+  assert.deepEqual(returned.selectedLabels, ["t1"], "returning global should keep the source community label highlighted");
+  if (artifactDir) {
+    await page.screenshot({ path: path.join(artifactDir, `community-phase2-${label}-returned-global.png`), fullPage: true });
   }
 
+  await clickGlobalBlank(page);
+  await waitForNoSelectedCommunity(page);
+  const afterBlankClear = await sigmaSnapshot(page);
+  assert.deepEqual(afterBlankClear.selectedRegions, [], "blank clear should remove the returned source community region highlight");
+  assert.deepEqual(afterBlankClear.selectedLabels, [], "blank clear should remove the returned source community label highlight");
+
+  await clickCommunityRegion(page, "t2");
+  await waitForSelectedCommunity(page, "t2");
+  const afterReplace = await sigmaSnapshot(page);
+  assert.deepEqual(afterReplace.selectedRegions, ["t2"], "selecting another community should replace the old source community region highlight");
+  assert.deepEqual(afterReplace.selectedLabels, ["t2"], "selecting another community should replace the old source community label highlight");
+
   await page.close();
-  return { viewport: `${viewport.width}x${viewport.height}`, selectedBeforeEnter, localMap, returned };
+  return { viewport: `${viewport.width}x${viewport.height}`, selectedBeforeEnter, localMap, returned, afterBlankClear, afterReplace };
 }
 
 async function waitForSigmaGlobal(page) {
@@ -141,6 +147,36 @@ async function clickCommunityRegion(page, communityId) {
   const point = await findCommunityRegionPoint(page, communityId);
   await page.mouse.click(point.x, point.y);
   return point;
+}
+
+async function clickGlobalBlank(page) {
+  const point = await graphBlankPoint(page);
+  await page.mouse.click(point.x, point.y);
+}
+
+async function graphBlankPoint(page) {
+  return page.evaluate(() => {
+    const host = document.querySelector(".sigma-global-route") || document.querySelector(".graph-host");
+    if (!host) throw new Error("Missing Sigma global route for blank click");
+    const rect = host.getBoundingClientRect();
+    const candidates = [
+      [0.08, 0.12],
+      [0.92, 0.12],
+      [0.08, 0.88],
+      [0.92, 0.88],
+      [0.5, 0.08],
+      [0.5, 0.92]
+    ];
+    for (const [rx, ry] of candidates) {
+      const x = rect.left + rect.width * rx;
+      const y = rect.top + rect.height * ry;
+      const hit = document.elementFromPoint(x, y);
+      if (!hit?.closest?.(".drawer-panel-open, .drawer-panel, .sigma-global-community-region, .sigma-global-node-hit-target, .sigma-global-community-label, .sigma-global-aggregation-container")) {
+        return { x, y };
+      }
+    }
+    return { x: rect.left + 12, y: rect.top + 12 };
+  });
 }
 
 async function findCommunityRegionPoint(page, communityId) {
@@ -180,6 +216,30 @@ async function sigmaSnapshot(page) {
     sigmaRendererCount: document.querySelectorAll(".sigma-global-renderer[data-renderer='sigma-global']").length,
     domNodeCount: document.querySelectorAll(".node").length
   }));
+}
+
+async function waitForSelectedCommunity(page, communityId) {
+  await page.waitForFunction((communityId) => {
+    const selectedRegions = Array.from(document.querySelectorAll(".sigma-global-community-region[data-selected='true']"))
+      .map((region) => region.getAttribute("data-community-id") || "")
+      .filter(Boolean)
+      .sort();
+    const selectedLabels = Array.from(document.querySelectorAll(".sigma-global-community-label[data-selected='true']"))
+      .map((label) => label.getAttribute("data-community-id") || "")
+      .filter(Boolean)
+      .sort();
+    return selectedRegions.length === 1
+      && selectedRegions[0] === communityId
+      && selectedLabels.length === 1
+      && selectedLabels[0] === communityId;
+  }, communityId, { timeout: 5000 });
+}
+
+async function waitForNoSelectedCommunity(page) {
+  await page.waitForFunction(() => {
+    return document.querySelectorAll(".sigma-global-community-region[data-selected='true']").length === 0
+      && document.querySelectorAll(".sigma-global-community-label[data-selected='true']").length === 0;
+  }, undefined, { timeout: 5000 });
 }
 
 async function communitySnapshot(page) {
@@ -240,10 +300,35 @@ async function dragCommunityNode(page, nodeId, delta) {
 }
 
 async function clickReturnGlobal(page) {
-  // Force past the community reading drawer, which can overlay the toolbar on
-  // narrow viewports. Closing the drawer would clear the source context, so we
-  // click through instead of dismissing it.
-  await page.getByRole("button", { name: "回全图" }).click({ force: true });
+  // Try the toolbar first. On narrow viewports the drawer can cover it, so fall
+  // back to the graph's blank double-click return gesture without closing the
+  // drawer (closing would clear the source context before we can assert it).
+  await page.getByRole("button", { name: "回全图" }).click({ force: true }).catch(() => undefined);
+  const returned = await page.waitForSelector(".sigma-global-route[data-route='sigma-global']", { timeout: 1200 })
+    .then(() => true)
+    .catch(() => false);
+  if (returned) return;
+  await dispatchGraphBlankDoubleClick(page);
+}
+
+async function dispatchGraphBlankDoubleClick(page) {
+  const rootFound = await page.evaluate(() => {
+    const root = document.querySelector("[data-llm-wiki-graph-root='true']");
+    if (!root) return false;
+    const rect = root.getBoundingClientRect();
+    const x = rect.left + Math.max(12, Math.min(32, rect.width * 0.08));
+    const y = rect.top + Math.max(12, Math.min(32, rect.height * 0.08));
+    root.dispatchEvent(new MouseEvent("dblclick", {
+      bubbles: true,
+      cancelable: true,
+      clientX: x,
+      clientY: y,
+      detail: 2,
+      view: window
+    }));
+    return true;
+  });
+  assert.equal(rootFound, true, "graph blank double-click fallback should dispatch to the graph root");
 }
 
 async function closeDrawerIfOpen(page) {

@@ -123,6 +123,56 @@ describe("GraphFacade", () => {
     assert.deepEqual(renderer.calls.at(-1), ["select", { kind: "node", id: "a" }]);
   });
 
+  it("notifies a standalone renderer when refreshed data drops source community context", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const renderer = createFakeRenderer();
+    const facadeState = twoCommunityState();
+    const engine = createGraphFacadeFromRenderer(container, renderer, {
+      data: facadeState.data,
+      theme: "shan-shui"
+    }, facadeState);
+
+    engine.setSourceCommunityContext("c2");
+    engine.setData(singleCommunityData());
+
+    assert.equal(facadeState.sourceCommunityId, null);
+    assert.deepEqual(renderer.calls.slice(-2), [["setSourceCommunityContext", null], ["setData", singleCommunityData(), undefined]]);
+  });
+
+  it("notifies a standalone renderer when explicit reset clears source community context", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const renderer = createFakeRenderer();
+    const facadeState = twoCommunityState();
+    const engine = createGraphFacadeFromRenderer(container, renderer, {
+      data: facadeState.data,
+      theme: "shan-shui"
+    }, facadeState);
+
+    engine.setSourceCommunityContext("c1");
+    engine.resetView();
+
+    assert.equal(facadeState.sourceCommunityId, null);
+    assert.deepEqual(renderer.calls.slice(-2), [["setSourceCommunityContext", null], ["resetView"]]);
+  });
+
+  it("notifies a standalone renderer when clear commands drop source community context", () => {
+    for (const clear of ["clearSelection", "clearInteraction"] as const) {
+      const container = { dataset: {} as Record<string, string | undefined> };
+      const renderer = createFakeRenderer();
+      const facadeState = twoCommunityState();
+      const engine = createGraphFacadeFromRenderer(container, renderer, {
+        data: facadeState.data,
+        theme: "shan-shui"
+      }, facadeState);
+
+      engine.setSourceCommunityContext("c1");
+      engine[clear]();
+
+      assert.equal(facadeState.sourceCommunityId, null);
+      assert.deepEqual(renderer.calls.slice(-2), [["setSourceCommunityContext", null], [clear]]);
+    }
+  });
+
   it("keeps return global and reset layout as separate facade commands", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const renderer = createFakeRenderer();
@@ -676,6 +726,96 @@ describe("GraphFacade", () => {
       assert.equal(state.sourceCommunityId, "c1");
       manager[clear]();
       assert.equal(state.sourceCommunityId, null, `${clear} should clear the source community`);
+    }
+  });
+
+  it("notifies the active Sigma route when explicit reset clears source community context", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state = twoCommunityState();
+    const renderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      callbacks: {},
+      factories: {
+        createSigmaGlobal: () => trackRenderer(renderers, "sigma"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.setSourceCommunityContext("c1");
+    manager.resetView();
+
+    assert.equal(state.sourceCommunityId, null);
+    assert.deepEqual(renderers[0].calls.slice(-2), [["setSourceCommunityContext", null], ["resetView"]]);
+  });
+
+  it("notifies the active Sigma route when refreshed data drops the source community", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state = twoCommunityState();
+    const renderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      callbacks: {},
+      factories: {
+        createSigmaGlobal: () => trackRenderer(renderers, "sigma"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.setSourceCommunityContext("c2");
+    manager.setData(singleCommunityData(), undefined);
+
+    assert.equal(state.sourceCommunityId, null);
+    assert.deepEqual(renderers[0].calls.slice(-2), [["setSourceCommunityContext", null], ["setData", singleCommunityData(), undefined]]);
+  });
+
+  it("notifies the active DOM community route when refreshed data drops the source community", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state = twoCommunityState();
+    const renderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      callbacks: {},
+      factories: {
+        createSigmaGlobal: () => createFakeRenderer(),
+        createDomSvgCommunity: () => trackRenderer(renderers, "dom"),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c2");
+    manager.setData(singleCommunityData(), undefined);
+
+    assert.equal(state.sourceCommunityId, null);
+    assert.deepEqual(renderers[0].calls.slice(-2), [["setSourceCommunityContext", null], ["setData", singleCommunityData(), undefined]]);
+  });
+
+  it("notifies the active Sigma route when clear commands drop source community context", () => {
+    for (const clear of ["clearSelection", "clearInteraction"] as const) {
+      const container = { dataset: {} as Record<string, string | undefined> };
+      const state = twoCommunityState();
+      const renderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+      const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+        state,
+        callbacks: {},
+        factories: {
+          createSigmaGlobal: () => trackRenderer(renderers, "sigma"),
+          createDomSvgCommunity: () => createFakeRenderer(),
+          createDomSvgSmallFallback: () => createFakeRenderer(),
+          createOverLimitNotice: () => createFakeRenderer()
+        }
+      });
+
+      manager.setSourceCommunityContext("c1");
+      manager[clear]();
+
+      assert.equal(state.sourceCommunityId, null);
+      assert.deepEqual(renderers[0].calls.slice(-2), [["setSourceCommunityContext", null], [clear]]);
     }
   });
 
@@ -1393,6 +1533,9 @@ function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
     },
     focusCommunity(id: string) {
       calls.push(["focusCommunity", id]);
+    },
+    setSourceCommunityContext(id: string | null) {
+      calls.push(["setSourceCommunityContext", id]);
     },
     previewNode(id: string | null) {
       calls.push(["previewNode", id]);

@@ -85,6 +85,7 @@ export interface GraphRenderer {
   setPins(pins: PinMap): void;
   focusNode(pathOrId: WikiPath): void;
   focusCommunity(id: CommunityId): void;
+  setSourceCommunityContext(id: CommunityId | null): void;
   setTypeFilters(filters: GraphTypeFilters): void;
   showTemporaryObject(object: GraphSummaryObjectRef): void;
   clearTemporaryObjectDisplay(): void;
@@ -282,6 +283,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     context.theme = next.theme || context.theme;
     if (Object.hasOwn(next, "typeFilters")) context.typeFilters = next.typeFilters || {};
     if (Object.hasOwn(next, "aggregationMarkers")) context.aggregationMarkers = next.aggregationMarkers || [];
+    if (Object.hasOwn(next, "sourceCommunityId")) context.sourceCommunityId = next.sourceCommunityId || null;
     if (Object.hasOwn(next, "pins")) context.runtimeState.setPins(next.pins || {});
     if (Object.hasOwn(next, "focus")) context.runtimeState.setFocus(next.focus || null);
     if (Object.hasOwn(next, "selectedNodeId")) {
@@ -328,6 +330,9 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     },
     focusCommunity(id: CommunityId): void {
       controller.focusCommunity(id);
+    },
+    setSourceCommunityContext(id: CommunityId | null): void {
+      render({ sourceCommunityId: id });
     },
     setTypeFilters(filters: GraphTypeFilters): void {
       pipeline.applyTypeFilters(filters);
