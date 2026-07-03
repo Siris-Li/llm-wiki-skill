@@ -130,7 +130,8 @@ export function createGraphRenderPipeline(
       typeFilters: {},
       aggregationMarkers: context.aggregationMarkers,
       pathCache: context.pathCache,
-      viewportSize: viewportSize()
+      viewportSize: viewportSize(),
+      sourceCommunityId: context.sourceCommunityId
     });
     context.runtimeState.setPositions(positionsFromRenderableGraph(context.graph));
     context.baseTypeFilters = context.graph.typeFilters;
@@ -459,7 +460,8 @@ export function createGraphRenderPipeline(
       positions: snapshot.positions,
       aggregationMarkers: context.aggregationMarkers,
       pathCache: context.pathCache,
-      viewportSize: size
+      viewportSize: size,
+      sourceCommunityId: context.sourceCommunityId
     });
     context.hitTargetResolver.refresh();
     const worldBoundsChanged = !sameWorldBounds(previousWorldBounds, context.graph.worldBounds);

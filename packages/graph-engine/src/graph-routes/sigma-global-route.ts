@@ -220,6 +220,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       case "node":
       case "community-wash":
       case "aggregation-container":
+        options = { ...options, sourceCommunityId: null };
         input.options.callbacks.onSelectionClearRequested?.();
         updateSigmaSelection(null);
         break;
@@ -227,7 +228,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
         break;
       case "graph-blank":
         const shouldResetCamera = options.selection?.kind === "community";
-        options = { ...options, temporaryObject: null };
+        options = { ...options, temporaryObject: null, sourceCommunityId: null };
         input.options.callbacks.onSelectionClearRequested?.();
         updateSigmaSelection(null);
         if (shouldResetCamera) renderer?.resetView();

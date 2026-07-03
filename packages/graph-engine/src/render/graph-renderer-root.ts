@@ -65,6 +65,7 @@ export interface GraphRendererOptions {
   aggregationMarkers?: GraphAggregationMarker[];
   searchQuery?: string;
   live?: boolean;
+  sourceCommunityId?: string | null;
 }
 
 type RenderNextOptions = Partial<GraphRendererOptions> & {
@@ -117,7 +118,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     focus: initialFocus,
     typeFilters: {},
     pathCache,
-    aggregationMarkers: options.aggregationMarkers
+    aggregationMarkers: options.aggregationMarkers,
+    sourceCommunityId: options.sourceCommunityId ?? null
   });
   const runtimeState = createGraphRuntimeState({
     viewport: DEFAULT_RENDERER_VIEWPORT,
@@ -185,7 +187,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       onPinsChanged: options.onPinsChanged,
       onDragActiveChange: options.onDragActiveChange,
       onVisibilityStateChange: options.onVisibilityStateChange
-    }
+    },
+    sourceCommunityId: options.sourceCommunityId ?? null
   };
   presenter = createGraphOverlaysPresenter(context, {
     viewportSize: () => pipeline.viewportSize(),

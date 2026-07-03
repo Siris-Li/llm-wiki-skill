@@ -676,6 +676,7 @@ function createDomSvgFacadeRenderer(
     aggregationMarkers: input.options.aggregationMarkers,
     searchQuery: input.options.searchQuery,
     live,
+    sourceCommunityId: input.options.sourceCommunityId,
     onNodeOpen: input.options.callbacks.onNodeOpen,
     onSelectionInput: input.options.callbacks.onSelectionInput,
     onPinsChanged: input.options.callbacks.onPinsChanged,
@@ -685,7 +686,13 @@ function createDomSvgFacadeRenderer(
     onDragActiveChange: input.options.callbacks.onDragActiveChange,
     onVisibilityStateChange: input.options.callbacks.onVisibilityStateChange
   });
-  if (input.options.selection) renderer.select(input.options.selection);
+  // A community selection must NOT be replayed into the DOM reading view: it would
+  // expand into every node being selected/core (resolveSelectedNodeIds). The source
+  // community travels via sourceCommunityId instead; only node/nodes selections
+  // (a specific node the user picked) are replayed here.
+  if (input.options.selection && input.options.selection.kind !== "community") {
+    renderer.select(input.options.selection);
+  }
   if (input.options.temporaryObject) renderer.showTemporaryObject(input.options.temporaryObject);
   return {
     ...renderer,

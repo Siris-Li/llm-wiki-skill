@@ -94,8 +94,14 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
     if (input.isDestroyed()) return;
     const adapterData = input.getAdapterData();
     const ordered: HTMLElement[] = [];
-    const selectedCommunityIds = sigmaSelectedCommunityIds(adapterData);
     const spotlightCommunityIds = sigmaSpotlightCommunityIds(adapterData);
+    // Region/label highlight = active community selections (may be several) plus
+    // the returned source-community context, so multi-select still works and the
+    // source community stays highlighted after returning to global.
+    const highlightCommunityIds = new Set([
+      ...sigmaSelectedCommunityIds(adapterData),
+      ...spotlightCommunityIds
+    ]);
 
     const nextRegionIds = new Set<string>();
     for (const community of adapterData.renderable.communities) {
@@ -116,8 +122,11 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
         entry = { element, shape: handle.shape, kind: handle.kind };
         overlayRegionEntries.set(community.id, entry);
       }
-      const selected = selectedCommunityIds.has(community.id);
-      const dim = selectedCommunityIds.size > 0 && !selected;
+      // Phase 2: region highlight follows the spotlight community, which unifies
+      // an active community selection AND the returned source-community context,
+      // so the source community stays highlighted after returning to global.
+      const selected = highlightCommunityIds.has(community.id);
+      const dim = highlightCommunityIds.size > 0 && !selected;
       entry.element.dataset.selected = selected ? "true" : "false";
       applySigmaCloudColor(entry.shape, community.color, dim);
       ordered.push(entry.element);
@@ -153,9 +162,9 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
         element.dataset.communityId = community.id;
         overlayLabelEntries.set(community.id, element);
       }
-      const labelSelected = selectedCommunityIds.has(community.id);
+      const labelSelected = highlightCommunityIds.has(community.id);
       element.dataset.selected = labelSelected ? "true" : "false";
-      element.dataset.dim = selectedCommunityIds.size > 0 && !labelSelected ? "true" : "false";
+      element.dataset.dim = highlightCommunityIds.size > 0 && !labelSelected ? "true" : "false";
       element.textContent = community.label || community.id;
       ordered.push(element);
     }
