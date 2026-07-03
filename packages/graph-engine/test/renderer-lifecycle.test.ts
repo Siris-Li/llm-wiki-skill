@@ -400,6 +400,47 @@ describe("graph renderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("keeps manual node fix usable while focused community motion is frozen", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const pinsChanged: unknown[] = [];
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: relationFocusGraphData(),
+      theme: "shan-shui",
+      live: true,
+      focus: { kind: "community", id: "community-a" },
+      onPinsChanged: (pins) => pinsChanged.push(pins)
+    });
+
+    // live: true + focused community => automatic motion is frozen (no live
+    // simulation), but the shared local-map snapshot is active for community-a.
+    assert.equal(renderer.graph.communityMap.active, true);
+    assert.equal(renderer.graph.communityMap.motionMode, "frozen");
+    assert.equal(renderer.graph.communityMap.current?.communityId, "community-a");
+    assert.equal(renderer.root.dataset.communityMapState, "lightweight");
+
+    const pointABefore = renderer.graph.nodes.find((node) => node.id === "a")?.point;
+    assert.ok(pointABefore);
+
+    // Manual fix must still work while automatic motion is frozen: it pins the
+    // node through PinState even though there is no live simulation to drive.
+    const fixed = renderer.setNodeFixed("b", "fix");
+    assert.equal(fixed, true, "manual fix should succeed even with frozen community motion");
+    assert.ok(pinsChanged.length > 0, "fixing a node should report the pin change");
+    assert.deepEqual(Object.keys(pinsChanged.at(-1) as Record<string, unknown>), ["wiki/b.md"]);
+    assert.equal(nodeElement(renderer, "b")?.dataset.pinned, "true");
+
+    // Freezing motion must not drift the other community nodes.
+    assert.deepEqual(renderer.graph.nodes.find((node) => node.id === "a")?.point, pointABefore);
+
+    // Unfix returns the node to the shared snapshot without a lingering pin.
+    const unfixed = renderer.setNodeFixed("b", "unfix");
+    assert.equal(unfixed, true);
+    assert.deepEqual(pinsChanged.at(-1), {});
+
+    renderer.destroy();
+  });
+
   it("clears community relation focus when the view returns to global", () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");

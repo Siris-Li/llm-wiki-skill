@@ -100,6 +100,16 @@ export interface GraphRenderPipelineOptions {
   live: boolean;
 }
 
+// Phase 2: focused community reading mode freezes the free live simulation so
+// the close-up cannot drift into a different shape than the global map. Manual
+// node drag/fix still works through the frozen drag path in the controller.
+export function shouldRunLiveSimulation(graph: Pick<RenderableGraph, "focus" | "nodes">, live: boolean): boolean {
+  if (!live) return false;
+  if (!graph.nodes.length) return false;
+  if (graph.focus?.kind === "community") return false;
+  return true;
+}
+
 export function createGraphRenderPipeline(
   context: GraphRenderContext,
   options: GraphRenderPipelineOptions
@@ -422,7 +432,7 @@ export function createGraphRenderPipeline(
   function restartSimulation(): void {
     context.simulation?.destroy();
     context.simulation = null;
-    if (!options.live || !context.graph.nodes.length) return;
+    if (!shouldRunLiveSimulation(context.graph, options.live)) return;
     context.simulation = createLiveGraphSimulation(context.graph, {
       onTick: (snapshot) => applyMotionFrame(snapshot.positions)
     });
