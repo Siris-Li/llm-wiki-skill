@@ -331,6 +331,72 @@ function mixedCrossCommunityGraph(): GraphData {
   };
 }
 
+function longTitleCommunityGraph(): GraphData {
+  const nodes = [
+    { id: "lt-a", label: "这是一个非常长的节点标题用于验证社区近景标签预算与截断A", type: "topic", community: "c1", source_path: "wiki/lt/a.md", weight: 80, x: 28, y: 38 },
+    { id: "lt-b", label: "另一个超长标题节点用于验证近景下标签不会横跨整张地图B", type: "entity", community: "c1", source_path: "wiki/lt/b.md", weight: 58, x: 46, y: 44 },
+    { id: "lt-c", label: "长标题节点C", type: "entity", community: "c1", source_path: "wiki/lt/c.md", weight: 40, x: 60, y: 52 },
+    { id: "lt-d", label: "普通节点D", type: "entity", community: "c1", source_path: "wiki/lt/d.md", weight: 22, x: 72, y: 58 }
+  ];
+  const edges = [
+    { id: "lt-e1", from: "lt-a", to: "lt-b", type: "EXTRACTED", confidence: "EXTRACTED", relation_type: "实现", weight: 1 },
+    { id: "lt-e2", from: "lt-a", to: "lt-c", type: "INFERRED", confidence: "INFERRED", relation_type: "对比", weight: 0.6 },
+    { id: "lt-e3", from: "lt-b", to: "lt-d", type: "EXTRACTED", confidence: "EXTRACTED", relation_type: "依赖", weight: 0.4 }
+  ];
+  return {
+    meta: { build_date: "2026-07-03T00:00:00.000Z", wiki_title: "Long Title", total_nodes: nodes.length, total_edges: edges.length },
+    nodes, edges,
+    learning: {
+      version: 1,
+      entry: { recommended_start_node_id: "lt-a", recommended_start_reason: "fixture", default_mode: "global" },
+      views: {
+        path: { enabled: false, start_node_id: null, node_ids: [], degraded: true },
+        community: { enabled: false, community_id: null, label: null, node_ids: [], is_weak: false, degraded: true },
+        global: { enabled: true, node_ids: nodes.map((node) => node.id), degraded: false }
+      },
+      communities: [{ id: "c1", label: "长标题社区", node_count: nodes.length, color_index: 0, recommended_start_node_id: "lt-a" }]
+    }
+  };
+}
+
+function flatCommunityGraph(): GraphData {
+  // Equal-weight chain with no natural hub: verifies selected/search still
+  // promote tier instead of leaving every node peripheral.
+  const nodes = Array.from({ length: 7 }, (_, index) => ({
+    id: `flat-${index}`,
+    label: `Flat ${index}`,
+    type: "entity",
+    community: "c1",
+    source_path: `wiki/flat/${index}.md`,
+    weight: 30,
+    x: 22 + index * 9,
+    y: 40 + (index % 3) * 6
+  }));
+  const edges = Array.from({ length: 6 }, (_, index) => ({
+    id: `flat-e${index}`,
+    from: `flat-${index}`,
+    to: `flat-${index + 1}`,
+    type: "EXTRACTED",
+    confidence: "EXTRACTED",
+    relation_type: "依赖",
+    weight: 0.5
+  }));
+  return {
+    meta: { build_date: "2026-07-03T00:00:00.000Z", wiki_title: "Flat Community", total_nodes: nodes.length, total_edges: edges.length },
+    nodes, edges,
+    learning: {
+      version: 1,
+      entry: { recommended_start_node_id: "flat-0", recommended_start_reason: "fixture", default_mode: "global" },
+      views: {
+        path: { enabled: false, start_node_id: null, node_ids: [], degraded: true },
+        community: { enabled: false, community_id: null, label: null, node_ids: [], is_weak: false, degraded: true },
+        global: { enabled: true, node_ids: nodes.map((node) => node.id), degraded: false }
+      },
+      communities: [{ id: "c1", label: "Flat", node_count: nodes.length, color_index: 0 }]
+    }
+  };
+}
+
 describe("buildRenderableGraph", () => {
   it("maps graph data to static renderable nodes, edges, communities, and minimap points", () => {
     const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
@@ -967,6 +1033,165 @@ describe("buildRenderableGraph", () => {
       graph.nodes.filter((node) => node.community === UNGROUPED_COMMUNITY_ID && node.selected).map((node) => node.id),
       ["loose-a", "loose-b"]
     );
+  });
+
+  // --- Phase 2: shared community local-map rules ---
+  it("exposes explicit community local-map rules in focused community mode", () => {
+    const graph = buildRenderableGraph(budgetGraph(80, 240), {
+      focus: { kind: "community", id: "c1" },
+      sourceCommunityId: "c1",
+      selectedNodeId: "n79",
+      searchResultIds: ["n78"],
+      pins: {
+        "wiki/budget/n77.md": { x: 760, y: 420, coordinateSpace: "world" }
+      }
+    });
+
+    assert.equal(graph.communityMap.active, true);
+    assert.equal(graph.communityMap.current?.communityId, "c1");
+    assert.deepEqual(Object.keys(graph.communityMap.rulesByCommunityId), ["c1"]);
+    assert.equal(graph.communityMap.motionMode, "frozen");
+    assert.equal(graph.communityMap.maxNodeDriftRatio, 0);
+    assert.ok(graph.communityMap.current);
+    assert.equal(graph.communityMap.current.layout.coordinateSpace, "world");
+    assert.ok(graph.communityMap.current.layout.bounds.width > 0);
+    assert.ok(graph.communityMap.current.layout.bounds.height > 0);
+    assert.equal(graph.communityMap.current.labelBudget.limit, graph.budget.limits.maxLabels);
+    assert.equal(graph.communityMap.current.labelBudget.visible, graph.nodes.filter((node) => node.labelVisible).length);
+    assert.ok(graph.communityMap.current.labelBudget.visible <= graph.communityMap.current.labelBudget.limit);
+    assert.ok(graph.communityMap.current.edgeLayers.skeleton >= 1, "community map should keep a visible skeleton edge layer");
+
+    const coreNode = graph.nodes.find((node) => graph.importance.stableCoreNodeIds.includes(node.id));
+    assert.ok(coreNode, "fixture should expose at least one stable core node");
+    assert.equal(coreNode.communityMapTier, "core");
+    assert.equal(graph.communityMap.current.nodeRulesById[coreNode.id]?.tier, "core");
+    assert.deepEqual(graph.communityMap.current.nodeRulesById[coreNode.id]?.basePoint, coreNode.point);
+
+    const selectedNode = graph.nodes.find((node) => node.id === "n79");
+    assert.ok(selectedNode, "selected node should remain visible in the community map");
+    assert.notEqual(selectedNode.communityMapTier, "peripheral");
+
+    const peripheralNode = graph.nodes.find((node) => !node.coreAnchor && !node.labelVisible && node.id !== "n79" && node.id !== "n78");
+    assert.ok(peripheralNode, "fixture should include an unlabeled peripheral node");
+    assert.equal(peripheralNode.communityMapTier, "peripheral");
+
+    const skeletonEdge = graph.edges.find((edge) => edge.skeleton);
+    assert.ok(skeletonEdge, "fixture should expose a skeleton edge");
+    assert.equal(skeletonEdge.communityMapLayer, "skeleton");
+    assert.equal(graph.communityMap.current.edgeRulesById[skeletonEdge.id]?.layer, "skeleton");
+
+    assert.ok(graph.edges.every((edge) => ["skeleton", "related", "background"].includes(edge.communityMapLayer)));
+  });
+
+  it("keeps global mode live while marking local-map rules inactive", () => {
+    const graph = buildRenderableGraph(sampleGraph());
+
+    assert.equal(graph.communityMap.active, false);
+    assert.equal(graph.communityMap.current, null);
+    assert.deepEqual(graph.communityMap.rulesByCommunityId, {});
+    assert.equal(graph.communityMap.motionMode, "live");
+    assert.equal(graph.communityMap.maxNodeDriftRatio, 1);
+  });
+
+  it("computes only the explicit source community snapshot in global mode", () => {
+    const graph = buildRenderableGraph(budgetGraph(80, 240), {
+      sourceCommunityId: "c1"
+    });
+
+    assert.equal(graph.communityMap.active, false);
+    assert.equal(graph.communityMap.current?.communityId, "c1");
+    assert.deepEqual(Object.keys(graph.communityMap.rulesByCommunityId), ["c1"]);
+    assert.ok(Object.keys(graph.communityMap.current?.nodeRulesById ?? {}).length > 0);
+    assert.ok(
+      Object.keys(graph.communityMap.current?.nodeRulesById ?? {}).every((nodeId) =>
+        graph.nodes.find((node) => node.id === nodeId)?.community === "c1"
+      )
+    );
+    assert.ok(
+      Object.keys(graph.communityMap.current?.edgeRulesById ?? {}).every((edgeId) => {
+        const edge = graph.edges.find((item) => item.id === edgeId);
+        if (!edge) return false;
+        const source = graph.nodes.find((node) => node.id === edge.source);
+        const target = graph.nodes.find((node) => node.id === edge.target);
+        return source?.community === "c1" && target?.community === "c1";
+      })
+    );
+  });
+
+  it("does not treat the source community context as selected nodes", () => {
+    const graph = buildRenderableGraph(budgetGraph(80, 240), {
+      focus: { kind: "community", id: "c1" },
+      sourceCommunityId: "c1"
+    });
+
+    assert.equal(graph.communityMap.current?.communityId, "c1");
+    assert.ok(graph.nodes.some((node) => node.communityMapTier === "peripheral"));
+    assert.ok(graph.nodes.some((node) => graph.communityMap.current?.nodeRulesById[node.id]?.tier === "peripheral"));
+  });
+
+  it("keeps local-map rules stable across visual-risk community fixtures", () => {
+    const fixtures = [
+      { name: "dense community", data: budgetGraph(120, 320), communityId: "c1", options: {} },
+      { name: "edge-heavy community", data: budgetGraph(40, 600), communityId: "c1", options: {} },
+      { name: "long-title community", data: longTitleCommunityGraph(), communityId: "c1", options: {} },
+      { name: "no-obvious-core community", data: flatCommunityGraph(), communityId: "c1", options: { selectedNodeId: "flat-2", searchResultIds: ["flat-3"] } },
+      { name: "weak/disconnected community", data: oversizedWeakCommunityGraph(), communityId: "community", options: {} }
+    ];
+    for (const fixture of fixtures) {
+      const graph = buildRenderableGraph(fixture.data, {
+        focus: { kind: "community", id: fixture.communityId },
+        ...fixture.options
+      });
+      assert.ok(graph.communityMap.current, `${fixture.name}: snapshot should exist`);
+      assert.equal(graph.communityMap.current?.communityId, fixture.communityId, `${fixture.name}: community id`);
+      assert.ok(
+        graph.communityMap.current.labelBudget.visible <= graph.communityMap.current.labelBudget.limit,
+        `${fixture.name}: visible labels should stay inside the label budget`
+      );
+      assert.ok(
+        graph.nodes.some((node) => node.communityMapTier !== "peripheral"),
+        `${fixture.name}: at least one node should be core/related`
+      );
+      assert.ok(
+        graph.edges.every((edge) => ["skeleton", "related", "background"].includes(edge.communityMapLayer)),
+        `${fixture.name}: every edge should map to a local-map layer`
+      );
+    }
+  });
+
+  it("does not eagerly compute snapshots for every community", () => {
+    const global = buildRenderableGraph(densePointMapGraph());
+    assert.equal(global.communityMap.current, null);
+    assert.deepEqual(global.communityMap.rulesByCommunityId, {});
+
+    const sourceCommunity = "dense-community-3";
+    const withSource = buildRenderableGraph(densePointMapGraph(), { sourceCommunityId: sourceCommunity });
+    assert.equal(withSource.communityMap.active, false);
+    assert.equal(withSource.communityMap.current?.communityId, sourceCommunity);
+    assert.deepEqual(Object.keys(withSource.communityMap.rulesByCommunityId), [sourceCommunity]);
+    assert.ok(
+      Object.keys(withSource.communityMap.rulesByCommunityId).length < withSource.communities.length,
+      "source-community mode should compute exactly one snapshot, not one per community"
+    );
+
+    const snapshotNodeIds = Object.keys(withSource.communityMap.current?.nodeRulesById ?? {}).sort();
+    const communityNodeIds = withSource.nodes.filter((node) => node.community === sourceCommunity).map((node) => node.id).sort();
+    assert.ok(snapshotNodeIds.length > 0, "source-community snapshot should include that community's nodes");
+    assert.deepEqual(snapshotNodeIds, communityNodeIds, "source-community snapshot must filter to that community's nodes only");
+
+    assert.ok(
+      Object.keys(withSource.communityMap.current?.edgeRulesById ?? {}).every((edgeId) => {
+        const edge = withSource.edges.find((item) => item.id === edgeId);
+        if (!edge) return false;
+        const source = withSource.nodes.find((node) => node.id === edge.source);
+        const target = withSource.nodes.find((node) => node.id === edge.target);
+        return source?.community === sourceCommunity && target?.community === sourceCommunity;
+      }),
+      "source-community snapshot must filter to that community's internal edges only"
+    );
+
+    assert.ok(withSource.budget.usage.maxLabels <= withSource.budget.limits.maxLabels);
+    assert.ok(withSource.budget.usage.maxVisibleEdges <= withSource.budget.limits.maxVisibleEdges);
   });
 });
 

@@ -521,6 +521,11 @@ export interface GraphEngine {
   setAggregationMarkers(markers: GraphAggregationMarker[]): void;
   focusNode(path: WikiPath): void;
   focusCommunity(id: CommunityId): Selection;
+  // Phase 2: the community the user entered from. Kept separate from selection so
+  // returning to the global Sigma view can keep that community highlighted without
+  // marking every community node as selected/core.
+  readonly sourceCommunityId: string | null;
+  setSourceCommunityContext(id: string | null): void;
   setTypeFilters(filters: GraphTypeFilters): void;
   showTemporaryObject(object: GraphSummaryObjectRef): void;
   clearTemporaryObjectDisplay(): void;

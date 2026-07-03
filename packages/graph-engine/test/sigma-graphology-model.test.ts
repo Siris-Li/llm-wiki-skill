@@ -41,6 +41,8 @@ describe("Sigma graphology render model", () => {
       displayMode: "card",
       visualRole: "landmark",
       priority: 900,
+      communityMapTier: "core",
+      communityMapImportance: 3,
       drawerTarget: {
         summaryKind: "node-summary",
         object: { kind: "node", nodeId: "alpha" }
@@ -69,7 +71,8 @@ describe("Sigma graphology render model", () => {
       confidence: "EXTRACTED",
       weight: 0.75,
       sourceCommunityId: "community-a",
-      targetCommunityId: "community-a"
+      targetCommunityId: "community-a",
+      communityMapLayer: "skeleton"
     });
     assert.deepEqual(
       sigmaGlobalEdgeStyle({
@@ -206,7 +209,7 @@ function adapterDataFixture(options: {
         relationType: "depends-on",
         confidence: "EXTRACTED",
         weight: 0.75,
-        render: { strokeWidth: 3, opacity: 0.42 }
+        render: { strokeWidth: 3, opacity: 0.42, communityMapLayer: "skeleton", skeleton: true, traceable: true }
       }
     ],
     communities: [
@@ -368,7 +371,12 @@ function nodeFixture(
       displayMode: options.displayMode ?? "point",
       visualRole: options.pinned ? "map-pin" : "landmark",
       priority: options.priority ?? 100,
-      labelVisible: options.labelVisible ?? false
+      labelVisible: options.labelVisible ?? false,
+      communityMapTier: "core",
+      communityMapImportance: 3,
+      communityMapDotSize: 18,
+      communityMapLabelSide: "right",
+      communityMapRelationLabel: true
     }
   };
 }

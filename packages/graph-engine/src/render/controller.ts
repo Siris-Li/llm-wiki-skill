@@ -1,4 +1,4 @@
-import type { CommunityId, NodeId, SelectionInput } from "../types";
+import type { CommunityId, NodeId, PinMap, SelectionInput } from "../types";
 import { pinsToPositions } from "../sim";
 import type { GraphWorldPoint } from "./geometry";
 import {
@@ -9,7 +9,13 @@ import {
 } from "./gestures";
 import { classifyGraphKeyboardIntent, isTextEditingElement } from "./keyboard";
 import type { RenderPositionMap } from "./model";
-import { cancelGraphNodeDrag, commitGraphNodeDrag, type GraphNodeDragSession } from "./node-drag-lifecycle";
+import {
+  cancelFrozenGraphNodeDrag,
+  cancelGraphNodeDrag,
+  commitFrozenGraphNodeDrag,
+  commitGraphNodeDrag,
+  type GraphNodeDragSession
+} from "./node-drag-lifecycle";
 import type { GraphRenderContext } from "./render-context";
 import { resolveGraphSearchState, resolveNextGraphSearchFocus, resolvePreviousGraphSearchFocus } from "./search";
 import { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
@@ -236,50 +242,95 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
   }
 
   function handleNodeDragStart(id: NodeId, screenPoint: { x: number; y: number }): void {
-    if (!context.simulation) {
-      context.runtimeState.setActiveGesture(null);
+    const simulation = context.simulation;
+    if (!simulation) {
+      // Focused community reading keeps simulation null (frozen motion). The
+      // active gesture already carries grabOffset/startWorldPoint; only mark UI.
+      if (context.graph.focus?.kind === "community") {
+        context.rendererSurface.setNodeDragging(id, true);
+        context.rendererSurface.setDragTarget(id);
+        context.callbacks.onDragActiveChange?.(true);
+      } else {
+        context.runtimeState.setActiveGesture(null);
+      }
       return;
     }
     const active = context.runtimeState.snapshot().activeGesture;
     if (active?.kind !== "node-drag" || active.nodeId !== id) return;
     const grabOffset = active.grabOffset;
     context.rendererSurface.setNodeDragging(id, true);
-    context.simulation.beginDrag(id);
-    context.simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, grabOffset));
+    simulation.beginDrag(id);
+    simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, grabOffset));
     context.rendererSurface.setDragTarget(id);
     context.callbacks.onDragActiveChange?.(true);
   }
 
   function handleNodeDragMove(id: NodeId, pointerId: number, screenPoint: { x: number; y: number }): void {
-    if (!context.simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
-    context.simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId)));
+    const simulation = context.simulation;
+    if (!simulation) {
+      // Frozen community drag: update only the dragged node, no simulation tick.
+      if (context.graph.focus?.kind === "community" && isRuntimeNodeDrag(id, pointerId, true)) {
+        const target = nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId));
+        delegates.applyMotionFrame({ ...context.runtimeState.snapshot().positions, [id]: target });
+      }
+      return;
+    }
+    if (!isRuntimeNodeDrag(id, pointerId, true)) return;
+    simulation.dragTo(id, nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId)));
   }
 
   function handleNodeDragEnd(id: NodeId, pointerId: number, screenPoint: { x: number; y: number }): void {
-    if (!context.simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
+    const simulation = context.simulation;
+    if (!simulation) {
+      if (context.graph.focus?.kind !== "community" || !isRuntimeNodeDrag(id, pointerId, true)) return;
+      const session = nodeDragSession(id, pointerId);
+      const result = commitFrozenGraphNodeDrag({
+        nodeId: id,
+        startWorldPoint: session.startWorldPoint,
+        wasPinned: session.wasPinned,
+        finalWorldPoint: nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId)),
+        currentPositions: context.runtimeState.snapshot().positions,
+        pinState: context.pinState
+      });
+      finalizeNodeDrag(id, result);
+      return;
+    }
+    if (!isRuntimeNodeDrag(id, pointerId, true)) return;
     const result = commitGraphNodeDrag({
       nodeId: id,
-      simulation: context.simulation,
+      simulation,
       pinState: context.pinState,
       finalWorldPoint: nodeDragTargetFromScreenPoint(screenPoint, nodeDragGrabOffset(id, pointerId))
     });
+    finalizeNodeDrag(id, result);
+  }
+
+  function handleNodeDragCancel(id: NodeId, pointerId: number): void {
+    const simulation = context.simulation;
+    if (!simulation) {
+      if (context.graph.focus?.kind !== "community" || !isRuntimeNodeDrag(id, pointerId, true)) return;
+      const session = nodeDragSession(id, pointerId);
+      const result = cancelFrozenGraphNodeDrag({
+        nodeId: id,
+        startWorldPoint: session.startWorldPoint,
+        wasPinned: session.wasPinned,
+        currentPositions: context.runtimeState.snapshot().positions,
+        pinState: context.pinState
+      });
+      finalizeNodeDrag(id, result);
+      return;
+    }
+    if (!isRuntimeNodeDrag(id, pointerId, true)) return;
+    const session = nodeDragSession(id, pointerId);
+    const result = cancelGraphNodeDrag({ session, simulation, pinState: context.pinState });
+    finalizeNodeDrag(id, result);
+  }
+
+  function finalizeNodeDrag(id: NodeId, result: { pins: PinMap; positions: RenderPositionMap; pinnedNodeIds: NodeId[] }): void {
     context.runtimeState.setPins(result.pins);
     delegates.applyMotionFrame(result.positions);
     delegates.markPinnedNodes(result.pinnedNodeIds);
     context.callbacks.onPinsChanged?.(result.pins);
-    context.rendererSurface.setNodeDragging(id, false);
-    context.rendererSurface.setDragTarget(null);
-    context.runtimeState.setActiveGesture(null);
-    context.callbacks.onDragActiveChange?.(false);
-  }
-
-  function handleNodeDragCancel(id: NodeId, pointerId: number): void {
-    if (!context.simulation || !isRuntimeNodeDrag(id, pointerId, true)) return;
-    const session = nodeDragSession(id, pointerId);
-    const result = cancelGraphNodeDrag({ session, simulation: context.simulation, pinState: context.pinState });
-    context.runtimeState.setPins(result.pins);
-    delegates.applyMotionFrame(result.positions);
-    delegates.markPinnedNodes(result.pinnedNodeIds);
     context.rendererSurface.setNodeDragging(id, false);
     context.rendererSurface.setDragTarget(null);
     context.runtimeState.setActiveGesture(null);

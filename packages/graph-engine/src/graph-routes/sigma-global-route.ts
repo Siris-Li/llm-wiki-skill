@@ -108,6 +108,10 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     focusCommunity() {
       updateSigmaRenderer();
     },
+    setSourceCommunityContext(id) {
+      options = { ...options, sourceCommunityId: id };
+      updateSigmaRenderer();
+    },
     setTypeFilters(filters) {
       options = { ...options, typeFilters: filters };
       syncVisibilityState();
@@ -132,6 +136,9 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     },
     previewNode() {},
     clearSelection() {
+      // Blank clear removes both the active selection and any returned source
+      // community highlight.
+      options = { ...options, sourceCommunityId: null };
       updateSigmaSelection(null);
       input.options.callbacks.onSelectionClearRequested?.();
     },
@@ -213,6 +220,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       case "node":
       case "community-wash":
       case "aggregation-container":
+        options = { ...options, sourceCommunityId: null };
         input.options.callbacks.onSelectionClearRequested?.();
         updateSigmaSelection(null);
         break;
@@ -220,7 +228,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
         break;
       case "graph-blank":
         const shouldResetCamera = options.selection?.kind === "community";
-        options = { ...options, temporaryObject: null };
+        options = { ...options, temporaryObject: null, sourceCommunityId: null };
         input.options.callbacks.onSelectionClearRequested?.();
         updateSigmaSelection(null);
         if (shouldResetCamera) renderer?.resetView();
@@ -354,7 +362,8 @@ function adapterDataForSigmaRoute(options: GraphFacadeRouteRendererOptions): Gra
     searchResultIds: options.searchResultIds,
     aggregationMarkers: options.aggregationMarkers,
     focus: null,
-    typeFilters: options.typeFilters
+    typeFilters: options.typeFilters,
+    sourceCommunityId: options.sourceCommunityId
   });
 }
 

@@ -37,6 +37,8 @@ export function createGraphNodeElement(
   button.dataset.traceable = node.selected || node.coreAnchor || node.interactionLabelVisible ? "true" : "false";
   button.dataset.worldX = String(node.point.x);
   button.dataset.worldY = String(node.point.y);
+  button.dataset.communityMapTier = node.communityMapTier;
+  button.dataset.communityMapImportance = String(node.communityMapImportance);
   button.style.left = `${node.x}%`;
   button.style.top = `${node.y}%`;
   button.title = node.label;

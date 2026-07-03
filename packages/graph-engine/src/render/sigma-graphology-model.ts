@@ -8,6 +8,7 @@ import type {
   GraphRendererAdapterNode
 } from "./adapter";
 import { edgeRelationClass } from "./model";
+import type { CommunityMapEdgeLayer, CommunityMapNodeTier } from "./model";
 import type { SigmaGlobalGraphologyGraph, SigmaGlobalGraphologyRuntime } from "./sigma-global-types";
 
 export interface SigmaGlobalGraphologyNodeAttributes {
@@ -30,6 +31,8 @@ export interface SigmaGlobalGraphologyNodeAttributes {
   displayMode: string;
   visualRole: string;
   priority: number;
+  communityMapTier: CommunityMapNodeTier;
+  communityMapImportance: number;
   drawerTarget: GraphRendererAdapterNode["drawerTarget"];
 }
 
@@ -41,6 +44,7 @@ export interface SigmaGlobalGraphologyEdgeAttributes {
   weight: number;
   sourceCommunityId: string | null;
   targetCommunityId: string | null;
+  communityMapLayer: CommunityMapEdgeLayer;
 }
 
 export interface SigmaGlobalGraphologyCommunityAttributes {
@@ -190,6 +194,8 @@ export function sigmaGlobalNodeAttributes(
     displayMode: node.render.displayMode,
     visualRole: node.render.visualRole,
     priority: finiteNumber(node.render.priority, 0),
+    communityMapTier: node.render.communityMapTier,
+    communityMapImportance: finiteNumber(node.render.communityMapImportance, 0),
     drawerTarget: node.drawerTarget
   };
 }
@@ -204,7 +210,10 @@ export function sigmaSpotlightCommunityIds(adapterData: GraphRendererAdapterData
 }
 
 export function sigmaSpotlightCommunityId(adapterData: GraphRendererAdapterData): string | null {
-  return adapterData.selection.input?.kind === "community" ? adapterData.selection.input.id : null;
+  if (adapterData.selection.input?.kind === "community") return adapterData.selection.input.id;
+  // Phase 2: after returning to global, no selection exists but the source
+  // community context still drives the highlight so users see where they came from.
+  return adapterData.sourceCommunityId ?? null;
 }
 
 export function sigmaGlobalNodeSpotlightState(
@@ -233,7 +242,8 @@ export function sigmaGlobalEdgeAttributes(
     confidence: edge.confidence == null ? null : String(edge.confidence),
     weight: finiteNumber(edge.weight, 0),
     sourceCommunityId: edge.sourceCommunityId,
-    targetCommunityId: edge.targetCommunityId
+    targetCommunityId: edge.targetCommunityId,
+    communityMapLayer: edge.render.communityMapLayer
   };
 }
 

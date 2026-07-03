@@ -15,6 +15,33 @@ import type {
 } from "../src";
 
 describe("graph renderer adapter contract", () => {
+  it("passes shared community local-map rules through the adapter", () => {
+    const adapter = buildGraphRendererAdapterData(graphFixture(), {
+      ...adapterOptions(),
+      selection: null,
+      focus: { kind: "community", id: "alpha" }
+    });
+
+    assert.equal(adapter.renderable.communityMap.active, true);
+    assert.equal(adapter.renderable.communityMap.current?.communityId, "alpha");
+    assert.deepEqual(Object.keys(adapter.renderable.communityMap.rulesByCommunityId), ["alpha"]);
+    assert.equal(adapter.renderable.communityMap.motionMode, "frozen");
+    assert.ok(adapter.renderable.communityMap.current?.nodeRulesById.a);
+    assert.ok(adapter.renderable.communityMap.current?.edgeRulesById["a-b"]);
+
+    const alphaHub = adapter.nodes.find((node) => node.id === "a");
+    assert.ok(alphaHub);
+    assert.equal(alphaHub.render.communityMapTier, "core");
+    assert.equal(typeof alphaHub.render.communityMapImportance, "number");
+    assert.ok(alphaHub.render.communityMapDotSize >= 9);
+
+    const edge = adapter.edges.find((item) => item.id === "a-b");
+    assert.ok(edge);
+    assert.ok(["skeleton", "related", "background"].includes(edge.render.communityMapLayer));
+    assert.equal(typeof edge.render.skeleton, "boolean");
+    assert.equal(typeof edge.render.traceable, "boolean");
+  });
+
   it("preserves shared object ids, selected state, search hits, Pin hints, aggregations, and drawer targets", () => {
     const adapter = buildGraphRendererAdapterData(graphFixture(), adapterOptions());
 

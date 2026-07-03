@@ -41,6 +41,17 @@ export function paintDomSvgGraph(input: PaintDomSvgGraphInput): PaintedGraphDom 
   root.dataset.communityBoundaryCertainty = graph.communityQuality.boundaryCertainty;
   root.dataset.communityAuxiliaryViews = graph.communityQuality.auxiliaryViews.map((view) => view.id).join(",");
   root.dataset.communityMapState = graph.focus?.kind === "community" ? "lightweight" : "none";
+  root.dataset.communityMapMotion = graph.communityMap.motionMode;
+  root.dataset.communityMapSourceCommunityId = graph.communityMap.sourceCommunityId || "";
+  root.dataset.communityMapCommunityId = graph.communityMap.current?.communityId || "";
+  root.dataset.communityMapLabelLimit = String(graph.communityMap.current?.labelBudget.limit ?? 0);
+  root.dataset.communityMapVisibleLabels = String(graph.communityMap.current?.labelBudget.visible ?? 0);
+  root.dataset.communityMapSkeletonEdges = String(graph.communityMap.current?.edgeLayers.skeleton ?? 0);
+  root.dataset.communityMapRelatedEdges = String(graph.communityMap.current?.edgeLayers.related ?? 0);
+  root.dataset.communityMapBackgroundEdges = String(graph.communityMap.current?.edgeLayers.background ?? 0);
+  root.dataset.communityMapBounds = graph.communityMap.current
+    ? JSON.stringify(graph.communityMap.current.layout.bounds)
+    : "";
 
   const painted = emptyPaintedDom();
   const contentLayer = ownerDocument.createElement("div");

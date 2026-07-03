@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 
 import { createLiveGraphSimulation, PinState } from "../src/sim";
 import { buildRenderableGraph } from "../src/render";
-import { cancelGraphNodeDrag, commitGraphNodeDrag, type GraphNodeDragSession } from "../src/render/node-drag-lifecycle";
+import {
+  cancelFrozenGraphNodeDrag,
+  cancelGraphNodeDrag,
+  commitFrozenGraphNodeDrag,
+  commitGraphNodeDrag,
+  type GraphNodeDragSession
+} from "../src/render/node-drag-lifecycle";
 import type { GraphData, PinMap } from "../src/types";
 
 describe("graph node drag lifecycle", () => {
@@ -121,6 +127,72 @@ describe("graph node drag lifecycle", () => {
     assert.equal(simulation.nodes.find((node) => node.id === "drag")?.fx, 320);
     assert.equal(simulation.nodes.find((node) => node.id === "drag")?.fy, 240);
     simulation.destroy();
+  });
+  it("commits a frozen community drag by pinning the final world position without a simulation", () => {
+    const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
+    const pinState = new PinState(graph);
+    const currentPositions = Object.fromEntries(graph.nodes.map((node) => [node.id, { x: node.point.x, y: node.point.y }]));
+    const dragStart = graph.nodes.find((node) => node.id === "drag")!.point;
+
+    const result = commitFrozenGraphNodeDrag({
+      nodeId: "drag",
+      startWorldPoint: dragStart,
+      wasPinned: false,
+      finalWorldPoint: { x: 620, y: 410 },
+      currentPositions,
+      pinState
+    });
+
+    assert.equal(result.kind, "committed");
+    assert.deepEqual(result.pinPosition, { x: 620, y: 410 });
+    assert.deepEqual(result.pins, { "wiki/drag.md": { x: 620, y: 410, coordinateSpace: "world" } });
+    assert.deepEqual(result.pinnedNodeIds, ["drag"]);
+    assert.deepEqual(result.positions.drag, { x: 620, y: 410 });
+    assert.deepEqual(result.positions.near, currentPositions.near);
+    assert.deepEqual(result.positions.far, currentPositions.far);
+  });
+
+  it("cancels a frozen drag on an unpinned node by restoring the start point without writing a pin", () => {
+    const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui" });
+    const pinState = new PinState(graph);
+    const currentPositions = Object.fromEntries(graph.nodes.map((node) => [node.id, { x: node.point.x, y: node.point.y }]));
+    const dragStart = graph.nodes.find((node) => node.id === "drag")!.point;
+
+    const result = cancelFrozenGraphNodeDrag({
+      nodeId: "drag",
+      startWorldPoint: dragStart,
+      wasPinned: false,
+      currentPositions: { ...currentPositions, drag: { x: 700, y: 500 } },
+      pinState
+    });
+
+    assert.equal(result.kind, "cancelled");
+    assert.deepEqual(result.pins, {});
+    assert.deepEqual(result.pinnedNodeIds, []);
+    assert.deepEqual(result.restoredPosition, dragStart);
+    assert.equal(result.restoredFixed, false);
+    assert.deepEqual(result.positions.drag, dragStart);
+  });
+
+  it("cancels a frozen drag on a pinned node by keeping the previous pin", () => {
+    const pins: PinMap = { "wiki/drag.md": { x: 320, y: 240, coordinateSpace: "world" } };
+    const graph = buildRenderableGraph(sampleGraph(), { theme: "shan-shui", pins });
+    const pinState = new PinState(graph, pins);
+    const currentPositions = Object.fromEntries(graph.nodes.map((node) => [node.id, { x: node.point.x, y: node.point.y }]));
+
+    const result = cancelFrozenGraphNodeDrag({
+      nodeId: "drag",
+      startWorldPoint: pins["wiki/drag.md"],
+      wasPinned: true,
+      currentPositions: { ...currentPositions, drag: { x: 700, y: 500 } },
+      pinState
+    });
+
+    assert.equal(result.kind, "cancelled");
+    assert.deepEqual(result.pins, pins);
+    assert.deepEqual(result.pinnedNodeIds, ["drag"]);
+    assert.deepEqual(result.positions.drag, { x: 320, y: 240 });
+    assert.equal(result.restoredFixed, true);
   });
 });
 

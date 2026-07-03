@@ -31,28 +31,58 @@ try {
   assert.ok(initial.visibleLabelCount > 0 && initial.visibleLabelCount <= 12, `default community map should expose only budgeted key labels, got ${initial.visibleLabelCount}`);
   assert.ok(initial.visibleLabelCount < initial.nodeCount, `default community map should not label every node, got ${initial.visibleLabelCount}/${initial.nodeCount}`);
   assert.ok(initial.defaultEdgeOpacity > 0 && initial.defaultEdgeOpacity < 0.35, `default community edges should stay quiet, got ${initial.defaultEdgeOpacity}`);
-  assert.equal(initial.rootPaperToken.toLowerCase(), "#f8f1e6", "community map should expose the approved warm paper token");
-  assert.match(initial.rootBackgroundSize, /42px 42px/, "community map should render the paper-grid background size");
+  assert.notEqual(initial.rootLabelBgToken, "", "community map should expose the warm paper label surface token");
   assert.match(initial.rootBackground, /linear-gradient|radial-gradient/, "community map should keep a visible paper-style background treatment");
   assert.ok(initial.sampleNodeStyles.dot, "community map nodes should render a dot-core element");
   assert.ok(initial.sampleNodeStyles.label, "community map labels should still be measurable when visible");
   assert.match(initial.sampleNodeStyles.label.fontFamily, /(Songti|Noto Serif|STSong|serif)/i, "community map labels should use the paper-map serif stack");
   assert.equal(initial.nodeTypes.F, "comparison", "community map should preserve comparison nodes instead of collapsing them to entity");
-  assert.notEqual(initial.nodeDotColors.topic, initial.nodeDotColors.entity, "topic and entity dots should use different colors");
-  assert.notEqual(initial.nodeDotColors.source, initial.nodeDotColors.entity, "source and entity dots should use different colors");
-  assert.notEqual(initial.nodeDotColors.comparison, initial.nodeDotColors.entity, "comparison and entity dots should use different colors");
+  assert.notEqual(initial.nodeDotColors.topic, initial.nodeDotColors.entity, "topic dots keep a distinct emphasis color from ordinary community dots");
   assert.equal(initial.edgeDashes.extracted, "none", "extracted confidence should render as a solid edge");
   assert.notEqual(initial.edgeDashes.inferred, "none", "inferred confidence should render as a dashed edge");
   assert.notEqual(initial.edgeDashes.ambiguous, "none", "ambiguous confidence should render as a dashed edge");
   assert.notEqual(initial.edgeDashes.inferred, initial.edgeDashes.ambiguous, "inferred and ambiguous confidence should use distinct dash patterns");
+
+  // --- Phase 2: shared local-map rule attributes exposed on the DOM root/nodes/edges ---
+  assert.equal(initial.communityMapMotion, "frozen", "focused community map should freeze automatic layout motion");
+  assert.equal(initial.communityMapCommunityId, "t1", "focused community map should expose its shared rule snapshot id");
+  assert.ok(initial.communityMapBounds && initial.communityMapBounds.width > 0, "focused community map should expose stable local-map bounds");
+  assert.ok(initial.communityMapLabelLimit >= initial.communityMapVisibleLabels, "visible labels should stay inside the shared label budget");
+  assert.ok(initial.communityMapSkeletonEdges >= 1, "community map should expose at least one skeleton edge");
+  assert.equal(initial.nodeTiers.A, "core", "recommended start node A should be a core local-map node");
+  assert.ok(Object.values(initial.nodeTiers).some((tier) => tier === "peripheral"), "community map should keep some peripheral nodes, not promote all to core");
+  assert.equal(initial.edgeLayers.eAB, "skeleton", "A-B should be part of the skeleton edge layer");
+  assert.ok(Object.values(initial.edgeLayers).every((layer) => ["skeleton", "related", "background"].includes(layer)), "every edge should map to a local-map layer");
+
+  // No post-entry shape drift: the frozen community keeps every node's world
+  // position after settling. Screen centers can still move because entering a
+  // community animates the camera; world coordinates must not (no free layout).
+  await page.waitForTimeout(700);
+  const afterSettling = await snapshot(page);
+  for (const [nodeId, before] of Object.entries(initial.nodeWorldPoints)) {
+    const after = afterSettling.nodeWorldPoints[nodeId];
+    if (!after) continue;
+    assert.ok(Math.abs(before.x - after.x) < 0.5, `${nodeId} world x should not drift after community entry`);
+    assert.ok(Math.abs(before.y - after.y) < 0.5, `${nodeId} world y should not drift after community entry`);
+  }
 
   await page.evaluate(() => {
     window.__LLM_WIKI_GRAPH_ENGINE__?.setTypeFilters?.({ entity: false });
   });
   await page.locator('.node[data-id="A"]').hover();
   await page.waitForFunction(() => document.querySelector('.edge[data-edge-id="eAB"]')?.getAttribute("data-filter-state") === "hidden");
+  // The community-map edge has `transition: opacity .18s ease`; wait for the
+  // hidden-state opacity animation to settle before reading it, otherwise the
+  // snapshot catches a mid-transition value.
+  await page.waitForFunction(() => {
+    const element = document.querySelector('.edge[data-edge-id="eAB"][data-filter-state="hidden"]');
+    if (!element) return false;
+    return Number.parseFloat(getComputedStyle(element).opacity || "1") <= 0.04;
+  });
   const hiddenFilter = await snapshot(page);
   const hiddenOpacity = Number.parseFloat(hiddenFilter.sampleNodeStyles.hiddenEdge?.opacity || "1");
+  // Current CSS: the community-map hidden-edge rule (render-styles.ts ~1257)
+  // wins over the relation-focus first-degree rule and resolves to .035.
   assert.ok(hiddenOpacity <= 0.04, `filtered hidden edge should stay visually hidden, got ${hiddenOpacity}`);
   await page.evaluate(() => {
     window.__LLM_WIKI_GRAPH_ENGINE__?.setTypeFilters?.({ entity: true, source: true, topic: true });
@@ -179,6 +209,46 @@ async function snapshot(page) {
     };
     return {
       communityMapState: root?.getAttribute("data-community-map-state") || "",
+      communityMapMotion: root?.getAttribute("data-community-map-motion") || "",
+      communityMapSourceCommunityId: root?.getAttribute("data-community-map-source-community-id") || "",
+      communityMapCommunityId: root?.getAttribute("data-community-map-community-id") || "",
+      communityMapBounds: JSON.parse(root?.getAttribute("data-community-map-bounds") || "null"),
+      communityMapLabelLimit: Number(root?.getAttribute("data-community-map-label-limit") || "0"),
+      communityMapVisibleLabels: Number(root?.getAttribute("data-community-map-visible-labels") || "0"),
+      communityMapSkeletonEdges: Number(root?.getAttribute("data-community-map-skeleton-edges") || "0"),
+      nodeTiers: Object.fromEntries(
+        Array.from(document.querySelectorAll(".node")).map((node) => [
+          node.getAttribute("data-id") || "",
+          node.getAttribute("data-community-map-tier") || ""
+        ])
+      ),
+      edgeLayers: Object.fromEntries(
+        Array.from(document.querySelectorAll(".edge")).map((edge) => [
+          edge.getAttribute("data-edge-id") || "",
+          edge.getAttribute("data-community-map-layer") || ""
+        ])
+      ),
+      nodeCenters: Object.fromEntries(
+        Array.from(document.querySelectorAll(".node")).map((node) => {
+          const rect = node.getBoundingClientRect();
+          return [
+            node.getAttribute("data-id") || "",
+            {
+              x: Math.round((rect.left + rect.width / 2) * 100) / 100,
+              y: Math.round((rect.top + rect.height / 2) * 100) / 100
+            }
+          ];
+        })
+      ),
+      nodeWorldPoints: Object.fromEntries(
+        Array.from(document.querySelectorAll(".node")).map((node) => [
+          node.getAttribute("data-id") || "",
+          {
+            x: Number(node.getAttribute("data-world-x") || "0"),
+            y: Number(node.getAttribute("data-world-y") || "0")
+          }
+        ])
+      ),
       relationFocus: root?.getAttribute("data-relation-focus") || "",
       relationFocusNode: root?.getAttribute("data-relation-focus-node") || "",
       nodeCount: document.querySelectorAll(".node").length,
@@ -225,7 +295,7 @@ async function snapshot(page) {
       },
       rootBackground: root ? getComputedStyle(root).backgroundImage : "",
       rootBackgroundSize: root ? getComputedStyle(root).backgroundSize : "",
-      rootPaperToken: root ? getComputedStyle(root).getPropertyValue("--community-map-paper").trim() : "",
+      rootLabelBgToken: root ? getComputedStyle(root).getPropertyValue("--community-map-label-bg").trim() : "",
       sampleNodeStyles: {
         node: stylesFor('.node[data-id="A"]'),
         dot: stylesFor('.node[data-id="A"] .dot-core'),

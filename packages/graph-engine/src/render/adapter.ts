@@ -23,7 +23,7 @@ import type {
   ThemeId,
   WikiPath
 } from "../types";
-import { buildRenderableGraph, type RenderPosition, type RenderPositionMap, type RenderableGraph } from "./model";
+import { buildRenderableGraph, type CommunityMapEdgeLayer, type CommunityMapLabelSide, type CommunityMapNodeTier, type RenderPosition, type RenderPositionMap, type RenderableGraph } from "./model";
 
 export const GRAPH_RENDERER_ADAPTER_ROUTES = ["dom-svg", "candidate-global", "aggregation-fallback"] as const;
 
@@ -38,12 +38,14 @@ export interface GraphRendererAdapterOptions {
   focus?: GraphFocusInput;
   typeFilters?: GraphTypeFilters;
   positions?: RenderPositionMap;
+  sourceCommunityId?: string | null;
 }
 
 export interface GraphRendererAdapterData {
   renderable: RenderableGraph;
   counts: RenderableGraph["counts"];
   selection: GraphSummarySelectionState;
+  sourceCommunityId: string | null;
   nodes: GraphRendererAdapterNode[];
   edges: GraphRendererAdapterEdge[];
   communities: GraphRendererAdapterCommunity[];
@@ -74,6 +76,11 @@ export interface GraphRendererAdapterNode {
     visualRole: string;
     priority: number;
     labelVisible: boolean;
+    communityMapTier: CommunityMapNodeTier;
+    communityMapImportance: number;
+    communityMapDotSize: number;
+    communityMapLabelSide: CommunityMapLabelSide;
+    communityMapRelationLabel: boolean;
   };
 }
 
@@ -89,6 +96,9 @@ export interface GraphRendererAdapterEdge {
   render: {
     strokeWidth: number;
     opacity: number;
+    communityMapLayer: CommunityMapEdgeLayer;
+    skeleton: boolean;
+    traceable: boolean;
   };
 }
 
@@ -189,7 +199,8 @@ export function buildGraphRendererAdapterData(
     focus: options.focus,
     typeFilters: options.typeFilters,
     positions: options.positions,
-    searchResultIds: options.searchResultIds
+    searchResultIds: options.searchResultIds,
+    sourceCommunityId: options.sourceCommunityId
   });
   const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
   const renderNodeById = new Map(renderable.nodes.map((node) => [node.id, node]));
@@ -224,7 +235,12 @@ export function buildGraphRendererAdapterData(
         displayMode: renderNode.displayMode,
         visualRole: renderNode.visualRole,
         priority: renderNode.priority,
-        labelVisible: renderNode.labelVisible
+        labelVisible: renderNode.labelVisible,
+        communityMapTier: renderNode.communityMapTier,
+        communityMapImportance: renderNode.communityMapImportance,
+        communityMapDotSize: renderNode.communityMapDotSize,
+        communityMapLabelSide: renderNode.communityMapLabelSide,
+        communityMapRelationLabel: renderNode.communityMapRelationLabel
       }
     };
   });
@@ -266,7 +282,10 @@ export function buildGraphRendererAdapterData(
       weight: numericWeight(rawEdge?.weight),
       render: {
         strokeWidth: edge.strokeWidth,
-        opacity: edge.opacity
+        opacity: edge.opacity,
+        communityMapLayer: edge.communityMapLayer,
+        skeleton: edge.skeleton,
+        traceable: edge.traceable
       }
     };
   });
@@ -310,6 +329,7 @@ export function buildGraphRendererAdapterData(
     renderable,
     counts: renderable.counts,
     selection,
+    sourceCommunityId: options.sourceCommunityId ?? null,
     nodes,
     edges: edges.filter((edge) => renderNodeById.has(edge.sourceNodeId) && renderNodeById.has(edge.targetNodeId)),
     communities,

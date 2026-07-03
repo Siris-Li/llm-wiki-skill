@@ -76,6 +76,49 @@ export function cancelGraphNodeDrag(input: CancelGraphNodeDragInput): CancelledG
   };
 }
 
+// Phase 2: focused community reading freezes the free live simulation. Manual
+// drag still has to work, so these helpers commit/cancel a drag WITHOUT a
+// LiveGraphSimulation. They only update the dragged node's runtime position and
+// the PinState; they never rebuild community bounds, rerun local-map rules, or
+// restart a simulation during the gesture.
+export interface FrozenGraphNodeDragInput {
+  nodeId: NodeId;
+  startWorldPoint: PinPosition;
+  wasPinned: boolean;
+  finalWorldPoint?: PinPosition | null;
+  currentPositions: RenderPositionMap;
+  pinState: PinState;
+}
+
+export function commitFrozenGraphNodeDrag(input: FrozenGraphNodeDragInput): CommittedGraphNodeDrag {
+  const pinPosition = normalizePosition(input.finalWorldPoint || input.startWorldPoint);
+  const pinSnapshot = input.pinState.pin(input.nodeId, pinPosition);
+  return {
+    kind: "committed",
+    nodeId: input.nodeId,
+    pinPosition,
+    positions: { ...input.currentPositions, [input.nodeId]: { x: pinPosition.x, y: pinPosition.y } },
+    pins: pinSnapshot.pins,
+    pinnedNodeIds: pinSnapshot.pinnedNodeIds
+  };
+}
+
+export function cancelFrozenGraphNodeDrag(input: FrozenGraphNodeDragInput): CancelledGraphNodeDrag {
+  const restoredPosition = normalizePosition(input.startWorldPoint);
+  // The frozen path writes no pin during the gesture, so cancel only restores
+  // the dragged node's position. A previously pinned node keeps its prior pin.
+  const pinSnapshot = input.wasPinned ? input.pinState.snapshot() : input.pinState.unpin(input.nodeId);
+  return {
+    kind: "cancelled",
+    nodeId: input.nodeId,
+    restoredPosition,
+    restoredFixed: input.wasPinned,
+    positions: { ...input.currentPositions, [input.nodeId]: { x: restoredPosition.x, y: restoredPosition.y } },
+    pins: pinSnapshot.pins,
+    pinnedNodeIds: pinSnapshot.pinnedNodeIds
+  };
+}
+
 function requirePosition(positions: RenderPositionMap, nodeId: NodeId): PinPosition {
   const position = positions[nodeId];
   if (!position) throw new Error(`Cannot finish drag for unknown graph node: ${nodeId}`);

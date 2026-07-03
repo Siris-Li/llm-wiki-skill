@@ -79,6 +79,7 @@ export interface GraphFacadeRenderer {
   setAggregationMarkers(markers: NonNullable<GraphEngineOptions["aggregationMarkers"]>): void;
   focusNode(path: string): void;
   focusCommunity(id: string): void;
+  setSourceCommunityContext?(id: string | null): void;
   setTypeFilters(filters: NonNullable<GraphEngineOptions["typeFilters"]>): void;
   showTemporaryObject(object: GraphSummaryObjectRef): void;
   clearTemporaryObjectDisplay(): void;
@@ -114,6 +115,8 @@ export interface GraphFacadeRouteManager extends GraphFacadeRenderer {
   readonly routeId: GraphFacadeRendererRouteId;
   readonly sigmaKnownUnavailable: boolean;
   readonly sigmaAttemptCount: number;
+  readonly sourceCommunityId: string | null;
+  setSourceCommunityContext(id: string | null): void;
   retrySigma(): void;
 }
 
@@ -126,6 +129,7 @@ export interface GraphFacadeRouteRendererOptions {
   typeFilters: NonNullable<GraphEngineOptions["typeFilters"]>;
   aggregationMarkers: NonNullable<GraphEngineOptions["aggregationMarkers"]>;
   selection: SelectionInput | null;
+  sourceCommunityId: string | null;
   searchQuery: string;
   searchResultIds: string[];
   temporaryObject: GraphSummaryObjectRef | null;
@@ -170,6 +174,7 @@ export interface GraphFacadeState {
   typeFilters?: NonNullable<GraphEngineOptions["typeFilters"]>;
   aggregationMarkers?: NonNullable<GraphEngineOptions["aggregationMarkers"]>;
   selection?: SelectionInput | null;
+  sourceCommunityId?: string | null;
   searchQuery?: string;
   searchResultIds?: string[];
   temporaryObject?: GraphSummaryObjectRef | null;
@@ -281,6 +286,16 @@ export function createGraphFacadeRouteManager(
     get sigmaAttemptCount() {
       return sigmaAttemptCount;
     },
+    get sourceCommunityId() {
+      return state.sourceCommunityId ?? null;
+    },
+    setSourceCommunityContext(id) {
+      assertActive();
+      // Stores the source community only. Never calls select(), so it cannot
+      // expand into per-node selected/core inside the DOM reading view.
+      state.sourceCommunityId = id;
+      if (routeId === "sigma-global") currentRenderer().setSourceCommunityContext?.(id);
+    },
     retrySigma() {
       assertActive();
       sigmaKnownUnavailable = false;
@@ -298,6 +313,15 @@ export function createGraphFacadeRouteManager(
       assertActive();
       state.data = data;
       if (pins) state.pins = pins;
+      let clearedSourceCommunity = false;
+      // Drop a stale source highlight when refreshed data no longer contains it.
+      if (state.sourceCommunityId && !dataHasCommunity(state.data, state.sourceCommunityId)) {
+        state.sourceCommunityId = null;
+        clearedSourceCommunity = true;
+      }
+      if (clearedSourceCommunity) {
+        currentRenderer().setSourceCommunityContext?.(null);
+      }
       if (graphExceedsGlobalNodeLimit(state.data)) {
         if (routeId === "over-limit-notice" && active) {
           currentRenderer().setData(data, pins);
@@ -337,6 +361,10 @@ export function createGraphFacadeRouteManager(
     focusCommunity(id) {
       assertActive();
       state.focus = { kind: "community", id };
+      // Record where the user entered from so returning to global can keep this
+      // community highlighted. Kept separate from selection (never expands to
+      // per-node selected/core).
+      state.sourceCommunityId = id;
       switchRoute("dom-svg-community", () => factories.createDomSvgCommunity(factoryInput()));
       currentRenderer().focusCommunity(id);
     },
@@ -362,6 +390,9 @@ export function createGraphFacadeRouteManager(
     select(selection) {
       assertActive();
       state.selection = selection;
+      // Selecting another community replaces the source context; selecting a node
+      // keeps it (the drawer may still reference where the user came from).
+      if (selection.kind === "community") state.sourceCommunityId = selection.id;
       currentRenderer().select(selection);
     },
     previewNode(id) {
@@ -370,14 +401,20 @@ export function createGraphFacadeRouteManager(
     },
     clearSelection() {
       assertActive();
+      const hadSourceCommunity = state.sourceCommunityId != null;
       state.selection = null;
+      state.sourceCommunityId = null;
+      if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
       currentRenderer().clearSelection();
     },
     clearInteraction() {
       assertActive();
+      const hadSourceCommunity = state.sourceCommunityId != null;
       state.focus = null;
       state.selection = null;
+      state.sourceCommunityId = null;
       state.temporaryObject = null;
+      if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
       currentRenderer().clearInteraction();
     },
     setNodeFixed(id, mode) {
@@ -462,15 +499,23 @@ export function createGraphFacadeRouteManager(
 
   function resetViewToGlobalRoute(): void {
     const previousRouteId = routeId;
+    // Explicit reset clears the source community context (unlike the toolbar
+    // "return to global", which keeps it so the source stays highlighted).
+    const hadSourceCommunity = state.sourceCommunityId != null;
+    state.sourceCommunityId = null;
     if (previousRouteId === "sigma-global" && state.selection?.kind === "community") {
       clearCommunitySelectionForGlobalReset();
+      if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
       currentRenderer().resetView();
       return;
     }
     state.focus = null;
     clearCommunitySelectionForGlobalReset();
     switchToGlobalRoute();
-    if (previousRouteId === routeId) currentRenderer().resetView();
+    if (previousRouteId === routeId) {
+      if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
+      currentRenderer().resetView();
+    }
   }
 
   function clearCommunitySelectionForGlobalReset(): void {
@@ -574,6 +619,7 @@ export function createGraphFacadeRouteManager(
         typeFilters: state.typeFilters || {},
         aggregationMarkers: state.aggregationMarkers || [],
         selection: state.selection || null,
+        sourceCommunityId: state.sourceCommunityId || null,
         searchQuery: state.searchQuery || "",
         searchResultIds: state.searchResultIds || [],
         temporaryObject: state.temporaryObject || null,
@@ -585,6 +631,7 @@ export function createGraphFacadeRouteManager(
           },
           onSelectionClearRequested: () => {
             state.selection = null;
+            state.sourceCommunityId = null;
             state.temporaryObject = null;
             options.callbacks?.onSelectionClearRequested?.();
           },
@@ -644,6 +691,7 @@ function createDomSvgFacadeRenderer(
     aggregationMarkers: input.options.aggregationMarkers,
     searchQuery: input.options.searchQuery,
     live,
+    sourceCommunityId: input.options.sourceCommunityId,
     onNodeOpen: input.options.callbacks.onNodeOpen,
     onSelectionInput: input.options.callbacks.onSelectionInput,
     onPinsChanged: input.options.callbacks.onPinsChanged,
@@ -653,7 +701,13 @@ function createDomSvgFacadeRenderer(
     onDragActiveChange: input.options.callbacks.onDragActiveChange,
     onVisibilityStateChange: input.options.callbacks.onVisibilityStateChange
   });
-  if (input.options.selection) renderer.select(input.options.selection);
+  // A community selection must NOT be replayed into the DOM reading view: it would
+  // expand into every node being selected/core (resolveSelectedNodeIds). The source
+  // community travels via sourceCommunityId instead; only node/nodes selections
+  // (a specific node the user picked) are replayed here.
+  if (input.options.selection && input.options.selection.kind !== "community") {
+    renderer.select(input.options.selection);
+  }
   if (input.options.temporaryObject) renderer.showTemporaryObject(input.options.temporaryObject);
   return {
     ...renderer,
@@ -663,6 +717,11 @@ function createDomSvgFacadeRenderer(
 
 export function graphExceedsGlobalNodeLimit(data: GraphData): boolean {
   return actualGraphNodeCount(data) > GRAPH_FACADE_GLOBAL_NODE_LIMIT;
+}
+
+function dataHasCommunity(data: GraphData, communityId: string): boolean {
+  if (data.nodes.some((node) => node.community === communityId)) return true;
+  return (data.learning?.communities ?? []).some((community) => community.id === communityId);
 }
 
 export function graphRequiresAggregationSafetyFallback(data: GraphData): boolean {
@@ -836,6 +895,12 @@ export function createGraphFacadeFromRenderer(
       assertActive();
       facadeState.data = data;
       if (pins) facadeState.pins = pins;
+      let clearedSourceCommunity = false;
+      if (facadeState.sourceCommunityId && !dataHasCommunity(data, facadeState.sourceCommunityId)) {
+        facadeState.sourceCommunityId = null;
+        clearedSourceCommunity = true;
+      }
+      if (clearedSourceCommunity) renderer.setSourceCommunityContext?.(null);
       renderer.setData(data, pins);
     },
 
@@ -863,8 +928,19 @@ export function createGraphFacadeFromRenderer(
       assertActive();
       container.dataset.llmWikiGraphFocus = `community:${id}`;
       facadeState.focus = { kind: "community", id };
+      facadeState.sourceCommunityId = id;
       renderer.focusCommunity(id);
       return resolveForHostCapabilities({ kind: "community", id });
+    },
+
+    get sourceCommunityId(): string | null {
+      return facadeState.sourceCommunityId ?? null;
+    },
+
+    setSourceCommunityContext(id: string | null): void {
+      assertActive();
+      facadeState.sourceCommunityId = id;
+      renderer.setSourceCommunityContext?.(id);
     },
 
     setTypeFilters(filters): void {
@@ -894,6 +970,9 @@ export function createGraphFacadeFromRenderer(
         capabilities?.onSelectionClear?.();
       }
       facadeState.focus = null;
+      const hadSourceCommunity = facadeState.sourceCommunityId != null;
+      facadeState.sourceCommunityId = null;
+      if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
       renderer.resetView();
       capabilities?.onViewReset?.();
     },
@@ -901,6 +980,7 @@ export function createGraphFacadeFromRenderer(
     select(selector: SelectionInput): Selection {
       assertActive();
       facadeState.selection = selector;
+      if (selector.kind === "community") facadeState.sourceCommunityId = selector.id;
       renderer.select(selector);
       return resolveForHostCapabilities(selector);
     },
@@ -950,17 +1030,23 @@ export function createGraphFacadeFromRenderer(
 
     clearSelection(): void {
       assertActive();
+      const hadSourceCommunity = facadeState.sourceCommunityId != null;
       facadeState.selection = null;
+      facadeState.sourceCommunityId = null;
+      if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
       renderer.clearSelection();
     },
 
     clearInteraction(): void {
       assertActive();
-      renderer.clearInteraction();
       delete container.dataset.llmWikiGraphFocus;
+      const hadSourceCommunity = facadeState.sourceCommunityId != null;
       facadeState.focus = null;
       facadeState.selection = null;
+      facadeState.sourceCommunityId = null;
       facadeState.temporaryObject = null;
+      if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
+      renderer.clearInteraction();
     },
 
     setNodeFixed(id: string, mode: "fix" | "unfix"): boolean {

@@ -82,4 +82,5 @@ export interface GraphRenderContext {
   pinState: PinState;
   renderEpoch: number;
   callbacks: GraphRendererCallbacks;
+  sourceCommunityId: string | null;
 }
