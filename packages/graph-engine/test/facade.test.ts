@@ -16,6 +16,7 @@ import {
   createGraphWorkbenchCapabilities,
   selectionInputForSigmaHit,
   type GraphFacadeRenderer,
+  type GraphFacadeRouteManager,
   type GraphFacadeRouteRendererFactoryInput,
   type GraphFacadeState
 } from "../src/facade";
@@ -636,6 +637,66 @@ describe("GraphFacade", () => {
     assert.deepEqual(viewResets, [1]);
   });
 
+  it("keeps the source community highlighted after returning to global from a community", () => {
+    const state = twoCommunityState();
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const communityInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const manager = sourceContextManager(state, sigmaInputs, communityInputs);
+
+    manager.focusCommunity("c1");
+    assert.equal(state.sourceCommunityId, "c1");
+    // Toolbar "return to global" keeps the source context so c1 stays highlighted.
+    (communityInputs.at(-1)?.options.callbacks as { onGlobalResetRequested?: () => void }).onGlobalResetRequested?.();
+
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(state.sourceCommunityId, "c1");
+    assert.equal(sigmaInputs.at(-1)?.options.sourceCommunityId, "c1");
+    assert.equal(manager.sourceCommunityId, "c1");
+  });
+
+  it("does not pass the source community as a render selection", () => {
+    const state = twoCommunityState();
+    const communityInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const manager = sourceContextManager(state, [], communityInputs);
+
+    manager.setSourceCommunityContext("c1");
+    manager.focusCommunity("c1");
+
+    // DOM community route must NOT receive selection = community (would expand
+    // every node to selected/core). Source context travels via sourceCommunityId.
+    assert.equal(communityInputs.at(-1)?.options.selection, null);
+    assert.equal(communityInputs.at(-1)?.options.sourceCommunityId, "c1");
+  });
+
+  it("clears the source community on explicit reset, blank clear, and clearInteraction", () => {
+    for (const clear of ["resetView", "clearSelection", "clearInteraction"] as const) {
+      const state = twoCommunityState();
+      const manager = sourceContextManager(state, []);
+      manager.focusCommunity("c1");
+      assert.equal(state.sourceCommunityId, "c1");
+      manager[clear]();
+      assert.equal(state.sourceCommunityId, null, `${clear} should clear the source community`);
+    }
+  });
+
+  it("replaces the source community when another community is selected", () => {
+    const state = twoCommunityState();
+    const manager = sourceContextManager(state, []);
+    manager.focusCommunity("c1");
+    assert.equal(state.sourceCommunityId, "c1");
+    manager.select({ kind: "community", id: "c2" });
+    assert.equal(state.sourceCommunityId, "c2");
+  });
+
+  it("drops the source community when refreshed data no longer contains it", () => {
+    const state = twoCommunityState();
+    const manager = sourceContextManager(state, []);
+    manager.setSourceCommunityContext("c2");
+    assert.equal(state.sourceCommunityId, "c2");
+    manager.setData(singleCommunityData(), undefined);
+    assert.equal(state.sourceCommunityId, null);
+  });
+
   it("returns global to DOM/SVG small fallback without retrying a known unavailable Sigma instance", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const state: GraphFacadeState = {
@@ -1226,6 +1287,85 @@ function sigmaHitGraph(): GraphData {
     ],
     edges: []
   };
+}
+
+function twoCommunityGraph(): GraphData {
+  return {
+    meta: { build_date: "2026-07-03", wiki_title: "Two community graph", total_nodes: 3, total_edges: 1 },
+    nodes: [
+      { id: "a", label: "Alpha", type: "topic", community: "c1", source_path: "wiki/a.md", content: "a" },
+      { id: "b", label: "Beta", type: "source", community: "c1", source_path: "wiki/b.md", content: "b" },
+      { id: "c", label: "Gamma", type: "entity", community: "c2", source_path: "wiki/c.md", content: "c" }
+    ],
+    edges: [
+      { id: "a->b", from: "a", to: "b", type: "EXTRACTED", confidence: "EXTRACTED", relation_type: "实现", weight: 1 }
+    ],
+    learning: {
+      version: 1,
+      entry: { recommended_start_node_id: "a", recommended_start_reason: "fixture", default_mode: "global" },
+      views: {
+        path: { enabled: false, start_node_id: null, node_ids: [], degraded: true },
+        community: { enabled: false, community_id: null, label: null, node_ids: [], is_weak: false, degraded: true },
+        global: { enabled: true, node_ids: ["a", "b", "c"], degraded: false }
+      },
+      communities: [
+        { id: "c1", label: "C1", node_count: 2, color_index: 0 },
+        { id: "c2", label: "C2", node_count: 1, color_index: 1 }
+      ]
+    }
+  };
+}
+
+function singleCommunityData(): GraphData {
+  const graph = twoCommunityGraph();
+  return {
+    ...graph,
+    nodes: graph.nodes.filter((node) => node.community === "c1"),
+    learning: graph.learning
+      ? {
+        ...graph.learning,
+        communities: (graph.learning.communities ?? []).filter((community) => community.id === "c1")
+      }
+      : graph.learning
+  };
+}
+
+function twoCommunityState(): GraphFacadeState {
+  return {
+    data: twoCommunityGraph(),
+    pins: {},
+    theme: "shan-shui",
+    focus: null,
+    typeFilters: {},
+    aggregationMarkers: [],
+    selection: null,
+    searchResultIds: [],
+    temporaryObject: null
+  };
+}
+
+function sourceContextManager(
+  state: GraphFacadeState,
+  sigmaInputs: GraphFacadeRouteRendererFactoryInput[],
+  communityInputs: GraphFacadeRouteRendererFactoryInput[] = []
+): GraphFacadeRouteManager {
+  const container = { dataset: {} as Record<string, string | undefined> };
+  return createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+    state,
+    callbacks: {},
+    factories: {
+      createSigmaGlobal: (input) => {
+        sigmaInputs.push(input);
+        return createFakeRenderer();
+      },
+      createDomSvgCommunity: (input) => {
+        communityInputs.push(input);
+        return createFakeRenderer();
+      },
+      createDomSvgSmallFallback: () => createFakeRenderer(),
+      createOverLimitNotice: () => createFakeRenderer()
+    }
+  });
 }
 
 function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {

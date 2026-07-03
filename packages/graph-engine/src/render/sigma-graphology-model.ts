@@ -210,7 +210,10 @@ export function sigmaSpotlightCommunityIds(adapterData: GraphRendererAdapterData
 }
 
 export function sigmaSpotlightCommunityId(adapterData: GraphRendererAdapterData): string | null {
-  return adapterData.selection.input?.kind === "community" ? adapterData.selection.input.id : null;
+  if (adapterData.selection.input?.kind === "community") return adapterData.selection.input.id;
+  // Phase 2: after returning to global, no selection exists but the source
+  // community context still drives the highlight so users see where they came from.
+  return adapterData.sourceCommunityId ?? null;
 }
 
 export function sigmaGlobalNodeSpotlightState(

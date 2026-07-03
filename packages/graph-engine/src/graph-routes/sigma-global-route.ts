@@ -108,6 +108,10 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     focusCommunity() {
       updateSigmaRenderer();
     },
+    setSourceCommunityContext(id) {
+      options = { ...options, sourceCommunityId: id };
+      updateSigmaRenderer();
+    },
     setTypeFilters(filters) {
       options = { ...options, typeFilters: filters };
       syncVisibilityState();
@@ -132,6 +136,9 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     },
     previewNode() {},
     clearSelection() {
+      // Blank clear removes both the active selection and any returned source
+      // community highlight.
+      options = { ...options, sourceCommunityId: null };
       updateSigmaSelection(null);
       input.options.callbacks.onSelectionClearRequested?.();
     },
@@ -354,7 +361,8 @@ function adapterDataForSigmaRoute(options: GraphFacadeRouteRendererOptions): Gra
     searchResultIds: options.searchResultIds,
     aggregationMarkers: options.aggregationMarkers,
     focus: null,
-    typeFilters: options.typeFilters
+    typeFilters: options.typeFilters,
+    sourceCommunityId: options.sourceCommunityId
   });
 }
 

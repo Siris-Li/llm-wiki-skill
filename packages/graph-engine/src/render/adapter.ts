@@ -38,12 +38,14 @@ export interface GraphRendererAdapterOptions {
   focus?: GraphFocusInput;
   typeFilters?: GraphTypeFilters;
   positions?: RenderPositionMap;
+  sourceCommunityId?: string | null;
 }
 
 export interface GraphRendererAdapterData {
   renderable: RenderableGraph;
   counts: RenderableGraph["counts"];
   selection: GraphSummarySelectionState;
+  sourceCommunityId: string | null;
   nodes: GraphRendererAdapterNode[];
   edges: GraphRendererAdapterEdge[];
   communities: GraphRendererAdapterCommunity[];
@@ -197,7 +199,8 @@ export function buildGraphRendererAdapterData(
     focus: options.focus,
     typeFilters: options.typeFilters,
     positions: options.positions,
-    searchResultIds: options.searchResultIds
+    searchResultIds: options.searchResultIds,
+    sourceCommunityId: options.sourceCommunityId
   });
   const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
   const renderNodeById = new Map(renderable.nodes.map((node) => [node.id, node]));
@@ -326,6 +329,7 @@ export function buildGraphRendererAdapterData(
     renderable,
     counts: renderable.counts,
     selection,
+    sourceCommunityId: options.sourceCommunityId ?? null,
     nodes,
     edges: edges.filter((edge) => renderNodeById.has(edge.sourceNodeId) && renderNodeById.has(edge.targetNodeId)),
     communities,

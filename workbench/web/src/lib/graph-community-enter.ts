@@ -1,14 +1,13 @@
 import type { GraphEngine, Selection } from "@llm-wiki/graph-engine";
 
 /**
- * Entering a community from the community drawer must clear the prior global
- * selection highlight (set when the drawer opened) before focusing the target
- * community. `selectionCommand` is a singular value, so the clear and the
- * focus happen together in this one helper that the graph component calls from
- * its `enter-community` branch.
+ * Entering a community records where the user came from, then changes the graph
+ * route to the DOM/SVG reading view. Source context is separate from selection:
+ * it can restore the global highlight on return without making every community
+ * node look selected/core inside the reading view.
  */
 export function applyCommunityEnter(engine: GraphEngine, communityId: string): Selection | null {
-	engine.clearSelection();
+	engine.setSourceCommunityContext(communityId);
 	engine.focusCommunity(communityId);
 	return null;
 }
