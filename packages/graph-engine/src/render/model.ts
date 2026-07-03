@@ -1,4 +1,4 @@
-import type { GraphAggregationMarker, GraphData, GraphFocusInput, GraphPinHint, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
+import type { EdgeId, GraphAggregationMarker, GraphData, GraphFocusInput, GraphPinHint, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
 import {
   atlasNodePoint,
   buildAtlasModel,
@@ -133,6 +133,7 @@ export interface RenderableGraph {
   };
   communityFocus: GraphCommunityFocusScale | null;
   communityQuality: GraphCommunityQuality;
+  communityMap: GraphCommunityMapRules;
 }
 
 export interface RenderableNode {
@@ -162,6 +163,9 @@ export interface RenderableNode {
   communityMapDotSize: number;
   communityMapLabelSide: "left" | "right" | "top" | "bottom";
   communityMapRelationLabel: boolean;
+  // Phase 2: shared local-map node tier. The source community context must NOT
+  // promote every community node to core; only real selection/start/core signals do.
+  communityMapTier: CommunityMapNodeTier;
   communityColor: string;
 }
 
@@ -180,6 +184,8 @@ export interface RenderableEdge {
   simulationWeight: number;
   skeleton: boolean;
   traceable: boolean;
+  // Phase 2: shared local-map edge layer, derived from skeleton/interaction signals.
+  communityMapLayer: CommunityMapEdgeLayer;
 }
 
 export interface RenderableCommunity {
@@ -224,6 +230,71 @@ export interface RenderableMinimap {
   nodes: Array<{ id: string; x: number; y: number; r: number; fill: string; selected: boolean }>;
 }
 
+// --- Phase 2: shared community local-map rule snapshot ---
+// One owner (graph-engine) computes per-node tier, per-edge layer, base world
+// point, label visibility, and close-up bounds for ONE community at a time
+// (the focused community when reading, or the explicit source-community context
+// when in global view). Sigma global and DOM community reading both consume
+// this snapshot instead of re-deriving their own rules.
+export type CommunityMapNodeTier = "core" | "related" | "peripheral";
+export type CommunityMapEdgeLayer = "skeleton" | "related" | "background";
+export type CommunityMapMotionMode = "live" | "frozen";
+export type CommunityMapLabelSide = "left" | "right" | "top" | "bottom";
+
+export interface CommunityMapNodeRule {
+  nodeId: NodeId;
+  tier: CommunityMapNodeTier;
+  basePoint: RenderPosition;
+  labelVisible: boolean;
+  labelSide: CommunityMapLabelSide;
+  relationLabel: boolean;
+  importance: number;
+  dotSize: number;
+}
+
+export interface CommunityMapEdgeRule {
+  edgeId: EdgeId;
+  layer: CommunityMapEdgeLayer;
+  skeleton: boolean;
+  traceable: boolean;
+}
+
+export interface CommunityMapLayoutSnapshot {
+  coordinateSpace: "world";
+  bounds: {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    width: number;
+    height: number;
+  };
+  viewportAspectRatio: number | null;
+}
+
+export interface CommunityMapRuleSnapshot {
+  communityId: string;
+  source: "focus" | "source-context";
+  nodeRulesById: Record<NodeId, CommunityMapNodeRule>;
+  edgeRulesById: Record<EdgeId, CommunityMapEdgeRule>;
+  layout: CommunityMapLayoutSnapshot;
+  labelBudget: {
+    limit: number;
+    visible: number;
+    hidden: number;
+  };
+  edgeLayers: Record<CommunityMapEdgeLayer, number>;
+}
+
+export interface GraphCommunityMapRules {
+  active: boolean;
+  sourceCommunityId: string | null;
+  motionMode: CommunityMapMotionMode;
+  maxNodeDriftRatio: number;
+  current: CommunityMapRuleSnapshot | null;
+  rulesByCommunityId: Record<string, CommunityMapRuleSnapshot>;
+}
+
 interface BuildRenderableGraphOptions {
   pins?: PinMap;
   theme?: ThemeId;
@@ -236,6 +307,11 @@ interface BuildRenderableGraphOptions {
   searchResultIds?: NodeId[];
   aggregationMarkers?: GraphAggregationMarker[];
   viewportSize?: { width: number; height: number };
+  // Phase 2: the community the user just came from. Used ONLY to build a
+  // source-community local-map snapshot and to restore the global highlight on
+  // return. Must NOT be passed into resolveSelectedNodeIds(...) and must NOT
+  // affect node.selected, or every community node becomes selected/core.
+  sourceCommunityId?: string | null;
 }
 
 type AtlasNode = {
@@ -575,7 +651,16 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       communityMapImportance: mapImportanceById.get(node.id) ?? 0,
       communityMapDotSize: communityMapDotSize(mapImportanceById.get(node.id) ?? 0),
       communityMapLabelSide: communityMapLabelSide(cssPoint),
-      communityMapRelationLabel: communityMapRelationLabel(node, { labelNodeSet })
+      communityMapRelationLabel: communityMapRelationLabel(node, { labelNodeSet }),
+      communityMapTier: communityMapNodeTier(node, {
+        coreNodeIds: stableCoreNodeSet,
+        selectedNodeIds: selectedNodeSet,
+        pinnedNodeIds: pinnedNodeSet,
+        searchResultIds: searchResultSet,
+        labelNodeIds: labelNodeSet,
+        importantNodeIds: importantIds,
+        startNodeIds: startIds
+      })
     };
   });
 
@@ -610,6 +695,10 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     const curveOffset = options.pathCache?.getEdgeCurve(edge, source.point, target.point) ?? edgeCurveOffset(source.point, target.point, edge, worldBounds);
     const confidence = normalizeEdgeConfidence(edge);
     const relationType = normalizeEdgeRelationType(edge);
+    const localMapLayer = communityMapEdgeLayer(edge, {
+      skeletonEdgeIds: stableSkeletonEdgeSet,
+      interactionEdgeIds: interactionEdgeIdSet
+    });
     return [{
       id: edge.id,
       source: edge.source,
@@ -624,7 +713,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       opacity: edgeVisualOpacity(edge, isFocusedView),
       simulationWeight: edgeStrokeWidth(edge),
       skeleton: stableSkeletonEdgeSet.has(edge.id),
-      traceable: interactionEdgeIdSet.has(edge.id)
+      traceable: interactionEdgeIdSet.has(edge.id),
+      communityMapLayer: localMapLayer
     }];
   });
   const renderedEdgeIds = new Set(edges.map((edge) => edge.id));
@@ -654,6 +744,67 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const activeEdges = edges.filter((edge) => edge.traceable).length;
   const activeInteractionCandidates = nodes.length + activeEdges + activeLabels;
   const activeInteractionUsage = Math.min(activeInteractionCandidates, budgetLimits.maxInteractionUpdates);
+
+  // Phase 2: build ONE community local-map snapshot. Only the focused community
+  // (when reading) or the explicit source-community context (when in global view)
+  // gets a snapshot, never every community. The snapshot filters that community's
+  // nodes and internal edges from the already-rendered sets, so it cannot label
+  // whole-graph counts under one community id.
+  const communityMapActive = focus?.kind === "community";
+  const communityMapCommunityId =
+    focus?.kind === "community"
+      ? focus.id
+      : options.sourceCommunityId
+        ? options.sourceCommunityId
+        : null;
+  const communityMapNodeSet = new Set(
+    communityMapCommunityId
+      ? nodes.filter((node) => node.community === communityMapCommunityId).map((node) => node.id)
+      : []
+  );
+  const communityMapNodes = nodes.filter((node) => communityMapNodeSet.has(node.id));
+  const communityMapEdges = edges.filter((edge) => communityMapNodeSet.has(edge.source) && communityMapNodeSet.has(edge.target));
+  const communityMapVisibleLabels = communityMapNodes.filter((node) => node.labelVisible).length;
+  const communityMapEdgeLayers = communityMapEdgeLayerCounts(communityMapEdges);
+  const communityMapCurrent: CommunityMapRuleSnapshot | null = communityMapCommunityId
+    ? {
+      communityId: communityMapCommunityId,
+      source: communityMapActive ? "focus" : "source-context",
+      nodeRulesById: Object.fromEntries(
+        communityMapNodes.map((node) => [
+          node.id,
+          {
+            nodeId: node.id,
+            tier: node.communityMapTier,
+            basePoint: node.point,
+            labelVisible: node.labelVisible,
+            labelSide: node.communityMapLabelSide,
+            relationLabel: node.communityMapRelationLabel,
+            importance: node.communityMapImportance,
+            dotSize: node.communityMapDotSize
+          }
+        ])
+      ),
+      edgeRulesById: Object.fromEntries(
+        communityMapEdges.map((edge) => [
+          edge.id,
+          {
+            edgeId: edge.id,
+            layer: edge.communityMapLayer,
+            skeleton: edge.skeleton,
+            traceable: edge.traceable
+          }
+        ])
+      ),
+      layout: communityMapLayoutSnapshot(communityMapNodes, { viewportSize: options.viewportSize }),
+      labelBudget: {
+        limit: budgetLimits.maxLabels,
+        visible: communityMapVisibleLabels,
+        hidden: Math.max(0, communityMapNodes.length - communityMapVisibleLabels)
+      },
+      edgeLayers: communityMapEdgeLayers
+    }
+    : null;
 
   return {
     model,
@@ -725,7 +876,15 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       temporaryBoostNodeIds: filteredVisibleNodes.filter((node) => temporaryBoostNodeSet.has(node.id)).map((node) => node.id)
     },
     communityFocus,
-    communityQuality
+    communityQuality,
+    communityMap: {
+      active: communityMapActive,
+      sourceCommunityId: options.sourceCommunityId || null,
+      motionMode: communityMapActive ? "frozen" : "live",
+      maxNodeDriftRatio: communityMapActive ? 0 : 1,
+      current: communityMapCurrent,
+      rulesByCommunityId: communityMapCurrent ? { [communityMapCurrent.communityId]: communityMapCurrent } : {}
+    }
   };
 }
 
@@ -1279,6 +1438,87 @@ function communityMapRelationLabel(
   options: { labelNodeSet: Set<string> }
 ): boolean {
   return options.labelNodeSet.has(node.id);
+}
+
+// Phase 2 local-map node tier. `selectedNodeIds` contains only real node/nodes
+// selections (resolveSelectedNodeIds never sees sourceCommunityId), so the
+// source-community context cannot promote every community node to core.
+function communityMapNodeTier(
+  node: AtlasNode,
+  signals: {
+    coreNodeIds: Set<string>;
+    selectedNodeIds: Set<string>;
+    pinnedNodeIds: Set<string>;
+    searchResultIds: Set<string>;
+    labelNodeIds: Set<string>;
+    importantNodeIds: Record<string, boolean>;
+    startNodeIds: Record<string, boolean>;
+  }
+): CommunityMapNodeTier {
+  if (
+    signals.coreNodeIds.has(node.id) ||
+    signals.selectedNodeIds.has(node.id) ||
+    signals.startNodeIds[node.id] === true
+  ) {
+    return "core";
+  }
+  if (
+    signals.pinnedNodeIds.has(node.id) ||
+    signals.searchResultIds.has(node.id) ||
+    signals.labelNodeIds.has(node.id) ||
+    signals.importantNodeIds[node.id] === true
+  ) {
+    return "related";
+  }
+  return "peripheral";
+}
+
+function communityMapEdgeLayer(
+  edge: AtlasEdge,
+  signals: {
+    skeletonEdgeIds: Set<string>;
+    interactionEdgeIds: Set<string>;
+  }
+): CommunityMapEdgeLayer {
+  if (signals.skeletonEdgeIds.has(edge.id)) return "skeleton";
+  if (signals.interactionEdgeIds.has(edge.id)) return "related";
+  return "background";
+}
+
+function communityMapEdgeLayerCounts(edges: RenderableEdge[]): Record<CommunityMapEdgeLayer, number> {
+  return edges.reduce<Record<CommunityMapEdgeLayer, number>>(
+    (counts, edge) => {
+      counts[edge.communityMapLayer] += 1;
+      return counts;
+    },
+    { skeleton: 0, related: 0, background: 0 }
+  );
+}
+
+// Stable close-up frame for one community. Uses the same world-space base
+// points the render model already resolved (runtime positions -> pins -> atlas),
+// so the DOM close-up cannot drift into a different shape than the global map.
+function communityMapLayoutSnapshot(
+  nodes: RenderableNode[],
+  options: { viewportSize?: { width: number; height: number } }
+): CommunityMapLayoutSnapshot {
+  const bounds = worldBoundsForPoints(nodes.map((node) => node.point));
+  const viewport = options.viewportSize;
+  const viewportAspectRatio = viewport && viewport.width > 0 && viewport.height > 0
+    ? viewport.width / viewport.height
+    : null;
+  return {
+    coordinateSpace: "world",
+    bounds: {
+      minX: bounds.minX,
+      minY: bounds.minY,
+      maxX: bounds.maxX,
+      maxY: bounds.maxY,
+      width: bounds.width,
+      height: bounds.height
+    },
+    viewportAspectRatio
+  };
 }
 
 function temporaryNodeBoost(

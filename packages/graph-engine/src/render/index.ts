@@ -18,6 +18,15 @@ export {
   screenEffectiveDensityMode
 } from "./model";
 export type {
+  CommunityMapEdgeLayer,
+  CommunityMapEdgeRule,
+  CommunityMapLabelSide,
+  CommunityMapLayoutSnapshot,
+  CommunityMapMotionMode,
+  CommunityMapNodeRule,
+  CommunityMapNodeTier,
+  CommunityMapRuleSnapshot,
+  GraphCommunityMapRules,
   DensityMode,
   GraphCommunityFocusRepresentation,
   GraphCommunityFocusScale,
