@@ -23,7 +23,7 @@ import type {
   ThemeId,
   WikiPath
 } from "../types";
-import { buildRenderableGraph, type RenderPosition, type RenderPositionMap, type RenderableGraph } from "./model";
+import { buildRenderableGraph, type CommunityMapEdgeLayer, type CommunityMapLabelSide, type CommunityMapNodeTier, type RenderPosition, type RenderPositionMap, type RenderableGraph } from "./model";
 
 export const GRAPH_RENDERER_ADAPTER_ROUTES = ["dom-svg", "candidate-global", "aggregation-fallback"] as const;
 
@@ -74,6 +74,11 @@ export interface GraphRendererAdapterNode {
     visualRole: string;
     priority: number;
     labelVisible: boolean;
+    communityMapTier: CommunityMapNodeTier;
+    communityMapImportance: number;
+    communityMapDotSize: number;
+    communityMapLabelSide: CommunityMapLabelSide;
+    communityMapRelationLabel: boolean;
   };
 }
 
@@ -89,6 +94,9 @@ export interface GraphRendererAdapterEdge {
   render: {
     strokeWidth: number;
     opacity: number;
+    communityMapLayer: CommunityMapEdgeLayer;
+    skeleton: boolean;
+    traceable: boolean;
   };
 }
 
@@ -224,7 +232,12 @@ export function buildGraphRendererAdapterData(
         displayMode: renderNode.displayMode,
         visualRole: renderNode.visualRole,
         priority: renderNode.priority,
-        labelVisible: renderNode.labelVisible
+        labelVisible: renderNode.labelVisible,
+        communityMapTier: renderNode.communityMapTier,
+        communityMapImportance: renderNode.communityMapImportance,
+        communityMapDotSize: renderNode.communityMapDotSize,
+        communityMapLabelSide: renderNode.communityMapLabelSide,
+        communityMapRelationLabel: renderNode.communityMapRelationLabel
       }
     };
   });
@@ -266,7 +279,10 @@ export function buildGraphRendererAdapterData(
       weight: numericWeight(rawEdge?.weight),
       render: {
         strokeWidth: edge.strokeWidth,
-        opacity: edge.opacity
+        opacity: edge.opacity,
+        communityMapLayer: edge.communityMapLayer,
+        skeleton: edge.skeleton,
+        traceable: edge.traceable
       }
     };
   });

@@ -77,6 +77,8 @@ describe("Sigma global renderer production boundary", () => {
       displayMode: "card",
       visualRole: "landmark",
       priority: 900,
+      communityMapTier: "core",
+      communityMapImportance: 3,
       drawerTarget: {
         summaryKind: "node-summary",
         object: { kind: "node", nodeId: "render-alpha" }
@@ -102,6 +104,8 @@ describe("Sigma global renderer production boundary", () => {
       displayMode: "point",
       visualRole: "map-pin",
       priority: 100,
+      communityMapTier: "related",
+      communityMapImportance: 3,
       drawerTarget: {
         summaryKind: "node-summary",
         object: { kind: "node", nodeId: "render-beta" }
@@ -114,7 +118,8 @@ describe("Sigma global renderer production boundary", () => {
       confidence: "ADAPTER_CONFIDENCE",
       weight: 0.75,
       sourceCommunityId: "adapter-community",
-      targetCommunityId: "adapter-community"
+      targetCommunityId: "adapter-community",
+      communityMapLayer: "skeleton"
     });
     assert.equal(graph.source("adapter-edge"), "render-alpha");
     assert.equal(graph.target("adapter-edge"), "render-beta");
@@ -188,7 +193,8 @@ describe("Sigma global renderer production boundary", () => {
       confidence: "ADAPTER_CONFIDENCE",
       weight: 0.75,
       sourceCommunityId: "adapter-community",
-      targetCommunityId: "adapter-community"
+      targetCommunityId: "adapter-community",
+      communityMapLayer: "skeleton"
     });
   });
 
@@ -2057,7 +2063,12 @@ function adapterDataFixture(options: {
           displayMode: "card",
           visualRole: "landmark",
           priority: 900,
-          labelVisible: true
+          labelVisible: true,
+          communityMapTier: "core",
+          communityMapImportance: 3,
+          communityMapDotSize: 18,
+          communityMapLabelSide: "right",
+          communityMapRelationLabel: true
         }
       },
       {
@@ -2085,7 +2096,12 @@ function adapterDataFixture(options: {
           displayMode: "point",
           visualRole: "map-pin",
           priority: 100,
-          labelVisible: false
+          labelVisible: false,
+          communityMapTier: "related",
+          communityMapImportance: 3,
+          communityMapDotSize: 18,
+          communityMapLabelSide: "right",
+          communityMapRelationLabel: true
         }
       }
     ],
@@ -2101,7 +2117,10 @@ function adapterDataFixture(options: {
         weight: 0.75,
         render: {
           strokeWidth: 3,
-          opacity: 0.42
+          opacity: 0.42,
+          communityMapLayer: "skeleton",
+          skeleton: true,
+          traceable: true
         }
       }
     ],
@@ -2498,7 +2517,12 @@ function spotlightNodeFixture(
       displayMode: "point",
       visualRole: "map-pin",
       priority: 10,
-      labelVisible: false
+      labelVisible: false,
+      communityMapTier: "related",
+      communityMapImportance: 3,
+      communityMapDotSize: 18,
+      communityMapLabelSide: "right",
+      communityMapRelationLabel: true
     }
   };
 }
@@ -2517,7 +2541,10 @@ function sigmaEdgeFixture(
     weight: 0,
     render: {
       strokeWidth: 1,
-      opacity: 1
+      opacity: 1,
+      communityMapLayer: "skeleton",
+      skeleton: true,
+      traceable: true
     },
     ...overrides
   };
@@ -2555,7 +2582,12 @@ function adapterDataWithPolygonCommunityCloud(): GraphRendererAdapterData {
       displayMode: "point",
       visualRole: "map-pin",
       priority: 50,
-      labelVisible: false
+      labelVisible: false,
+      communityMapTier: "related",
+      communityMapImportance: 3,
+      communityMapDotSize: 18,
+      communityMapLabelSide: "right",
+      communityMapRelationLabel: true
     }
   };
 
@@ -2600,7 +2632,12 @@ function adapterDataWithPolygonCommunityOutlier(): GraphRendererAdapterData {
       displayMode: "point",
       visualRole: "map-pin",
       priority: 1,
-      labelVisible: false
+      labelVisible: false,
+      communityMapTier: "related",
+      communityMapImportance: 3,
+      communityMapDotSize: 18,
+      communityMapLabelSide: "right",
+      communityMapRelationLabel: true
     }
   };
 

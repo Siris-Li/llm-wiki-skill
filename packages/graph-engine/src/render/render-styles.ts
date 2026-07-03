@@ -1100,7 +1100,7 @@ const STATIC_RENDERER_CSS = `
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .edge {
   stroke-width: max(1.1px, min(1.65px, var(--edge-map-width, 1.45px))) !important;
-  opacity: .5 !important;
+  opacity: .32 !important;
   transition: opacity .18s ease, stroke-width .18s ease, stroke .18s ease;
 }
 .llm-wiki-graph-engine[data-community-map-state="lightweight"] .edge.relation-implementation {
