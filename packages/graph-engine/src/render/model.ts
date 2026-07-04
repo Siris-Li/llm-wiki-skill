@@ -534,7 +534,12 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   );
   const temporaryBoostNodeSet = new Set(
     filteredVisibleNodes
-      .filter((node) => temporaryNodeBoost(node, { selectedNodeIds: selectedNodeSet, pinnedNodeIds: pinnedNodeSet, searchResultIds: searchResultSet }) > 0)
+      .filter((node) => temporaryNodeBoost(node, {
+        selectedNodeIds: selectedNodeSet,
+        relationFocusDepth: relationFocusState.nodeDepthById.get(node.id) ?? "none",
+        pinnedNodeIds: pinnedNodeSet,
+        searchResultIds: searchResultSet
+      }) > 0)
       .map((node) => node.id)
   );
   const budgetedNodeIds = selectBudgetedIds(filteredVisibleNodes, budgetLimits.maxVisibleNodes, (node) =>
@@ -546,7 +551,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       importantNodeIds: importantIds,
       startNodeIds: startIds,
       previewNodeId,
-      coreNodeIds: stableCoreNodeSet
+      coreNodeIds: stableCoreNodeSet,
+      relationFocusDepth: relationFocusState.nodeDepthById.get(node.id) ?? "none"
     })
   );
   const budgetedVisibleNodes = filteredVisibleNodes.filter((node) => budgetedNodeIds.has(node.id));
@@ -569,7 +575,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       importantNodeIds: importantIds,
       startNodeIds: startIds,
       previewNodeId,
-      coreNodeIds: stableCoreNodeSet
+      coreNodeIds: stableCoreNodeSet,
+      relationFocusDepth: relationFocusState.nodeDepthById.get(node.id) ?? "none"
     })
   );
   const cardCandidateNodes = budgetLimits.maxCards > 0
@@ -586,7 +593,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       importantNodeIds: importantIds,
       startNodeIds: startIds,
       previewNodeId,
-      coreNodeIds: stableCoreNodeSet
+      coreNodeIds: stableCoreNodeSet,
+      relationFocusDepth: relationFocusState.nodeDepthById.get(node.id) ?? "none"
     })
   );
   const traceableNodeIds = new Set([
@@ -608,7 +616,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       importantNodeIds: importantIds,
       startNodeIds: startIds,
       previewNodeId,
-      coreNodeIds: stableCoreNodeSet
+      coreNodeIds: stableCoreNodeSet,
+      relationFocusDepth: relationFocusState.nodeDepthById.get(node.id) ?? "none"
     })
   );
 
@@ -658,6 +667,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       }),
       temporaryBoost: temporaryNodeBoost(node, {
         selectedNodeIds: selectedNodeSet,
+        relationFocusDepth: relationFocusState.nodeDepthById.get(node.id) ?? "none",
         pinnedNodeIds: pinnedNodeSet,
         searchResultIds: searchResultSet
       }),
@@ -695,7 +705,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       pinnedNodeIds: pinnedNodeSet,
       searchResultIds: searchResultSet,
       importantNodeIds: importantIds,
-      coreNodeIds: stableCoreNodeSet
+      coreNodeIds: stableCoreNodeSet,
+      relationFocusDepth: relationFocusState.edgeDepthById.get(edge.id) ?? "none"
     })
   );
   const interactionEdgeBudget = Math.max(8, Math.min(edgeIdSet.size, Math.ceil(budgetLimits.maxVisibleEdges * 0.22)));
@@ -707,7 +718,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       pinnedNodeIds: pinnedNodeSet,
       searchResultIds: searchResultSet,
       importantNodeIds: importantIds,
-      coreNodeIds: stableCoreNodeSet
+      coreNodeIds: stableCoreNodeSet,
+      relationFocusDepth: relationFocusState.edgeDepthById.get(edge.id) ?? "none"
     })
   );
   const edges = renderableEdgeCandidates.filter((edge) => edgeIdSet.has(edge.id)).flatMap((edge) => {
@@ -1334,6 +1346,7 @@ function nodeRenderPriority(
     startNodeIds: Record<string, boolean>;
     previewNodeId: string | null;
     coreNodeIds: Set<string>;
+    relationFocusDepth?: GraphRelationFocusDepth;
   }
 ): number {
   return stableNodeImportance(node, signals) + temporaryNodeBoost(node, signals);
@@ -1347,10 +1360,13 @@ function edgeRenderPriority(
     searchResultIds: Set<string>;
     importantNodeIds: Record<string, boolean>;
     coreNodeIds: Set<string>;
+    relationFocusDepth?: GraphRelationFocusDepth;
   }
 ): number {
   const endpoints = [edge.source, edge.target];
   let score = stableEdgeImportance(edge, signals);
+  if (signals.relationFocusDepth === "first") score += 1000000;
+  if (signals.relationFocusDepth === "second") score += 300000;
   for (const id of endpoints) {
     if (signals.selectedNodeIds.has(id)) score += 100000;
     if (signals.searchResultIds.has(id)) score += 50000;
@@ -1558,11 +1574,15 @@ function temporaryNodeBoost(
   node: AtlasNode,
   signals: {
     selectedNodeIds: Set<string>;
+    relationFocusDepth?: GraphRelationFocusDepth;
     pinnedNodeIds: Set<string>;
     searchResultIds: Set<string>;
   }
 ): number {
   let score = 0;
+  if (signals.relationFocusDepth === "focus") score += 1000000;
+  if (signals.relationFocusDepth === "first") score += 500000;
+  if (signals.relationFocusDepth === "second") score += 150000;
   if (signals.selectedNodeIds.has(node.id)) score += 100000;
   if (signals.searchResultIds.has(node.id)) score += 50000;
   if (signals.pinnedNodeIds.has(node.id)) score += 40000;

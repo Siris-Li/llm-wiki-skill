@@ -184,17 +184,6 @@ export function GraphPanel({
 		if (!edgeTuningAvailable) setEdgeTuningOpen(false);
 	}, [edgeTuningAvailable]);
 
-	useEffect(() => {
-		if (status !== "ready" || edgeTuningOpen) return;
-		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape" || event.defaultPrevented) return;
-			engineRef.current?.clearInteraction();
-			onSelectionChangeRef.current?.(null);
-		};
-		document.addEventListener("keydown", handleKeyDown);
-		return () => document.removeEventListener("keydown", handleKeyDown);
-	}, [edgeTuningOpen, status]);
-
 	useLayoutEffect(() => {
 		graphThemeRef.current = graphTheme;
 	}, [graphTheme]);

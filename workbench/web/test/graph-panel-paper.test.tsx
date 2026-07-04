@@ -155,7 +155,7 @@ describe("GraphPanel Paper shell", () => {
 		});
 	});
 
-	it("clears graph interaction on Escape even when no drawer is open", async () => {
+	it("does not clear graph interaction from the workbench shell on Escape", async () => {
 		mockGraphFetch();
 		const selectionChanges: unknown[] = [];
 		render(
@@ -173,7 +173,7 @@ describe("GraphPanel Paper shell", () => {
 
 		await pressKey(document, "Escape");
 
-		assert.deepEqual(selectionChanges, [null]);
+		assert.deepEqual(selectionChanges, []);
 	});
 
 	it("keeps the GraphPanel Paper shell styling outside graph-engine internals", () => {

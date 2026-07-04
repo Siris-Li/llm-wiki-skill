@@ -686,6 +686,81 @@ describe("buildRenderableGraph", () => {
     assert.equal(restored.nodes.find((node) => node.id === "a")?.relationFocusDepth, "first");
   });
 
+  it("keeps the hovered node label visible even when the label budget is crowded", () => {
+    const nodes = Array.from({ length: 20 }, (_, index) => ({
+      id: `n${index}`,
+      label: `Node ${index}`,
+      type: "topic",
+      community: "c1",
+      source_path: `wiki/n${index}.md`,
+      weight: index === 19 ? 1 : 100 - index,
+      priority: index === 19 ? 1 : 100 - index,
+      x: index * 8,
+      y: index * 5
+    }));
+    const graph = buildRenderableGraph({
+      meta: { build_date: "2026-07-04T00:00:00.000Z", wiki_title: "Crowded labels", total_nodes: nodes.length, total_edges: 1 },
+      nodes,
+      edges: [{ id: "n18-n19", from: "n18", to: "n19", weight: 0.1 }],
+      learning: {
+        version: 1,
+        communities: [{ id: "c1", label: "Crowded", node_count: nodes.length }],
+        entry: { recommended_start_node_id: "n0", recommended_start_reason: "fixture", default_mode: "global" }
+      }
+    } as GraphData, {
+      focus: { kind: "community", id: "c1" },
+      relationFocusNodeId: "n19"
+    });
+
+    assert.equal(graph.nodes.find((node) => node.id === "n19")?.relationFocusDepth, "focus");
+    assert.equal(graph.nodes.find((node) => node.id === "n19")?.labelVisible, true);
+    assert.ok(graph.nodes.filter((node) => node.labelVisible).length <= graph.budget.limits.maxLabels);
+  });
+
+  it("keeps direct relation edges visible before applying relation edge emphasis", () => {
+    const nodes = [
+      { id: "focus", label: "Focus", type: "topic", community: "c1", source_path: "wiki/focus.md", weight: 1, x: 0, y: 0 },
+      { id: "neighbor", label: "Neighbor", type: "topic", community: "c1", source_path: "wiki/neighbor.md", weight: 1, x: 10, y: 10 },
+      ...Array.from({ length: 1001 }, (_, index) => ({
+        id: `n${index}`,
+        label: `Node ${index}`,
+        type: "topic",
+        community: "c1",
+        source_path: `wiki/n${index}.md`,
+        weight: 100,
+        x: 20 + index,
+        y: 20 + index
+      }))
+    ];
+    const edges = [
+      { id: "focus-neighbor", from: "focus", to: "neighbor", weight: 0.01 },
+      ...Array.from({ length: 900 }, (_, index) => ({
+        id: `busy-${index}`,
+        from: `n${index}`,
+        to: `n${index + 1}`,
+        weight: 1
+      }))
+    ];
+    const graph = buildRenderableGraph({
+      meta: { build_date: "2026-07-04T00:00:00.000Z", wiki_title: "Crowded edges", total_nodes: nodes.length, total_edges: edges.length },
+      nodes,
+      edges,
+      learning: {
+        version: 1,
+        communities: [{ id: "c1", label: "Crowded", node_count: nodes.length }],
+        entry: { recommended_start_node_id: "n0", recommended_start_reason: "fixture", default_mode: "global" }
+      }
+    } as GraphData, {
+      focus: { kind: "community", id: "c1" },
+      relationFocusNodeId: "focus"
+    });
+    const directEdge = graph.edges.find((edge) => edge.id === "focus-neighbor");
+
+    assert.ok(directEdge, "direct relation edge should survive the visible edge budget");
+    assert.equal(directEdge.relationFocusDepth, "first");
+    assert.equal(directEdge.communityMapLayer, "related");
+  });
+
   it("uses the small community band as a lightweight map with sparse labels", () => {
     const graph = buildRenderableGraph(budgetGraph(24, 120), {
       theme: "shan-shui",

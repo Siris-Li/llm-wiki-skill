@@ -732,7 +732,8 @@ describe("GraphFacade", () => {
 
   it("keeps community reading active when clearing node interaction inside a community", () => {
     const state = twoCommunityState();
-    const manager = sourceContextManager(state, []);
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const manager = sourceContextManager(state, sigmaInputs);
 
     manager.focusCommunity("c1");
     manager.select({ kind: "node", id: "a" });
@@ -743,6 +744,11 @@ describe("GraphFacade", () => {
     assert.equal(state.sourceCommunityId, "c1");
     assert.equal(state.selection, null);
     assert.equal(state.temporaryObject, null);
+
+    sigmaInputs[0].options.callbacks.onSelectionClearRequested?.();
+
+    assert.deepEqual(state.focus, { kind: "community", id: "c1" });
+    assert.equal(state.sourceCommunityId, "c1");
   });
 
   it("notifies the active Sigma route when explicit reset clears source community context", () => {

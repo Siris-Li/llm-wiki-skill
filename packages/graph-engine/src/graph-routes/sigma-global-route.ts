@@ -57,6 +57,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   input.container.append(shell);
   ensureGraphRendererStyles(input.container.ownerDocument);
   mountSigmaControls();
+  input.container.ownerDocument.addEventListener("keydown", handleDocumentKeyDown);
 
   void sigmaGlobalRendererRuntimeBoundary()
     .then((runtime) => {
@@ -149,13 +150,8 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       input.options.callbacks.onSelectionClearRequested?.();
     },
     clearInteraction() {
+      if (clearCommunityNodeInteraction()) return;
       hoverNodeId = null;
-      if (options.focus?.kind === "community") {
-        options = { ...options, selection: null, temporaryObject: null };
-        input.options.callbacks.onSelectionClearRequested?.();
-        updateSigmaRenderer();
-        return;
-      }
       options = { ...options, focus: null, selection: null, temporaryObject: null };
       updateSigmaRenderer();
     },
@@ -195,6 +191,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      input.container.ownerDocument.removeEventListener("keydown", handleDocumentKeyDown);
       renderer?.destroy();
       renderer = null;
       shell.remove();
@@ -230,10 +227,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       return;
     }
     if (options.focus?.kind === "community" && target.kind === "graph-blank") {
-      hoverNodeId = null;
-      options = { ...options, selection: null, temporaryObject: null };
-      input.options.callbacks.onSelectionClearRequested?.();
-      updateSigmaRenderer();
+      clearCommunityNodeInteraction();
       return;
     }
     const nextSelection = selectionInputForSigmaHit(options.data, options.selection, target, context);
@@ -272,6 +266,31 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     if (hoverNodeId === nextHoverNodeId) return;
     hoverNodeId = nextHoverNodeId;
     updateSigmaRenderer();
+  }
+
+  function handleDocumentKeyDown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (!isGraphRouteKeyboardTarget(event.target)) return;
+    if (options.focus?.kind !== "community") return;
+    if (options.selection?.kind !== "node" && !hoverNodeId && !options.temporaryObject) return;
+    clearCommunityNodeInteraction();
+  }
+
+  function clearCommunityNodeInteraction(): boolean {
+    if (options.focus?.kind !== "community") return false;
+    hoverNodeId = null;
+    options = { ...options, selection: null, temporaryObject: null };
+    input.options.callbacks.onSelectionClearRequested?.();
+    updateSigmaRenderer();
+    return true;
+  }
+
+  function isGraphRouteKeyboardTarget(target: EventTarget | null): boolean {
+    if (!target) return true;
+    const ownerDocument = input.container.ownerDocument;
+    if (target === ownerDocument || target === ownerDocument.body || target === ownerDocument.documentElement) return true;
+    if (typeof shell.contains !== "function" || typeof (target as { nodeType?: unknown }).nodeType !== "number") return false;
+    return shell.contains(target as Node);
   }
 
   function mountSigmaControls(): void {
