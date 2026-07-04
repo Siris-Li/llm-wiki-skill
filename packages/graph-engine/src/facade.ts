@@ -225,7 +225,7 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
     onVisibilityStateChange: (visibility) => {
       facadeState.searchQuery = visibility.searchQuery;
       facadeState.searchResultIds = visibility.searchResultIds;
-      facadeState.typeFilters = visibility.typeFilters;
+      if (!visibility.focusCommunityId) facadeState.typeFilters = visibility.typeFilters;
       facadeState.temporaryObject = visibility.temporaryObject;
       capabilities?.onVisibilityStateChange?.(visibility);
     }
@@ -322,6 +322,7 @@ export function createGraphFacadeRouteManager(
       if (clearedSourceCommunity) {
         currentRenderer().setSourceCommunityContext?.(null);
       }
+      clearStaleCommunityReadingSelectionForData(data);
       if (graphExceedsGlobalNodeLimit(state.data)) {
         if (routeId === "over-limit-notice" && active) {
           currentRenderer().setData(data, pins);
@@ -486,7 +487,9 @@ export function createGraphFacadeRouteManager(
 
   function requestGlobalRouteFromRenderer(): { shouldNotifyViewReset: boolean } {
     const previousRouteId = routeId;
+    const wasCommunityReading = state.focus?.kind === "community";
     state.focus = null;
+    if (wasCommunityReading) clearCommunityLocalVisibilityState();
     clearCommunitySelectionForGlobalReset();
     switchToGlobalRoute();
     if (routeId === "sigma-global") {
@@ -523,6 +526,22 @@ export function createGraphFacadeRouteManager(
     state.selection = null;
     state.temporaryObject = null;
     options.callbacks?.onSelectionClearRequested?.();
+  }
+
+  function clearCommunityLocalVisibilityState(): void {
+    state.searchQuery = "";
+    state.searchResultIds = [];
+    state.temporaryObject = null;
+  }
+
+  function clearStaleCommunityReadingSelectionForData(data: GraphData): void {
+    const focus = state.focus;
+    const selection = state.selection;
+    if (focus?.kind !== "community" || selection?.kind !== "node") return;
+    const node = data.nodes.find((item) => item.id === selection.id);
+    if (node && node.community === focus.id) return;
+    state.selection = null;
+    state.temporaryObject = null;
   }
 
   function activateGlobalRoute(): GraphFacadeRenderer {
@@ -651,7 +670,7 @@ export function createGraphFacadeRouteManager(
           onVisibilityStateChange: (visibility) => {
             state.searchQuery = visibility.searchQuery;
             state.searchResultIds = visibility.searchResultIds;
-            state.typeFilters = visibility.typeFilters;
+            if (!visibility.focusCommunityId) state.typeFilters = visibility.typeFilters;
             state.temporaryObject = visibility.temporaryObject;
             options.callbacks?.onVisibilityStateChange?.(visibility);
           }

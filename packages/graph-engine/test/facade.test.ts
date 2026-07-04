@@ -359,7 +359,8 @@ describe("GraphFacade", () => {
       searchQuery: "Alpha",
       searchResultIds: ["a"],
       typeFilters: { topic: true, source: false },
-      temporaryObject: null
+      temporaryObject: null,
+      focusCommunityId: "c1"
     });
     sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
 
@@ -369,7 +370,8 @@ describe("GraphFacade", () => {
     assert.equal(overLimitNoticeCount, 0);
     assert.equal(state.focus, null);
     assert.equal(state.sourceCommunityId, "c1");
-    assert.deepEqual(state.searchResultIds, ["a"]);
+    assert.equal(state.searchQuery, "");
+    assert.deepEqual(state.searchResultIds, []);
     assert.deepEqual(state.typeFilters, { topic: true, source: false });
     assert.deepEqual(Object.keys(state.pins), ["wiki/b.md"]);
     assert.deepEqual(renderers[0].calls.slice(-2), [["focusCommunity", "c1"], ["resetView"]]);
@@ -680,7 +682,8 @@ describe("GraphFacade", () => {
     assert.equal(state.focus, null);
     assert.deepEqual(smallFallbackInputs[1].options.focus, null);
     assert.deepEqual(smallFallbackInputs[1].options.selection, { kind: "node", id: "a" });
-    assert.deepEqual(smallFallbackInputs[1].options.searchResultIds, ["a"]);
+    assert.equal(smallFallbackInputs[1].options.searchQuery, "");
+    assert.deepEqual(smallFallbackInputs[1].options.searchResultIds, []);
     assert.deepEqual(smallFallbackInputs[1].options.typeFilters, { topic: true, source: true });
     assert.deepEqual(Object.keys(smallFallbackInputs[1].options.pins), ["wiki/a.md"]);
     assert.deepEqual(viewResets, []);

@@ -1,4 +1,4 @@
-import type { GraphNode, GraphData, PinMap, SelectionInput, ThemeId } from "../types";
+import type { GraphNode, GraphData, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId } from "../types";
 import {
   buildGraphRendererAdapterData,
   buildCommunityLegend,
@@ -15,12 +15,21 @@ import {
   sigmaGlobalRendererRuntimeBoundary,
   type SigmaGlobalRendererRuntime
 } from "../render/sigma-global-renderer";
-import { createCommunityLegend, createGraphToolbar, createSearchControl, createSigmaZoomControls } from "../render/controls";
+import {
+  createCommunityLegend,
+  createGraphToolbar,
+  createSearchControl,
+  createSigmaZoomControls,
+  updateSearchControlResults,
+  type GraphSearchResultControlItem
+} from "../render/controls";
 import { ensureGraphRendererStyles } from "../render/render-styles";
 import { toggleNodeInSelection } from "../select";
 import { wikiPathForGraphNode } from "../graph-node";
 import { getThemeTokens, themeTokensToCssVars } from "../themes";
 import type { GraphFacadeRenderer, GraphFacadeRouteRendererFactoryInput, GraphFacadeRouteRendererOptions } from "../facade";
+
+const SEARCH_RESULT_CONTROL_LIMIT = 30;
 
 export function selectionInputForSigmaHit(
   data: GraphData,
@@ -45,18 +54,27 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   let renderer: ReturnType<typeof createSigmaGlobalRenderer> | null = null;
   let searchOpen = Boolean(options.searchQuery);
   let searchFocusedNodeId: string | null = null;
+  let communityTypeFilters: GraphTypeFilters = {};
+  let communityTypeFilterFocusId: string | null = options.focus?.kind === "community" ? options.focus.id : null;
   let hoverNodeId: string | null = null;
   let legendCollapsed = false;
   let toolbarPanelState = readToolbarPanelState(input.container.ownerDocument.defaultView?.localStorage);
   let searchStatus: HTMLElement | null = null;
-  let currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId);
+  let searchResultsList: HTMLElement | null = null;
+  let currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute());
   const shell = input.container.ownerDocument.createElement("div");
   shell.className = "sigma-global-route llm-wiki-graph-engine";
   shell.dataset.route = "sigma-global";
   applyGraphThemeToElement(shell, options.theme);
   input.container.append(shell);
   ensureGraphRendererStyles(input.container.ownerDocument);
+  const hiddenReadingNodeHint = input.container.ownerDocument.createElement("div");
+  hiddenReadingNodeHint.className = "sigma-community-hidden-node-hint";
+  hiddenReadingNodeHint.textContent = "当前节点被筛选隐藏";
+  hiddenReadingNodeHint.setAttribute("aria-live", "polite");
+  shell.append(hiddenReadingNodeHint);
   mountSigmaControls();
+  syncHiddenReadingNodeHint();
   input.container.ownerDocument.addEventListener("keydown", handleDocumentKeyDown);
 
   void sigmaGlobalRendererRuntimeBoundary()
@@ -90,7 +108,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       return Boolean(renderer?.isDragging());
     },
     setData(data, pins) {
-      options = { ...options, data, pins: pins || options.pins };
+      options = applyScopedSearch(clearStaleCommunitySelection({ ...options, data, pins: pins || options.pins }));
       syncVisibilityState();
       mountSigmaControls();
       updateSigmaRenderer();
@@ -111,7 +129,9 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     },
     focusCommunity(id) {
       hoverNodeId = null;
-      options = { ...options, focus: { kind: "community", id }, sourceCommunityId: id };
+      ensureCommunityTypeFilterScope(id);
+      options = applyScopedSearch({ ...options, focus: { kind: "community", id }, sourceCommunityId: id });
+      syncVisibilityState();
       updateSigmaRenderer();
     },
     setSourceCommunityContext(id) {
@@ -119,7 +139,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       updateSigmaRenderer();
     },
     setTypeFilters(filters) {
-      options = { ...options, typeFilters: filters };
+      options = applyScopedSearch({ ...options, typeFilters: filters });
       syncVisibilityState();
       mountSigmaControls();
       updateSigmaRenderer();
@@ -133,8 +153,14 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       updateSigmaRenderer();
     },
     resetView() {
+      const wasCommunityReading = options.focus?.kind === "community";
       hoverNodeId = null;
-      options = { ...options, focus: null };
+      if (wasCommunityReading) clearCommunityTypeFilterScope();
+      options = wasCommunityReading
+        ? applyScopedSearch({ ...options, focus: null, searchQuery: "", searchResultIds: [] }, "")
+        : { ...options, focus: null };
+      syncVisibilityState();
+      mountSigmaControls();
       updateSigmaSelection(null);
       renderer?.resetView();
     },
@@ -161,7 +187,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       const path = wikiPathForGraphNode(node);
       const nextPins: PinMap = { ...options.pins };
       if (mode === "fix") {
-        const adapterNode = adapterDataForSigmaRoute(options).nodes.find((item) => item.id === id);
+        const adapterNode = adapterDataForSigmaRoute(options, null, typeFiltersForCurrentRoute()).nodes.find((item) => item.id === id);
         nextPins[path] = {
           x: adapterNode?.point.x ?? numericNodeCoordinate(node.x),
           y: adapterNode?.point.y ?? numericNodeCoordinate(node.y),
@@ -199,7 +225,8 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   };
 
   function updateSigmaRenderer(): void {
-    currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId);
+    currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute());
+    syncHiddenReadingNodeHint();
     if (!renderer || destroyed) return;
     renderer.update({
       adapterData: currentSigmaAdapterData,
@@ -211,6 +238,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
 
   function updateSigmaSelection(selection: SelectionInput | null): void {
     options = { ...options, selection };
+    syncVisibilityState();
     updateSigmaRenderer();
   }
 
@@ -281,6 +309,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     hoverNodeId = null;
     options = { ...options, selection: null, temporaryObject: null };
     input.options.callbacks.onSelectionClearRequested?.();
+    syncVisibilityState();
     updateSigmaRenderer();
     return true;
   }
@@ -299,26 +328,37 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     shell.querySelector(".graph-search")?.remove();
     shell.querySelector(".graph-toolbar")?.remove();
     shell.querySelector(".graph-zoom-controls")?.remove();
+    let searchControl: ReturnType<typeof createSearchControl> | null = null;
     const search = createSearchControl(input.container.ownerDocument, {
       open: searchOpen,
       query: options.searchQuery,
       onOpen: () => {
         searchOpen = true;
-        mountSigmaControls();
+        shell.dataset.searchOpen = "true";
+        if (searchControl) searchControl.element.dataset.state = "open";
       },
       onQuery: applySearchQuery,
       onNext: () => focusSearchResult("next"),
       onPrevious: () => focusSearchResult("previous"),
       onActivate: activateSearchResult,
+      onActivateResult: activateSearchResultById,
       onClose: () => {
         searchOpen = false;
         searchFocusedNodeId = null;
+        if (searchControl) {
+          searchControl.element.dataset.state = "closed";
+          searchControl.input.value = "";
+        }
         applySearchQuery("");
-      }
+      },
+      results: searchResultsForControl(options, searchFocusedNodeId, typeFiltersForCurrentRoute())
     });
+    searchControl = search;
     shell.prepend(search.element);
     searchStatus = search.status;
+    searchResultsList = search.results;
     updateSearchStatus(search.status);
+    updateSearchResultsList();
 
     const adapterData = currentSigmaAdapterData;
     const legendRows = buildCommunityLegend(adapterData.renderable.communities, adapterData.renderable.nodes);
@@ -336,14 +376,22 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     });
     const toolbar = createGraphToolbar(input.container.ownerDocument, {
       panelState: toolbarPanelState,
-      typeFilters: options.typeFilters,
+      typeFilters: typeFiltersForRouteControls(options, typeFiltersForCurrentRoute()),
       onPanelToggle: (panel) => {
         toolbarPanelState = nextToolbarPanelState(toolbarPanelState, panel);
         writeToolbarPanelState(input.container.ownerDocument.defaultView?.localStorage, toolbarPanelState);
         mountSigmaControls();
       },
       onTypeFilterToggle: (type, enabled) => {
-        options = { ...options, typeFilters: { ...options.typeFilters, [type]: enabled } };
+        if (options.focus?.kind === "community") {
+          communityTypeFilters = { ...typeFiltersForRouteControls(options, communityTypeFilters), [type]: enabled };
+          options = applyScopedSearch(options);
+        } else {
+          options = applyScopedSearch({
+            ...options,
+            typeFilters: { ...typeFiltersForRouteControls(options, options.typeFilters), [type]: enabled }
+          });
+        }
         syncVisibilityState();
         mountSigmaControls();
         updateSigmaRenderer();
@@ -363,16 +411,15 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   }
 
   function applySearchQuery(query: string): void {
-    const state = resolveGraphSearchState(options.data.nodes, query);
-    options = { ...options, searchQuery: state.query, searchResultIds: state.matchIds };
-    if (!state.matchIds.includes(searchFocusedNodeId || "")) searchFocusedNodeId = null;
+    options = applyScopedSearch(options, query);
     syncVisibilityState();
     if (searchStatus) updateSearchStatus(searchStatus);
+    updateSearchResultsList();
     updateSigmaRenderer();
   }
 
   function focusSearchResult(direction: "next" | "previous"): void {
-    const state = resolveGraphSearchState(options.data.nodes, options.searchQuery);
+    const state = resolveScopedSearchState(options, options.searchQuery, typeFiltersForCurrentRoute());
     const index = searchFocusedNodeId ? state.matchIds.indexOf(searchFocusedNodeId) : -1;
     if (!state.matchIds.length) return;
     const nextIndex = direction === "next"
@@ -383,30 +430,191 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   }
 
   function activateSearchResult(): void {
-    const state = resolveGraphSearchState(options.data.nodes, options.searchQuery);
-    const id = searchFocusedNodeId || state.matchIds[0];
-    if (id) selectOnSigma({ kind: "node", id });
+    const state = resolveScopedSearchState(options, options.searchQuery, typeFiltersForCurrentRoute());
+    const id = searchFocusedNodeId && state.matchIds.includes(searchFocusedNodeId)
+      ? searchFocusedNodeId
+      : state.matchIds[0];
+    if (!id) return;
+    activateSearchResultById(id);
+  }
+
+  function activateSearchResultById(id: NodeId): void {
+    const state = resolveScopedSearchState(options, options.searchQuery, typeFiltersForCurrentRoute());
+    if (state.query && !state.matchIds.includes(id)) {
+      searchFocusedNodeId = null;
+      if (searchStatus) updateSearchStatus(searchStatus);
+      updateSearchResultsList();
+      return;
+    }
+    searchFocusedNodeId = state.matchIds.includes(id) ? id : null;
+    selectOnSigma({ kind: "node", id });
+    if (options.focus?.kind === "community") input.options.callbacks.onNodeOpen?.(id);
+    if (searchStatus) updateSearchStatus(searchStatus);
+    updateSearchResultsList();
   }
 
   function syncVisibilityState(): void {
+    const typeFilters = typeFiltersForCurrentRoute();
+    const hiddenReadingNodeId = hiddenReadingNodeIdForOptions(options, typeFilters);
     input.options.callbacks.onVisibilityStateChange?.({
       searchQuery: options.searchQuery,
       searchResultIds: options.searchResultIds,
-      typeFilters: options.typeFilters,
-      temporaryObject: options.temporaryObject
+      typeFilters,
+      temporaryObject: options.temporaryObject,
+      focusCommunityId: options.focus?.kind === "community" ? options.focus.id : null,
+      hiddenReadingNodeId
     });
+    syncHiddenReadingNodeHint(hiddenReadingNodeId);
   }
 
   function updateSearchStatus(status: HTMLElement): void {
-    const state = resolveGraphSearchState(options.data.nodes, options.searchQuery);
+    const state = resolveScopedSearchState(options, options.searchQuery, typeFiltersForCurrentRoute());
     const focusedIndex = searchFocusedNodeId ? state.matchIds.indexOf(searchFocusedNodeId) : -1;
     status.textContent = state.query
       ? `${state.matchIds.length} 个结果${focusedIndex >= 0 ? ` · ${focusedIndex + 1}/${state.matchIds.length}` : ""}`
       : "输入关键词";
   }
+
+  function updateSearchResultsList(): void {
+    if (!searchResultsList) return;
+    updateSearchControlResults(searchResultsList, searchResultsForControl(options, searchFocusedNodeId, typeFiltersForCurrentRoute()), activateSearchResultById);
+  }
+
+  function syncHiddenReadingNodeHint(hiddenReadingNodeId = hiddenReadingNodeIdForOptions(options, typeFiltersForCurrentRoute())): void {
+    const hidden = Boolean(hiddenReadingNodeId);
+    shell.dataset.hiddenReadingNode = hidden ? "true" : "false";
+    shell.dataset.hiddenReadingNodeId = hiddenReadingNodeId || "";
+    hiddenReadingNodeHint.dataset.state = hidden ? "visible" : "hidden";
+  }
+
+  function applyScopedSearch(
+    nextOptions: GraphFacadeRouteRendererOptions,
+    query = nextOptions.searchQuery
+  ): GraphFacadeRouteRendererOptions {
+    const state = optionsWithScopedSearch(nextOptions, query, typeFiltersForOptions(nextOptions));
+    if (!state.matchIds.includes(searchFocusedNodeId || "")) searchFocusedNodeId = null;
+    return state.options;
+  }
+
+  function typeFiltersForCurrentRoute(): GraphTypeFilters {
+    return typeFiltersForOptions(options);
+  }
+
+  function typeFiltersForOptions(nextOptions: GraphFacadeRouteRendererOptions): GraphTypeFilters {
+    return nextOptions.focus?.kind === "community" ? communityTypeFilters : nextOptions.typeFilters;
+  }
+
+  function ensureCommunityTypeFilterScope(id: string): void {
+    if (communityTypeFilterFocusId === id) return;
+    communityTypeFilters = {};
+    communityTypeFilterFocusId = id;
+  }
+
+  function clearCommunityTypeFilterScope(): void {
+    communityTypeFilters = {};
+    communityTypeFilterFocusId = null;
+  }
 }
 
-function adapterDataForSigmaRoute(options: GraphFacadeRouteRendererOptions, hoverNodeId: string | null = null): GraphRendererAdapterData {
+function optionsWithScopedSearch(
+  options: GraphFacadeRouteRendererOptions,
+  query = options.searchQuery,
+  typeFilters = options.typeFilters
+): { options: GraphFacadeRouteRendererOptions; matchIds: NodeId[] } {
+  const state = resolveScopedSearchState(options, query, typeFilters);
+  return {
+    options: {
+      ...options,
+      searchQuery: state.query,
+      searchResultIds: state.matchIds
+    },
+    matchIds: state.matchIds
+  };
+}
+
+function resolveScopedSearchState(
+  options: GraphFacadeRouteRendererOptions,
+  query: string,
+  typeFilters = options.typeFilters
+): ReturnType<typeof resolveGraphSearchState> {
+  return resolveGraphSearchState(searchNodesForRouteScope(options, typeFilters), query);
+}
+
+function searchResultsForControl(
+  options: GraphFacadeRouteRendererOptions,
+  focusedNodeId: NodeId | null,
+  typeFilters = options.typeFilters
+): GraphSearchResultControlItem[] {
+  const state = resolveScopedSearchState(options, options.searchQuery, typeFilters);
+  if (!state.query) return [];
+  const nodesById = new Map(options.data.nodes.map((node) => [node.id, node]));
+  return state.matchIds.slice(0, SEARCH_RESULT_CONTROL_LIMIT).map((id) => {
+    const node = nodesById.get(id);
+    return {
+      id,
+      label: node?.label || id,
+      meta: node?.type,
+      focused: id === focusedNodeId
+    };
+  });
+}
+
+function searchNodesForRouteScope(options: GraphFacadeRouteRendererOptions, typeFilters = options.typeFilters): GraphNode[] {
+  if (options.focus?.kind !== "community") return options.data.nodes;
+  return options.data.nodes.filter((node) =>
+    node.community === options.focus?.id &&
+    typeFilterAllowsNode(node, typeFilters)
+  );
+}
+
+function hiddenReadingNodeIdForOptions(
+  options: GraphFacadeRouteRendererOptions,
+  typeFilters = options.typeFilters
+): NodeId | null {
+  const focus = options.focus;
+  const selection = options.selection;
+  if (focus?.kind !== "community" || selection?.kind !== "node") return null;
+  const node = options.data.nodes.find((item) => item.id === selection.id);
+  if (!node || node.community !== focus.id) return null;
+  return typeFilterAllowsNode(node, typeFilters) ? null : node.id;
+}
+
+function clearStaleCommunitySelection(options: GraphFacadeRouteRendererOptions): GraphFacadeRouteRendererOptions {
+  const focus = options.focus;
+  const selection = options.selection;
+  if (focus?.kind !== "community" || selection?.kind !== "node") return options;
+  const node = options.data.nodes.find((item) => item.id === selection.id);
+  if (node && node.community === focus.id) return options;
+  return {
+    ...options,
+    selection: null,
+    temporaryObject: null
+  };
+}
+
+function typeFilterAllowsNode(node: GraphNode, typeFilters: GraphTypeFilters): boolean {
+  return typeFilters[node.type] !== false;
+}
+
+function typeFiltersForRouteControls(
+  options: GraphFacadeRouteRendererOptions,
+  typeFilters = options.typeFilters
+): GraphTypeFilters {
+  const filters: GraphTypeFilters = {};
+  const nodes = options.focus?.kind === "community"
+    ? options.data.nodes.filter((node) => node.community === options.focus?.id)
+    : options.data.nodes;
+  for (const node of nodes) {
+    filters[node.type] = typeFilters[node.type] ?? true;
+  }
+  return filters;
+}
+
+function adapterDataForSigmaRoute(
+  options: GraphFacadeRouteRendererOptions,
+  hoverNodeId: string | null = null,
+  typeFilters = options.typeFilters
+): GraphRendererAdapterData {
   return buildGraphRendererAdapterData(options.data, {
     theme: options.theme,
     pins: options.pins,
@@ -414,7 +622,7 @@ function adapterDataForSigmaRoute(options: GraphFacadeRouteRendererOptions, hove
     searchResultIds: options.searchResultIds,
     aggregationMarkers: options.aggregationMarkers,
     focus: options.focus,
-    typeFilters: options.typeFilters,
+    typeFilters,
     sourceCommunityId: options.sourceCommunityId,
     relationFocusNodeId: hoverNodeId
   });
