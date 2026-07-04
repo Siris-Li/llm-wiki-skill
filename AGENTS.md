@@ -153,6 +153,20 @@ bash install.sh --platform codex --with-optional-adapters
 
 跳过条件：纯文档/排版/注释改动不需要更新。
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues for `sdyckjq-lab/llm-wiki-skill`; external PRs are not treated as a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default five-label triage vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use a multi-context domain-doc layout for this monorepo. See `docs/agents/domain.md`.
+
 ## Skill routing
 
 当用户请求匹配可用 skill 时，优先使用对应 skill 的工作流。不要直接临时发挥；先打开对应 `SKILL.md`，按里面的流程做。
