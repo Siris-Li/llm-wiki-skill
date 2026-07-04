@@ -297,7 +297,7 @@ describe("GraphFacade", () => {
     await offline.capabilities?.persistPins?.({});
   });
 
-  it("routes global Sigma to DOM/SVG community reading and back to global Sigma with facade state", () => {
+  it("routes global Sigma to Sigma community reading and back with facade state", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const state: GraphFacadeState = {
       data: DATA,
@@ -348,37 +348,35 @@ describe("GraphFacade", () => {
     manager.setPins({ "wiki/b.md": { x: 30, y: 40, coordinateSpace: "world" } });
     manager.focusCommunity("c1");
 
-    assert.equal(manager.routeId, "dom-svg-community");
-    assert.equal(communityInputs.length, 1);
-    assert.deepEqual(communityInputs[0].options.focus, { kind: "community", id: "c1" });
-    assert.deepEqual(communityInputs[0].options.selection, { kind: "node", id: "a" });
-    assert.deepEqual(communityInputs[0].options.typeFilters, { topic: true, source: false });
-    assert.deepEqual(Object.keys(communityInputs[0].options.pins), ["wiki/b.md"]);
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(sigmaInputs.length, 1);
+    assert.equal(communityInputs.length, 0);
+    assert.deepEqual(state.focus, { kind: "community", id: "c1" });
+    assert.equal(state.sourceCommunityId, "c1");
+    assert.deepEqual(renderers[0].calls.at(-1), ["focusCommunity", "c1"]);
 
-    communityInputs[0].options.callbacks.onVisibilityStateChange?.({
+    sigmaInputs[0].options.callbacks.onVisibilityStateChange?.({
       searchQuery: "Alpha",
       searchResultIds: ["a"],
       typeFilters: { topic: true, source: false },
       temporaryObject: null
     });
-    manager.resetView();
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
 
     assert.equal(manager.routeId, "sigma-global");
-    assert.equal(sigmaInputs.length, 2);
+    assert.equal(sigmaInputs.length, 1);
     assert.equal(smallFallbackInputs.length, 0);
     assert.equal(overLimitNoticeCount, 0);
-    assert.deepEqual(sigmaInputs[1].options.focus, null);
-    assert.deepEqual(sigmaInputs[1].options.selection, { kind: "node", id: "a" });
-    assert.deepEqual(sigmaInputs[1].options.searchResultIds, ["a"]);
-    assert.deepEqual(sigmaInputs[1].options.typeFilters, { topic: true, source: false });
-    assert.deepEqual(Object.keys(sigmaInputs[1].options.pins), ["wiki/b.md"]);
-    assert.deepEqual(renderers.map((renderer) => renderer.calls.find((call) => call[0] === "destroy")?.[0]).filter(Boolean), [
-      "destroy",
-      "destroy"
-    ]);
+    assert.equal(state.focus, null);
+    assert.equal(state.sourceCommunityId, "c1");
+    assert.deepEqual(state.searchResultIds, ["a"]);
+    assert.deepEqual(state.typeFilters, { topic: true, source: false });
+    assert.deepEqual(Object.keys(state.pins), ["wiki/b.md"]);
+    assert.deepEqual(renderers[0].calls.slice(-2), [["focusCommunity", "c1"], ["resetView"]]);
+    assert.deepEqual(renderers.map((renderer) => renderer.calls.find((call) => call[0] === "destroy")?.[0]).filter(Boolean), []);
   });
 
-  it("keeps edge style on the Sigma route and ignores it on DOM/SVG community routes", () => {
+  it("keeps edge style active when Sigma enters community reading", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const state: GraphFacadeState = {
       data: DATA,
@@ -414,19 +412,17 @@ describe("GraphFacade", () => {
     assert.deepEqual(renderers[0].calls.at(-1), ["setEdgeStyle", baseStyle]);
 
     manager.focusCommunity("c1");
-    const communityRenderer = renderers.at(-1);
-    const communityCallCount = communityRenderer?.calls.length ?? 0;
 
     manager.setEdgeStyle(focusStyle);
 
-    assert.equal(manager.routeId, "dom-svg-community");
-    assert.equal(communityRenderer?.calls.length, communityCallCount);
+    assert.equal(manager.routeId, "sigma-global");
+    assert.deepEqual(renderers[0].calls.slice(-2), [["focusCommunity", "c1"], ["setEdgeStyle", focusStyle]]);
 
     manager.resetView();
 
     assert.equal(manager.routeId, "sigma-global");
-    assert.equal(sigmaInputs.length, 2);
-    assert.deepEqual(sigmaInputs[1].options.edgeStyle, focusStyle);
+    assert.equal(sigmaInputs.length, 1);
+    assert.deepEqual(state.edgeStyle, focusStyle);
   });
 
   it("marks route continuity on the stable facade host and clears transition markers", async () => {
@@ -436,13 +432,13 @@ describe("GraphFacade", () => {
     route.expectActiveRendererCount(1);
 
     route.manager.focusCommunity("c1");
-    route.expect("dom-svg-community", "sigma-global->dom-svg-community");
+    route.expect("sigma-global");
     route.expectActiveRendererCount(1);
 
     await route.expectTransitionCleared();
 
     route.manager.resetView();
-    route.expect("sigma-global", "dom-svg-community->sigma-global");
+    route.expect("sigma-global");
     route.expectActiveRendererCount(1);
 
     route.manager.destroy();
@@ -586,7 +582,7 @@ describe("GraphFacade", () => {
     assert.deepEqual(renderers[0].calls.slice(-1), [["resetView"]]);
   });
 
-  it("returns from DOM/SVG community reading to a plain global map after community selection", () => {
+  it("returns from Sigma community reading to a plain global map on explicit reset", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const state: GraphFacadeState = {
       data: DATA,
@@ -628,10 +624,10 @@ describe("GraphFacade", () => {
     assert.equal(state.focus, null);
     assert.equal(state.selection, null);
     assert.equal(state.temporaryObject, null);
-    assert.equal(sigmaInputs.length, 2);
-    assert.deepEqual(sigmaInputs[1].options.selection, null);
-    assert.deepEqual(sigmaInputs[1].options.searchResultIds, ["a"]);
-    assert.deepEqual(Object.keys(sigmaInputs[1].options.pins), ["wiki/a.md"]);
+    assert.equal(state.sourceCommunityId, null);
+    assert.equal(sigmaInputs.length, 1);
+    assert.deepEqual(sigmaInputs[0].options.searchResultIds, ["a"]);
+    assert.deepEqual(Object.keys(state.pins), ["wiki/a.md"]);
     assert.deepEqual(selectionClears, [1]);
   });
 
@@ -648,7 +644,7 @@ describe("GraphFacade", () => {
       searchResultIds: ["a"],
       temporaryObject: null
     };
-    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const smallFallbackInputs: GraphFacadeRouteRendererFactoryInput[] = [];
     const communityInputs: GraphFacadeRouteRendererFactoryInput[] = [];
     const viewResets: number[] = [];
     const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
@@ -657,34 +653,37 @@ describe("GraphFacade", () => {
         onViewReset: () => viewResets.push(1)
       },
       factories: {
-        createSigmaGlobal: (input) => {
-          sigmaInputs.push(input);
-          return createFakeRenderer();
+        createSigmaGlobal: () => {
+          throw new Error("WebGL unavailable");
         },
         createDomSvgCommunity: (input) => {
           communityInputs.push(input);
           return createFakeRenderer();
         },
-        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createDomSvgSmallFallback: (input) => {
+          smallFallbackInputs.push(input);
+          return createFakeRenderer();
+        },
         createOverLimitNotice: () => createFakeRenderer()
       }
     });
 
+    assert.equal(manager.routeId, "dom-svg-small-fallback");
     manager.focusCommunity("c1");
     assert.equal(manager.routeId, "dom-svg-community");
     assert.equal(communityInputs.length, 1);
 
     (communityInputs[0].options.callbacks as { onGlobalResetRequested?: () => void }).onGlobalResetRequested?.();
 
-    assert.equal(manager.routeId, "sigma-global");
-    assert.equal(sigmaInputs.length, 2);
+    assert.equal(manager.routeId, "dom-svg-small-fallback");
+    assert.equal(smallFallbackInputs.length, 2);
     assert.equal(state.focus, null);
-    assert.deepEqual(sigmaInputs[1].options.focus, null);
-    assert.deepEqual(sigmaInputs[1].options.selection, { kind: "node", id: "a" });
-    assert.deepEqual(sigmaInputs[1].options.searchResultIds, ["a"]);
-    assert.deepEqual(sigmaInputs[1].options.typeFilters, { topic: true, source: true });
-    assert.deepEqual(Object.keys(sigmaInputs[1].options.pins), ["wiki/a.md"]);
-    assert.deepEqual(viewResets, [1]);
+    assert.deepEqual(smallFallbackInputs[1].options.focus, null);
+    assert.deepEqual(smallFallbackInputs[1].options.selection, { kind: "node", id: "a" });
+    assert.deepEqual(smallFallbackInputs[1].options.searchResultIds, ["a"]);
+    assert.deepEqual(smallFallbackInputs[1].options.typeFilters, { topic: true, source: true });
+    assert.deepEqual(Object.keys(smallFallbackInputs[1].options.pins), ["wiki/a.md"]);
+    assert.deepEqual(viewResets, []);
   });
 
   it("keeps the source community highlighted after returning to global from a community", () => {
@@ -696,26 +695,28 @@ describe("GraphFacade", () => {
     manager.focusCommunity("c1");
     assert.equal(state.sourceCommunityId, "c1");
     // Toolbar "return to global" keeps the source context so c1 stays highlighted.
-    (communityInputs.at(-1)?.options.callbacks as { onGlobalResetRequested?: () => void }).onGlobalResetRequested?.();
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
 
     assert.equal(manager.routeId, "sigma-global");
     assert.equal(state.sourceCommunityId, "c1");
-    assert.equal(sigmaInputs.at(-1)?.options.sourceCommunityId, "c1");
+    assert.equal(communityInputs.length, 0);
     assert.equal(manager.sourceCommunityId, "c1");
   });
 
-  it("does not pass the source community as a render selection", () => {
+  it("does not treat source community context as a render selection", () => {
     const state = twoCommunityState();
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
     const communityInputs: GraphFacadeRouteRendererFactoryInput[] = [];
-    const manager = sourceContextManager(state, [], communityInputs);
+    const manager = sourceContextManager(state, sigmaInputs, communityInputs);
 
     manager.setSourceCommunityContext("c1");
     manager.focusCommunity("c1");
 
-    // DOM community route must NOT receive selection = community (would expand
-    // every node to selected/core). Source context travels via sourceCommunityId.
-    assert.equal(communityInputs.at(-1)?.options.selection, null);
-    assert.equal(communityInputs.at(-1)?.options.sourceCommunityId, "c1");
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(state.selection, null);
+    assert.equal(state.sourceCommunityId, "c1");
+    assert.deepEqual(sigmaInputs.length, 1);
+    assert.deepEqual(communityInputs.length, 0);
   });
 
   it("clears the source community on explicit reset, blank clear, and clearInteraction", () => {
@@ -755,6 +756,7 @@ describe("GraphFacade", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const state = twoCommunityState();
     const renderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const fallbackRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
     const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
       state,
       callbacks: {},
@@ -777,13 +779,16 @@ describe("GraphFacade", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const state = twoCommunityState();
     const renderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const fallbackRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
     const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
       state,
       callbacks: {},
       factories: {
-        createSigmaGlobal: () => createFakeRenderer(),
+        createSigmaGlobal: () => {
+          throw new Error("WebGL unavailable");
+        },
         createDomSvgCommunity: () => trackRenderer(renderers, "dom"),
-        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => trackRenderer(fallbackRenderers, "fallback"),
         createOverLimitNotice: () => createFakeRenderer()
       }
     });
@@ -792,7 +797,10 @@ describe("GraphFacade", () => {
     manager.setData(singleCommunityData(), undefined);
 
     assert.equal(state.sourceCommunityId, null);
-    assert.deepEqual(renderers[0].calls.slice(-2), [["setSourceCommunityContext", null], ["setData", singleCommunityData(), undefined]]);
+    assert.equal(manager.routeId, "dom-svg-small-fallback");
+    assert.deepEqual(renderers[0].calls.slice(-2), [["setSourceCommunityContext", null], ["destroy"]]);
+    assert.deepEqual(fallbackRenderers.at(-1)?.calls[0], ["create", "fallback"]);
+    assert.deepEqual(fallbackRenderers.at(-1)?.calls.filter((call) => call[0] === "setData"), []);
   });
 
   it("notifies the active Sigma route when clear commands drop source community context", () => {

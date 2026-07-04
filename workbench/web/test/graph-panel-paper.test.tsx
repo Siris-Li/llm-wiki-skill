@@ -124,6 +124,37 @@ describe("GraphPanel Paper shell", () => {
 		});
 	});
 
+	it("notifies the app to close the community summary drawer when entering a community", async () => {
+		mockGraphFetch();
+		const selectionChanges: unknown[] = [];
+		const { rerender } = render(
+			<GraphPanel
+				currentKnowledgeBaseName="AI 学习库"
+				currentKnowledgeBasePath="/kb"
+				theme="light"
+				onSelectionChange={(selection) => selectionChanges.push(selection)}
+			/>,
+		);
+
+		await waitFor(() => {
+			assert.match(document.body.textContent ?? "", /1 节点 · 0 关联/);
+		});
+
+		rerender(
+			<GraphPanel
+				currentKnowledgeBaseName="AI 学习库"
+				currentKnowledgeBasePath="/kb"
+				theme="light"
+				onSelectionChange={(selection) => selectionChanges.push(selection)}
+				selectionCommand={{ id: "paper", type: "enter-community" }}
+			/>,
+		);
+
+		await waitFor(() => {
+			assert.deepEqual(selectionChanges, [null]);
+		});
+	});
+
 	it("keeps the GraphPanel Paper shell styling outside graph-engine internals", () => {
 		const css = readFileSync(resolve(import.meta.dirname, "../src/index.css"), "utf8");
 

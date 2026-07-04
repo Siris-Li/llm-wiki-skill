@@ -473,7 +473,7 @@ export function GraphPanel({
 		}
 		if (selectionCommand.type === "enter-community") {
 			const selected = engineRef.current ? applyCommunityEnter(engineRef.current, selectionCommand.id) : null;
-			if (selected) onSelectionChangeRef.current?.(selected);
+			onSelectionChangeRef.current?.(selected);
 		}
 		if (selectionCommand.type === "enter-community-node") {
 			const selected = engineRef.current?.select({ kind: "node", id: selectionCommand.nodeId });

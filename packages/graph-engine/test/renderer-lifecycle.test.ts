@@ -570,7 +570,8 @@ describe("graph renderer lifecycle", () => {
         typeFilters: { entity: true, source: true },
         aggregationMarkers: [],
         selection: null,
-        searchResultIds: [],
+        searchQuery: "Node a",
+        searchResultIds: ["a"],
         temporaryObject: null
       },
       callbacks: {
@@ -588,30 +589,33 @@ describe("graph renderer lifecycle", () => {
     manager.setTypeFilters({ entity: true, source: false });
     manager.select({ kind: "node", id: "a" });
     manager.setPins({ "wiki/a.md": { x: 120, y: 140, coordinateSpace: "world" } });
-    const searchInput = findByClass(container, "graph-search-input")[0];
-    searchInput.value = "Node a";
-    searchInput.dispatch("input");
-
-    assert.equal(manager.routeId, "dom-svg-community");
-    assert.deepEqual(visibleNodeIds({ root: container as unknown as HTMLElement }), ["a", "b"]);
-    assert.equal(nodeElement({ root: container as unknown as HTMLElement }, "b")?.dataset.filterState, "hidden");
-
-    findByText(container, "回全图")?.dispatch("click");
 
     assert.equal(manager.routeId, "sigma-global");
     assert.equal(findByClass(container, "sigma-global-route").length, 1);
-    assert.deepEqual(visibleNodeIds({ root: container as unknown as HTMLElement }), []);
-    assert.equal(sigmaInputs.at(-1)?.options.focus, null);
-    const activeSigmaShell = findByClass(container, "sigma-global-route")[0];
+    let activeSigmaShell = findByClass(container, "sigma-global-route")[0];
+    assert.equal(activeSigmaShell?.dataset.focus, JSON.stringify({ kind: "community", id: "community-a" }));
+    assert.equal(activeSigmaShell?.dataset.sourceCommunityId, "community-a");
     assert.equal(activeSigmaShell?.dataset.selectedKind, "node");
     assert.equal(activeSigmaShell?.dataset.selectedId, "a");
     assert.equal(activeSigmaShell?.dataset.searchResultIds, "a");
     assert.equal(activeSigmaShell?.dataset.typeFilters, "entity:true,source:false");
     assert.equal(activeSigmaShell?.dataset.pinnedPaths, "wiki/a.md");
-    assert.deepEqual(sigmaInputs.at(-1)?.options.selection, { kind: "node", id: "a" });
-    assert.deepEqual(sigmaInputs.at(-1)?.options.searchResultIds, ["a"]);
-    assert.deepEqual(sigmaInputs.at(-1)?.options.typeFilters, { entity: true, source: false });
-    assert.deepEqual(Object.keys(sigmaInputs.at(-1)?.options.pins || {}), ["wiki/a.md"]);
+
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(findByClass(container, "sigma-global-route").length, 1);
+    assert.deepEqual(visibleNodeIds({ root: container as unknown as HTMLElement }), []);
+    activeSigmaShell = findByClass(container, "sigma-global-route")[0];
+    assert.equal(activeSigmaShell?.dataset.focus, "");
+    assert.equal(activeSigmaShell?.dataset.sourceCommunityId, "community-a");
+    assert.equal(activeSigmaShell?.dataset.selectedKind, "");
+    assert.equal(activeSigmaShell?.dataset.selectedId, "");
+    assert.equal(activeSigmaShell?.dataset.searchResultIds, "a");
+    assert.equal(activeSigmaShell?.dataset.typeFilters, "entity:true,source:false");
+    assert.equal(activeSigmaShell?.dataset.pinnedPaths, "wiki/a.md");
+    assert.equal(manager.sourceCommunityId, "community-a");
+    assert.equal(sigmaInputs.length, 1);
     assert.deepEqual(viewResets, [1]);
 
     manager.destroy();
@@ -1277,7 +1281,10 @@ function createSigmaShellRenderer(input: GraphFacadeRouteRendererFactoryInput): 
       options = { ...options, selection: node ? { kind: "node", id: node.id } : options.selection };
       renderSigmaShellState();
     },
-    focusCommunity() {},
+    focusCommunity(id: string) {
+      options = { ...options, focus: { kind: "community", id }, sourceCommunityId: id };
+      renderSigmaShellState();
+    },
     setTypeFilters(filters) {
       options = { ...options, typeFilters: filters };
       renderSigmaShellState();
@@ -1318,6 +1325,10 @@ function createSigmaShellRenderer(input: GraphFacadeRouteRendererFactoryInput): 
       options = { ...options, pins };
       renderSigmaShellState();
     },
+    setSourceCommunityContext(id: string | null) {
+      options = { ...options, sourceCommunityId: id };
+      renderSigmaShellState();
+    },
     resetLayout() {
       const nextPins = {};
       options = { ...options, pins: nextPins };
@@ -1332,6 +1343,7 @@ function createSigmaShellRenderer(input: GraphFacadeRouteRendererFactoryInput): 
   function renderSigmaShellState(): void {
     const selection = options.selection;
     shell.dataset.focus = options.focus ? JSON.stringify(options.focus) : "";
+    shell.dataset.sourceCommunityId = options.sourceCommunityId || "";
     shell.dataset.selectedKind = selection?.kind || "";
     shell.dataset.selectedId = selection && "id" in selection ? selection.id : "";
     shell.dataset.searchResultIds = options.searchResultIds.join(",");
