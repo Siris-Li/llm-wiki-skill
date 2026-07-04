@@ -71,17 +71,17 @@ describe("graph route state continuity", () => {
     };
     const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
     const communityInputs: GraphFacadeRouteRendererFactoryInput[] = [];
-    const communityRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
     const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
       state,
       factories: {
         createSigmaGlobal: (input) => {
           sigmaInputs.push(input);
-          return createFakeRenderer();
+          return trackRenderer(sigmaRenderers, "sigma-global");
         },
         createDomSvgCommunity: (input) => {
           communityInputs.push(input);
-          return trackRenderer(communityRenderers, "dom-community");
+          return createFakeRenderer();
         },
         createDomSvgSmallFallback: () => createFakeRenderer(),
         createOverLimitNotice: () => createFakeRenderer()
@@ -104,18 +104,19 @@ describe("graph route state continuity", () => {
     };
     manager.setData(refreshedData);
 
-    assert.equal(manager.routeId, "dom-svg-community");
+    assert.equal(manager.routeId, "sigma-global");
     assert.equal(state.data, refreshedData);
     assert.deepEqual(state.focus, { kind: "community", id: "c1" });
+    assert.equal(state.sourceCommunityId, "c1");
     assert.deepEqual(state.selection, { kind: "node", id: "a" });
     assert.equal(state.searchQuery, "Alpha");
     assert.deepEqual(state.searchResultIds, ["a"]);
     assert.deepEqual(state.typeFilters, { topic: true, source: false });
     assert.deepEqual(state.temporaryObject, { kind: "node", nodeId: "b" });
     assert.deepEqual(state.pins, { "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" } });
-    assert.deepEqual(communityInputs[0].options.selection, { kind: "node", id: "a" });
-    assert.deepEqual(communityInputs[0].options.searchResultIds, ["a"]);
-    assert.deepEqual(communityRenderers[0].calls.at(-1), ["setData", refreshedData, undefined]);
+    assert.equal(communityInputs.length, 0);
+    assert.deepEqual(sigmaInputs[0].options.selection, null);
+    assert.deepEqual(sigmaRenderers[0].calls.slice(-2), [["focusCommunity", "c1"], ["setData", refreshedData, undefined]]);
   });
 
   it("makes a disappeared selected object explicitly unavailable after data refresh", () => {

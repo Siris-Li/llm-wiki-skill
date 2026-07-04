@@ -167,6 +167,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   let overlayAnimationFrameOwner = 0;
   let scheduledOverlayAnimationFrameOwner: number | null = null;
   let deferredSpotlightCameraFrame: number | null = null;
+  syncSigmaRootMetadata();
 
   try {
     sigma = new runtime.Sigma(graph, sigmaRoot, sigmaSettingsForTheme(currentTheme));
@@ -256,6 +257,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
         adapterData = nextAdapterData;
         currentEdgeStyle = nextEdgeStyle;
         currentPins = nextPins;
+        syncSigmaRootMetadata();
         cloudBasisByCommunityId = sigmaCommunityCloudBasisByIdWithReuse(cloudBasisByCommunityId, adapterData);
         patchSigmaGlobalGraphAttributes(graph, adapterData, currentTheme, currentEdgeStyle);
         projector = createSigmaGlobalHitProjector({
@@ -268,6 +270,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
         return;
       }
       adapterData = updateOptions.adapterData;
+      syncSigmaRootMetadata();
       cloudBasisByCommunityId = sigmaCommunityCloudBasisByIdWithReuse(cloudBasisByCommunityId, adapterData);
       currentTheme = updateOptions.theme ?? currentTheme;
       currentEdgeStyle = updateOptions.edgeStyle ?? currentEdgeStyle;
@@ -750,6 +753,18 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     if (destroyed) {
       throw new Error("Sigma global renderer has been destroyed");
     }
+  }
+
+  function syncSigmaRootMetadata(): void {
+    const communityMap = adapterData.renderable.communityMap;
+    const currentCommunityId = communityMap?.current?.communityId ?? "";
+    const focusCommunityId = communityMap?.active ? currentCommunityId : "";
+    sigmaRoot.dataset.nodeCount = String(adapterData.nodes.length);
+    sigmaRoot.dataset.edgeCount = String(adapterData.edges.length);
+    sigmaRoot.dataset.communityCount = String(adapterData.renderable.communities.length);
+    sigmaRoot.dataset.communityFocusId = focusCommunityId;
+    sigmaRoot.dataset.communityContextId = currentCommunityId;
+    sigmaRoot.dataset.sourceCommunityId = adapterData.sourceCommunityId ?? "";
   }
 
 }

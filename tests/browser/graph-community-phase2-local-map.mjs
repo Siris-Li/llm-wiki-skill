@@ -12,15 +12,16 @@ const executablePath = process.env.GRAPH_COMMUNITY_PHASE2_CHROME_EXECUTABLE || "
 
 assert.notEqual(workbenchUrl, "", "GRAPH_COMMUNITY_PHASE2_URL must point at the workbench dev server");
 
-const T1_NODE_IDS = ["A", "B", "C", "D", "E", "F"];
+const T1_NODE_COUNT = 16;
+const T1_INTERNAL_EDGE_COUNT = 15;
 
 const browser = await chromium.launch(executablePath ? { executablePath } : {});
 
 try {
   // Mobile runs first so the desktop drag/pin path cannot contaminate the
   // narrow-viewport baseline in the shared temporary knowledge base.
-  const mobile = await runFlow({ width: 390, height: 844 }, "mobile", { testDrag: false });
-  const desktop = await runFlow({ width: 1440, height: 900 }, "desktop", { testDrag: true });
+  const mobile = await runFlow({ width: 390, height: 844 }, "mobile");
+  const desktop = await runFlow({ width: 1440, height: 900 }, "desktop");
   const evidence = { desktop, mobile };
   if (artifactDir) {
     await fs.mkdir(artifactDir, { recursive: true });
@@ -31,7 +32,7 @@ try {
   await closeBrowserForRegression(browser);
 }
 
-async function runFlow(viewport, label, { testDrag }) {
+async function runFlow(viewport, label) {
   const page = await browser.newPage({ viewport });
   await page.addInitScript(() => {
     window.localStorage.setItem("llm-wiki-agent-main-view", "graph");
@@ -54,38 +55,21 @@ async function runFlow(viewport, label, { testDrag }) {
   const selectedBeforeEnter = await openCommunitySummaryFromRegion(page, "t1");
   assert.deepEqual(selectedBeforeEnter.selectedRegions, ["t1"], "global Sigma should select the source community before enter");
 
-  // 2. Enter community -> DOM local map.
+  // 2. Enter community -> Sigma focused community reading, not DOM.
   await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
-  await waitForDomCommunity(page, "t1");
+  await waitForSigmaCommunity(page, "t1");
+  await page.waitForSelector('[data-testid="graph-community-summary"]', { state: "detached", timeout: 5000 });
 
   const localMap = await communitySnapshot(page);
-  assert.equal(localMap.focus, "community:t1");
-  assert.equal(localMap.communityMapState, "lightweight");
-  assert.equal(localMap.communityMapMotion, "frozen", "community reading should freeze automatic motion");
-  assert.equal(localMap.communityMapCommunityId, "t1");
-  assert.equal(localMap.communityMapSourceCommunityId, "t1", "source community context should be exposed on the DOM root");
-  assert.ok(localMap.communityMapBounds && localMap.communityMapBounds.width > 0, "local-map bounds should be stable");
-  assert.ok(localMap.visibleLabelCount > 0, "community map should show key labels");
-  assert.ok(localMap.visibleLabelCount <= localMap.labelLimit, "visible labels should stay inside the label budget");
-  assert.ok(localMap.skeletonEdges >= 1, "community map should keep a skeleton edge layer");
-  assert.equal(localMap.nodeTiers.A, "core", "recommended start node should be a core local-map node");
-  assert.ok(
-    Object.values(localMap.nodeTiers).some((tier) => tier === "peripheral"),
-    "source community context must not promote every node to core (a dense community keeps peripheral nodes)"
-  );
-  assert.equal(localMap.edgeLayers.eAB, "skeleton", "A-B should be part of the skeleton edge layer");
-
-  // 3. No post-entry shape drift (world coordinates stay fixed; camera may still move).
-  await page.waitForTimeout(700);
-  const afterSettle = await communitySnapshot(page);
-  assertMaxDrift(localMap.nodeWorldPoints, afterSettle.nodeWorldPoints, 0.5);
-
-  // 4. Manual drag still works while automatic motion is frozen (desktop pointer flow).
-  if (testDrag) {
-    await dragCommunityNode(page, "B", { x: 40, y: 28 });
-    const afterDrag = await communitySnapshot(page);
-    assertPointShifted(afterDrag.nodeCenters.B, afterSettle.nodeCenters.B, "manual drag should still move a node while automatic motion is frozen");
-  }
+  assert.equal(localMap.route, "sigma-global", "community reading should stay on the Sigma route");
+  assert.equal(localMap.sigmaRendererCount, 1, "community reading should keep a Sigma renderer mounted");
+  assert.equal(localMap.domRootCount, 0, "DOM/SVG community view should not be the primary route");
+  assert.equal(localMap.communityFocusId, "t1");
+  assert.equal(localMap.sourceCommunityId, "t1");
+  assert.equal(localMap.nodeCount, T1_NODE_COUNT, "Sigma community reading should keep only current-community nodes");
+  assert.equal(localMap.edgeCount, T1_INTERNAL_EDGE_COUNT, "Sigma community reading should keep only internal community relationships");
+  assert.deepEqual(localMap.communityRegionIds, ["t1"], "only the focused community region should remain visible");
+  assert.deepEqual(localMap.communityLabelIds, ["t1"], "only the focused community label should remain visible");
 
   if (artifactDir) {
     await page.screenshot({ path: path.join(artifactDir, `community-phase2-${label}-community.png`), fullPage: true });
@@ -94,9 +78,15 @@ async function runFlow(viewport, label, { testDrag }) {
   // 5. Return to global keeps the source community highlighted until a real
   // clear/replace action removes it.
   await clickReturnGlobal(page);
-  await waitForSigmaGlobal(page);
+  await waitForSigmaGlobalUnfocused(page);
   await waitForSelectedCommunity(page, "t1");
   const returned = await sigmaSnapshot(page);
+  assert.equal(returned.nodeCount, 18, "returning global should restore all nodes");
+  assert.equal(returned.edgeCount, 17, "returning global should restore all relationships");
+  assert.equal(returned.communityCount, 2, "returning global should restore all communities");
+  assert.equal(returned.communityFocusId, "");
+  assert.equal(returned.sourceCommunityId, "t1");
+  assert.equal(returned.communitySummaryOpen, false, "returning global should not reopen the community summary drawer");
   assert.deepEqual(returned.selectedRegions, ["t1"], "returning global should keep the source community region highlighted");
   assert.deepEqual(returned.selectedLabels, ["t1"], "returning global should keep the source community label highlighted");
   if (artifactDir) {
@@ -106,6 +96,7 @@ async function runFlow(viewport, label, { testDrag }) {
   await clickGlobalBlank(page);
   await waitForNoSelectedCommunity(page);
   const afterBlankClear = await sigmaSnapshot(page);
+  assert.equal(afterBlankClear.sourceCommunityId, "", "blank clear should remove the source community context");
   assert.deepEqual(afterBlankClear.selectedRegions, [], "blank clear should remove the returned source community region highlight");
   assert.deepEqual(afterBlankClear.selectedLabels, [], "blank clear should remove the returned source community label highlight");
 
@@ -125,15 +116,23 @@ async function waitForSigmaGlobal(page) {
   await page.waitForSelector(".sigma-global-community-region");
 }
 
-async function waitForDomCommunity(page, communityId) {
-  await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+async function waitForSigmaCommunity(page, communityId) {
+  await waitForSigmaGlobal(page);
   await page.waitForFunction((communityId) => {
-    return document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus === `community:${communityId}`
-      && document.querySelectorAll(".node").length > 0
-      && !document.querySelector(".sigma-global-renderer");
+    const root = document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']");
+    return root?.getAttribute("data-community-focus-id") === communityId
+      && root?.getAttribute("data-source-community-id") === communityId
+      && document.querySelectorAll("[data-llm-wiki-graph-root='true']").length === 0;
   }, communityId);
-  await page.waitForSelector("[data-llm-wiki-graph-root='true'][data-community-map-state='lightweight']");
-  await page.waitForSelector(".node[data-id='A']");
+}
+
+async function waitForSigmaGlobalUnfocused(page) {
+  await waitForSigmaGlobal(page);
+  await page.waitForFunction(() => {
+    const root = document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']");
+    return root?.getAttribute("data-community-focus-id") === ""
+      && Number(root?.getAttribute("data-community-count") || "0") > 1;
+  });
 }
 
 async function openCommunitySummaryFromRegion(page, communityId) {
@@ -214,7 +213,13 @@ async function sigmaSnapshot(page) {
       .filter(Boolean)
       .sort(),
     sigmaRendererCount: document.querySelectorAll(".sigma-global-renderer[data-renderer='sigma-global']").length,
-    domNodeCount: document.querySelectorAll(".node").length
+    domNodeCount: document.querySelectorAll(".node").length,
+    nodeCount: Number(document.querySelector(".sigma-global-renderer")?.getAttribute("data-node-count") || "0"),
+    edgeCount: Number(document.querySelector(".sigma-global-renderer")?.getAttribute("data-edge-count") || "0"),
+    communityCount: Number(document.querySelector(".sigma-global-renderer")?.getAttribute("data-community-count") || "0"),
+    communityFocusId: document.querySelector(".sigma-global-renderer")?.getAttribute("data-community-focus-id") || "",
+    sourceCommunityId: document.querySelector(".sigma-global-renderer")?.getAttribute("data-source-community-id") || "",
+    communitySummaryOpen: Boolean(document.querySelector('[data-testid="graph-community-summary"]'))
   }));
 }
 
@@ -243,60 +248,24 @@ async function waitForNoSelectedCommunity(page) {
 }
 
 async function communitySnapshot(page) {
-  return page.evaluate(() => {
-    const root = document.querySelector("[data-llm-wiki-graph-root='true']");
-    const nodes = Array.from(document.querySelectorAll(".node"));
-    const edges = Array.from(document.querySelectorAll(".edge"));
-    return {
-      focus: document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus || "",
-      communityMapState: root?.getAttribute("data-community-map-state") || "",
-      communityMapMotion: root?.getAttribute("data-community-map-motion") || "",
-      communityMapSourceCommunityId: root?.getAttribute("data-community-map-source-community-id") || "",
-      communityMapCommunityId: root?.getAttribute("data-community-map-community-id") || "",
-      communityMapBounds: JSON.parse(root?.getAttribute("data-community-map-bounds") || "null"),
-      labelLimit: Number(root?.getAttribute("data-community-map-label-limit") || "0"),
-      visibleLabelCount: Array.from(document.querySelectorAll(".node-name")).filter((element) => getComputedStyle(element).display !== "none").length,
-      skeletonEdges: Number(root?.getAttribute("data-community-map-skeleton-edges") || "0"),
-      nodeTiers: Object.fromEntries(nodes.map((node) => [
-        node.getAttribute("data-id") || "",
-        node.getAttribute("data-community-map-tier") || ""
-      ])),
-      edgeLayers: Object.fromEntries(edges.map((edge) => [
-        edge.getAttribute("data-edge-id") || "",
-        edge.getAttribute("data-community-map-layer") || ""
-      ])),
-      nodeCenters: Object.fromEntries(nodes.map((node) => {
-        const rect = node.getBoundingClientRect();
-        return [
-          node.getAttribute("data-id") || "",
-          {
-            x: Math.round((rect.left + rect.width / 2) * 100) / 100,
-            y: Math.round((rect.top + rect.height / 2) * 100) / 100
-          }
-        ];
-      })),
-      nodeWorldPoints: Object.fromEntries(nodes.map((node) => [
-        node.getAttribute("data-id") || "",
-        {
-          x: Number(node.getAttribute("data-world-x") || "0"),
-          y: Number(node.getAttribute("data-world-y") || "0")
-        }
-      ]))
-    };
-  });
-}
-
-async function dragCommunityNode(page, nodeId, delta) {
-  const locator = page.locator(`.node[data-id="${cssString(nodeId)}"]`).first();
-  const box = await locator.boundingBox();
-  assert.ok(box, `node ${nodeId} should have a box before drag`);
-  const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  await page.mouse.move(start.x + delta.x / 2, start.y + delta.y / 2, { steps: 6 });
-  await page.mouse.move(start.x + delta.x, start.y + delta.y, { steps: 6 });
-  await page.mouse.up();
-  await page.waitForFunction((id) => document.querySelector(`.node[data-id="${id}"]`)?.classList.contains("is-pinned"), nodeId, { timeout: 5000 });
+  return page.evaluate(() => ({
+    route: document.querySelector(".graph-host")?.getAttribute("data-llm-wiki-graph-route") || "",
+    sigmaRendererCount: document.querySelectorAll(".sigma-global-renderer[data-renderer='sigma-global']").length,
+    domRootCount: document.querySelectorAll("[data-llm-wiki-graph-root='true']").length,
+    nodeCount: Number(document.querySelector(".sigma-global-renderer")?.getAttribute("data-node-count") || "0"),
+    edgeCount: Number(document.querySelector(".sigma-global-renderer")?.getAttribute("data-edge-count") || "0"),
+    communityCount: Number(document.querySelector(".sigma-global-renderer")?.getAttribute("data-community-count") || "0"),
+    communityFocusId: document.querySelector(".sigma-global-renderer")?.getAttribute("data-community-focus-id") || "",
+    sourceCommunityId: document.querySelector(".sigma-global-renderer")?.getAttribute("data-source-community-id") || "",
+    communityRegionIds: Array.from(document.querySelectorAll(".sigma-global-community-region"))
+      .map((region) => region.getAttribute("data-community-id") || "")
+      .filter(Boolean)
+      .sort(),
+    communityLabelIds: Array.from(document.querySelectorAll(".sigma-global-community-label"))
+      .map((label) => label.getAttribute("data-community-id") || "")
+      .filter(Boolean)
+      .sort()
+  }));
 }
 
 async function clickReturnGlobal(page) {
@@ -304,7 +273,11 @@ async function clickReturnGlobal(page) {
   // back to the graph's blank double-click return gesture without closing the
   // drawer (closing would clear the source context before we can assert it).
   await page.getByRole("button", { name: "回全图" }).click({ force: true }).catch(() => undefined);
-  const returned = await page.waitForSelector(".sigma-global-route[data-route='sigma-global']", { timeout: 1200 })
+  const returned = await page.waitForFunction(() => {
+    const root = document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']");
+    return root?.getAttribute("data-community-focus-id") === ""
+      && Number(root?.getAttribute("data-community-count") || "0") > 1;
+  }, undefined, { timeout: 1200 })
     .then(() => true)
     .catch(() => false);
   if (returned) return;
@@ -313,7 +286,7 @@ async function clickReturnGlobal(page) {
 
 async function dispatchGraphBlankDoubleClick(page) {
   const rootFound = await page.evaluate(() => {
-    const root = document.querySelector("[data-llm-wiki-graph-root='true']");
+    const root = document.querySelector(".sigma-global-renderer") || document.querySelector("[data-llm-wiki-graph-root='true']");
     if (!root) return false;
     const rect = root.getBoundingClientRect();
     const x = rect.left + Math.max(12, Math.min(32, rect.width * 0.08));
@@ -339,21 +312,6 @@ async function closeDrawerIfOpen(page) {
   }
 }
 
-function assertMaxDrift(beforeCenters, afterCenters, maxDrift) {
-  for (const [nodeId, before] of Object.entries(beforeCenters)) {
-    const after = afterCenters[nodeId];
-    if (!after) continue;
-    assert.ok(Math.abs(before.x - after.x) <= maxDrift, `${nodeId} world x drift should stay within ${maxDrift}`);
-    assert.ok(Math.abs(before.y - after.y) <= maxDrift, `${nodeId} world y drift should stay within ${maxDrift}`);
-  }
-}
-
-function assertPointShifted(after, before, message) {
-  assert.ok(after && before, message);
-  const distance = Math.hypot(after.x - before.x, after.y - before.y);
-  assert.ok(distance > 4, `${message}; expected visible movement, got ${distance}px`);
-}
-
 async function closeBrowserForRegression(browser) {
   let closed = false;
   const closePromise = browser.close()
@@ -369,8 +327,4 @@ async function closeBrowserForRegression(browser) {
   ]);
   const browserProcess = typeof browser.process === "function" ? browser.process() : null;
   if (!closed) browserProcess?.kill("SIGKILL");
-}
-
-function cssString(value) {
-  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }

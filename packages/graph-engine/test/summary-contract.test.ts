@@ -430,18 +430,15 @@ describe("graph summary contract", () => {
       temporaryObject: null
     };
     const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
-    const communityInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const renderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
     const manager = createGraphFacadeRouteManager({ dataset: {} } as unknown as HTMLElement, {
       state,
       factories: {
         createSigmaGlobal: (input) => {
           sigmaInputs.push(input);
-          return createFakeRenderer();
+          return trackRenderer(renderers, "sigma");
         },
-        createDomSvgCommunity: (input) => {
-          communityInputs.push(input);
-          return createFakeRenderer();
-        },
+        createDomSvgCommunity: () => createFakeRenderer(),
         createDomSvgSmallFallback: () => createFakeRenderer()
       }
     });
@@ -454,11 +451,14 @@ describe("graph summary contract", () => {
     });
     manager.focusCommunity("beta");
 
-    assert.equal(communityInputs[0].options.searchQuery, "delta");
-    assert.deepEqual(communityInputs[0].options.searchResultIds, ["d"]);
-    assert.deepEqual(communityInputs[0].options.temporaryObject, { kind: "node", nodeId: "d" });
-    assert.deepEqual(communityInputs[0].options.selection, { kind: "node", id: "c" });
-    assert.deepEqual(communityInputs[0].options.typeFilters, { topic: true, entity: true, source: false });
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(state.searchQuery, "delta");
+    assert.deepEqual(state.searchResultIds, ["d"]);
+    assert.deepEqual(state.temporaryObject, { kind: "node", nodeId: "d" });
+    assert.deepEqual(state.selection, { kind: "node", id: "c" });
+    assert.deepEqual(state.typeFilters, { topic: true, entity: true, source: false });
+    assert.deepEqual(state.focus, { kind: "community", id: "beta" });
+    assert.deepEqual(renderers[0].calls.at(-1), ["focusCommunity", "beta"]);
   });
 });
 
@@ -486,11 +486,17 @@ function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
     setAggregationMarkers(markers: GraphAggregationMarker[]) {
       calls.push(["setAggregationMarkers", markers]);
     },
+    setEdgeStyle(style) {
+      calls.push(["setEdgeStyle", style]);
+    },
     focusNode(path: string) {
       calls.push(["focusNode", path]);
     },
     focusCommunity(id: string) {
       calls.push(["focusCommunity", id]);
+    },
+    setSourceCommunityContext(id: string | null) {
+      calls.push(["setSourceCommunityContext", id]);
     },
     setTypeFilters(filters: GraphTypeFilters) {
       calls.push(["setTypeFilters", filters]);
@@ -533,6 +539,16 @@ function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
       calls.push(["destroy"]);
     }
   };
+}
+
+function trackRenderer(
+  renderers: Array<GraphFacadeRenderer & { calls: unknown[][] }>,
+  route: string
+): GraphFacadeRenderer & { calls: unknown[][] } {
+  const renderer = createFakeRenderer();
+  renderer.calls.push(["create", route]);
+  renderers.push(renderer);
+  return renderer;
 }
 
 function graphFixture(): GraphData {

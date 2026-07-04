@@ -365,6 +365,10 @@ export function createGraphFacadeRouteManager(
       // community highlighted. Kept separate from selection (never expands to
       // per-node selected/core).
       state.sourceCommunityId = id;
+      if (routeId === "sigma-global" && !sigmaKnownUnavailable) {
+        currentRenderer().focusCommunity(id);
+        return;
+      }
       switchRoute("dom-svg-community", () => factories.createDomSvgCommunity(factoryInput()));
       currentRenderer().focusCommunity(id);
     },
@@ -503,13 +507,13 @@ export function createGraphFacadeRouteManager(
     // "return to global", which keeps it so the source stays highlighted).
     const hadSourceCommunity = state.sourceCommunityId != null;
     state.sourceCommunityId = null;
+    state.focus = null;
     if (previousRouteId === "sigma-global" && state.selection?.kind === "community") {
       clearCommunitySelectionForGlobalReset();
       if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
       currentRenderer().resetView();
       return;
     }
-    state.focus = null;
     clearCommunitySelectionForGlobalReset();
     switchToGlobalRoute();
     if (previousRouteId === routeId) {

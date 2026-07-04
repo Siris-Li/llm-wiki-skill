@@ -105,7 +105,8 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       options = { ...options, selection: node ? { kind: "node", id: node.id } : null };
       updateSigmaRenderer();
     },
-    focusCommunity() {
+    focusCommunity(id) {
+      options = { ...options, focus: { kind: "community", id }, sourceCommunityId: id };
       updateSigmaRenderer();
     },
     setSourceCommunityContext(id) {
@@ -361,7 +362,7 @@ function adapterDataForSigmaRoute(options: GraphFacadeRouteRendererOptions): Gra
     selection: options.selection,
     searchResultIds: options.searchResultIds,
     aggregationMarkers: options.aggregationMarkers,
-    focus: null,
+    focus: options.focus,
     typeFilters: options.typeFilters,
     sourceCommunityId: options.sourceCommunityId
   });

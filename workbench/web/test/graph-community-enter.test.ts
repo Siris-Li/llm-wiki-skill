@@ -5,7 +5,7 @@ import { applyCommunityEnter } from "../src/lib/graph-community-enter";
 import type { GraphEngine } from "@llm-wiki/graph-engine";
 
 describe("applyCommunityEnter", () => {
-	it("records source community context separately before focusing the community reading view", () => {
+	it("records source community context separately before entering Sigma community reading", () => {
 		const calls: string[] = [];
 		const engine = {
 			clearSelection() {

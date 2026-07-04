@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import GraphologyGraph from "graphology";
 
 import type { GraphRendererAdapterData } from "../src";
+import { buildGraphRendererAdapterData } from "../src/render";
 import {
   buildSigmaGlobalGraphologyGraph,
   canPatchSigmaGlobalGraphAttributes,
@@ -13,6 +14,7 @@ import {
 } from "../src/render/sigma-graphology-model";
 import { getThemeTokens } from "../src/themes";
 import type { GraphRendererAdapterNode } from "../src/render/adapter";
+import type { GraphData } from "../src/types";
 
 describe("Sigma graphology render model", () => {
   it("builds graphology nodes, edges, communities, and aggregations from adapter data", () => {
@@ -94,6 +96,39 @@ describe("Sigma graphology render model", () => {
     assert.equal(graph.getNodeAttribute("beta", "size"), 3.6);
     assert.equal(graph.getNodeAttribute("beta-search", "communityDimmed"), false);
     assert.equal(graph.getNodeAttribute("beta-pinned", "communityDimmed"), false);
+  });
+
+  it("builds Sigma community reading from only the focused community while preserving color and positions", () => {
+    const pins = {
+      "wiki/alpha.md": { x: 111, y: 222, coordinateSpace: "world" as const }
+    };
+    const data = sigmaCommunityReadingGraphData();
+    const globalAdapter = buildGraphRendererAdapterData(data, { theme: "shan-shui", pins });
+    const communityAdapter = buildGraphRendererAdapterData(data, {
+      theme: "shan-shui",
+      pins,
+      focus: { kind: "community", id: "community-a" },
+      sourceCommunityId: "community-a"
+    });
+    const graph = buildSigmaGlobalGraphologyGraph(communityAdapter, { GraphologyGraph });
+
+    assert.deepEqual(communityAdapter.nodes.map((node) => node.id).sort(), ["alpha", "beta"]);
+    assert.deepEqual(communityAdapter.edges.map((edge) => edge.id), ["alpha-beta"]);
+    assert.equal(communityAdapter.renderable.communityMap.active, true);
+    assert.equal(communityAdapter.renderable.communityMap.current?.communityId, "community-a");
+
+    for (const nodeId of ["alpha", "beta"]) {
+      const globalNode = globalAdapter.nodes.find((node) => node.id === nodeId);
+      assert.ok(globalNode, `${nodeId} should exist globally`);
+      assert.equal(graph.getNodeAttribute(nodeId, "x"), globalNode.point.x);
+      assert.equal(graph.getNodeAttribute(nodeId, "y"), globalNode.point.y);
+      assert.equal(graph.getNodeAttribute(nodeId, "color"), sigmaGlobalNodeColor(globalNode, communityColorMap(globalAdapter), "shan-shui"));
+    }
+
+    assert.equal(graph.hasNode("gamma"), false);
+    assert.equal(graph.hasEdge("beta-gamma"), false);
+    assert.equal(graph.getNodeAttribute("alpha", "x"), 111);
+    assert.equal(graph.getNodeAttribute("alpha", "y"), 222);
   });
 
   it("detects patch eligibility from graph structure and theme", () => {
@@ -321,6 +356,43 @@ function adapterDataFixture(options: {
       }
     }
   };
+}
+
+function sigmaCommunityReadingGraphData(): GraphData {
+  return {
+    meta: {
+      build_date: "2026-07-04T00:00:00.000Z",
+      wiki_title: "Sigma community reading",
+      total_nodes: 3,
+      total_edges: 2
+    },
+    nodes: [
+      { id: "alpha", label: "Alpha", type: "topic", community: "community-a", source_path: "wiki/alpha.md", weight: 90, x: 10, y: 20 },
+      { id: "beta", label: "Beta", type: "entity", community: "community-a", source_path: "wiki/beta.md", weight: 70, x: 30, y: 40 },
+      { id: "gamma", label: "Gamma", type: "source", community: "community-b", source_path: "wiki/gamma.md", weight: 60, x: 70, y: 80 }
+    ],
+    edges: [
+      { id: "alpha-beta", from: "alpha", to: "beta", type: "EXTRACTED", confidence: "EXTRACTED", relation_type: "实现", weight: 1 },
+      { id: "beta-gamma", from: "beta", to: "gamma", type: "INFERRED", confidence: "INFERRED", relation_type: "对比", weight: 0.8 }
+    ],
+    learning: {
+      version: 1,
+      entry: { recommended_start_node_id: "alpha", recommended_start_reason: "fixture", default_mode: "global" },
+      views: {
+        path: { enabled: false, start_node_id: null, node_ids: [], degraded: true },
+        community: { enabled: false, community_id: null, label: null, node_ids: [], is_weak: false, degraded: true },
+        global: { enabled: true, node_ids: ["alpha", "beta", "gamma"], degraded: false }
+      },
+      communities: [
+        { id: "community-a", label: "Community A", node_count: 2, color_index: 0, recommended_start_node_id: "alpha" },
+        { id: "community-b", label: "Community B", node_count: 1, color_index: 1 }
+      ]
+    }
+  };
+}
+
+function communityColorMap(adapterData: GraphRendererAdapterData): Map<string, string> {
+  return new Map(adapterData.renderable.communities.map((community) => [community.id, community.color]));
 }
 
 function spotlightAdapterData(): GraphRendererAdapterData {

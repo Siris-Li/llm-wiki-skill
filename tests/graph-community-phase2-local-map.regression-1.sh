@@ -1,5 +1,5 @@
 #!/bin/bash
-# Regression: Phase 2 community reading behaves as a stable local map and preserves source community context on return.
+# Regression: community reading stays on the Sigma primary route and preserves source community context on return.
 
 set -euo pipefail
 
