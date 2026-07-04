@@ -1,11 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { graphCommunitySummaryDrawer, graphNodeSummaryDrawer, graphSelectionDrawer } from "../src/lib/drawer-state";
+import { graphCommunitySummaryDrawer, graphNodeSummaryDrawer, graphReaderDrawer, graphSelectionDrawer } from "../src/lib/drawer-state";
 import { graphCloseCommandForDrawer } from "../src/lib/graph-drawer-close";
 import type {
 	GraphCommunitySummaryPayload,
 	GraphNodeSummaryPayload,
+	GraphOpenPagePayload,
 	Selection,
 } from "@llm-wiki/graph-engine";
 
@@ -17,6 +18,14 @@ describe("graph drawer close behavior", () => {
 
 	it("does not clear graph selection when closing a node summary drawer", () => {
 		assert.equal(graphCloseCommandForDrawer(graphNodeSummaryDrawer(nodeSummaryFixture()), "button"), null);
+	});
+
+	it("keeps node relation focus when closing node content with the close button", () => {
+		assert.equal(graphCloseCommandForDrawer(graphReaderDrawer(graphReaderPayloadFixture()), "button"), null);
+	});
+
+	it("clears node reading and relation focus when closing node content with Escape", () => {
+		assert.equal(graphCloseCommandForDrawer(graphReaderDrawer(graphReaderPayloadFixture()), "escape")?.type, "clear");
 	});
 });
 
@@ -89,6 +98,21 @@ function nodeSummaryFixture(overrides: Partial<GraphNodeSummaryPayload> = {}): G
 		bridgeRelations: [],
 		aggregationMarkers: [],
 		commands: [],
+		...overrides,
+	};
+}
+
+function graphReaderPayloadFixture(overrides: Partial<GraphOpenPagePayload> = {}): GraphOpenPagePayload {
+	return {
+		path: "wiki/a.md",
+		node: {
+			id: "a",
+			title: "Alpha",
+			type: "topic",
+			communityId: "build",
+			sourcePath: "wiki/a.md",
+		},
+		actions: [],
 		...overrides,
 	};
 }

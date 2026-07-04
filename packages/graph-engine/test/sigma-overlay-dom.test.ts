@@ -19,6 +19,16 @@ describe("Sigma overlay DOM controller", () => {
     assert.deepEqual(fixture.hits, [{ kind: "node", id: "alpha" }]);
   });
 
+  it("routes node hover enter and leave through the hover callback", () => {
+    const fixture = controllerFixture();
+    fixture.controller.rebuild();
+
+    nodeTarget(fixture.overlayRoot, "alpha")?.dispatch("pointerenter");
+    nodeTarget(fixture.overlayRoot, "alpha")?.dispatch("pointerleave");
+
+    assert.deepEqual(fixture.hoverCalls, ["alpha", null]);
+  });
+
   it("routes community cloud shape clicks through the rendered object callback", () => {
     const fixture = controllerFixture();
     fixture.controller.rebuild();
@@ -26,6 +36,19 @@ describe("Sigma overlay DOM controller", () => {
     communityShape(fixture.overlayRoot, "community-a")?.dispatch("click");
 
     assert.deepEqual(fixture.hits, [{ kind: "community-wash", id: "community-a" }]);
+  });
+
+  it("keeps community clouds passive inside community reading so canvas node clicks pass through", () => {
+    const fixture = controllerFixture({
+      adapterData: adapterDataFixture({ communityMapActive: true })
+    });
+    fixture.controller.rebuild();
+    const region = communityRegion(fixture.overlayRoot, "community-a");
+    const shape = communityShape(fixture.overlayRoot, "community-a");
+
+    assert.equal(region?.dataset.interactive, "false");
+    assert.equal(shape?.style.pointerEvents, "none");
+    assert.equal(shape?.style.cursor, "default");
   });
 
   it("binds pointer overlay drag and clears document listeners on pointerup", () => {
@@ -314,6 +337,7 @@ function controllerFixture(options: {
   let cloudCalls = 0;
   let activeNodeId: string | null = null;
   const hits: unknown[] = [];
+  const hoverCalls: Array<string | null> = [];
   const dragCalls: string[] = [];
   const controller = createSigmaOverlayDomController({
     overlayRoot: overlayRoot as unknown as HTMLElement,
@@ -339,6 +363,7 @@ function controllerFixture(options: {
     },
     isDestroyed: () => false,
     onHit: (object) => hits.push(object),
+    onNodeHover: (nodeId) => hoverCalls.push(nodeId),
     beginNodeDrag: (nodeId, point) => {
       activeNodeId = nodeId;
       dragCalls.push(`begin:${nodeId}:${point.x},${point.y}`);
@@ -363,6 +388,7 @@ function controllerFixture(options: {
     document,
     overlayRoot,
     hits,
+    hoverCalls,
     dragCalls,
     adapterData: () => adapterData,
     setAdapterData: (next: GraphRendererAdapterData) => {
@@ -382,6 +408,7 @@ function adapterDataFixture(options: {
   nodes?: ReturnType<typeof nodeFixture>[];
   communities?: ReturnType<typeof communityFixture>[];
   selectionInput?: GraphRendererAdapterData["selection"]["input"];
+  communityMapActive?: boolean;
 } = {}): GraphRendererAdapterData {
   const nodes = options.nodes ?? [
     nodeFixture("alpha", { selected: true }),
@@ -459,6 +486,28 @@ function adapterDataFixture(options: {
         }
       },
       qualityNotice: null,
+      communityMap: options.communityMapActive
+        ? {
+            active: true,
+            sourceCommunityId: "community-a",
+            motionMode: "frozen",
+            maxNodeDriftRatio: 0,
+            current: {
+              communityId: "community-a",
+              source: "focus",
+              nodeRulesById: {},
+              edgeRulesById: {},
+              layout: {
+                coordinateSpace: "world",
+                bounds: { minX: 0, minY: 0, maxX: 500, maxY: 500, width: 500, height: 500 },
+                viewportAspectRatio: null
+              },
+              labelBudget: { limit: 8, visible: 0, hidden: 0 },
+              edgeLayers: { related: 0, skeleton: 0, background: 0 }
+            },
+            rulesByCommunityId: {}
+          }
+        : null,
       communityFocus: null,
       communityQuality: {
         boundaryCertainty: "high",
@@ -490,6 +539,7 @@ function nodeFixture(id: string, options: {
     point: { x: 40 + index, y: 80 + index },
     selected: options.selected ?? false,
     searchHit: options.searchHit ?? false,
+    relationFocusDepth: "none" as const,
     pinHint: {
       nodeId: id,
       wikiPath: `${id}.md`,

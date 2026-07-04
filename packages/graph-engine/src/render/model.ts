@@ -12,6 +12,7 @@ import { getCommunityColor } from "../themes";
 import { computeCommunityWash } from "./community-wash";
 import { GRAPH_WORLD_SIZE, worldBoundsForPoints, worldPointToCssPercentPoint, worldPointToMinimapPoint, type GraphWorldBounds } from "./geometry";
 import { pinPositionToWorldPoint } from "./pin-position";
+import { resolveGraphRelationFocus, type GraphRelationFocusDepth } from "./relation-focus";
 
 export type DensityMode = "card" | "compact-card" | "point-plus-focus" | "overview";
 export type NodeDisplayMode = "card" | "compact-card" | "point" | "overview";
@@ -155,6 +156,7 @@ export interface RenderableNode {
   coreAnchor: boolean;
   unavailable: boolean;
   selected: boolean;
+  relationFocusDepth: GraphRelationFocusDepth;
   startNode: boolean;
   previewStart: boolean;
   labelVisible: boolean;
@@ -184,6 +186,7 @@ export interface RenderableEdge {
   simulationWeight: number;
   skeleton: boolean;
   traceable: boolean;
+  relationFocusDepth: GraphRelationFocusDepth;
   // Phase 2: shared local-map edge layer, derived from skeleton/interaction signals.
   communityMapLayer: CommunityMapEdgeLayer;
 }
@@ -299,6 +302,7 @@ interface BuildRenderableGraphOptions {
   pins?: PinMap;
   theme?: ThemeId;
   selectedNodeId?: string | null;
+  relationFocusNodeId?: string | null;
   selection?: SelectionInput | null;
   focus?: GraphFocusInput;
   typeFilters?: GraphTypeFilters;
@@ -504,6 +508,19 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   );
   const pinnedNodeSet = resolvePinnedNodeIds(model.nodes, options.pins);
   const searchResultSet = new Set(options.searchResultIds || []);
+  const relationFocusState = resolveGraphRelationFocus({
+    activeNodeId: focus?.kind === "community" ? (options.relationFocusNodeId ?? selectedNodeId) : null,
+    nodes: filteredVisibleNodes,
+    edges: filteredVisibleEdges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
+  });
+  const relationFocusNodeSet = new Set([
+    ...(relationFocusState.activeNodeId ? [relationFocusState.activeNodeId] : []),
+    ...relationFocusState.firstNodeIds
+  ]);
+  const relationContextNodeSet = new Set([
+    ...relationFocusNodeSet,
+    ...relationFocusState.secondNodeIds
+  ]);
   const aggregationMarkers = options.aggregationMarkers ?? [];
   const stableCoreNodeIds = selectStableCoreNodeIds(filteredVisibleNodes, budgetLimits.maxLabels, {
     labelNodeIds: labelIds,
@@ -536,6 +553,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const labelCandidateNodes = budgetedVisibleNodes.filter((node) =>
     labelIds[node.id] === true ||
     selectedNodeSet.has(node.id) ||
+    relationFocusNodeSet.has(node.id) ||
     pinnedNodeSet.has(node.id) ||
     searchResultSet.has(node.id) ||
     importantIds[node.id] === true ||
@@ -574,6 +592,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const traceableNodeIds = new Set([
     ...stableCoreNodeSet,
     ...selectedNodeSet,
+    ...relationContextNodeSet,
     ...pinnedNodeSet,
     ...searchResultSet
   ]);
@@ -598,6 +617,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     importantNodeIds: importantIds,
     startNodeIds: startIds,
     selectedNodeIds: selectedNodeSet,
+    relationFocusNodeIds: relationFocusNodeSet,
     pinnedNodeIds: pinnedNodeSet,
     searchResultIds: searchResultSet,
     coreNodeIds: stableCoreNodeSet
@@ -644,6 +664,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       coreAnchor: stableCoreNodeSet.has(node.id),
       unavailable: node.unavailable === true,
       selected: isSelected,
+      relationFocusDepth: relationFocusState.nodeDepthById.get(node.id) ?? "none",
       startNode: startIds[node.id] === true,
       previewStart: node.id === previewNodeId,
       labelVisible: labelNodeSet.has(node.id),
@@ -655,6 +676,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       communityMapTier: communityMapNodeTier(node, {
         coreNodeIds: stableCoreNodeSet,
         selectedNodeIds: selectedNodeSet,
+        relationFocusDepth: relationFocusState.nodeDepthById.get(node.id) ?? "none",
         pinnedNodeIds: pinnedNodeSet,
         searchResultIds: searchResultSet,
         labelNodeIds: labelNodeSet,
@@ -678,7 +700,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   );
   const interactionEdgeBudget = Math.max(8, Math.min(edgeIdSet.size, Math.ceil(budgetLimits.maxVisibleEdges * 0.22)));
   const interactionEdgeIdSet = selectBudgetedIds(
-    renderableEdgeCandidates.filter((edge) => edgeIdSet.has(edge.id) && (traceableNodeIds.has(edge.source) || traceableNodeIds.has(edge.target) || stableSkeletonEdgeSet.has(edge.id))),
+    renderableEdgeCandidates.filter((edge) => edgeIdSet.has(edge.id) && (traceableNodeIds.has(edge.source) || traceableNodeIds.has(edge.target) || stableSkeletonEdgeSet.has(edge.id) || relationFocusState.edgeDepthById.get(edge.id) === "first")),
     interactionEdgeBudget,
     (edge) => edgeRenderPriority(edge, {
       selectedNodeIds: selectedNodeSet,
@@ -697,7 +719,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     const relationType = normalizeEdgeRelationType(edge);
     const localMapLayer = communityMapEdgeLayer(edge, {
       skeletonEdgeIds: stableSkeletonEdgeSet,
-      interactionEdgeIds: interactionEdgeIdSet
+      interactionEdgeIds: interactionEdgeIdSet,
+      relationFocusDepth: relationFocusState.edgeDepthById.get(edge.id) ?? "none"
     });
     return [{
       id: edge.id,
@@ -714,6 +737,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       simulationWeight: edgeStrokeWidth(edge),
       skeleton: stableSkeletonEdgeSet.has(edge.id),
       traceable: interactionEdgeIdSet.has(edge.id),
+      relationFocusDepth: relationFocusState.edgeDepthById.get(edge.id) ?? "none",
       communityMapLayer: localMapLayer
     }];
   });
@@ -1392,6 +1416,7 @@ function communityMapImportanceById(
     importantNodeIds: Record<string, boolean>;
     startNodeIds: Record<string, boolean>;
     selectedNodeIds: Set<string>;
+    relationFocusNodeIds: Set<string>;
     pinnedNodeIds: Set<string>;
     searchResultIds: Set<string>;
     coreNodeIds: Set<string>;
@@ -1406,7 +1431,7 @@ function communityMapImportanceById(
   const scores = new Map<string, number>();
   for (const node of nodes) {
     let score = Math.max(Number(node.priority || 0), Number(node.weight || 0)) * rawScale;
-    if (options.selectedNodeIds.has(node.id) || options.pinnedNodeIds.has(node.id) || options.searchResultIds.has(node.id)) score += 1.5;
+    if (options.selectedNodeIds.has(node.id) || options.relationFocusNodeIds.has(node.id) || options.pinnedNodeIds.has(node.id) || options.searchResultIds.has(node.id)) score += 1.5;
     if (options.coreNodeIds.has(node.id)) score += 1;
     if (options.startNodeIds[node.id] || options.importantNodeIds[node.id] || options.labelNodeIds[node.id]) score += .7;
     scores.set(node.id, round(clamp(score, 0, 10)));
@@ -1448,6 +1473,7 @@ function communityMapNodeTier(
   signals: {
     coreNodeIds: Set<string>;
     selectedNodeIds: Set<string>;
+    relationFocusDepth: GraphRelationFocusDepth;
     pinnedNodeIds: Set<string>;
     searchResultIds: Set<string>;
     labelNodeIds: Set<string>;
@@ -1458,11 +1484,14 @@ function communityMapNodeTier(
   if (
     signals.coreNodeIds.has(node.id) ||
     signals.selectedNodeIds.has(node.id) ||
+    signals.relationFocusDepth === "focus" ||
     signals.startNodeIds[node.id] === true
   ) {
     return "core";
   }
   if (
+    signals.relationFocusDepth === "first" ||
+    signals.relationFocusDepth === "second" ||
     signals.pinnedNodeIds.has(node.id) ||
     signals.searchResultIds.has(node.id) ||
     signals.labelNodeIds.has(node.id) ||
@@ -1478,8 +1507,12 @@ function communityMapEdgeLayer(
   signals: {
     skeletonEdgeIds: Set<string>;
     interactionEdgeIds: Set<string>;
+    relationFocusDepth: GraphRelationFocusDepth;
   }
 ): CommunityMapEdgeLayer {
+  if (signals.relationFocusDepth === "first") return "related";
+  if (signals.relationFocusDepth === "second") return "skeleton";
+  if (signals.relationFocusDepth === "unrelated") return "background";
   if (signals.skeletonEdgeIds.has(edge.id)) return "skeleton";
   if (signals.interactionEdgeIds.has(edge.id)) return "related";
   return "background";

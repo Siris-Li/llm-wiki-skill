@@ -413,6 +413,12 @@ export function createGraphFacadeRouteManager(
     },
     clearInteraction() {
       assertActive();
+      if (state.focus?.kind === "community") {
+        state.selection = null;
+        state.temporaryObject = null;
+        currentRenderer().clearInteraction();
+        return;
+      }
       const hadSourceCommunity = state.sourceCommunityId != null;
       state.focus = null;
       state.selection = null;
@@ -1043,6 +1049,12 @@ export function createGraphFacadeFromRenderer(
 
     clearInteraction(): void {
       assertActive();
+      if (facadeState.focus?.kind === "community") {
+        facadeState.selection = null;
+        facadeState.temporaryObject = null;
+        renderer.clearInteraction();
+        return;
+      }
       delete container.dataset.llmWikiGraphFocus;
       const hadSourceCommunity = facadeState.sourceCommunityId != null;
       facadeState.focus = null;

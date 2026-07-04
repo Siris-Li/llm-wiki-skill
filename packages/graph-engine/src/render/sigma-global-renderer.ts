@@ -180,6 +180,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       communityCloudFor: sigmaCommunityCloudFor,
       isDestroyed: () => destroyed,
       onHit: (renderedObject) => handleSigmaHit({ renderedObject }),
+      onNodeHover: handleNodeHover,
       beginNodeDrag,
       moveNodeDrag,
       commitNodeDrag,
@@ -333,6 +334,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     const nodeDown = (payload?: unknown): void => beginNodeDrag(sigmaNodeIdFromPayload(payload), sigmaScreenPointFromPayload(payload), payload);
     const nodeMove = (payload?: unknown): void => moveNodeDrag(sigmaScreenPointFromPayload(payload), payload);
     const nodeUp = (payload?: unknown): void => commitNodeDrag(sigmaScreenPointFromPayload(payload), payload);
+    const nodeEnter = (payload?: unknown): void => handleNodeHover(sigmaNodeIdFromPayload(payload));
+    const nodeLeave = (): void => handleNodeHover(null);
     eventBindings = [
       { event: "clickNode", listener: nodeClick },
       { event: "clickStage", listener: stageClick },
@@ -340,6 +343,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       { event: "moveBody", listener: nodeMove },
       { event: "upNode", listener: nodeUp },
       { event: "upStage", listener: nodeUp },
+      { event: "enterNode", listener: nodeEnter },
+      { event: "leaveNode", listener: nodeLeave },
       { event: "afterRender", listener: requestCameraFrame }
     ];
     for (const binding of eventBindings) {
@@ -611,10 +616,16 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     options.onHitTarget?.(target, { additive: Boolean(input.additive) });
   }
 
+  function handleNodeHover(nodeId: string | null): void {
+    if (destroyed || activeNodeDrag) return;
+    options.onNodeHover?.(nodeId && graph.hasNode(nodeId) ? nodeId : null);
+  }
+
   function beginNodeDrag(nodeId: string | null, screenPoint: GraphScreenPoint | null, payload?: unknown): void {
     if (destroyed || !nodeId || !screenPoint || !graph.hasNode(nodeId)) return;
     preventSigmaDefault(payload);
     cancelNodeDrag();
+    handleNodeHover(null);
     suppressOverlayAnimationFastPathUntilSettled();
     const startPoint = sigmaNodeWorldPoint(nodeId);
     const pointerWorldPoint = sigmaScreenPointToWorldPoint(sigma, screenPoint, options);
@@ -655,6 +666,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     delete sigmaRoot.dataset.draggingNodeId;
     options.onDragActiveChange?.(false);
     if (!drag.moved) {
+      handleNodeHover(drag.nodeId);
       return;
     }
     suppressNextNodeClickId = drag.nodeId;

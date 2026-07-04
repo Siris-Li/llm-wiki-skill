@@ -77,6 +77,7 @@ export interface SigmaGlobalRendererCreateOptions {
   theme: ThemeId;
   edgeStyle?: GraphEdgeStyleOptions;
   onHitTarget?: (target: GraphGestureTarget, context: SigmaGlobalHitContext) => void;
+  onNodeHover?: (nodeId: string | null) => void;
   onPinsChanged?: (pins: PinMap) => void;
   onDragActiveChange?: (dragging: boolean) => void;
   onFatalError?: (error: unknown) => void;

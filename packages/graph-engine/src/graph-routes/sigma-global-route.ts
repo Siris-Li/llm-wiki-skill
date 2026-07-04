@@ -45,10 +45,11 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   let renderer: ReturnType<typeof createSigmaGlobalRenderer> | null = null;
   let searchOpen = Boolean(options.searchQuery);
   let searchFocusedNodeId: string | null = null;
+  let hoverNodeId: string | null = null;
   let legendCollapsed = false;
   let toolbarPanelState = readToolbarPanelState(input.container.ownerDocument.defaultView?.localStorage);
   let searchStatus: HTMLElement | null = null;
-  let currentSigmaAdapterData = adapterDataForSigmaRoute(options);
+  let currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId);
   const shell = input.container.ownerDocument.createElement("div");
   shell.className = "sigma-global-route llm-wiki-graph-engine";
   shell.dataset.route = "sigma-global";
@@ -71,6 +72,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
           onPinsChanged: handleSigmaPinsChanged,
           onDragActiveChange: input.options.callbacks.onDragActiveChange,
           onHitTarget: handleSigmaHitTarget,
+          onNodeHover: handleSigmaNodeHover,
           onFatalError: (error) => input.onSigmaUnavailable?.(error)
         });
       } catch (error) {
@@ -102,10 +104,12 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     },
     focusNode(path) {
       const node = options.data.nodes.find((item) => item.id === path || wikiPathForGraphNode(item) === path);
+      hoverNodeId = null;
       options = { ...options, selection: node ? { kind: "node", id: node.id } : null };
       updateSigmaRenderer();
     },
     focusCommunity(id) {
+      hoverNodeId = null;
       options = { ...options, focus: { kind: "community", id }, sourceCommunityId: id };
       updateSigmaRenderer();
     },
@@ -128,6 +132,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       updateSigmaRenderer();
     },
     resetView() {
+      hoverNodeId = null;
       options = { ...options, focus: null };
       updateSigmaSelection(null);
       renderer?.resetView();
@@ -144,6 +149,13 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       input.options.callbacks.onSelectionClearRequested?.();
     },
     clearInteraction() {
+      hoverNodeId = null;
+      if (options.focus?.kind === "community") {
+        options = { ...options, selection: null, temporaryObject: null };
+        input.options.callbacks.onSelectionClearRequested?.();
+        updateSigmaRenderer();
+        return;
+      }
       options = { ...options, focus: null, selection: null, temporaryObject: null };
       updateSigmaRenderer();
     },
@@ -190,7 +202,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   };
 
   function updateSigmaRenderer(): void {
-    currentSigmaAdapterData = adapterDataForSigmaRoute(options);
+    currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId);
     if (!renderer || destroyed) return;
     renderer.update({
       adapterData: currentSigmaAdapterData,
@@ -212,6 +224,18 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   }
 
   function handleSigmaHitTarget(target: GraphGestureTarget, context: SigmaGlobalHitContext): void {
+    if (options.focus?.kind === "community" && target.kind === "node" && target.id) {
+      selectOnSigma({ kind: "node", id: target.id });
+      input.options.callbacks.onNodeOpen?.(target.id);
+      return;
+    }
+    if (options.focus?.kind === "community" && target.kind === "graph-blank") {
+      hoverNodeId = null;
+      options = { ...options, selection: null, temporaryObject: null };
+      input.options.callbacks.onSelectionClearRequested?.();
+      updateSigmaRenderer();
+      return;
+    }
     const nextSelection = selectionInputForSigmaHit(options.data, options.selection, target, context);
     if (nextSelection) {
       selectOnSigma(nextSelection);
@@ -238,8 +262,16 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   }
 
   function selectOnSigma(selection: SelectionInput): void {
+    hoverNodeId = null;
     input.options.callbacks.onSelectionInput?.(selection);
     updateSigmaSelection(selection);
+  }
+
+  function handleSigmaNodeHover(nodeId: string | null): void {
+    const nextHoverNodeId = options.focus?.kind === "community" ? nodeId : null;
+    if (hoverNodeId === nextHoverNodeId) return;
+    hoverNodeId = nextHoverNodeId;
+    updateSigmaRenderer();
   }
 
   function mountSigmaControls(): void {
@@ -355,7 +387,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   }
 }
 
-function adapterDataForSigmaRoute(options: GraphFacadeRouteRendererOptions): GraphRendererAdapterData {
+function adapterDataForSigmaRoute(options: GraphFacadeRouteRendererOptions, hoverNodeId: string | null = null): GraphRendererAdapterData {
   return buildGraphRendererAdapterData(options.data, {
     theme: options.theme,
     pins: options.pins,
@@ -364,7 +396,8 @@ function adapterDataForSigmaRoute(options: GraphFacadeRouteRendererOptions): Gra
     aggregationMarkers: options.aggregationMarkers,
     focus: options.focus,
     typeFilters: options.typeFilters,
-    sourceCommunityId: options.sourceCommunityId
+    sourceCommunityId: options.sourceCommunityId,
+    relationFocusNodeId: hoverNodeId
   });
 }
 

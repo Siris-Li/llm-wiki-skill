@@ -85,6 +85,42 @@ function outlierCommunityGraph(): GraphData {
   };
 }
 
+function relationFocusCommunityGraph(): GraphData {
+  return {
+    meta: {
+      build_date: "2026-07-04T00:00:00.000Z",
+      wiki_title: "Relation focus fixture",
+      total_nodes: 5,
+      total_edges: 4
+    },
+    nodes: [
+      { id: "a", label: "Alpha", type: "topic", community: "c1", source_path: "wiki/a.md", weight: 80, x: 10, y: 20 },
+      { id: "b", label: "Beta", type: "entity", community: "c1", source_path: "wiki/b.md", weight: 70, x: 25, y: 35 },
+      { id: "c", label: "Gamma", type: "source", community: "c1", source_path: "wiki/c.md", weight: 60, x: 45, y: 30 },
+      { id: "d", label: "Delta", type: "entity", community: "c1", source_path: "wiki/d.md", weight: 50, x: 65, y: 50 },
+      { id: "e", label: "Epsilon", type: "entity", community: "c1", source_path: "wiki/e.md", weight: 10, x: 85, y: 70 }
+    ],
+    edges: [
+      { id: "a-b", from: "a", to: "b", type: "EXTRACTED", confidence: "EXTRACTED", relation_type: "实现", weight: 1 },
+      { id: "a-c", from: "a", to: "c", type: "EXTRACTED", confidence: "EXTRACTED", relation_type: "依赖", weight: 0.8 },
+      { id: "c-d", from: "c", to: "d", type: "INFERRED", confidence: "INFERRED", relation_type: "衍生", weight: 0.5 },
+      { id: "d-e", from: "d", to: "e", type: "INFERRED", confidence: "INFERRED", relation_type: "对比", weight: 0.4 }
+    ],
+    learning: {
+      version: 1,
+      entry: { recommended_start_node_id: "a", recommended_start_reason: "fixture", default_mode: "global" },
+      views: {
+        path: { enabled: false, start_node_id: null, node_ids: [], degraded: true },
+        community: { enabled: false, community_id: null, label: null, node_ids: [], is_weak: false, degraded: true },
+        global: { enabled: true, node_ids: ["a", "b", "c", "d", "e"], degraded: false }
+      },
+      communities: [
+        { id: "c1", label: "Relation Focus", node_count: 5, color_index: 0, recommended_start_node_id: "a" }
+      ]
+    }
+  };
+}
+
 function budgetGraph(nodeCount: number, edgeCount: number): GraphData {
   const nodes = Array.from({ length: nodeCount }, (_, index) => ({
     id: `n${index}`,
@@ -602,6 +638,54 @@ describe("buildRenderableGraph", () => {
     assert.equal(typeof firstNode.communityMapRelationLabel, "boolean");
   });
 
+  it("uses relation focus to emphasize the active node, direct neighbors, and direct edges in community reading", () => {
+    const graph = buildRenderableGraph(relationFocusCommunityGraph(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      selection: { kind: "node", id: "b" },
+      relationFocusNodeId: "a"
+    });
+
+    const nodeDepths = Object.fromEntries(graph.nodes.map((node) => [node.id, node.relationFocusDepth]));
+    const edgeLayers = Object.fromEntries(graph.edges.map((edge) => [edge.id, edge.communityMapLayer]));
+
+    assert.equal(graph.selectedNodeId, "b");
+    assert.deepEqual(nodeDepths, {
+      a: "focus",
+      b: "first",
+      c: "first",
+      d: "second",
+      e: "unrelated"
+    });
+    assert.equal(edgeLayers["a-b"], "related");
+    assert.equal(edgeLayers["a-c"], "related");
+    assert.equal(edgeLayers["c-d"], "skeleton");
+    assert.equal(edgeLayers["d-e"], "background");
+    assert.equal(graph.nodes.find((node) => node.id === "a")?.labelVisible, true);
+    assert.equal(graph.nodes.find((node) => node.id === "b")?.labelVisible, true);
+    assert.ok(graph.nodes.filter((node) => node.labelVisible).length <= graph.budget.limits.maxLabels);
+  });
+
+  it("restores selected-node relation focus when temporary hover focus is removed", () => {
+    const data = relationFocusCommunityGraph();
+    const hovered = buildRenderableGraph(data, {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      selection: { kind: "node", id: "b" },
+      relationFocusNodeId: "a"
+    });
+    const restored = buildRenderableGraph(data, {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      selection: { kind: "node", id: "b" }
+    });
+
+    assert.equal(hovered.nodes.find((node) => node.id === "a")?.relationFocusDepth, "focus");
+    assert.equal(hovered.nodes.find((node) => node.id === "b")?.relationFocusDepth, "first");
+    assert.equal(restored.nodes.find((node) => node.id === "b")?.relationFocusDepth, "focus");
+    assert.equal(restored.nodes.find((node) => node.id === "a")?.relationFocusDepth, "first");
+  });
+
   it("uses the small community band as a lightweight map with sparse labels", () => {
     const graph = buildRenderableGraph(budgetGraph(24, 120), {
       theme: "shan-shui",
@@ -1071,14 +1155,18 @@ describe("buildRenderableGraph", () => {
     assert.ok(selectedNode, "selected node should remain visible in the community map");
     assert.notEqual(selectedNode.communityMapTier, "peripheral");
 
-    const peripheralNode = graph.nodes.find((node) => !node.coreAnchor && !node.labelVisible && node.id !== "n79" && node.id !== "n78");
+    const quietGraph = buildRenderableGraph(budgetGraph(80, 240), {
+      focus: { kind: "community", id: "c1" },
+      sourceCommunityId: "c1"
+    });
+    const peripheralNode = quietGraph.nodes.find((node) => !node.coreAnchor && !node.labelVisible);
     assert.ok(peripheralNode, "fixture should include an unlabeled peripheral node");
     assert.equal(peripheralNode.communityMapTier, "peripheral");
 
-    const skeletonEdge = graph.edges.find((edge) => edge.skeleton);
+    const skeletonEdge = quietGraph.edges.find((edge) => edge.skeleton);
     assert.ok(skeletonEdge, "fixture should expose a skeleton edge");
     assert.equal(skeletonEdge.communityMapLayer, "skeleton");
-    assert.equal(graph.communityMap.current.edgeRulesById[skeletonEdge.id]?.layer, "skeleton");
+    assert.equal(quietGraph.communityMap.current?.edgeRulesById[skeletonEdge.id]?.layer, "skeleton");
 
     assert.ok(graph.edges.every((edge) => ["skeleton", "related", "background"].includes(edge.communityMapLayer)));
   });

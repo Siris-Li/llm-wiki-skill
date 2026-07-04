@@ -62,6 +62,7 @@ export interface SigmaOverlayDomControllerInput {
   communityCloudFor: (communityId: string, wash: { cx: number; cy: number; rx: number; ry: number }) => SigmaCommunityCloud;
   isDestroyed: () => boolean;
   onHit: (object: SigmaGlobalRenderedObject) => void;
+  onNodeHover: (nodeId: string | null) => void;
   beginNodeDrag: (nodeId: string, point: GraphScreenPoint, payload?: unknown) => void;
   moveNodeDrag: (point: GraphScreenPoint, payload?: unknown) => void;
   commitNodeDrag: (point: GraphScreenPoint | null, payload?: unknown) => void;
@@ -128,6 +129,10 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
       const selected = highlightCommunityIds.has(community.id);
       const dim = highlightCommunityIds.size > 0 && !selected;
       entry.element.dataset.selected = selected ? "true" : "false";
+      const regionInteractive = adapterData.renderable.communityMap?.active ? "false" : "true";
+      entry.element.dataset.interactive = regionInteractive;
+      entry.shape.style.pointerEvents = regionInteractive === "true" ? "fill" : "none";
+      entry.shape.style.cursor = regionInteractive === "true" ? "pointer" : "default";
       applySigmaCloudColor(entry.shape, community.color, dim);
       ordered.push(entry.element);
     }
@@ -285,6 +290,10 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
       if (input.consumeSuppressedNodeClick(nodeId)) return;
       input.onHit({ kind: "node", id: nodeId });
     });
+    element.addEventListener("pointerenter", () => input.onNodeHover(nodeId));
+    element.addEventListener("pointerleave", () => input.onNodeHover(null));
+    element.addEventListener("focus", () => input.onNodeHover(nodeId));
+    element.addEventListener("blur", () => input.onNodeHover(null));
     element.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
       event.preventDefault();

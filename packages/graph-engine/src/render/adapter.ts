@@ -24,6 +24,7 @@ import type {
   WikiPath
 } from "../types";
 import { buildRenderableGraph, type CommunityMapEdgeLayer, type CommunityMapLabelSide, type CommunityMapNodeTier, type RenderPosition, type RenderPositionMap, type RenderableGraph } from "./model";
+import type { GraphRelationFocusDepth } from "./relation-focus";
 
 export const GRAPH_RENDERER_ADAPTER_ROUTES = ["dom-svg", "candidate-global", "aggregation-fallback"] as const;
 
@@ -39,6 +40,7 @@ export interface GraphRendererAdapterOptions {
   typeFilters?: GraphTypeFilters;
   positions?: RenderPositionMap;
   sourceCommunityId?: string | null;
+  relationFocusNodeId?: NodeId | null;
 }
 
 export interface GraphRendererAdapterData {
@@ -68,6 +70,7 @@ export interface GraphRendererAdapterNode {
   point: RenderPosition;
   selected: boolean;
   searchHit: boolean;
+  relationFocusDepth: GraphRelationFocusDepth;
   pinHint: GraphPinHint;
   aggregationIds: string[];
   drawerTarget: GraphRendererDrawerTarget;
@@ -97,6 +100,7 @@ export interface GraphRendererAdapterEdge {
     strokeWidth: number;
     opacity: number;
     communityMapLayer: CommunityMapEdgeLayer;
+    relationFocusDepth: GraphRelationFocusDepth;
     skeleton: boolean;
     traceable: boolean;
   };
@@ -200,7 +204,8 @@ export function buildGraphRendererAdapterData(
     typeFilters: options.typeFilters,
     positions: options.positions,
     searchResultIds: options.searchResultIds,
-    sourceCommunityId: options.sourceCommunityId
+    sourceCommunityId: options.sourceCommunityId,
+    relationFocusNodeId: options.relationFocusNodeId
   });
   const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
   const renderNodeById = new Map(renderable.nodes.map((node) => [node.id, node]));
@@ -225,6 +230,7 @@ export function buildGraphRendererAdapterData(
       point: renderNode.point,
       selected: selectedNodeSet.has(renderNode.id),
       searchHit: searchSet.has(renderNode.id),
+      relationFocusDepth: renderNode.relationFocusDepth,
       pinHint,
       aggregationIds: markersContainingNode(markers, renderNode.id).map((marker) => marker.id),
       drawerTarget: {
@@ -284,6 +290,7 @@ export function buildGraphRendererAdapterData(
         strokeWidth: edge.strokeWidth,
         opacity: edge.opacity,
         communityMapLayer: edge.communityMapLayer,
+        relationFocusDepth: edge.relationFocusDepth,
         skeleton: edge.skeleton,
         traceable: edge.traceable
       }
