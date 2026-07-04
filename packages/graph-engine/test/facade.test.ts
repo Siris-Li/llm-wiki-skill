@@ -719,8 +719,8 @@ describe("GraphFacade", () => {
     assert.deepEqual(communityInputs.length, 0);
   });
 
-  it("clears the source community on explicit reset, blank clear, and clearInteraction", () => {
-    for (const clear of ["resetView", "clearSelection", "clearInteraction"] as const) {
+  it("clears the source community on explicit reset and blank clear", () => {
+    for (const clear of ["resetView", "clearSelection"] as const) {
       const state = twoCommunityState();
       const manager = sourceContextManager(state, []);
       manager.focusCommunity("c1");
@@ -728,6 +728,27 @@ describe("GraphFacade", () => {
       manager[clear]();
       assert.equal(state.sourceCommunityId, null, `${clear} should clear the source community`);
     }
+  });
+
+  it("keeps community reading active when clearing node interaction inside a community", () => {
+    const state = twoCommunityState();
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const manager = sourceContextManager(state, sigmaInputs);
+
+    manager.focusCommunity("c1");
+    manager.select({ kind: "node", id: "a" });
+    manager.showTemporaryObject({ kind: "node", nodeId: "b" });
+    manager.clearInteraction();
+
+    assert.deepEqual(state.focus, { kind: "community", id: "c1" });
+    assert.equal(state.sourceCommunityId, "c1");
+    assert.equal(state.selection, null);
+    assert.equal(state.temporaryObject, null);
+
+    sigmaInputs[0].options.callbacks.onSelectionClearRequested?.();
+
+    assert.deepEqual(state.focus, { kind: "community", id: "c1" });
+    assert.equal(state.sourceCommunityId, "c1");
   });
 
   it("notifies the active Sigma route when explicit reset clears source community context", () => {

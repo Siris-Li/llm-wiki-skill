@@ -155,6 +155,27 @@ describe("GraphPanel Paper shell", () => {
 		});
 	});
 
+	it("does not clear graph interaction from the workbench shell on Escape", async () => {
+		mockGraphFetch();
+		const selectionChanges: unknown[] = [];
+		render(
+			<GraphPanel
+				currentKnowledgeBaseName="AI 学习库"
+				currentKnowledgeBasePath="/kb"
+				theme="light"
+				onSelectionChange={(selection) => selectionChanges.push(selection)}
+			/>,
+		);
+
+		await waitFor(() => {
+			assert.match(document.body.textContent ?? "", /1 节点 · 0 关联/);
+		});
+
+		await pressKey(document, "Escape");
+
+		assert.deepEqual(selectionChanges, []);
+	});
+
 	it("keeps the GraphPanel Paper shell styling outside graph-engine internals", () => {
 		const css = readFileSync(resolve(import.meta.dirname, "../src/index.css"), "utf8");
 

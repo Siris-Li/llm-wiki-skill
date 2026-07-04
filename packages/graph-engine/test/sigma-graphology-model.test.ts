@@ -28,13 +28,14 @@ describe("Sigma graphology render model", () => {
       y: 20,
       label: "Alpha",
       size: 10,
-      color: "#8b2e24",
+      color: "#ef4444",
       type: "circle",
       graphNodeType: "topic",
       communityId: "community-a",
       sourcePath: "alpha.md",
       selected: true,
       searchHit: false,
+      relationFocusDepth: "none",
       pinned: false,
       communityDimmed: false,
       communitySpotlightVisible: true,
@@ -74,7 +75,8 @@ describe("Sigma graphology render model", () => {
       weight: 0.75,
       sourceCommunityId: "community-a",
       targetCommunityId: "community-a",
-      communityMapLayer: "skeleton"
+      communityMapLayer: "skeleton",
+      relationFocusDepth: "none"
     });
     assert.deepEqual(
       sigmaGlobalEdgeStyle({
@@ -244,7 +246,7 @@ function adapterDataFixture(options: {
         relationType: "depends-on",
         confidence: "EXTRACTED",
         weight: 0.75,
-        render: { strokeWidth: 3, opacity: 0.42, communityMapLayer: "skeleton", skeleton: true, traceable: true }
+        render: { strokeWidth: 3, opacity: 0.42, communityMapLayer: "skeleton", relationFocusDepth: "none", skeleton: true, traceable: true }
       }
     ],
     communities: [
@@ -433,6 +435,7 @@ function nodeFixture(
     point,
     selected: options.selected ?? false,
     searchHit: options.searchHit ?? false,
+    relationFocusDepth: "none",
     pinHint: pinHint(id, options.pinned ?? false, point),
     aggregationIds: ["aggregation-a"],
     drawerTarget: {
@@ -489,7 +492,7 @@ function pinHint(nodeId: string, pinned: boolean, point: { x: number; y: number 
   };
 }
 
-// sigmaGlobalNodeColor 运行时只读 selected/searchHit/pinHint.pinned/communityId；
+// sigmaGlobalNodeColor 运行时只读 communityId；
 // 其余字段用 as unknown as 绕过完整类型（字段以 adapter.ts 为准）。
 function adapterNode(overrides: Partial<GraphRendererAdapterNode> = {}): GraphRendererAdapterNode {
   return ({
@@ -498,6 +501,7 @@ function adapterNode(overrides: Partial<GraphRendererAdapterNode> = {}): GraphRe
     communityId: "c1",
     selected: false,
     searchHit: false,
+    relationFocusDepth: "none",
     pinHint: { pinned: false },
     point: { x: 0, y: 0 },
     render: { labelVisible: false, displayMode: "point", priority: 0, visualRole: "normal" },
@@ -507,25 +511,28 @@ function adapterNode(overrides: Partial<GraphRendererAdapterNode> = {}): GraphRe
 
 describe("sigmaGlobalNodeColor theme tokens", () => {
   const map = new Map<string, string>();
-  it("maps selected -> --cinnabar", () => {
-    const vars = getThemeTokens("shan-shui").vars;
-    assert.equal(sigmaGlobalNodeColor(adapterNode({ selected: true }), map, "shan-shui"), vars["--cinnabar"]);
+  it("keeps selected nodes on their community identity color", () => {
+    const communityColors = new Map([["community-a", "#123456"]]);
+    assert.equal(sigmaGlobalNodeColor(adapterNode({ selected: true, communityId: "community-a" }), communityColors, "shan-shui"), "#123456");
   });
-  it("maps searchHit -> --amber", () => {
-    const vars = getThemeTokens("shan-shui").vars;
-    assert.equal(sigmaGlobalNodeColor(adapterNode({ searchHit: true }), map, "shan-shui"), vars["--amber"]);
+  it("keeps search-hit nodes on their community identity color", () => {
+    const communityColors = new Map([["community-a", "#123456"]]);
+    assert.equal(sigmaGlobalNodeColor(adapterNode({ searchHit: true, communityId: "community-a" }), communityColors, "shan-shui"), "#123456");
   });
-  it("maps pinned -> --violet", () => {
-    const vars = getThemeTokens("shan-shui").vars;
-    assert.equal(sigmaGlobalNodeColor(adapterNode({ pinHint: { pinned: true } } as Partial<GraphRendererAdapterNode>), map, "shan-shui"), vars["--violet"]);
+  it("keeps pinned nodes on their community identity color", () => {
+    const communityColors = new Map([["community-a", "#123456"]]);
+    assert.equal(
+      sigmaGlobalNodeColor(adapterNode({ communityId: "community-a", pinHint: { pinned: true } } as Partial<GraphRendererAdapterNode>), communityColors, "shan-shui"),
+      "#123456"
+    );
   });
   it("falls back to --muted when no community color", () => {
     const vars = getThemeTokens("shan-shui").vars;
     assert.equal(sigmaGlobalNodeColor(adapterNode(), map, "shan-shui"), vars["--muted"]);
   });
-  it("maps selected -> --cinnabar under mo-ye (dark theme)", () => {
-    const vars = getThemeTokens("mo-ye").vars;
-    assert.equal(sigmaGlobalNodeColor(adapterNode({ selected: true }), map, "mo-ye"), vars["--cinnabar"]);
+  it("keeps selected nodes on their community identity color under mo-ye", () => {
+    const communityColors = new Map([["community-a", "#abcdef"]]);
+    assert.equal(sigmaGlobalNodeColor(adapterNode({ selected: true, communityId: "community-a" }), communityColors, "mo-ye"), "#abcdef");
   });
   it("falls back to --muted under mo-ye", () => {
     const vars = getThemeTokens("mo-ye").vars;

@@ -413,12 +413,8 @@ export function createGraphFacadeRouteManager(
     },
     clearInteraction() {
       assertActive();
-      const hadSourceCommunity = state.sourceCommunityId != null;
-      state.focus = null;
-      state.selection = null;
-      state.sourceCommunityId = null;
-      state.temporaryObject = null;
-      if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
+      const clearResult = clearFacadeInteractionState(state);
+      if (clearResult.clearedSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
       currentRenderer().clearInteraction();
     },
     setNodeFixed(id, mode) {
@@ -635,7 +631,7 @@ export function createGraphFacadeRouteManager(
           },
           onSelectionClearRequested: () => {
             state.selection = null;
-            state.sourceCommunityId = null;
+            if (state.focus?.kind !== "community") state.sourceCommunityId = null;
             state.temporaryObject = null;
             options.callbacks?.onSelectionClearRequested?.();
           },
@@ -726,6 +722,18 @@ export function graphExceedsGlobalNodeLimit(data: GraphData): boolean {
 function dataHasCommunity(data: GraphData, communityId: string): boolean {
   if (data.nodes.some((node) => node.community === communityId)) return true;
   return (data.learning?.communities ?? []).some((community) => community.id === communityId);
+}
+
+function clearFacadeInteractionState(state: GraphFacadeState): { preservedCommunityFocus: boolean; clearedSourceCommunity: boolean } {
+  const preservedCommunityFocus = state.focus?.kind === "community";
+  const hadSourceCommunity = state.sourceCommunityId != null;
+  state.selection = null;
+  state.temporaryObject = null;
+  if (!preservedCommunityFocus) {
+    state.focus = null;
+    state.sourceCommunityId = null;
+  }
+  return { preservedCommunityFocus, clearedSourceCommunity: hadSourceCommunity && !preservedCommunityFocus };
 }
 
 export function graphRequiresAggregationSafetyFallback(data: GraphData): boolean {
@@ -1043,13 +1051,9 @@ export function createGraphFacadeFromRenderer(
 
     clearInteraction(): void {
       assertActive();
-      delete container.dataset.llmWikiGraphFocus;
-      const hadSourceCommunity = facadeState.sourceCommunityId != null;
-      facadeState.focus = null;
-      facadeState.selection = null;
-      facadeState.sourceCommunityId = null;
-      facadeState.temporaryObject = null;
-      if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
+      const clearResult = clearFacadeInteractionState(facadeState);
+      if (!clearResult.preservedCommunityFocus) delete container.dataset.llmWikiGraphFocus;
+      if (clearResult.clearedSourceCommunity) renderer.setSourceCommunityContext?.(null);
       renderer.clearInteraction();
     },
 

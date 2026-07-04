@@ -62,7 +62,7 @@ describe("Sigma global renderer production boundary", () => {
       y: 222,
       label: "Adapter Alpha",
       size: 10,
-      color: "#8b2e24",
+      color: "#123456",
       type: "circle",
       graphNodeType: "topic",
       communityId: "adapter-community",
@@ -79,6 +79,7 @@ describe("Sigma global renderer production boundary", () => {
       priority: 900,
       communityMapTier: "core",
       communityMapImportance: 3,
+      relationFocusDepth: "none",
       drawerTarget: {
         summaryKind: "node-summary",
         object: { kind: "node", nodeId: "render-alpha" }
@@ -89,7 +90,7 @@ describe("Sigma global renderer production boundary", () => {
       y: 444,
       label: "",
       size: 10,
-      color: "#b7791f",
+      color: "#123456",
       type: "circle",
       graphNodeType: "source",
       communityId: "adapter-community",
@@ -106,6 +107,7 @@ describe("Sigma global renderer production boundary", () => {
       priority: 100,
       communityMapTier: "related",
       communityMapImportance: 3,
+      relationFocusDepth: "none",
       drawerTarget: {
         summaryKind: "node-summary",
         object: { kind: "node", nodeId: "render-beta" }
@@ -119,7 +121,8 @@ describe("Sigma global renderer production boundary", () => {
       weight: 0.75,
       sourceCommunityId: "adapter-community",
       targetCommunityId: "adapter-community",
-      communityMapLayer: "skeleton"
+      communityMapLayer: "skeleton",
+      relationFocusDepth: "none"
     });
     assert.equal(graph.source("adapter-edge"), "render-alpha");
     assert.equal(graph.target("adapter-edge"), "render-beta");
@@ -194,7 +197,8 @@ describe("Sigma global renderer production boundary", () => {
       weight: 0.75,
       sourceCommunityId: "adapter-community",
       targetCommunityId: "adapter-community",
-      communityMapLayer: "skeleton"
+      communityMapLayer: "skeleton",
+      relationFocusDepth: "none"
     });
   });
 
@@ -2048,6 +2052,7 @@ function adapterDataFixture(options: {
         point: { x: 111, y: 222 },
         selected: selectedNodeId === "render-alpha",
         searchHit: searchResultIds.includes("render-alpha"),
+        relationFocusDepth: "none",
         pinHint: {
           nodeId: "render-alpha",
           wikiPath: "adapter/alpha.md",
@@ -2081,6 +2086,7 @@ function adapterDataFixture(options: {
         point: { x: 333, y: 444 },
         selected: selectedNodeId === "render-beta",
         searchHit: searchResultIds.includes("render-beta"),
+        relationFocusDepth: "none",
         pinHint: {
           nodeId: "render-beta",
           wikiPath: "adapter/beta.md",
@@ -2120,7 +2126,8 @@ function adapterDataFixture(options: {
           opacity: 0.42,
           communityMapLayer: "skeleton",
           skeleton: true,
-          traceable: true
+          traceable: true,
+          relationFocusDepth: "none"
         }
       }
     ],

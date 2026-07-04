@@ -1,5 +1,6 @@
 import type { GraphEdgeStyleOptions, ThemeId } from "../types";
 import { getThemeTokens } from "../themes";
+import type { GraphRelationFocusDepth } from "./relation-focus";
 import type {
   GraphRendererAdapterAggregation,
   GraphRendererAdapterCommunity,
@@ -23,6 +24,7 @@ export interface SigmaGlobalGraphologyNodeAttributes {
   sourcePath: string;
   selected: boolean;
   searchHit: boolean;
+  relationFocusDepth: GraphRelationFocusDepth;
   pinned: boolean;
   communityDimmed: boolean;
   communitySpotlightVisible: boolean;
@@ -45,6 +47,7 @@ export interface SigmaGlobalGraphologyEdgeAttributes {
   sourceCommunityId: string | null;
   targetCommunityId: string | null;
   communityMapLayer: CommunityMapEdgeLayer;
+  relationFocusDepth: GraphRelationFocusDepth;
 }
 
 export interface SigmaGlobalGraphologyCommunityAttributes {
@@ -186,6 +189,7 @@ export function sigmaGlobalNodeAttributes(
     sourcePath: node.sourcePath,
     selected: node.selected,
     searchHit: node.searchHit,
+    relationFocusDepth: node.relationFocusDepth ?? "none",
     pinned: node.pinHint.pinned,
     communityDimmed: spotlight.dimmed,
     communitySpotlightVisible: spotlight.forceVisible,
@@ -243,7 +247,8 @@ export function sigmaGlobalEdgeAttributes(
     weight: finiteNumber(edge.weight, 0),
     sourceCommunityId: edge.sourceCommunityId,
     targetCommunityId: edge.targetCommunityId,
-    communityMapLayer: edge.render.communityMapLayer
+    communityMapLayer: edge.render.communityMapLayer,
+    relationFocusDepth: edge.render.relationFocusDepth ?? "none"
   };
 }
 
@@ -369,9 +374,6 @@ export function sigmaGlobalNodeColor(
   theme: ThemeId
 ): string {
   const vars = getThemeTokens(theme).vars;
-  if (node.selected) return vars["--cinnabar"];
-  if (node.searchHit) return vars["--amber"];
-  if (node.pinHint.pinned) return vars["--violet"];
   return node.communityId ? communityColorById.get(node.communityId) ?? vars["--muted"] : vars["--muted"];
 }
 
