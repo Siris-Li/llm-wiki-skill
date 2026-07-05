@@ -1590,6 +1590,37 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("prefers the DOM overlay node under a stale root click target", async () => {
+    const runtime = fakeRuntime();
+    const hits: Array<{ target: unknown; additive: boolean }> = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target, context) => hits.push({ target, additive: Boolean(context?.additive) })
+    });
+    const betaTarget = renderer.overlayRoot.children.find(
+      (child) => child.className === "sigma-global-node-hit-target" && child.dataset.nodeId === "render-beta"
+    ) as (HTMLElement & { closest?: (selector: string) => unknown }) | undefined;
+    assert.ok(betaTarget);
+    betaTarget.closest = (selector: string) => selector === ".sigma-global-node-hit-target" ? betaTarget : null;
+    (renderer.root.ownerDocument as unknown as { elementsFromPoint: (x: number, y: number) => unknown[] }).elementsFromPoint = () => [betaTarget];
+
+    renderer.root.dispatchEvent({
+      type: "click",
+      clientX: 250,
+      clientY: 250,
+      shiftKey: true,
+      target: { closest: () => null }
+    } as unknown as MouseEvent);
+    await Promise.resolve();
+
+    assert.deepEqual(hits, [{ target: { kind: "node", id: "render-beta" }, additive: true }]);
+
+    renderer.destroy();
+  });
+
   it("passes Shift-click additive context from DOM node hit target clicks", () => {
     const hits: Array<{ target: unknown; additive: boolean }> = [];
     const dragChanges: boolean[] = [];
@@ -1637,7 +1668,7 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
-  it("routes an un-moved DOM node pointer gesture without waiting for a browser click", () => {
+  it("routes an un-moved DOM node pointer gesture without waiting for a browser click", async () => {
     const hits: unknown[] = [];
     const dragChanges: boolean[] = [];
     const renderer = createSigmaGlobalRenderer({
@@ -1661,6 +1692,10 @@ describe("Sigma global renderer production boundary", () => {
 
     alphaTarget.dispatchEvent(fakePointerEvent("click", { clientX: 116, clientY: 228 }) as unknown as MouseEvent);
     assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    alphaTarget.dispatchEvent(fakePointerEvent("click", { clientX: 116, clientY: 228 }) as unknown as MouseEvent);
+    assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }, { kind: "node", id: "render-alpha" }]);
 
     renderer.destroy();
   });

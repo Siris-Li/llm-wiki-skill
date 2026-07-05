@@ -134,6 +134,8 @@ async function runFullDesktopPath(page, community) {
   const afterReset = await interactionSnapshot(page, "dense-source-1");
   assert.equal(afterReset.nodePinned, "false", "reset layout should clear the community drag pin");
 
+  const multiSelect = await shiftSelectCommunityNodes(page, community, ["dense-overview", "dense-source-1"]);
+
   await clickReturnGlobal(page);
   await waitForSigmaGlobalUnfocused(page);
   await waitForSelectedCommunity(page, community.id);
@@ -143,7 +145,7 @@ async function runFullDesktopPath(page, community) {
   assert.equal(returned.searchQuery, "", "returning global should clear community-local search");
   assert.equal(returned.typeFiltersActive, false, "returning global should clear community-local type filters");
 
-  return { beforeSearch, hoverFocus, nearNodeBlankClick, afterSearchActivation, hiddenByFilter, drag, afterDrag, afterReset, returned };
+  return { beforeSearch, hoverFocus, nearNodeBlankClick, afterSearchActivation, hiddenByFilter, drag, afterDrag, afterReset, multiSelect, returned };
 }
 
 async function openWorkbenchGraphPage(viewport) {
@@ -587,6 +589,213 @@ async function clickNearNodeBlankClosesReader(page) {
 
   assert.notEqual(hit.kind, "node", "clicking just outside a visible node target should not reopen node reading");
   return { nodeId: point.nodeId, blank: point.blank, hit };
+}
+
+async function shiftSelectCommunityNodes(page, community, nodeIds) {
+  await closeDrawerIfOpen(page);
+  await setGraphSearchQuery(page, "");
+  await closeGraphToolbarPanel(page);
+  await page.keyboard.press("Escape");
+  await page.waitForSelector(".graph-reader-drawer", { state: "detached", timeout: 3_000 }).catch(() => undefined);
+  await installCommunityClickLog(page);
+
+  await page.keyboard.down("Shift");
+  const clickSteps = [];
+  try {
+    for (let index = 0; index < nodeIds.length; index += 1) {
+      const nodeId = nodeIds[index];
+      const point = await nodeClickPoint(page, nodeId);
+      clickSteps.push({
+        nodeId,
+        point,
+        selectedBeforeClick: await selectedNodeIds(page)
+      });
+      assert.equal(point.hitNodeId, nodeId, `community multi-select click point should hit ${nodeId}`);
+      await page.mouse.click(point.x, point.y);
+      const expected = nodeIds.slice(0, index + 1);
+      await waitForExactSelectedNodes(page, expected, `after Shift-clicking ${nodeId}`, point);
+      clickSteps[clickSteps.length - 1].selectedAfterClick = await selectedNodeIds(page);
+    }
+  } finally {
+    await page.keyboard.up("Shift");
+  }
+
+  try {
+    await page.waitForSelector('[data-testid="graph-selection-drawer"]');
+  } catch (error) {
+    const screenshotPath = path.join(artifactDir, `${community.slug}-multiselect-timeout.png`);
+    await page.screenshot({ fullPage: true, path: screenshotPath }).catch(() => undefined);
+    const diagnostics = {
+      screenshotPath,
+      hit: await lastSigmaHit(page).catch((hitError) => ({ hitError: String(hitError) })),
+      snapshot: await sigmaSnapshot(page).catch((snapshotError) => ({ snapshotError: String(snapshotError) })),
+      clickSteps,
+      selected: await page.evaluate(() => [...document.querySelectorAll(".sigma-global-node-hit-target[data-selected='true']")]
+        .map((node) => node.getAttribute("data-node-id") || "")
+        .filter(Boolean)).catch((selectedError) => ({ selectedError: String(selectedError) }))
+    };
+    throw new assert.AssertionError({
+      message: `Community multi-select drawer did not open. Diagnostics: ${JSON.stringify(diagnostics)}`,
+      actual: error,
+      expected: "graph-selection-drawer",
+      operator: "strictEqual"
+    });
+  }
+  const snapshot = await page.evaluate(({ communityId, nodeIds }) => {
+    const renderer = document.querySelector(".sigma-global-renderer");
+    const drawer = document.querySelector('[data-testid="graph-selection-drawer"]');
+    const selectedNodeIds = [...document.querySelectorAll(".sigma-global-node-hit-target[data-selected='true']")]
+      .map((node) => node.getAttribute("data-node-id") || "")
+      .filter(Boolean);
+    return {
+      route: document.querySelector(".graph-host")?.getAttribute("data-llm-wiki-graph-route") || "",
+      communityFocusId: renderer?.getAttribute("data-community-focus-id") || "",
+      sourceCommunityId: renderer?.getAttribute("data-source-community-id") || "",
+      selectedNodeIds,
+      expectedNodeIds: nodeIds,
+      selectionDrawerOpen: Boolean(drawer),
+      selectionDrawerTitle: drawer?.querySelector("h2")?.textContent || "",
+      selectionDrawerHasEnterCommunity: [...(drawer?.querySelectorAll("button") || [])]
+        .some((button) => button.textContent?.includes("进入社区")),
+      communitySummaryOpen: Boolean(document.querySelector('[data-testid="graph-community-summary"]')),
+      readerOpen: Boolean(document.querySelector(".graph-reader-drawer"))
+    };
+  }, { communityId: community.id, nodeIds });
+
+  assert.equal(snapshot.route, "sigma-global", "community multi-select should stay on the Sigma route");
+  assert.equal(snapshot.communityFocusId, community.id, "community multi-select should keep the current community focus");
+  assert.equal(snapshot.sourceCommunityId, community.id, "community multi-select should keep source community context");
+  assert.equal(snapshot.selectionDrawerOpen, true, "Shift-selecting community nodes should open the selection drawer");
+  assert.equal(snapshot.selectionDrawerHasEnterCommunity, false, "community selection drawer should not offer a nested enter-community action");
+  assert.equal(snapshot.communitySummaryOpen, false, "community multi-select should not reopen the old community summary drawer");
+  assert.equal(snapshot.readerOpen, false, "community multi-select should switch away from node reading");
+  assert.deepEqual(new Set(snapshot.selectedNodeIds), new Set(nodeIds), "Shift-selecting two community nodes should keep an exact node selection");
+  return snapshot;
+}
+
+async function nodeClickPoint(page, nodeId) {
+  return page.locator(`.sigma-global-node-hit-target[data-node-id="${cssString(nodeId)}"]`).evaluate((node, nodeId) => {
+    const rect = node.getBoundingClientRect();
+    const candidates = [
+      [0.5, 0.5],
+      [0.35, 0.5],
+      [0.65, 0.5],
+      [0.5, 0.35],
+      [0.5, 0.65]
+    ];
+    for (const [rx, ry] of candidates) {
+      const x = rect.left + rect.width * rx;
+      const y = rect.top + rect.height * ry;
+      const hit = document.elementFromPoint(x, y);
+      const hitNodeId = hit?.closest?.(".sigma-global-node-hit-target")?.getAttribute("data-node-id") || "";
+      if (hitNodeId === nodeId) return { x, y, rect: rectOf(rect), hitNodeId };
+    }
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(centerX, centerY);
+    return {
+      x: centerX,
+      y: centerY,
+      rect: rectOf(rect),
+      hitNodeId: hit?.closest?.(".sigma-global-node-hit-target")?.getAttribute("data-node-id") || "",
+      hitClass: String(hit?.getAttribute?.("class") || "")
+    };
+
+    function rectOf(value) {
+      return {
+        left: Math.round(value.left * 1000) / 1000,
+        top: Math.round(value.top * 1000) / 1000,
+        width: Math.round(value.width * 1000) / 1000,
+        height: Math.round(value.height * 1000) / 1000,
+        right: Math.round(value.right * 1000) / 1000,
+        bottom: Math.round(value.bottom * 1000) / 1000
+      };
+    }
+  }, nodeId);
+}
+
+async function waitForExactSelectedNodes(page, expectedNodeIds, label, point) {
+  try {
+    await page.waitForFunction((expectedNodeIds) => {
+      const selected = [...document.querySelectorAll(".sigma-global-node-hit-target[data-selected='true']")]
+        .map((node) => node.getAttribute("data-node-id") || "")
+        .filter(Boolean);
+      return sameSet(selected, expectedNodeIds);
+
+      function sameSet(left, right) {
+        if (left.length !== right.length) return false;
+        const rightSet = new Set(right);
+        return left.every((item) => rightSet.has(item));
+      }
+    }, expectedNodeIds, { timeout: 2_000 });
+  } catch (error) {
+    const selected = await selectedNodeIds(page).catch((selectedError) => ({ selectedError: String(selectedError) }));
+    const hit = await lastSigmaHit(page).catch((hitError) => ({ hitError: String(hitError) }));
+    const pointStack = point ? await elementsFromPointDiagnostics(page, point.x, point.y).catch((stackError) => ({ stackError: String(stackError) })) : null;
+    const clickLog = await communityClickLog(page).catch((logError) => ({ logError: String(logError) }));
+    throw new assert.AssertionError({
+      message: `Unexpected community multi-select state ${label}. Diagnostics: ${JSON.stringify({ expectedNodeIds, selected, hit, point, pointStack, clickLog })}`,
+      actual: error,
+      expected: expectedNodeIds,
+      operator: "deepStrictEqual"
+    });
+  }
+}
+
+async function installCommunityClickLog(page) {
+  await page.evaluate(() => {
+    window.__llmWikiCommunityClickLog = [];
+    const record = (event) => {
+      const target = event.target;
+      const closestNode = target?.closest?.(".sigma-global-node-hit-target");
+      window.__llmWikiCommunityClickLog.push({
+        type: event.type,
+        phase: event.eventPhase,
+        shiftKey: event.shiftKey,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        targetClass: String(target?.getAttribute?.("class") || ""),
+        targetNodeId: closestNode?.getAttribute("data-node-id") || "",
+        rootHitKind: document.querySelector(".sigma-global-renderer")?.getAttribute("data-last-hit-kind") || "",
+        rootHitId: document.querySelector(".sigma-global-renderer")?.getAttribute("data-last-hit-id") || ""
+      });
+      window.__llmWikiCommunityClickLog = window.__llmWikiCommunityClickLog.slice(-24);
+    };
+    document.addEventListener("pointerdown", record, true);
+    document.addEventListener("click", record, true);
+    document.addEventListener("click", record, false);
+  });
+}
+
+async function communityClickLog(page) {
+  return page.evaluate(() => window.__llmWikiCommunityClickLog || []);
+}
+
+async function elementsFromPointDiagnostics(page, x, y) {
+  return page.evaluate(({ x, y }) => {
+    return document.elementsFromPoint(x, y).slice(0, 8).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        tag: element.tagName,
+        className: String(element.getAttribute("class") || ""),
+        nodeId: element.closest(".sigma-global-node-hit-target")?.getAttribute("data-node-id") || "",
+        communityId: element.closest(".sigma-global-community-region")?.getAttribute("data-community-id") || "",
+        testId: element.closest("[data-testid]")?.getAttribute("data-testid") || "",
+        rect: {
+          left: Math.round(rect.left * 1000) / 1000,
+          top: Math.round(rect.top * 1000) / 1000,
+          width: Math.round(rect.width * 1000) / 1000,
+          height: Math.round(rect.height * 1000) / 1000
+        }
+      };
+    });
+  }, { x, y });
+}
+
+async function selectedNodeIds(page) {
+  return page.evaluate(() => [...document.querySelectorAll(".sigma-global-node-hit-target[data-selected='true']")]
+    .map((node) => node.getAttribute("data-node-id") || "")
+    .filter(Boolean));
 }
 
 async function nearNodeBlankPoint(page) {

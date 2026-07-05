@@ -10,7 +10,7 @@ Based on [Andrej Karpathy](https://karpathy.ai/)'s [llm-wiki methodology](https:
 
 Turn scattered information into a growing, interconnected knowledge base
 
-[![version](https://img.shields.io/badge/v3.6.21-Sigma%20Community%20Reading-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.24-Community%20Wrap--up-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-multi--platform-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -110,8 +110,8 @@ Each platform has its own setup guide:
 - **Core-first Install** — Default setup only includes the core pipeline; optional extractors enabled explicitly
 - **Claude Companion Upgrade Command** — `/llm-wiki-upgrade` included after installation
 - **Material Deletion** — Cascade-delete with automatic cleanup of associated pages, broken links, and cache
-- **Sigma Graph Main Route** — Both the global map and community reading now run on Sigma/Graphology; DOM/SVG remains only as fallback, comparison, and small-graph safety net
-- **Community Close-up Map** — Entering a community keeps only that community's nodes and internal relationships visible while preserving node positions, community color, edge tiers, and return highlights
+- **Sigma Graph Main Route** — Both the global map and community reading now run on Sigma/Graphology; DOM/SVG remains only as fallback, comparison, and abnormal-case safety net
+- **Community Close-up Map** — Entering a community keeps only that community's nodes and internal relationships visible while preserving node positions, community color, edge tiers, local search/filter, Shift multi-select, and return highlights
 - **Query Persistence** — Save valuable comprehensive answers back to the knowledge base
 - **Batch Digestion** — Give a folder path, process all files at once
 - **Knowledge Base Health Check** — Scripts detect orphan pages, broken links, index consistency; plus AI-level contradiction and cross-reference checks

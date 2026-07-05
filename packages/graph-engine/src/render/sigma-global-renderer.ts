@@ -57,7 +57,8 @@ import {
   sigmaNodeIdFromPayload,
   sigmaScreenPointFromPayload,
   type SigmaGlobalHitInput,
-  type SigmaGlobalHitProjector
+  type SigmaGlobalHitProjector,
+  type SigmaGlobalRenderedObject
 } from "./sigma-hit-projector";
 import {
   maybeAnimateSigmaCommunitySpotlightCamera,
@@ -181,6 +182,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   let currentPins: PinMap = { ...(options.pins ?? {}) };
   let cameraSpotlightKey: string | null = sigmaSpotlightCameraKey(adapterData);
   let suppressNextNodeClickId: string | null = null;
+  let suppressNextNodeClickTimer: ReturnType<typeof setTimeout> | null = null;
   let overlayDomController: SigmaOverlayDomController | null = null;
   let sigmaWheelZoomController: SigmaWheelZoomController | null = null;
   let eventBindings: Array<{ event: string; listener: (payload?: unknown) => void }> = [];
@@ -339,6 +341,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     destroy() {
       if (destroyed) return;
       cancelNodeDrag();
+      clearSuppressedNodeClick();
       destroyed = true;
       generation += 1;
       sigmaWheelZoomController?.destroy();
@@ -420,6 +423,15 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       if (sigmaRootClickTargetIsExplicitControl(event.target)) return;
       rememberRootClickAdditive(event);
       if (suppressSigmaRootClickFallback) return;
+      const explicitOverlayTarget = sigmaRenderedObjectFromRootClickPoint(event);
+      if (explicitOverlayTarget) {
+        const additive = event.shiftKey;
+        queueMicrotask(() => {
+          if (destroyed || suppressSigmaRootClickFallback) return;
+          handleSigmaHit({ renderedObject: explicitOverlayTarget, additive });
+        });
+        return;
+      }
       const screenPoint = overlayPointerScreenPoint(event, sigmaRoot);
       const additive = event.shiftKey;
       queueMicrotask(() => {
@@ -467,6 +479,48 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
 
   function sigmaRootClickTargetIsExplicitControl(target: EventTarget | null): boolean {
     return SIGMA_ROOT_CLICK_FALLBACK_IGNORE_SELECTORS.some((selector) => Boolean(closestSigmaRootClickTarget(target, selector)));
+  }
+
+  function sigmaRenderedObjectFromRootClickPoint(event: MouseEvent): SigmaGlobalRenderedObject | null {
+    const elements = sigmaRootClickPointElements(event);
+    for (const element of elements) {
+      const node = closestSigmaRootClickTarget(element, ".sigma-global-node-hit-target");
+      const nodeId = sigmaRootDatasetValue(node, "nodeId");
+      if (nodeId) return { kind: "node", id: nodeId };
+
+      const aggregation = closestSigmaRootClickTarget(element, ".sigma-global-aggregation-container");
+      const aggregationId = sigmaRootDatasetValue(aggregation, "aggregationId") || sigmaRootDatasetValue(aggregation, "id");
+      if (aggregationId) {
+        return {
+          kind: "aggregation-container",
+          id: aggregationId,
+          communityId: sigmaRootDatasetValue(aggregation, "communityId")
+        };
+      }
+
+      const region = closestSigmaRootClickTarget(element, ".sigma-global-community-region");
+      const communityId = sigmaRootDatasetValue(region, "communityId");
+      if (communityId) return { kind: "community-wash", id: communityId };
+    }
+    return null;
+  }
+
+  function sigmaRootClickPointElements(event: MouseEvent): EventTarget[] {
+    const documentLike = sigmaRoot.ownerDocument as Document & {
+      elementsFromPoint?: (x: number, y: number) => Element[];
+      elementFromPoint?: (x: number, y: number) => Element | null;
+    };
+    const x = event.clientX;
+    const y = event.clientY;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
+    if (typeof documentLike.elementsFromPoint === "function") return documentLike.elementsFromPoint(x, y);
+    const element = typeof documentLike.elementFromPoint === "function" ? documentLike.elementFromPoint(x, y) : null;
+    return element ? [element] : [];
+  }
+
+  function sigmaRootDatasetValue(target: unknown, key: string): string | null {
+    const value = (target as { dataset?: Record<string, string | undefined> } | null)?.dataset?.[key];
+    return typeof value === "string" && value ? value : null;
   }
 
   function closestSigmaRootClickTarget(target: EventTarget | null, selector: string): unknown {
@@ -799,7 +853,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     delete sigmaRoot.dataset.draggingNodeId;
     options.onDragActiveChange?.(false);
     if (!drag.moved) {
-      suppressNextNodeClickId = drag.nodeId;
+      suppressNextNodeClick(drag.nodeId);
       handleNodeHover(drag.nodeId);
       handleSigmaHit({
         nodeId: drag.nodeId,
@@ -807,7 +861,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       });
       return;
     }
-    suppressNextNodeClickId = drag.nodeId;
+    suppressNextNodeClick(drag.nodeId);
     const finalPin: PinPosition = {
       x: drag.currentPoint.x,
       y: drag.currentPoint.y,
@@ -874,8 +928,24 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
 
   function consumeSuppressedNodeClick(nodeId: string | null): boolean {
     if (!nodeId || suppressNextNodeClickId !== nodeId) return false;
-    suppressNextNodeClickId = null;
+    clearSuppressedNodeClick();
     return true;
+  }
+
+  function suppressNextNodeClick(nodeId: string): void {
+    clearSuppressedNodeClick();
+    suppressNextNodeClickId = nodeId;
+    suppressNextNodeClickTimer = setTimeout(() => {
+      suppressNextNodeClickId = null;
+      suppressNextNodeClickTimer = null;
+    }, 0);
+  }
+
+  function clearSuppressedNodeClick(): void {
+    suppressNextNodeClickId = null;
+    if (!suppressNextNodeClickTimer) return;
+    clearTimeout(suppressNextNodeClickTimer);
+    suppressNextNodeClickTimer = null;
   }
 
   function sigmaCommunityCloudFor(communityId: string, wash: { cx: number; cy: number; rx: number; ry: number }): SigmaCommunityCloud {

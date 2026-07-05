@@ -97,6 +97,8 @@ export interface GraphFacadeRenderer {
 
 export type GraphFacadeRendererRouteId =
   | "sigma-global"
+  // Legacy community renderer. Keep it as a compatibility fallback only; new
+  // community-reading work belongs in the Sigma route.
   | "dom-svg-community"
   | "dom-svg-small-fallback"
   | "over-limit-notice";
@@ -398,6 +400,8 @@ export function createGraphFacadeRouteManager(
         currentRenderer().focusCommunity(id);
         return;
       }
+      // The DOM/SVG community route exists only after the facade is already in a
+      // fallback state. The normal workbench "进入社区" path stays on Sigma.
       switchRoute("dom-svg-community", () => factories.createDomSvgCommunity(factoryInput()));
       currentRenderer().focusCommunity(id);
     },
@@ -728,6 +732,8 @@ function createDomSvgFacadeRenderer(
   toolbarContainer: HTMLElement | null | undefined,
   live: boolean
 ): GraphFacadeRenderer {
+  // Legacy fallback/comparison renderer. Do not add new community-reading
+  // capabilities here; Sigma is the primary route for global and community maps.
   const renderer = createGraphRenderer(input.container, {
     data: input.options.data,
     pins: input.options.pins,

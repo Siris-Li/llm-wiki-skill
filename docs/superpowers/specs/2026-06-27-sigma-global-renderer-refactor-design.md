@@ -40,6 +40,8 @@
 
 ## 非目标
 
+> 2026-07-05 补记：下面“不把社区阅读视图迁移到 Sigma”只约束本次渲染器拆分任务；后续已被 `2026-07-04-sigma-community-reading-mode-design.md` 和 ADR-26 覆盖。当前结论是社区阅读主路径已经迁到 Sigma，DOM/SVG 只保留为回退或对照。
+
 - 不改变用户可见行为。
 - 不改变 workbench / facade 调用的公开入口。
 - 不重写 facade、controller、gestures 或图谱七层架构。
