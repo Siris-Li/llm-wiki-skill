@@ -4,6 +4,7 @@ import {
   createSigmaGlobalNodeDragSession,
   moveSigmaGlobalNodeDragSession,
   sigmaAdapterDataWithNodePoint,
+  sigmaGlobalNodeDragStartThreshold,
   type SigmaGlobalNodeDragSession
 } from "./sigma-global-drag";
 import type { GraphScreenPoint } from "./geometry";
@@ -54,6 +55,7 @@ import {
 import {
   createSigmaGlobalHitProjector,
   sigmaAdditiveFromPayload,
+  sigmaEdgeIdFromPayload,
   sigmaNodeIdFromPayload,
   sigmaScreenPointFromPayload,
   type SigmaGlobalHitInput,
@@ -207,7 +209,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   syncSigmaRootMetadata();
 
   try {
-    sigma = new runtime.Sigma(graph, sigmaRoot, sigmaSettingsForTheme(currentTheme));
+    sigma = new runtime.Sigma(graph, sigmaRoot, sigmaSettingsForAdapterData(currentTheme, adapterData));
     overlayDomController = createSigmaOverlayDomController({
       overlayRoot,
       cloudFilterId,
@@ -282,6 +284,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       generation += 1;
       const finalizeUpdate = (): void => {
         try {
+          syncSigmaEdgeEventSetting();
           restoreCameraState(sigma, cameraState);
           sigma.refresh?.();
           overlayDomController?.rebuild();
@@ -394,15 +397,36 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     const nodeUp = (payload?: unknown): void => commitNodeDrag(sigmaScreenPointFromPayload(payload), payload);
     const nodeEnter = (payload?: unknown): void => handleNodeHover(sigmaNodeIdFromPayload(payload));
     const nodeLeave = (): void => handleNodeHover(null);
+    const edgeClick = (payload?: unknown): void => {
+      if (!sigmaEdgeEventsEnabled(adapterData)) return;
+      suppressRootClickFallbackForSigmaPointerEvent();
+      const renderedObject = sigmaEdgeRenderedObjectFromPayload(payload);
+      if (!renderedObject) return;
+      handleSigmaHit({
+        renderedObject,
+        additive: sigmaAdditiveFromPayloadOrRecentRootClick(payload)
+      });
+    };
+    const edgeEnter = (payload?: unknown): void => {
+      if (!sigmaEdgeEventsEnabled(adapterData)) return;
+      handleEdgeHover(sigmaEdgeIdFromPayload(payload));
+    };
+    const edgeLeave = (): void => {
+      if (!sigmaEdgeEventsEnabled(adapterData)) return;
+      handleEdgeHover(null);
+    };
     eventBindings = [
       { event: "clickNode", listener: nodeClick },
       { event: "clickStage", listener: stageClick },
+      { event: "clickEdge", listener: edgeClick },
       { event: "downNode", listener: nodeDown },
       { event: "moveBody", listener: nodeMove },
       { event: "upNode", listener: nodeUp },
       { event: "upStage", listener: nodeUp },
       { event: "enterNode", listener: nodeEnter },
       { event: "leaveNode", listener: nodeLeave },
+      { event: "enterEdge", listener: edgeEnter },
+      { event: "leaveEdge", listener: edgeLeave },
       { event: "afterRender", listener: requestCameraFrame }
     ];
     for (const binding of eventBindings) {
@@ -425,6 +449,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       if (suppressSigmaRootClickFallback) return;
       const explicitOverlayTarget = sigmaRenderedObjectFromRootClickPoint(event);
       if (explicitOverlayTarget) {
+        if (explicitOverlayTarget.kind === "node" && consumeSuppressedNodeClick(explicitOverlayTarget.id)) return;
         const additive = event.shiftKey;
         queueMicrotask(() => {
           if (destroyed || suppressSigmaRootClickFallback) return;
@@ -808,6 +833,20 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     options.onNodeHover?.(nodeId && graph.hasNode(nodeId) ? nodeId : null);
   }
 
+  function handleEdgeHover(edgeId: string | null): void {
+    if (destroyed || activeNodeDrag) return;
+    options.onEdgeHover?.(edgeId && graph.hasEdge(edgeId) ? edgeId : null);
+  }
+
+  function syncSigmaEdgeEventSetting(): void {
+    sigma.setSetting?.("enableEdgeEvents", sigmaEdgeEventsEnabled(adapterData));
+  }
+
+  function sigmaEdgeRenderedObjectFromPayload(payload?: unknown): SigmaGlobalRenderedObject | null {
+    const edgeId = sigmaEdgeIdFromPayload(payload);
+    return edgeId && graph.hasEdge(edgeId) ? { kind: "edge", id: edgeId } : null;
+  }
+
   function beginNodeDrag(nodeId: string | null, screenPoint: GraphScreenPoint | null, payload?: unknown): void {
     if (destroyed || !nodeId || !screenPoint || !graph.hasNode(nodeId)) return;
     preventSigmaDefault(payload);
@@ -824,7 +863,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       pointerWorldPoint,
       initiallyPinned: Boolean(graph.getNodeAttribute(nodeId, "pinned")),
       initialPinPosition: sigmaPinPositionForNode(nodeId),
-      previousCameraPanning: sigma.getSetting?.("enableCameraPanning")
+      previousCameraPanning: sigma.getSetting?.("enableCameraPanning"),
+      dragStartThreshold: sigmaGlobalNodeDragStartThreshold(sigmaPointerTypeFromPayload(payload))
     });
     sigma.setSetting?.("enableCameraPanning", false);
     sigmaRoot.dataset.draggingNodeId = nodeId;
@@ -889,6 +929,13 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   function restoreNodeDragCamera(drag: SigmaGlobalNodeDragSession): void {
     const nextValue = typeof drag.previousCameraPanning === "boolean" ? drag.previousCameraPanning : true;
     sigma.setSetting?.("enableCameraPanning", nextValue);
+  }
+
+  function sigmaPointerTypeFromPayload(payload?: unknown): string | null {
+    const candidate = payload as { pointerType?: unknown; event?: { pointerType?: unknown } } | null;
+    if (typeof candidate?.pointerType === "string") return candidate.pointerType;
+    if (typeof candidate?.event?.pointerType === "string") return candidate.event.pointerType;
+    return null;
   }
 
   function applyNodeDragPoint(nodeId: string, point: { x: number; y: number }, pinned: boolean, pinPosition: PinPosition | null = null): void {
@@ -1040,6 +1087,7 @@ export function sigmaSettingsForTheme(theme: ThemeId): Record<string, unknown> {
     labelColor: sigmaLabelColor(theme),
     labelFont: tokens.vars["--font-ui"],
     defaultDrawNodeLabel: drawSigmaReadingAwareNodeLabel,
+    enableEdgeEvents: false,
     zoomingRatio: SIGMA_BUTTON_ZOOM_RATIO,
     // Sigma 默认 wheel 的兜底参数：wheel 已被 sigma-wheel-zoom controller 接管（preventSigmaDefault），
     // zoomingRatio/zoomDuration 只在 Sigma 内置缩放入口（如 animatedZoom）被触发时生效，
@@ -1048,6 +1096,17 @@ export function sigmaSettingsForTheme(theme: ThemeId): Record<string, unknown> {
     minCameraRatio: SIGMA_CAMERA_MIN_RATIO,
     maxCameraRatio: SIGMA_CAMERA_MAX_RATIO
   };
+}
+
+function sigmaSettingsForAdapterData(theme: ThemeId, adapterData: GraphRendererAdapterData): Record<string, unknown> {
+  return {
+    ...sigmaSettingsForTheme(theme),
+    enableEdgeEvents: sigmaEdgeEventsEnabled(adapterData)
+  };
+}
+
+function sigmaEdgeEventsEnabled(adapterData: GraphRendererAdapterData): boolean {
+  return adapterData.renderable.communityMap?.active === true;
 }
 
 /** @internal 仅为单元测试直接断言而导出，生产中通过 sigmaSettingsForTheme 注入 Sigma。 */

@@ -669,7 +669,13 @@ async function shiftSelectCommunityNodes(page, community, nodeIds) {
   assert.equal(snapshot.selectionDrawerHasEnterCommunity, false, "community selection drawer should not offer a nested enter-community action");
   assert.equal(snapshot.communitySummaryOpen, false, "community multi-select should not reopen the old community summary drawer");
   assert.equal(snapshot.readerOpen, false, "community multi-select should switch away from node reading");
-  assert.deepEqual(new Set(snapshot.selectedNodeIds), new Set(nodeIds), "Shift-selecting two community nodes should keep an exact node selection");
+  assert.deepEqual(
+    [...snapshot.selectedNodeIds].sort(),
+    [...nodeIds].sort(),
+    "Shift-selecting two community nodes should keep an exact node selection without widening or duplicates"
+  );
+  assert.equal(snapshot.selectedNodeIds.length, nodeIds.length, "community multi-select should not duplicate selected nodes");
+  assert.match(snapshot.selectionDrawerTitle, new RegExp(`选中 ${nodeIds.length} 个节点`), "community multi-select drawer should describe the exact node count");
   return snapshot;
 }
 
@@ -720,12 +726,10 @@ async function waitForExactSelectedNodes(page, expectedNodeIds, label, point) {
       const selected = [...document.querySelectorAll(".sigma-global-node-hit-target[data-selected='true']")]
         .map((node) => node.getAttribute("data-node-id") || "")
         .filter(Boolean);
-      return sameSet(selected, expectedNodeIds);
+      return exactMembers(selected, expectedNodeIds);
 
-      function sameSet(left, right) {
-        if (left.length !== right.length) return false;
-        const rightSet = new Set(right);
-        return left.every((item) => rightSet.has(item));
+      function exactMembers(left, right) {
+        return left.length === right.length && left.slice().sort().join("\u0000") === right.slice().sort().join("\u0000");
       }
     }, expectedNodeIds, { timeout: 2_000 });
   } catch (error) {

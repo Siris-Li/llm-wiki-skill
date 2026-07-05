@@ -29,6 +29,7 @@ export function classifyGraphKeyboardIntent(input: GraphKeyboardIntentInput): Gr
 
   if (input.key !== "Escape") return "blocked";
   if (input.graphFocused && input.searchActive) return "close-search";
+  if (input.textEditingTarget) return "blocked";
   if (input.graphFocused && input.toolbarOpen) return "close-toolbar";
   if (input.activeGesture) return "cancel-active-gesture";
   if (input.graphFocused && input.interactionActive) return "clear-interaction";

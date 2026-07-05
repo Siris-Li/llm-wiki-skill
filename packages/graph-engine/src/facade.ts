@@ -27,6 +27,7 @@ import {
   summarizeGraphSearchResults,
   summarizeUnavailableGraphObject
 } from "./summary";
+import type { SigmaGlobalRendererRuntime } from "./render/sigma-global-types";
 
 export type GraphFacadeHostMode = "workbench" | "offline" | "standalone";
 
@@ -141,6 +142,8 @@ export interface GraphFacadeRouteRendererOptions {
 export interface GraphFacadeRouteRendererFactoryInput {
   container: HTMLElement;
   options: GraphFacadeRouteRendererOptions;
+  /** Test/runtime seam for the Sigma boundary; production callers use lazy loading. */
+  sigmaRuntime?: SigmaGlobalRendererRuntime | Promise<SigmaGlobalRendererRuntime>;
   onSigmaUnavailable?: (error: unknown) => void;
   onRetrySigma?: () => void;
 }

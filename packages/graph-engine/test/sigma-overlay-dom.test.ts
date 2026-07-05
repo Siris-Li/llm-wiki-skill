@@ -29,6 +29,18 @@ describe("Sigma overlay DOM controller", () => {
     assert.deepEqual(fixture.hoverCalls, ["alpha", null]);
   });
 
+  it("routes keyboard focus and blur through the same relation-focus callback", () => {
+    const fixture = controllerFixture({
+      adapterData: adapterDataFixture({ communityMapActive: true })
+    });
+    fixture.controller.rebuild();
+
+    nodeTarget(fixture.overlayRoot, "alpha")?.dispatch("focus");
+    nodeTarget(fixture.overlayRoot, "alpha")?.dispatch("blur");
+
+    assert.deepEqual(fixture.hoverCalls, ["alpha", null]);
+  });
+
   it("routes community cloud shape clicks through the rendered object callback", () => {
     const fixture = controllerFixture();
     fixture.controller.rebuild();

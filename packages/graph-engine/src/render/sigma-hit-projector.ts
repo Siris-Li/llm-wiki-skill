@@ -78,6 +78,11 @@ export function sigmaNodeIdFromPayload(payload: unknown): string | null {
   return typeof candidate?.node === "string" ? candidate.node : null;
 }
 
+export function sigmaEdgeIdFromPayload(payload: unknown): string | null {
+  const candidate = payload as { edge?: unknown } | null;
+  return typeof candidate?.edge === "string" ? candidate.edge : null;
+}
+
 export function sigmaAdditiveFromPayload(payload: unknown): boolean {
   const candidate = payload as {
     shiftKey?: unknown;

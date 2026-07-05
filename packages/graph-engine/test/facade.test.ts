@@ -379,6 +379,57 @@ describe("GraphFacade", () => {
     assert.deepEqual(renderers.map((renderer) => renderer.calls.find((call) => call[0] === "destroy")?.[0]).filter(Boolean), []);
   });
 
+  it("keeps the retired DOM community route behind Sigma-unavailable fallback only", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const communityInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const fallbackInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return createFakeRenderer();
+        },
+        createDomSvgCommunity: (input) => {
+          communityInputs.push(input);
+          return createFakeRenderer();
+        },
+        createDomSvgSmallFallback: (input) => {
+          fallbackInputs.push(input);
+          return createFakeRenderer();
+        },
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c1");
+
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(manager.sigmaKnownUnavailable, false);
+    assert.equal(communityInputs.length, 0);
+    assert.equal(fallbackInputs.length, 0);
+
+    sigmaInputs[0].onSigmaUnavailable?.(new Error("WebGL unavailable"));
+    manager.focusCommunity("c1");
+
+    assert.equal(manager.sigmaKnownUnavailable, true);
+    assert.equal(manager.routeId, "dom-svg-community");
+    assert.equal(communityInputs.length, 1);
+    assert.equal(fallbackInputs.length, 1);
+  });
+
   it("keeps edge style active when Sigma enters community reading", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const state: GraphFacadeState = {
@@ -1482,6 +1533,16 @@ describe("selectionInputForSigmaHit", () => {
         nodeId: "a2",
         selection: { kind: "node", id: "a2" }
       }
+    );
+  });
+
+  it("keeps Sigma edge hits as relation previews instead of selections", () => {
+    const data = sigmaHitGraph();
+
+    assert.equal(selectionInputForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "edge", id: "a1-a2" }, { additive: false }), null);
+    assert.deepEqual(
+      sigmaCommunityReadingHitActionForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "edge", id: "a1-a2" }, { additive: false }),
+      { kind: "edge-preview", edgeId: "a1-a2" }
     );
   });
 

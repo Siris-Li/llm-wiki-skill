@@ -6,6 +6,7 @@ import {
   resolveGraphSearchState,
   readToolbarPanelState,
   writeToolbarPanelState,
+  GRAPH_GESTURE_SELECTORS,
   type GraphRendererAdapterData,
   type GraphGestureTarget,
   type RendererViewportSize
@@ -24,6 +25,7 @@ import {
   updateSearchControlResults,
   type GraphSearchResultControlItem
 } from "../render/controls";
+import { createEdgeHoverPreviewContent } from "../render/hover-card";
 import { ensureGraphRendererStyles } from "../render/render-styles";
 import { toggleNodeInSelection } from "../select";
 import { wikiPathForGraphNode } from "../graph-node";
@@ -31,6 +33,13 @@ import { getThemeTokens, themeTokensToCssVars } from "../themes";
 import type { GraphFacadeRenderer, GraphFacadeRouteRendererFactoryInput, GraphFacadeRouteRendererOptions } from "../facade";
 
 const SEARCH_RESULT_CONTROL_LIMIT = 30;
+const SIGMA_ROUTE_CONTROL_KEYBOARD_SELECTOR = [
+  GRAPH_GESTURE_SELECTORS.search,
+  GRAPH_GESTURE_SELECTORS.toolbar,
+  GRAPH_GESTURE_SELECTORS.legend,
+  GRAPH_GESTURE_SELECTORS.drawer,
+  GRAPH_GESTURE_SELECTORS.textControl
+].join(",");
 
 export function selectionInputForSigmaHit(
   data: GraphData,
@@ -52,6 +61,7 @@ export function selectionInputForSigmaHit(
 export type SigmaCommunityReadingHitAction =
   | { kind: "select"; selection: SelectionInput; relationFocusNodeId: NodeId }
   | { kind: "open-node"; nodeId: NodeId; selection: SelectionInput }
+  | { kind: "edge-preview"; edgeId: string }
   | { kind: "clear" }
   | { kind: "none" };
 
@@ -62,6 +72,7 @@ export function sigmaCommunityReadingHitActionForSigmaHit(
   context: SigmaGlobalHitContext
 ): SigmaCommunityReadingHitAction {
   if (target.kind === "graph-blank" || target.kind === "community-wash") return { kind: "clear" };
+  if (target.kind === "edge") return target.id ? { kind: "edge-preview", edgeId: target.id } : { kind: "none" };
   if (target.kind !== "node" || !target.id) return { kind: "none" };
   if (!context.additive) {
     return {
@@ -83,6 +94,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   let communityTypeFilters: GraphTypeFilters = {};
   let communityTypeFilterFocusId: string | null = options.focus?.kind === "community" ? options.focus.id : null;
   let hoverNodeId: string | null = null;
+  let hoverEdgeId: string | null = null;
   let legendCollapsed = false;
   let toolbarPanelState = readToolbarPanelState(input.container.ownerDocument.defaultView?.localStorage);
   let searchStatus: HTMLElement | null = null;
@@ -100,11 +112,18 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   hiddenReadingNodeHint.textContent = "当前节点被筛选隐藏";
   hiddenReadingNodeHint.setAttribute("aria-live", "polite");
   shell.append(hiddenReadingNodeHint);
+  const edgeHoverPreview = input.container.ownerDocument.createElement("div");
+  edgeHoverPreview.className = "graph-hover-preview sigma-edge-hover-preview";
+  edgeHoverPreview.dataset.state = "closed";
+  shell.append(edgeHoverPreview);
   mountSigmaControls();
   syncHiddenReadingNodeHint();
   input.container.ownerDocument.addEventListener("keydown", handleDocumentKeyDown);
 
-  void sigmaGlobalRendererRuntimeBoundary()
+  const runtimeBoundary = input.sigmaRuntime
+    ? Promise.resolve(input.sigmaRuntime)
+    : sigmaGlobalRendererRuntimeBoundary();
+  void runtimeBoundary
     .then((runtime) => {
       if (destroyed) return;
       try {
@@ -121,6 +140,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
           onDragActiveChange: input.options.callbacks.onDragActiveChange,
           onHitTarget: handleSigmaHitTarget,
           onNodeHover: handleSigmaNodeHover,
+          onEdgeHover: handleSigmaEdgeHover,
           onViewportSizeChange: handleSigmaViewportSizeChange,
           onFatalError: (error) => input.onSigmaUnavailable?.(error)
         });
@@ -153,12 +173,12 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     },
     focusNode(path) {
       const node = options.data.nodes.find((item) => item.id === path || wikiPathForGraphNode(item) === path);
-      hoverNodeId = null;
+      clearSigmaTransientHoverState();
       options = { ...options, selection: node ? { kind: "node", id: node.id } : null };
       updateSigmaRenderer();
     },
     focusCommunity(id) {
-      hoverNodeId = null;
+      clearSigmaTransientHoverState();
       ensureCommunityTypeFilterScope(id);
       const temporaryObject = temporaryObjectCompatibleWithCommunity(options.data, options.temporaryObject, id)
         ? options.temporaryObject
@@ -187,7 +207,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     },
     resetView() {
       const wasCommunityReading = options.focus?.kind === "community";
-      hoverNodeId = null;
+      clearSigmaTransientHoverState();
       if (wasCommunityReading) clearCommunityTypeFilterScope();
       options = wasCommunityReading
         ? applyScopedSearch({ ...options, focus: null, searchQuery: "", searchResultIds: [] }, "")
@@ -210,7 +230,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     },
     clearInteraction() {
       if (clearCommunityNodeInteraction()) return;
-      hoverNodeId = null;
+      clearSigmaTransientHoverState();
       options = { ...options, focus: null, selection: null, temporaryObject: null };
       updateSigmaRenderer();
     },
@@ -260,6 +280,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   function updateSigmaRenderer(): void {
     const viewportSize = sigmaRouteViewportSize();
     currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute(), viewportSize);
+    syncSigmaEdgeHoverPreview();
     syncHiddenReadingNodeHint();
     if (!renderer || destroyed) return;
     renderer.update({
@@ -300,8 +321,14 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
         return;
       }
       if (action.kind === "open-node") {
+        hoverEdgeId = null;
+        syncSigmaEdgeHoverPreview();
         selectOnSigma(action.selection);
         input.options.callbacks.onNodeOpen?.(action.nodeId);
+        return;
+      }
+      if (action.kind === "edge-preview") {
+        showSigmaEdgePreview(action.edgeId);
         return;
       }
       if (action.kind === "clear") {
@@ -336,6 +363,8 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   }
 
   function selectOnSigma(selection: SelectionInput, relationFocusNodeId: NodeId | null = null): void {
+    hoverEdgeId = null;
+    syncSigmaEdgeHoverPreview();
     hoverNodeId = relationFocusNodeId;
     input.options.callbacks.onSelectionInput?.(selection);
     updateSigmaSelection(selection);
@@ -344,23 +373,49 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   function handleSigmaNodeHover(nodeId: string | null): void {
     const nextHoverNodeId = options.focus?.kind === "community" ? nodeId : null;
     if (hoverNodeId === nextHoverNodeId) return;
+    if (nextHoverNodeId) {
+      hoverEdgeId = null;
+      syncSigmaEdgeHoverPreview();
+    }
     hoverNodeId = nextHoverNodeId;
     updateSigmaRenderer();
+  }
+
+  function handleSigmaEdgeHover(edgeId: string | null): void {
+    const nextHoverEdgeId = options.focus?.kind === "community" ? edgeId : null;
+    if (hoverEdgeId === nextHoverEdgeId) return;
+    hoverEdgeId = nextHoverEdgeId;
+    syncSigmaEdgeHoverPreview();
+  }
+
+  function showSigmaEdgePreview(edgeId: string): void {
+    if (options.focus?.kind !== "community") return;
+    hoverNodeId = null;
+    hoverEdgeId = edgeId;
+    syncSigmaEdgeHoverPreview();
+  }
+
+  function clearSigmaTransientHoverState(): void {
+    hoverNodeId = null;
+    hoverEdgeId = null;
+    syncSigmaEdgeHoverPreview();
   }
 
   function handleDocumentKeyDown(event: KeyboardEvent): void {
     if (event.key !== "Escape" || event.defaultPrevented) return;
     if (!isGraphRouteKeyboardTarget(event.target)) return;
     if (options.focus?.kind !== "community") return;
-    if (options.selection?.kind !== "node" && !hoverNodeId && !options.temporaryObject) return;
+    if (options.selection?.kind !== "node" && !hoverNodeId && !hoverEdgeId && !options.temporaryObject) return;
     clearCommunityNodeInteraction();
   }
 
   function clearCommunityNodeInteraction(): boolean {
     if (options.focus?.kind !== "community") return false;
     hoverNodeId = null;
+    hoverEdgeId = null;
     options = { ...options, selection: null, temporaryObject: null };
     input.options.callbacks.onSelectionClearRequested?.();
+    syncSigmaEdgeHoverPreview();
     syncVisibilityState();
     updateSigmaRenderer();
     return true;
@@ -370,8 +425,29 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     if (!target) return true;
     const ownerDocument = input.container.ownerDocument;
     if (target === ownerDocument || target === ownerDocument.body || target === ownerDocument.documentElement) return true;
+    if (isSigmaRouteControlKeyboardTarget(target)) return false;
     if (typeof shell.contains !== "function" || typeof (target as { nodeType?: unknown }).nodeType !== "number") return false;
     return shell.contains(target as Node);
+  }
+
+  function isSigmaRouteControlKeyboardTarget(target: EventTarget): boolean {
+    const closest = (target as { closest?: (selector: string) => Element | null }).closest;
+    if (typeof closest === "function" && closest.call(target, SIGMA_ROUTE_CONTROL_KEYBOARD_SELECTOR)) {
+      return true;
+    }
+
+    let current: SigmaRouteKeyboardTargetLike | null = target as SigmaRouteKeyboardTargetLike;
+    while (current) {
+      if (isSigmaRouteTextControl(current)) return true;
+      if (hasSigmaRouteClass(current, "graph-search")) return true;
+      if (hasSigmaRouteClass(current, "graph-toolbar")) return true;
+      if (hasSigmaRouteClass(current, "community-legend")) return true;
+      if (hasSigmaRouteClass(current, "graph-reader")) return true;
+      if (hasSigmaRouteClass(current, "graph-selection-panel")) return true;
+      if (current.dataset?.graphDrawer === "true" || current.getAttribute?.("data-graph-drawer") === "true") return true;
+      current = current.parentElement ?? null;
+    }
+    return false;
   }
 
   function mountSigmaControls(): void {
@@ -537,6 +613,26 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     shell.dataset.hiddenReadingNode = hidden ? "true" : "false";
     shell.dataset.hiddenReadingNodeId = hiddenReadingNodeId || "";
     hiddenReadingNodeHint.dataset.state = hidden ? "visible" : "hidden";
+  }
+
+  function syncSigmaEdgeHoverPreview(): void {
+    const edge = options.focus?.kind === "community" && hoverEdgeId
+      ? currentSigmaAdapterData.edges.find((item) => item.id === hoverEdgeId)
+      : null;
+    edgeHoverPreview.replaceChildren();
+    edgeHoverPreview.dataset.state = edge ? "open" : "closed";
+    edgeHoverPreview.dataset.kind = edge ? "edge" : "";
+    edgeHoverPreview.dataset.edgeId = edge?.id ?? "";
+    if (!edge) return;
+    edgeHoverPreview.append(createEdgeHoverPreviewContent(
+      input.container.ownerDocument,
+      edge.relationType ? String(edge.relationType) : "关系",
+      edge.confidence ? String(edge.confidence).toLowerCase() : "extracted"
+    ));
+    edgeHoverPreview.style.left = "20px";
+    edgeHoverPreview.style.right = "";
+    edgeHoverPreview.style.top = "";
+    edgeHoverPreview.style.bottom = "20px";
   }
 
   function applyScopedSearch(
@@ -731,4 +827,37 @@ function applyGraphThemeToElement(element: HTMLElement, theme: ThemeId): void {
 function numericNodeCoordinate(value: GraphNode["x"] | GraphNode["y"]): number {
   const numberValue = typeof value === "number" ? value : Number(value);
   return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+interface SigmaRouteKeyboardTargetLike {
+  className?: unknown;
+  dataset?: Record<string, string | undefined>;
+  getAttribute?: (name: string) => string | null;
+  tagName?: string;
+  type?: string;
+  isContentEditable?: boolean;
+  parentElement?: SigmaRouteKeyboardTargetLike | null;
+}
+
+function hasSigmaRouteClass(target: SigmaRouteKeyboardTargetLike, className: string): boolean {
+  const value = target.className;
+  const svgClassName = value && typeof value === "object" && "baseVal" in value
+    ? (value as { baseVal?: unknown }).baseVal
+    : "";
+  const raw = typeof value === "string"
+    ? value
+    : typeof svgClassName === "string"
+      ? svgClassName
+      : "";
+  return raw.split(/\s+/).includes(className);
+}
+
+function isSigmaRouteTextControl(target: SigmaRouteKeyboardTargetLike): boolean {
+  if (target.isContentEditable) return true;
+  if (target.dataset?.graphTextControl === "true" || target.getAttribute?.("data-graph-text-control") === "true") return true;
+  const tagName = (target.tagName || "").toLowerCase();
+  if (tagName === "textarea" || tagName === "select") return true;
+  if (tagName !== "input") return false;
+  const type = (target.type || target.getAttribute?.("type") || "text").toLowerCase();
+  return !["button", "checkbox", "radio", "range", "submit", "reset"].includes(type);
 }
