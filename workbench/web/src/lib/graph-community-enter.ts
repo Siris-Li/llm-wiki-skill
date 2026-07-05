@@ -7,6 +7,7 @@ import type { GraphEngine, Selection } from "@llm-wiki/graph-engine";
  * that community look selected/core inside the reading view.
  */
 export function applyCommunityEnter(engine: GraphEngine, communityId: string): Selection | null {
+	engine.clearSelection();
 	engine.setSourceCommunityContext(communityId);
 	engine.focusCommunity(communityId);
 	return null;

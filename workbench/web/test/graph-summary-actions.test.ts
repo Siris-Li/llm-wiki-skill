@@ -150,6 +150,30 @@ describe("graph summary actions", () => {
 		assert.equal(unavailable.mode, "graph-unavailable-object");
 	});
 
+	it("classifies nodes outside the current Sigma community as temporarily displayable", () => {
+		const data = graphFixtureWithExternalNode();
+		const object = { kind: "node" as const, nodeId: "external" };
+		const communityState = {
+			searchQuery: "",
+			searchResultIds: [],
+			typeFilters: { topic: true, entity: true, source: true },
+			temporaryObject: null,
+			focusCommunityId: "c1",
+			hiddenReadingNodeId: null,
+		};
+
+		assert.equal(graphObjectVisibilityReason(data, communityState, object), "community-scope");
+
+		const excluded = drawerForExcludedGraphObject(data, object, "community-scope", closedDrawer(), {
+			selection: { kind: "node", id: "external" },
+		});
+		assert.equal(excluded.mode, "graph-excluded-object");
+		assert.deepEqual(
+			excluded.mode === "graph-excluded-object" ? excluded.payload.commands.map((command) => command.kind) : [],
+			["show-this-object", "clear-temporary-object-display"],
+		);
+	});
+
 	it("maps a select-neighbors summary command to a neighbors selection command", () => {
 		assert.deepEqual(
 			graphSelectionCommandForSummaryCommand({ kind: "select-neighbors", nodeId: "a", label: "+邻居" }),
@@ -248,6 +272,27 @@ function graphFixtureWithThreeNodeCommunity(): GraphData {
 					...base.learning,
 					communities: [
 						{ id: "c1", label: "Community", node_count: 3, color_index: 0, members: ["a", "b", "c"] },
+					],
+				}
+			: base.learning,
+	};
+}
+
+function graphFixtureWithExternalNode(): GraphData {
+	const base = graphFixture();
+	return {
+		...base,
+		meta: { ...base.meta, total_nodes: 3 },
+		nodes: [
+			...base.nodes,
+			{ id: "external", label: "External", type: "source", community: "c2", source_path: "wiki/external.md" },
+		],
+		learning: base.learning
+			? {
+					...base.learning,
+					communities: [
+						...(base.learning.communities ?? []),
+						{ id: "c2", label: "External", node_count: 1, color_index: 1, members: ["external"] },
 					],
 				}
 			: base.learning,

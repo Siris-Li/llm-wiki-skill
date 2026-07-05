@@ -690,6 +690,8 @@ function App() {
 							searchResultIds: graphVisibilityState?.searchResultIds ?? [],
 							typeFilters: graphVisibilityState?.typeFilters ?? {},
 							temporaryObject,
+							focusCommunityId: graphVisibilityState?.focusCommunityId ?? null,
+							hiddenReadingNodeId: graphVisibilityState?.hiddenReadingNodeId ?? null,
 						},
 					});
 					return sameGraphDrawerTarget(current, next) ? current : next;

@@ -16,7 +16,7 @@ import type {
 } from "./types";
 import { createGraphRenderer } from "./render";
 import { createSigmaGlobalFacadeRenderer } from "./graph-routes/sigma-global-route";
-export { selectionInputForSigmaHit } from "./graph-routes/sigma-global-route";
+export { selectionInputForSigmaHit, sigmaCommunityReadingHitActionForSigmaHit } from "./graph-routes/sigma-global-route";
 import { resolveSelectionForCapabilities } from "./select";
 import { graphNodeTypeLabel, wikiPathForGraphNode } from "./graph-node";
 import {

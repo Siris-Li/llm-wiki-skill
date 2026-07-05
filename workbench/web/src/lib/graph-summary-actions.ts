@@ -163,7 +163,8 @@ export function graphObjectVisibilityReason(
 	if (!data || !state) return null;
 	const node = object.kind === "node" ? data.nodes.find((item) => item.id === object.nodeId) ?? null : null;
 	if (object.kind === "node" && node && state.typeFilters[node.type] === false) return "filter";
-	if (object.kind === "node" && state.searchQuery && !state.searchResultIds.includes(object.nodeId)) return "search";
+	if (object.kind === "node" && node && state.searchQuery && !state.searchResultIds.includes(object.nodeId)) return "search";
+	if (object.kind === "node" && node && state.focusCommunityId && node.community !== state.focusCommunityId) return "community-scope";
 	return null;
 }
 

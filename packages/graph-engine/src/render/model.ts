@@ -1,4 +1,4 @@
-import type { EdgeId, GraphAggregationMarker, GraphData, GraphFocusInput, GraphPinHint, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
+import type { EdgeId, GraphAggregationMarker, GraphData, GraphFocusInput, GraphPinHint, GraphSummaryObjectRef, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
 import {
   atlasNodePoint,
   buildAtlasModel,
@@ -310,6 +310,7 @@ interface BuildRenderableGraphOptions {
   pathCache?: RenderPathCache;
   searchResultIds?: NodeId[];
   aggregationMarkers?: GraphAggregationMarker[];
+  temporaryObject?: GraphSummaryObjectRef | null;
   viewportSize?: { width: number; height: number };
   // Phase 2: the community the user just came from. Used ONLY to build a
   // source-community local-map snapshot and to restore the global highlight on
@@ -478,9 +479,15 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const labelIds = visible.labelNodeIds || {};
   const startIds = visible.startNodeIds || {};
 
-  const filteredVisibleNodes = applyNodeTypeFilters(visible.nodes, typeFilters);
+  const temporaryVisibleNodes = temporaryNodesForObject(options.temporaryObject, model.nodes, focus);
+  const baseVisibleNodeIds = new Set(applyNodeTypeFilters(visible.nodes, typeFilters).map((node) => node.id));
+  const temporaryVisibleNodeIds = new Set(temporaryVisibleNodes.map((node) => node.id));
+  const filteredVisibleNodes = model.nodes.filter((node) => baseVisibleNodeIds.has(node.id) || temporaryVisibleNodeIds.has(node.id));
   const filteredVisibleNodeIds = new Set(filteredVisibleNodes.map((node) => node.id));
-  const filteredVisibleEdges = visible.edges.filter((edge) => filteredVisibleNodeIds.has(edge.source) && filteredVisibleNodeIds.has(edge.target));
+  const filteredVisibleEdges = mergeAtlasEdges(
+    visible.edges.filter((edge) => filteredVisibleNodeIds.has(edge.source) && filteredVisibleNodeIds.has(edge.target)),
+    model.edges.filter((edge) => filteredVisibleNodeIds.has(edge.source) && filteredVisibleNodeIds.has(edge.target))
+  );
   const filteredDensityMode = getAtlasDensityMode(filteredVisibleNodes.length) as DensityMode;
   const filteredVisibleCounts = {
     visible_nodes: filteredVisibleNodes.length,
@@ -490,7 +497,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     total_communities: visible.counts.total_communities
   };
 
-  const allFilteredNodes = applyNodeTypeFilters(model.nodes, typeFilters);
+  const allFilteredNodes = model.nodes.filter((node) => typeFilters[node.type] !== false || temporaryVisibleNodeIds.has(node.id));
   const pointById = new Map(allFilteredNodes.map((node) => [node.id, renderPointForNode(node, options)]));
   const communityColorById = new Map(
     model.communities.map((community, index) => [community.id, getCommunityColor(theme, Number(community.color_index ?? index))])
@@ -1170,6 +1177,36 @@ function normalizeGraphTypeFilters(filters: GraphTypeFilters | undefined, nodes:
 
 function applyNodeTypeFilters(nodes: AtlasNode[], filters: GraphTypeFilters): AtlasNode[] {
   return nodes.filter((node) => filters[node.type] !== false);
+}
+
+function temporaryNodesForObject(
+  object: GraphSummaryObjectRef | null | undefined,
+  nodes: AtlasNode[],
+  focus: GraphFocusInput
+): AtlasNode[] {
+  if (!object) return [];
+  if (object.kind === "node") {
+    return nodes.filter((node) => node.id === object.nodeId);
+  }
+  if (object.kind === "aggregation") {
+    const nodeIds = new Set(object.nodeIds);
+    return nodes.filter((node) => nodeIds.has(node.id));
+  }
+  if (focus?.kind === "community" && focus.id !== object.communityId) return [];
+  return nodes.filter((node) => node.community === object.communityId);
+}
+
+function mergeAtlasEdges(base: AtlasEdge[], extra: AtlasEdge[]): AtlasEdge[] {
+  if (extra.length === 0) return base;
+  const ids = new Set(base.map((edge) => edge.id));
+  return [
+    ...base,
+    ...extra.filter((edge) => {
+      if (ids.has(edge.id)) return false;
+      ids.add(edge.id);
+      return true;
+    })
+  ];
 }
 
 function normalizeEdgeConfidence(edge: AtlasEdge): string {

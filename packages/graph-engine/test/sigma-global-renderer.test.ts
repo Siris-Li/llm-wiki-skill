@@ -1563,6 +1563,80 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("uses captured root Shift-click state when Sigma node payload omits the browser event", async () => {
+    const runtime = fakeRuntime();
+    const hits: Array<{ target: unknown; additive: boolean }> = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target, context) => hits.push({ target, additive: Boolean(context?.additive) })
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.root.dispatchEvent({
+      type: "click",
+      clientX: 250,
+      clientY: 250,
+      shiftKey: true,
+      target: { closest: () => null }
+    } as unknown as MouseEvent);
+    sigma.emit("clickNode", { node: "render-beta" });
+    await Promise.resolve();
+
+    assert.deepEqual(hits, [{ target: { kind: "node", id: "render-beta" }, additive: true }]);
+
+    renderer.destroy();
+  });
+
+  it("passes Shift-click additive context from DOM node hit target clicks", () => {
+    const hits: Array<{ target: unknown; additive: boolean }> = [];
+    const dragChanges: boolean[] = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime: fakeRuntime(),
+      onHitTarget: (target, context) => hits.push({ target, additive: Boolean(context?.additive) }),
+      onDragActiveChange: (dragging) => dragChanges.push(dragging)
+    });
+    const betaTarget = renderer.overlayRoot.children.find(
+      (child) => child.className === "sigma-global-node-hit-target" && child.dataset.nodeId === "render-beta"
+    );
+    const alphaTarget = renderer.overlayRoot.children.find(
+      (child) => child.className === "sigma-global-node-hit-target" && child.dataset.nodeId === "render-alpha"
+    );
+
+    assert.ok(betaTarget);
+    assert.ok(alphaTarget);
+
+    betaTarget.dispatchEvent({
+      type: "pointerdown",
+      button: 0,
+      shiftKey: true,
+      stopPropagation: () => undefined
+    } as unknown as PointerEvent);
+    betaTarget.dispatchEvent({
+      type: "click",
+      shiftKey: true,
+      stopPropagation: () => undefined
+    } as unknown as MouseEvent);
+    alphaTarget.dispatchEvent({
+      type: "click",
+      shiftKey: false,
+      stopPropagation: () => undefined
+    } as unknown as MouseEvent);
+
+    assert.deepEqual(hits, [
+      { target: { kind: "node", id: "render-beta" }, additive: true },
+      { target: { kind: "node", id: "render-alpha" }, additive: false }
+    ]);
+    assert.deepEqual(dragChanges, []);
+
+    renderer.destroy();
+  });
+
   it("routes DOM root canvas clicks through hit projection when Sigma does not emit clickStage", async () => {
     const hits: unknown[] = [];
     const renderer = createSigmaGlobalRenderer({

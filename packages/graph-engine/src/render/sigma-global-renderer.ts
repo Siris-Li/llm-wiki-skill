@@ -188,6 +188,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   let sigmaRootClickFallbackListener: ((event: MouseEvent) => void) | null = null;
   let suppressSigmaRootClickFallback = false;
   let suppressSigmaRootClickFallbackToken = 0;
+  let recentRootClickAdditive = false;
+  let recentRootClickAdditiveToken = 0;
   let resizeObserver: ResizeObserver | null = null;
   let resizeAnimationFrame: number | null = null;
   let lastObservedRootSize: RendererViewportSize | null = null;
@@ -212,7 +214,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       getOptions: () => rendererCoordinateOptions(),
       communityCloudFor: sigmaCommunityCloudFor,
       isDestroyed: () => destroyed,
-      onHit: (renderedObject) => handleSigmaHit({ renderedObject }),
+      onHit: (renderedObject, context) => handleSigmaHit({ renderedObject, additive: Boolean(context?.additive) }),
       onNodeHover: handleNodeHover,
       beginNodeDrag,
       moveNodeDrag,
@@ -374,13 +376,13 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       if (shouldSuppressRootClickFallbackForSigmaNodeClick()) suppressRootClickFallbackForSigmaPointerEvent();
       const nodeId = sigmaNodeIdFromPayload(payload);
       if (consumeSuppressedNodeClick(nodeId)) return;
-      handleSigmaHit({ nodeId, additive: sigmaAdditiveFromPayload(payload) });
+      handleSigmaHit({ nodeId, additive: sigmaAdditiveFromPayloadOrRecentRootClick(payload) });
     };
     const stageClick = (payload?: unknown): void => {
       suppressRootClickFallbackForSigmaPointerEvent();
       handleSigmaHit({
         screenPoint: sigmaScreenPointFromPayload(payload),
-        additive: sigmaAdditiveFromPayload(payload)
+        additive: sigmaAdditiveFromPayloadOrRecentRootClick(payload)
       });
     };
     const requestCameraFrame = (): void => requestOverlayAnimationFrame(overlayAnimationFrameOwner);
@@ -413,9 +415,11 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
 
   function bindSigmaRootClickFallback(): void {
     const listener = (event: MouseEvent): void => {
-      if (destroyed || suppressSigmaRootClickFallback || event.defaultPrevented) return;
+      if (destroyed || event.defaultPrevented) return;
       if (typeof event.button === "number" && event.button !== 0) return;
       if (sigmaRootClickTargetIsExplicitControl(event.target)) return;
+      rememberRootClickAdditive(event);
+      if (suppressSigmaRootClickFallback) return;
       const screenPoint = overlayPointerScreenPoint(event, sigmaRoot);
       const additive = event.shiftKey;
       queueMicrotask(() => {
@@ -431,6 +435,20 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     if (!sigmaRootClickFallbackListener) return;
     sigmaRoot.removeEventListener?.("click", sigmaRootClickFallbackListener, true);
     sigmaRootClickFallbackListener = null;
+  }
+
+  function sigmaAdditiveFromPayloadOrRecentRootClick(payload?: unknown): boolean {
+    return sigmaAdditiveFromPayload(payload) || recentRootClickAdditive;
+  }
+
+  function rememberRootClickAdditive(event: MouseEvent): void {
+    recentRootClickAdditive = event.shiftKey === true;
+    const token = recentRootClickAdditiveToken + 1;
+    recentRootClickAdditiveToken = token;
+    setTimeout(() => {
+      if (recentRootClickAdditiveToken !== token) return;
+      recentRootClickAdditive = false;
+    }, 0);
   }
 
   function suppressRootClickFallbackForSigmaPointerEvent(): void {

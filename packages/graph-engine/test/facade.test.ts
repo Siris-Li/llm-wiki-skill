@@ -15,6 +15,7 @@ import {
   createGraphStandaloneCapabilities,
   createGraphWorkbenchCapabilities,
   selectionInputForSigmaHit,
+  sigmaCommunityReadingHitActionForSigmaHit,
   type GraphFacadeRenderer,
   type GraphFacadeRouteManager,
   type GraphFacadeRouteRendererFactoryInput,
@@ -1445,6 +1446,33 @@ describe("selectionInputForSigmaHit", () => {
       kind: "node",
       id: "b1"
     });
+  });
+
+  it("keeps additive Sigma community-reading node hits as exact multi-select without opening the node", () => {
+    const data = sigmaHitGraph();
+
+    assert.deepEqual(
+      sigmaCommunityReadingHitActionForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "node", id: "a2" }, { additive: true }),
+      {
+        kind: "select",
+        selection: { kind: "nodes", ids: ["a1", "a2"] }
+      }
+    );
+    assert.deepEqual(
+      sigmaCommunityReadingHitActionForSigmaHit(data, { kind: "nodes", ids: ["a1", "a2"] }, { kind: "node", id: "a1" }, { additive: true }),
+      {
+        kind: "select",
+        selection: { kind: "node", id: "a2" }
+      }
+    );
+    assert.deepEqual(
+      sigmaCommunityReadingHitActionForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "node", id: "a2" }, { additive: false }),
+      {
+        kind: "open-node",
+        nodeId: "a2",
+        selection: { kind: "node", id: "a2" }
+      }
+    );
   });
 });
 
