@@ -1637,6 +1637,52 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("routes an un-moved DOM node pointer gesture without waiting for a browser click", () => {
+    const hits: unknown[] = [];
+    const dragChanges: boolean[] = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: communityReadingAdapterDataFixture(),
+      theme: "shan-shui",
+      runtime: fakeRuntime(),
+      onHitTarget: (target) => hits.push(target),
+      onDragActiveChange: (dragging) => dragChanges.push(dragging)
+    });
+    const alphaTarget = renderer.overlayRoot.children.find(
+      (child) => child.className === "sigma-global-node-hit-target" && child.dataset.nodeId === "render-alpha"
+    );
+    assert.ok(alphaTarget);
+
+    alphaTarget.dispatchEvent(fakePointerEvent("pointerdown", { pointerId: 7, clientX: 116, clientY: 228 }));
+    renderer.root.ownerDocument.dispatchEvent(fakePointerEvent("pointerup", { pointerId: 7, clientX: 116, clientY: 228 }));
+
+    assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }]);
+    assert.deepEqual(dragChanges, [true, false]);
+
+    alphaTarget.dispatchEvent(fakePointerEvent("click", { clientX: 116, clientY: 228 }) as unknown as MouseEvent);
+    assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }]);
+
+    renderer.destroy();
+  });
+
+  it("extends Sigma community reading node hit targets to visible label text", () => {
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: communityReadingAdapterDataFixture({ selectedNodeId: "render-alpha" }),
+      theme: "shan-shui",
+      runtime: fakeRuntime()
+    });
+    const alphaTarget = renderer.overlayRoot.children.find(
+      (child) => child.className === "sigma-global-node-hit-target" && child.dataset.nodeId === "render-alpha"
+    );
+    assert.ok(alphaTarget);
+
+    const width = Number.parseFloat(alphaTarget.style.width || "0");
+    assert.ok(width > 48, `community label hit target should extend beyond the dot, got ${width}`);
+
+    renderer.destroy();
+  });
+
   it("routes DOM root canvas clicks through hit projection when Sigma does not emit clickStage", async () => {
     const hits: unknown[] = [];
     const renderer = createSigmaGlobalRenderer({
@@ -3333,6 +3379,7 @@ function fakeElement(_tagName: string, defaultView?: FakeDefaultView): HTMLEleme
   const children: HTMLElement[] = [];
   const attributes = new Map<string, string>();
   const listeners = new Map<string, EventListenerOrEventListenerObject[]>();
+  const documentListeners = new Map<string, EventListenerOrEventListenerObject[]>();
   const element = {
     tagName: _tagName,
     className: "",
@@ -3386,6 +3433,22 @@ function fakeElement(_tagName: string, defaultView?: FakeDefaultView): HTMLEleme
       child.ownerDocument = element.ownerDocument;
       return child;
     },
+    addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => {
+      const list = documentListeners.get(type) ?? [];
+      list.push(listener);
+      documentListeners.set(type, list);
+    },
+    removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => {
+      const list = documentListeners.get(type) ?? [];
+      documentListeners.set(type, list.filter((item) => item !== listener));
+    },
+    dispatchEvent: (event: Event) => {
+      for (const listener of documentListeners.get(event.type) ?? []) {
+        if (typeof listener === "function") listener.call(element.ownerDocument, event);
+        else listener.handleEvent(event);
+      }
+      return true;
+    },
     defaultView
   } as unknown as Document;
   element.remove = () => {
@@ -3396,6 +3459,28 @@ function fakeElement(_tagName: string, defaultView?: FakeDefaultView): HTMLEleme
     }
   };
   return element as unknown as HTMLElement;
+}
+
+function fakePointerEvent(type: string, init: Partial<PointerEvent> = {}): PointerEvent {
+  const event = {
+    type,
+    button: 0,
+    pointerId: 1,
+    clientX: 0,
+    clientY: 0,
+    shiftKey: false,
+    defaultPrevented: false,
+    propagationStopped: false,
+    target: null,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    stopPropagation() {
+      this.propagationStopped = true;
+    },
+    ...init
+  };
+  return event as unknown as PointerEvent;
 }
 
 const containerRegistry: Array<HTMLElement & { children: HTMLElement[] }> = [];

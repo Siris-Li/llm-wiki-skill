@@ -799,7 +799,12 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     delete sigmaRoot.dataset.draggingNodeId;
     options.onDragActiveChange?.(false);
     if (!drag.moved) {
+      suppressNextNodeClickId = drag.nodeId;
       handleNodeHover(drag.nodeId);
+      handleSigmaHit({
+        nodeId: drag.nodeId,
+        additive: sigmaAdditiveFromPayloadOrRecentRootClick(payload)
+      });
       return;
     }
     suppressNextNodeClickId = drag.nodeId;
