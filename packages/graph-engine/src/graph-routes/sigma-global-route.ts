@@ -50,7 +50,7 @@ export function selectionInputForSigmaHit(
 }
 
 export type SigmaCommunityReadingHitAction =
-  | { kind: "select"; selection: SelectionInput }
+  | { kind: "select"; selection: SelectionInput; relationFocusNodeId: NodeId }
   | { kind: "open-node"; nodeId: NodeId; selection: SelectionInput }
   | { kind: "clear" }
   | { kind: "none" };
@@ -70,8 +70,8 @@ export function sigmaCommunityReadingHitActionForSigmaHit(
       selection: { kind: "node", id: target.id }
     };
   }
-  const selection = selectionInputForSigmaHit(data, current, target, context);
-  return selection ? { kind: "select", selection } : { kind: "clear" };
+  const selection = communityReadingSelectionInputForAdditiveNodeHit(data, current, target.id);
+  return selection ? { kind: "select", selection, relationFocusNodeId: target.id } : { kind: "clear" };
 }
 
 export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererFactoryInput): GraphFacadeRenderer {
@@ -296,7 +296,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     if (options.focus?.kind === "community") {
       const action = sigmaCommunityReadingHitActionForSigmaHit(options.data, options.selection, target, context);
       if (action.kind === "select") {
-        selectOnSigma(action.selection);
+        selectOnSigma(action.selection, action.relationFocusNodeId);
         return;
       }
       if (action.kind === "open-node") {
@@ -335,8 +335,8 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     }
   }
 
-  function selectOnSigma(selection: SelectionInput): void {
-    hoverNodeId = null;
+  function selectOnSigma(selection: SelectionInput, relationFocusNodeId: NodeId | null = null): void {
+    hoverNodeId = relationFocusNodeId;
     input.options.callbacks.onSelectionInput?.(selection);
     updateSigmaSelection(selection);
   }
@@ -695,9 +695,20 @@ function temporaryObjectCompatibleWithCommunity(
   if (object.kind === "aggregation") {
     if (object.communityId) return object.communityId === communityId;
     const nodeIds = new Set(object.nodeIds);
-    return data.nodes.some((node) => nodeIds.has(node.id) && node.community === communityId);
+    const nodes = data.nodes.filter((node) => nodeIds.has(node.id));
+    return nodes.length > 0 && nodes.every((node) => node.community === communityId);
   }
   return object.communityId === communityId;
+}
+
+function communityReadingSelectionInputForAdditiveNodeHit(
+  data: GraphData,
+  current: SelectionInput | null | undefined,
+  nodeId: NodeId
+): SelectionInput | null {
+  const selection = toggleNodeInSelection(data, current, nodeId);
+  if (!selection) return null;
+  return selection.kind === "node" ? { kind: "nodes", ids: [selection.id] } : selection;
 }
 
 function measuredViewportSize(element: HTMLElement): RendererViewportSize | undefined {

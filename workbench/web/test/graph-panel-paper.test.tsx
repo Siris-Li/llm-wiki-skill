@@ -121,8 +121,7 @@ describe("GraphPanel Paper shell", () => {
 		);
 
 		await waitFor(() => {
-			assert.ok(selectionChanges.length >= 1);
-			assert.ok(selectionChanges.every((selection) => selection === null));
+			assert.deepEqual(selectionChanges, [null]);
 			assert.notEqual(screen.queryByRole("button", { name: "回全图" }), null);
 		});
 
@@ -203,8 +202,7 @@ describe("GraphPanel Paper shell", () => {
 		);
 
 		await waitFor(() => {
-			assert.ok(selectionChanges.length >= 1);
-			assert.ok(selectionChanges.every((selection) => selection === null));
+			assert.deepEqual(selectionChanges, [null]);
 		});
 	});
 

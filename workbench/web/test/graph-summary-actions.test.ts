@@ -46,6 +46,14 @@ describe("graph summary actions", () => {
 		assert.equal(drawer.mode === "graph-selection" ? drawer.title : null, "选中 2 个节点");
 	});
 
+	it("keeps a manual single-node selection in the selection drawer", () => {
+		const drawer = drawerForGraphSelection(graphFixture(), manualSingleNodeSelection(), closedDrawer());
+
+		assert.equal(drawer.mode, "graph-selection");
+		assert.deepEqual(drawer.mode === "graph-selection" ? drawer.selection.nodeIds : [], ["a"]);
+		assert.equal(drawer.mode === "graph-selection" ? drawer.title : null, "Alpha");
+	});
+
 	it("switches a community core node list click to node summary without entering community", () => {
 		const drawer = drawerForGraphSummaryNode(graphFixture(), "b", communitySummaryDrawer());
 
@@ -231,6 +239,22 @@ function manualSameCommunitySelection(): Selection {
 			isolatedCount: 0,
 		},
 		input: { kind: "nodes", ids: ["a", "b"] },
+		actions: [],
+	};
+}
+
+function manualSingleNodeSelection(): Selection {
+	return {
+		id: "nodes:a",
+		nodeIds: ["a"],
+		communityIds: ["c1"],
+		facts: {
+			pageCount: 1,
+			internalLinkCount: 0,
+			communityCount: 1,
+			isolatedCount: 0,
+		},
+		input: { kind: "nodes", ids: ["a"] },
 		actions: [],
 	};
 }

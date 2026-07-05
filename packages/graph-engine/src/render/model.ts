@@ -1190,7 +1190,7 @@ function temporaryNodesForObject(
   }
   if (object.kind === "aggregation") {
     const nodeIds = new Set(object.nodeIds);
-    return nodes.filter((node) => nodeIds.has(node.id));
+    return nodes.filter((node) => nodeIds.has(node.id) && (focus?.kind !== "community" || node.community === focus.id));
   }
   if (focus?.kind === "community" && focus.id !== object.communityId) return [];
   return nodes.filter((node) => node.community === object.communityId);

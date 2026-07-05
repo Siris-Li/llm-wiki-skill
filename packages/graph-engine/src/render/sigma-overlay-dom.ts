@@ -188,6 +188,7 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
     pruneOverlayEntries(overlayLabelEntries, nextLabelIds);
 
     input.overlayRoot.replaceChildren(...ordered);
+    appendMissingOverlayChildren(ordered);
     reposition();
   }
 
@@ -334,6 +335,17 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
       event.preventDefault();
     });
     return element;
+  }
+
+  function appendMissingOverlayChildren(children: HTMLElement[]): void {
+    for (const child of children) {
+      if (overlayRootContains(child)) continue;
+      input.overlayRoot.append(child);
+    }
+  }
+
+  function overlayRootContains(child: HTMLElement): boolean {
+    return Array.prototype.includes.call(input.overlayRoot.children, child);
   }
 
   function bindOverlayPointerDragListeners(ownerDocument: Document, element: HTMLElement, nodeId: string, pointerId: number): void {

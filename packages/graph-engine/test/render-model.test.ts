@@ -1084,6 +1084,21 @@ describe("buildRenderableGraph", () => {
     assert.deepEqual(Object.keys(graph.communityMap.current?.nodeRulesById ?? {}), ["topic", "entity"]);
   });
 
+  it("keeps temporary aggregation display scoped to the focused community", () => {
+    const graph = buildRenderableGraph(graphWithExternalTemporaryNode(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      temporaryObject: {
+        kind: "aggregation",
+        aggregationId: "mixed",
+        nodeIds: ["topic", "external"]
+      }
+    });
+
+    assert.deepEqual(graph.nodes.map((node) => node.id), ["topic", "entity"]);
+    assert.deepEqual(graph.edges.map((edge) => edge.id), ["internal"]);
+  });
+
   it("filters visible nodes by graph node type and stacks with community focus", () => {
     const graph = buildRenderableGraph(sampleGraph(), {
       theme: "shan-shui",

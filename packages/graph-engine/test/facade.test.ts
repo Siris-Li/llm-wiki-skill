@@ -1452,17 +1452,27 @@ describe("selectionInputForSigmaHit", () => {
     const data = sigmaHitGraph();
 
     assert.deepEqual(
+      sigmaCommunityReadingHitActionForSigmaHit(data, null, { kind: "node", id: "a1" }, { additive: true }),
+      {
+        kind: "select",
+        selection: { kind: "nodes", ids: ["a1"] },
+        relationFocusNodeId: "a1"
+      }
+    );
+    assert.deepEqual(
       sigmaCommunityReadingHitActionForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "node", id: "a2" }, { additive: true }),
       {
         kind: "select",
-        selection: { kind: "nodes", ids: ["a1", "a2"] }
+        selection: { kind: "nodes", ids: ["a1", "a2"] },
+        relationFocusNodeId: "a2"
       }
     );
     assert.deepEqual(
       sigmaCommunityReadingHitActionForSigmaHit(data, { kind: "nodes", ids: ["a1", "a2"] }, { kind: "node", id: "a1" }, { additive: true }),
       {
         kind: "select",
-        selection: { kind: "node", id: "a2" }
+        selection: { kind: "nodes", ids: ["a2"] },
+        relationFocusNodeId: "a1"
       }
     );
     assert.deepEqual(

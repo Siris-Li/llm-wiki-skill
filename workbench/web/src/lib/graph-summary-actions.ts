@@ -43,7 +43,7 @@ export function drawerForGraphSelection(
 	options: GraphSummaryOptions = {},
 ): DrawerState {
 	const selectionInput = options.selection ?? selection.input ?? null;
-	if (data && selection.nodeIds.length === 1) {
+	if (data && selection.nodeIds.length === 1 && selectionInput?.kind !== "nodes") {
 		const summary = summarizeGraphNode(data, selection.nodeIds[0], {
 			...options,
 			selection: { kind: "node", id: selection.nodeIds[0] },

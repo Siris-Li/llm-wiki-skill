@@ -373,7 +373,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
 
   function bindSigmaEvents(): void {
     const nodeClick = (payload?: unknown): void => {
-      if (shouldSuppressRootClickFallbackForSigmaNodeClick()) suppressRootClickFallbackForSigmaPointerEvent();
+      if (shouldSuppressRootClickFallbackForSigmaNodeClick() || recentRootClickAdditive) suppressRootClickFallbackForSigmaPointerEvent();
       const nodeId = sigmaNodeIdFromPayload(payload);
       if (consumeSuppressedNodeClick(nodeId)) return;
       handleSigmaHit({ nodeId, additive: sigmaAdditiveFromPayloadOrRecentRootClick(payload) });

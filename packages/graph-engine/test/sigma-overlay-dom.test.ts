@@ -86,6 +86,26 @@ describe("Sigma overlay DOM controller", () => {
     assert.equal(sigmaOverlayNodes(data).at(-1)?.id, "node-179");
   });
 
+  it("keeps community reading node hit targets mounted when replaceChildren drops reusable children", () => {
+    const fixture = controllerFixture({
+      adapterData: adapterDataFixture({ communityMapActive: true })
+    });
+    const originalReplaceChildren = fixture.overlayRoot.replaceChildren.bind(fixture.overlayRoot);
+    fixture.overlayRoot.replaceChildren = (...children) => {
+      originalReplaceChildren(...children.filter((child) => child.className !== "sigma-global-node-hit-target"));
+    };
+
+    fixture.controller.rebuild();
+
+    assert.deepEqual(
+      fixture.overlayRoot.children
+        .filter((child) => child.className === "sigma-global-node-hit-target")
+        .map((child) => child.dataset.nodeId)
+        .sort(),
+      ["alpha", "beta"]
+    );
+  });
+
   it("binds pointer overlay drag and clears document listeners on pointerup", () => {
     const fixture = controllerFixture();
     fixture.controller.rebuild();

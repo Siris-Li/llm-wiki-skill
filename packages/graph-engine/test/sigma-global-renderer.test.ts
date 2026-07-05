@@ -1721,6 +1721,36 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("does not duplicate returned source-context Shift node clicks", async () => {
+    const hits: Array<{ target: unknown; additive: boolean }> = [];
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: {
+        ...adapterDataFixture({ selectedCommunityId: "adapter-community" }),
+        sourceCommunityId: "adapter-community"
+      },
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target, context) => hits.push({ target, additive: Boolean(context?.additive) })
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.root.dispatchEvent({
+      type: "click",
+      clientX: 250,
+      clientY: 250,
+      shiftKey: true,
+      target: { closest: () => null }
+    } as unknown as MouseEvent);
+    sigma.emit("clickNode", { node: "render-beta" });
+    await Promise.resolve();
+
+    assert.deepEqual(hits, [{ target: { kind: "node", id: "render-beta" }, additive: true }]);
+
+    renderer.destroy();
+  });
+
   it("patches node spotlight attributes in place when community selection changes", () => {
     const runtime = fakeRuntime();
     const renderer = createSigmaGlobalRenderer({
