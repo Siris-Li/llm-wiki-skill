@@ -28,6 +28,27 @@ describe("graph keyboard ownership", () => {
     assert.equal(intent({ key: "Escape", graphFocused: false, interactionActive: true }), "blocked");
   });
 
+  it("does not clear graph interaction from generic text editing targets", () => {
+    assert.equal(intent({
+      key: "Escape",
+      graphFocused: true,
+      textEditingTarget: true,
+      interactionActive: true
+    }), "blocked");
+    assert.equal(intent({
+      key: "Escape",
+      graphFocused: true,
+      textEditingTarget: true,
+      toolbarOpen: true
+    }), "blocked");
+    assert.equal(intent({
+      key: "Escape",
+      graphFocused: true,
+      textEditingTarget: true,
+      searchActive: true
+    }), "close-search");
+  });
+
   it("lets active gestures own Escape even if focus moved outside the graph", () => {
     assert.equal(intent({ key: "Escape", graphFocused: false, activeGesture: true }), "cancel-active-gesture");
     assert.equal(intent({

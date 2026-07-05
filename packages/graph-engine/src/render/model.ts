@@ -237,8 +237,9 @@ export interface RenderableMinimap {
 // One owner (graph-engine) computes per-node tier, per-edge layer, base world
 // point, label visibility, and close-up bounds for ONE community at a time
 // (the focused community when reading, or the explicit source-community context
-// when in global view). Sigma global and DOM community reading both consume
-// this snapshot instead of re-deriving their own rules.
+// when in global view). Sigma community reading consumes this snapshot as the
+// primary path; the legacy DOM/SVG route may still consume it only as fallback
+// or comparison, instead of re-deriving its own rules.
 export type CommunityMapNodeTier = "core" | "related" | "peripheral";
 export type CommunityMapEdgeLayer = "skeleton" | "related" | "background";
 export type CommunityMapMotionMode = "live" | "frozen";

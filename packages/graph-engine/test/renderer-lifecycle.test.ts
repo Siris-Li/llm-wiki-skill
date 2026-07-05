@@ -1,7 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import GraphologyGraph from "graphology";
 
 import type { GraphData, GraphDiff, GraphVisibilityState, SelectionInput } from "../src";
+import type {
+  SigmaGlobalGraphologyGraph,
+  SigmaGlobalRendererRuntime,
+  SigmaGlobalSigmaLike
+} from "../src/render/sigma-global-types";
 import { createGraphRenderer } from "../src/render";
 import { createSigmaGlobalFacadeRenderer } from "../src/graph-routes/sigma-global-route";
 import {
@@ -1091,6 +1097,90 @@ describe("graph renderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("keeps Sigma community Escape scoped away from search and filter controls", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const clearRequests: number[] = [];
+    const renderer = createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      options: {
+        data: graphDataForReturnGlobal(),
+        pins: {},
+        theme: "shan-shui",
+        focus: { kind: "community", id: "community-a" },
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: { kind: "node", id: "a" },
+        sourceCommunityId: "community-a",
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {
+          onSelectionClearRequested: () => clearRequests.push(1)
+        }
+      }
+    });
+    const searchInput = findByClass(container, "graph-search-input")[0];
+    const sourceToggle = findByDataset(container, "type", "source");
+    assert.ok(searchInput);
+    assert.ok(sourceToggle);
+    (searchInput as unknown as { nodeType: number }).nodeType = 1;
+    (sourceToggle as unknown as { nodeType: number }).nodeType = 1;
+
+    ownerDocument.dispatch("keydown", { key: "Escape", target: searchInput });
+    ownerDocument.dispatch("keydown", { key: "Escape", target: sourceToggle });
+
+    assert.deepEqual(clearRequests, []);
+
+    ownerDocument.dispatch("keydown", { key: "Escape", target: ownerDocument as unknown as FakeElement });
+
+    assert.deepEqual(clearRequests, [1]);
+
+    renderer.destroy();
+  });
+
+  it("clears Sigma edge previews when leaving and re-entering community reading", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const runtime = fakeSigmaRouteRuntime();
+    const renderer = createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      sigmaRuntime: runtime,
+      options: {
+        data: relationFocusGraphData(),
+        pins: {},
+        theme: "shan-shui",
+        focus: { kind: "community", id: "community-a" },
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: null,
+        sourceCommunityId: "community-a",
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {}
+      }
+    });
+
+    await Promise.resolve();
+    const edgePreview = findByClass(container, "sigma-edge-hover-preview")[0];
+    assert.ok(edgePreview);
+
+    runtime.instances[0]?.emit("enterEdge", { edge: "a-b" });
+
+    assert.equal(edgePreview.dataset.state, "open");
+    assert.equal(edgePreview.dataset.edgeId, "a-b");
+    assert.equal(findByClass(edgePreview, "graph-hover-preview-title")[0]?.textContent, "实现");
+
+    renderer.resetView();
+    renderer.focusCommunity("community-a");
+
+    assert.equal(edgePreview.dataset.state, "closed");
+    assert.equal(edgePreview.dataset.edgeId, "");
+
+    renderer.destroy();
+  });
+
   it("applies Escape priority without clearing pins or resetting layout", async () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");
@@ -1794,6 +1884,128 @@ class FakeEvent {
 
   preventDefault(): void {
     this.defaultPrevented = true;
+  }
+}
+
+function fakeSigmaRouteRuntime(): SigmaGlobalRendererRuntime & { instances: FakeRouteSigma[] } {
+  const instances: FakeRouteSigma[] = [];
+  class RuntimeSigma extends FakeRouteSigma {
+    constructor(graph: SigmaGlobalGraphologyGraph, container: HTMLElement, settings?: Record<string, unknown>) {
+      super(graph, container, settings);
+      instances.push(this);
+    }
+  }
+  return { Sigma: RuntimeSigma, GraphologyGraph, instances };
+}
+
+class FakeRouteSigma implements SigmaGlobalSigmaLike {
+  private graph: SigmaGlobalGraphologyGraph;
+  private readonly settings: Record<string, unknown>;
+  private readonly listeners = new Map<string, Set<(payload?: unknown) => void>>();
+  private readonly camera = new FakeRouteCamera();
+  private readonly mouseCaptor = new FakeRouteMouseCaptor();
+
+  constructor(graph: SigmaGlobalGraphologyGraph, _container: HTMLElement, settings: Record<string, unknown> = {}) {
+    this.graph = graph;
+    this.settings = settings;
+  }
+
+  getCamera(): FakeRouteCamera {
+    return this.camera;
+  }
+
+  getMouseCaptor(): FakeRouteMouseCaptor {
+    return this.mouseCaptor;
+  }
+
+  getGraph(): SigmaGlobalGraphologyGraph {
+    return this.graph;
+  }
+
+  setGraph(graph: SigmaGlobalGraphologyGraph): void {
+    this.graph = graph;
+  }
+
+  getSetting(key: string): unknown {
+    return this.settings[key];
+  }
+
+  setSetting(key: string, value: unknown): void {
+    this.settings[key] = value;
+  }
+
+  viewportToGraph(point: { x: number; y: number }): { x: number; y: number } {
+    return point;
+  }
+
+  viewportToFramedGraph(point: { x: number; y: number }): { x: number; y: number } {
+    return point;
+  }
+
+  graphToViewport(point: { x: number; y: number }): { x: number; y: number } {
+    return point;
+  }
+
+  refresh(): void {}
+
+  on(event: string, listener: (payload?: unknown) => void): void {
+    const listeners = this.listeners.get(event) || new Set();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+  }
+
+  off(event: string, listener: (payload?: unknown) => void): void {
+    this.listeners.get(event)?.delete(listener);
+  }
+
+  emit(event: string, payload?: unknown): void {
+    for (const listener of this.listeners.get(event) || []) listener(payload);
+  }
+
+  kill(): void {}
+}
+
+class FakeRouteCamera {
+  private state = { x: 0, y: 0, angle: 0, ratio: 1 };
+  private readonly listeners = new Set<() => void>();
+
+  getState(): { x: number; y: number; angle: number; ratio: number } {
+    return this.state;
+  }
+
+  setState(state: Partial<{ x: number; y: number; angle: number; ratio: number }>): void {
+    this.state = { ...this.state, ...state };
+    for (const listener of this.listeners) listener();
+  }
+
+  isAnimated(): boolean {
+    return false;
+  }
+
+  on(event: "updated", listener: () => void): void {
+    if (event === "updated") this.listeners.add(listener);
+  }
+
+  off(event: "updated", listener: () => void): void {
+    if (event === "updated") this.listeners.delete(listener);
+  }
+
+  animate(state: Partial<{ x: number; y: number; angle: number; ratio: number }>): void {
+    this.setState(state);
+  }
+}
+
+class FakeRouteMouseCaptor {
+  private readonly listeners = new Map<string, Set<(payload?: unknown) => void>>();
+
+  on(event: "wheel", listener: (payload?: unknown) => void): void {
+    const listeners = this.listeners.get(event) || new Set();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+  }
+
+  off(event: "wheel", listener: (payload?: unknown) => void): void {
+    this.listeners.get(event)?.delete(listener);
   }
 }
 

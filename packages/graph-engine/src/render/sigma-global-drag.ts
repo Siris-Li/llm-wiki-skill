@@ -3,6 +3,7 @@ import type { GraphRendererAdapterData, GraphRendererAdapterNode } from "./adapt
 import type { GraphScreenPoint } from "./geometry";
 
 export const SIGMA_GLOBAL_NODE_DRAG_START_THRESHOLD = 2;
+export const SIGMA_GLOBAL_TOUCH_NODE_DRAG_START_THRESHOLD = 8;
 
 export interface SigmaGlobalNodeDragSession {
   nodeId: string;
@@ -14,6 +15,7 @@ export interface SigmaGlobalNodeDragSession {
   pointerStart: GraphScreenPoint;
   grabOffset: { x: number; y: number };
   previousCameraPanning: unknown;
+  dragStartThreshold: number;
   moved: boolean;
 }
 
@@ -26,6 +28,7 @@ export function createSigmaGlobalNodeDragSession(input: {
   initiallyPinned: boolean;
   initialPinPosition: PinPosition | null;
   previousCameraPanning: unknown;
+  dragStartThreshold?: number;
 }): SigmaGlobalNodeDragSession {
   return {
     nodeId: input.nodeId,
@@ -40,6 +43,7 @@ export function createSigmaGlobalNodeDragSession(input: {
       y: input.pointerWorldPoint.y - input.startPoint.y
     },
     previousCameraPanning: input.previousCameraPanning,
+    dragStartThreshold: input.dragStartThreshold ?? SIGMA_GLOBAL_NODE_DRAG_START_THRESHOLD,
     moved: false
   };
 }
@@ -52,12 +56,18 @@ export function moveSigmaGlobalNodeDragSession(
   if (!drag.moved) {
     const dx = screenPoint.x - drag.pointerStart.x;
     const dy = screenPoint.y - drag.pointerStart.y;
-    drag.moved = Math.hypot(dx, dy) >= SIGMA_GLOBAL_NODE_DRAG_START_THRESHOLD;
+    drag.moved = Math.hypot(dx, dy) >= drag.dragStartThreshold;
   }
   drag.currentPoint = {
     x: pointerWorldPoint.x - drag.grabOffset.x,
     y: pointerWorldPoint.y - drag.grabOffset.y
   };
+}
+
+export function sigmaGlobalNodeDragStartThreshold(pointerType: unknown): number {
+  return pointerType === "touch"
+    ? SIGMA_GLOBAL_TOUCH_NODE_DRAG_START_THRESHOLD
+    : SIGMA_GLOBAL_NODE_DRAG_START_THRESHOLD;
 }
 
 export function sigmaAdapterDataWithNodePoint(

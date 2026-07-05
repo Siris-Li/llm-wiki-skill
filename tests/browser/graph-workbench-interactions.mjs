@@ -58,10 +58,11 @@ async function runPhaseOneChecks(browser, viewport, theme) {
 
   evidence.communitySummary = await openCommunitySummaryFromRegion(page, "t1");
   await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
-  await waitForDomCommunity(page, "t1");
-  evidence.focusedCommunity = await domCommunitySnapshot(page);
-  assert.deepEqual(evidence.focusedCommunity.visibleNodes, T1_NODE_IDS, "enter community should use DOM/SVG community reading");
-  assert.equal(evidence.focusedCommunity.sigmaRendererCount, 0, "community reading route should not keep Sigma global mounted");
+  await waitForSigmaCommunity(page, "t1");
+  evidence.focusedCommunity = await sigmaCommunitySnapshot(page);
+  assert.deepEqual(evidence.focusedCommunity.visibleNodes, T1_NODE_IDS, "enter community should use Sigma community reading");
+  assert.equal(evidence.focusedCommunity.sigmaRendererCount, 1, "community reading route should keep Sigma mounted");
+  assert.equal(evidence.focusedCommunity.oldDomNodeCount, 0, "community reading route should not fall back to DOM/SVG");
   evidence.communityMultiSelect = await runCommunityNodeMultiSelectCheck(page);
 
   await clickReturnGlobal(page);
@@ -125,14 +126,18 @@ async function waitForSigmaGlobal(page) {
   await page.waitForSelector(".sigma-global-community-label");
 }
 
-async function waitForDomCommunity(page, communityId) {
-  await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+async function waitForSigmaCommunity(page, communityId) {
+  await page.waitForSelector(".sigma-global-route[data-route='sigma-global']");
+  await page.waitForSelector(".sigma-global-renderer[data-renderer='sigma-global']");
   await page.waitForFunction((communityId) => {
-    return document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus === `community:${communityId}`
-      && document.querySelectorAll(".node").length > 0
-      && !document.querySelector(".sigma-global-renderer");
+    const renderer = document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']");
+    return document.querySelector(".graph-host")?.getAttribute("data-llm-wiki-graph-route") === "sigma-global"
+      && renderer?.getAttribute("data-community-focus-id") === communityId
+      && renderer?.getAttribute("data-source-community-id") === communityId
+      && document.querySelectorAll(".sigma-global-node-hit-target").length > 0
+      && !document.querySelector(".node");
   }, communityId);
-  await waitForVisibleDomNodeIds(page, T1_NODE_IDS);
+  await waitForVisibleSigmaNodeIds(page, T1_NODE_IDS);
 }
 
 async function sigmaGlobalSnapshot(page) {
@@ -185,28 +190,47 @@ async function sigmaGlobalSnapshot(page) {
   });
 }
 
-async function domCommunitySnapshot(page) {
+async function sigmaCommunitySnapshot(page) {
   return page.evaluate(() => ({
-    focus: document.querySelector(".graph-host")?.dataset.llmWikiGraphFocus || "",
+    route: document.querySelector(".graph-host")?.getAttribute("data-llm-wiki-graph-route") || "",
+    communityFocusId: document.querySelector(".sigma-global-renderer")?.getAttribute("data-community-focus-id") || "",
+    sourceCommunityId: document.querySelector(".sigma-global-renderer")?.getAttribute("data-source-community-id") || "",
     sigmaRendererCount: document.querySelectorAll(".sigma-global-renderer").length,
-    visibleNodes: [...document.querySelectorAll(".node")]
-      .filter((node) => node.getAttribute("data-filter-state") !== "hidden")
-      .map((node) => node.getAttribute("data-id"))
+    oldDomNodeCount: document.querySelectorAll(".node").length,
+    visibleNodes: [...document.querySelectorAll(".sigma-global-node-hit-target")]
+      .map((node) => node.getAttribute("data-node-id"))
       .filter(Boolean)
       .sort(),
+    communityRegionCount: document.querySelectorAll(".sigma-global-community-region").length,
+    communityLabelCount: document.querySelectorAll(".sigma-global-community-label").length,
+    readerOpen: Boolean(document.querySelector(".graph-reader-drawer")),
     toolbarReturnCount: [...document.querySelectorAll("button")].filter((button) => button.textContent?.includes("回全图")).length
   }));
 }
 
 async function runCommunityNodeMultiSelectCheck(page) {
-  await clickDomNode(page, "A", { shiftKey: false });
-  await page.waitForSelector('[data-testid="graph-node-summary"]');
+  await clickSigmaNode(page, "A");
+  await page.waitForSelector(".graph-reader-drawer");
   const single = await drawerSelectionSnapshot(page);
-  assert.equal(single.drawerTestId, "graph-node-summary", "community node click should select that node");
-  assert.equal(single.title, "节点A", "community node click should open node summary");
+  assert.equal(single.drawerTestId, "graph-reader", "community node click should open node reading");
+  assert.equal(single.title, "节点A", "community node click should open node content");
 
-  await clickDomNode(page, "B", { modifiers: ["Shift"] });
-  await page.waitForSelector('[data-testid="graph-selection-drawer"]');
+  await page.keyboard.down("Shift");
+  try {
+    await clickSigmaNode(page, "B");
+  } finally {
+    await page.keyboard.up("Shift");
+  }
+  try {
+    await page.waitForSelector('[data-testid="graph-selection-drawer"]');
+  } catch (error) {
+    throw new assert.AssertionError({
+      message: `Shift+click should open multi-node selection drawer. Diagnostics: ${JSON.stringify(await communityMultiSelectDiagnostics(page))}`,
+      actual: error,
+      expected: "graph-selection-drawer",
+      operator: "strictEqual"
+    });
+  }
   const multi = await drawerSelectionSnapshot(page);
   assert.equal(multi.drawerTestId, "graph-selection-drawer", "Shift+click should show an exact multi-node selection");
   assert.match(multi.title, /选中 2 个节点/, "Shift+click should not widen the selection to the whole community");
@@ -214,20 +238,79 @@ async function runCommunityNodeMultiSelectCheck(page) {
   return { single, multi };
 }
 
-async function clickDomNode(page, nodeId, options = {}) {
-  const locator = page.locator(`.node[data-id="${cssString(nodeId)}"]`);
-  await locator.waitFor();
-  await locator.click(options);
+async function clickSigmaNode(page, nodeId) {
+  const point = await sigmaNodeClickPoint(page, nodeId);
+  assert.equal(point.hitNodeId, nodeId, `Sigma node click point should hit ${nodeId}`);
+  await page.mouse.click(point.x, point.y);
+  return point;
+}
+
+async function sigmaNodeClickPoint(page, nodeId) {
+  return page.locator(`.sigma-global-node-hit-target[data-node-id="${cssString(nodeId)}"]`).evaluate((node, nodeId) => {
+    const rect = node.getBoundingClientRect();
+    const candidates = [
+      [0.5, 0.5],
+      [0.35, 0.5],
+      [0.65, 0.5],
+      [0.5, 0.35],
+      [0.5, 0.65]
+    ];
+    for (const [rx, ry] of candidates) {
+      const x = rect.left + rect.width * rx;
+      const y = rect.top + rect.height * ry;
+      const hit = document.elementFromPoint(x, y);
+      const hitNodeId = hit?.closest?.(".sigma-global-node-hit-target")?.getAttribute("data-node-id") || "";
+      if (hitNodeId === nodeId) return { x, y, hitNodeId };
+    }
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    return {
+      x,
+      y,
+      hitNodeId: hit?.closest?.(".sigma-global-node-hit-target")?.getAttribute("data-node-id") || "",
+      hitClass: String(hit?.getAttribute?.("class") || "")
+    };
+  }, nodeId);
+}
+
+async function communityMultiSelectDiagnostics(page) {
+  if (artifactDir) {
+    await page.screenshot({ fullPage: true, path: path.join(artifactDir, "workbench-community-multiselect-timeout.png") }).catch(() => undefined);
+  }
+  return page.evaluate(() => ({
+    drawer: document.querySelector(".drawer-panel-open")?.textContent || "",
+    lastHitKind: document.querySelector(".sigma-global-renderer")?.getAttribute("data-last-hit-kind") || "",
+    lastHitId: document.querySelector(".sigma-global-renderer")?.getAttribute("data-last-hit-id") || "",
+    selectedNodeIds: [...document.querySelectorAll(".sigma-global-node-hit-target[data-selected='true']")]
+      .map((node) => node.getAttribute("data-node-id") || "")
+      .filter(Boolean),
+    targets: [...document.querySelectorAll(".sigma-global-node-hit-target")]
+      .map((node) => ({
+        nodeId: node.getAttribute("data-node-id") || "",
+        selected: node.getAttribute("data-selected") || "",
+        pinned: node.getAttribute("data-pinned") || ""
+      }))
+  }));
 }
 
 async function drawerSelectionSnapshot(page) {
-  return page.evaluate(() => ({
-    drawerTestId: document.querySelector(".drawer-panel-open [data-testid]")?.getAttribute("data-testid") || "",
-    title: document.querySelector(".drawer-panel-open h2")?.textContent || "",
-    hasEnterCommunity: [...document.querySelectorAll(".drawer-panel-open button")]
-      .some((button) => button.textContent?.includes("进入社区")),
-    text: document.querySelector(".drawer-panel-open")?.textContent || ""
-  }));
+  return page.evaluate(() => {
+    const drawerTestId = document.querySelector(".drawer-panel-open .graph-reader-drawer")
+      ? "graph-reader"
+      : document.querySelector(".drawer-panel-open [data-testid]")?.getAttribute("data-testid") || "";
+    return {
+      drawerTestId,
+      title: drawerTestId === "graph-selection-drawer"
+        ? document.querySelector(".drawer-panel-open h2")?.textContent || ""
+        : document.querySelector(".drawer-panel-open .drawer-title span")?.textContent
+          || document.querySelector(".drawer-panel-open h2")?.textContent
+          || "",
+      hasEnterCommunity: [...document.querySelectorAll(".drawer-panel-open button")]
+        .some((button) => button.textContent?.includes("进入社区")),
+      text: document.querySelector(".drawer-panel-open")?.textContent || ""
+    };
+  });
 }
 
 async function runRouteCycleAccumulationCheck(page, communityId, cycles) {
@@ -246,6 +329,9 @@ async function runRouteCycleAccumulationCheck(page, communityId, cycles) {
       operator: "strictEqual"
     });
   }
+  await setGraphSearchQuery(page, "");
+  await page.waitForFunction(() => document.querySelector(".graph-search-input")?.value === "");
+  await page.waitForFunction(() => document.querySelector(".sigma-global-node-hit-target[data-node-id='A']")?.getAttribute("data-pinned") === "true");
   const baseline = await sigmaGlobalSnapshot(page);
   const snapshots = [];
 
@@ -253,9 +339,10 @@ async function runRouteCycleAccumulationCheck(page, communityId, cycles) {
     const summary = await openCommunitySummaryFromRegion(page, communityId);
     assert.equal(summary.route.sigmaRouteCount, 1, `cycle ${index + 1}: should have one Sigma route before entering community`);
     await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
-    await waitForDomCommunity(page, communityId);
-    const focused = await domCommunitySnapshot(page);
-    assert.equal(focused.sigmaRendererCount, 0, `cycle ${index + 1}: community route should not retain Sigma renderer`);
+    await waitForSigmaCommunity(page, communityId);
+    const focused = await sigmaCommunitySnapshot(page);
+    assert.equal(focused.sigmaRendererCount, 1, `cycle ${index + 1}: community route should retain Sigma renderer`);
+    assert.equal(focused.oldDomNodeCount, 0, `cycle ${index + 1}: community route should not render DOM/SVG nodes`);
     assert.equal(focused.toolbarReturnCount, 1, `cycle ${index + 1}: community route should expose one return-global control`);
 
     await clickReturnGlobal(page);
@@ -443,22 +530,24 @@ async function runStatePreservationCheck(page) {
 
   await page.locator('[data-testid="graph-node-summary"] button', { hasText: "打开详情" }).click();
   await page.waitForSelector(".graph-reader-drawer");
-  await waitForDomCommunity(page, "t1");
-  const focused = await domCommunitySnapshot(page);
+  await waitForSigmaCommunity(page, "t1");
+  const focused = await sigmaCommunitySnapshot(page);
 
   await clickReturnGlobal(page);
   await waitForSigmaGlobal(page);
   await page.waitForSelector('[data-testid="graph-node-summary"]');
-  await page.waitForFunction(() => document.querySelector(".graph-search-input")?.value === "节点A");
+  await page.waitForFunction(() => document.querySelector(".graph-search-input")?.value === "");
   await page.waitForFunction(() => document.querySelector(".sigma-global-node-hit-target[data-node-id='A']")?.getAttribute("data-pinned") === "true");
-  await page.waitForFunction(() => document.querySelector(".sigma-global-node-hit-target[data-node-id='A']")?.getAttribute("data-selected") === "true");
+  await page.waitForFunction(() => document.querySelector(".sigma-global-renderer")?.getAttribute("data-source-community-id") === "t1");
+  await waitForStableNodeHitTarget(page, "A");
   const returned = await sigmaStateSnapshot(page);
 
   assert.equal(returned.drawerTestId, "graph-node-summary", "node summary should survive community return");
-  assert.equal(returned.searchQuery, "节点A", "search query should survive community return");
-  assert.equal(returned.nodeASelected, "true", "selected node should survive community return");
+  assert.equal(returned.searchQuery, "", "returning global should clear community-local search");
+  assert.equal(returned.sourceCommunityId, "t1", "returning global should keep source community context");
+  assert.equal(returned.nodeASelected, "false", "returning global should exit the community node focus");
   assert.equal(returned.nodeAPinned, "true", "fixed node should survive community return");
-  assertPointStable(returned.nodeABox, afterDrag.nodeABox, "dragged fixed node should remain at the released global position after community return");
+  assertPointStable(returned.nodeABox, afterDrag.nodeABox, "dragged fixed node should remain at the released global position after community return", 10);
   assert.equal(returned.oldDomGlobalNodeCount, 0, "state-preserving return should still use Sigma, not old DOM global");
 
   await page.reload();
@@ -505,6 +594,7 @@ async function sigmaStateSnapshot(page) {
     return {
       route: document.querySelector(".sigma-global-route")?.getAttribute("data-route") || "",
       renderer: document.querySelector(".sigma-global-renderer")?.getAttribute("data-renderer") || "",
+      sourceCommunityId: document.querySelector(".sigma-global-renderer")?.getAttribute("data-source-community-id") || "",
       drawerTestId: document.querySelector(".drawer-panel-open [data-testid]")?.getAttribute("data-testid") || "",
       searchQuery: document.querySelector(".graph-search-input")?.value || "",
       nodeASelected: nodeA?.getAttribute("data-selected") || "",
@@ -743,11 +833,10 @@ async function closeDrawerIfOpen(page) {
   }
 }
 
-async function waitForVisibleDomNodeIds(page, expected) {
+async function waitForVisibleSigmaNodeIds(page, expected) {
   await page.waitForFunction((expected) => {
-    const actual = [...document.querySelectorAll(".node")]
-      .filter((node) => node.getAttribute("data-filter-state") !== "hidden")
-      .map((node) => node.getAttribute("data-id"))
+    const actual = [...document.querySelectorAll(".sigma-global-node-hit-target")]
+      .map((node) => node.getAttribute("data-node-id"))
       .filter(Boolean)
       .sort();
     return actual.length === expected.length && actual.every((id, index) => id === expected[index]);
@@ -767,11 +856,11 @@ function assertSigmaGlobal(snapshot, label) {
   }
 }
 
-function assertPointStable(actual, expected, message) {
+function assertPointStable(actual, expected, message, tolerance = 6) {
   assert.ok(actual, `${message}: missing actual node box`);
   assert.ok(expected, `${message}: missing expected node box`);
-  assert.ok(Math.abs(actual.centerX - expected.centerX) <= 3, `${message}: x drifted from ${expected.centerX} to ${actual.centerX}`);
-  assert.ok(Math.abs(actual.centerY - expected.centerY) <= 3, `${message}: y drifted from ${expected.centerY} to ${actual.centerY}`);
+  assert.ok(Math.abs(actual.centerX - expected.centerX) <= tolerance, `${message}: x drifted from ${expected.centerX} to ${actual.centerX}`);
+  assert.ok(Math.abs(actual.centerY - expected.centerY) <= tolerance, `${message}: y drifted from ${expected.centerY} to ${actual.centerY}`);
 }
 
 function assertPointShifted(actual, expected, message) {

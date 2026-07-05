@@ -87,6 +87,10 @@ export interface SigmaGlobalEdgeStyle {
   size: number;
 }
 
+export interface SigmaGlobalEdgeStyleContext {
+  communityReadingConfidence?: boolean;
+}
+
 const SIGMA_COMMUNITY_READING_LABEL_MAX_WIDTH = 180;
 const SIGMA_COMMUNITY_READING_NARROW_LABEL_MAX_WIDTH = 128;
 
@@ -110,7 +114,13 @@ export function buildSigmaGlobalGraphologyGraph(
   }
 
   for (const edge of adapterData.edges) {
-    graph.addEdgeWithKey(edge.id, edge.sourceNodeId, edge.targetNodeId, sigmaGlobalEdgeAttributes(edge, theme, edgeStyle, selectedCommunityIds));
+    graph.addEdgeWithKey(edge.id, edge.sourceNodeId, edge.targetNodeId, sigmaGlobalEdgeAttributes(
+      edge,
+      theme,
+      edgeStyle,
+      selectedCommunityIds,
+      { communityReadingConfidence: adapterData.renderable.communityMap?.active === true }
+    ));
   }
 
   graph.setAttribute("counts", adapterData.counts);
@@ -261,9 +271,10 @@ export function sigmaGlobalEdgeAttributes(
   edge: GraphRendererAdapterEdge,
   theme: ThemeId = "shan-shui",
   style?: GraphEdgeStyleOptions,
-  selectedCommunityIds: ReadonlySet<string> = new Set()
+  selectedCommunityIds: ReadonlySet<string> = new Set(),
+  context: SigmaGlobalEdgeStyleContext = {}
 ): SigmaGlobalGraphologyEdgeAttributes {
-  const edgeStyle = sigmaGlobalEdgeStyle(edge, theme, style, selectedCommunityIds);
+  const edgeStyle = sigmaGlobalEdgeStyle(edge, theme, style, selectedCommunityIds, context);
   return {
     size: edgeStyle.size,
     color: edgeStyle.color,
@@ -281,7 +292,8 @@ export function sigmaGlobalEdgeStyle(
   edge: GraphRendererAdapterEdge,
   theme: ThemeId = "shan-shui",
   style?: GraphEdgeStyleOptions,
-  selectedCommunityIds: ReadonlySet<string> = new Set()
+  selectedCommunityIds: ReadonlySet<string> = new Set(),
+  context: SigmaGlobalEdgeStyleContext = {}
 ): SigmaGlobalEdgeStyle {
   const relationClass = edgeRelationClass(edge.relationType);
   const semantic = relationClass === "relation-contrast" || relationClass === "relation-conflict";
@@ -310,6 +322,20 @@ export function sigmaGlobalEdgeStyle(
     } else {
       alpha *= 0.05;
       size *= 0.55;
+    }
+  }
+
+  if (context.communityReadingConfidence) {
+    const confidence = String(edge.confidence || "EXTRACTED").toUpperCase();
+    if (confidence === "INFERRED") {
+      alpha *= 0.78;
+      size *= 0.88;
+    } else if (confidence === "AMBIGUOUS") {
+      alpha *= 0.62;
+      size *= 0.78;
+    } else if (confidence === "UNVERIFIED") {
+      alpha *= 0.5;
+      size *= 0.68;
     }
   }
 

@@ -23,7 +23,7 @@ import type {
 } from "../src";
 import { buildGraphRendererAdapterData } from "../src";
 import { getThemeTokens } from "../src/themes";
-import type { GraphData } from "../src/types";
+import type { GraphData, PinMap } from "../src/types";
 
 describe("Sigma global renderer production boundary", () => {
   it("records route ownership and graph-engine bundle boundary", () => {
@@ -91,6 +91,7 @@ describe("Sigma global renderer production boundary", () => {
 
   it("uses the clipping-aware node label renderer in Sigma settings", () => {
     assert.equal(sigmaSettingsForTheme("shan-shui").defaultDrawNodeLabel, drawSigmaReadingAwareNodeLabel);
+    assert.equal(sigmaSettingsForTheme("shan-shui").enableEdgeEvents, false);
   });
 
   it("builds a Graphology render graph entirely from adapter output", () => {
@@ -325,6 +326,42 @@ describe("Sigma global renderer production boundary", () => {
     }), "shan-shui");
 
     assert.deepEqual(inferred, extracted);
+  });
+
+  it("expresses confidence only in Sigma community reading edge styling", () => {
+    const extracted = sigmaGlobalEdgeStyle(sigmaEdgeFixture({
+      relationType: "依赖",
+      confidence: "EXTRACTED",
+      weight: 0.4
+    }), "shan-shui", undefined, new Set(), { communityReadingConfidence: true });
+    const inferred = sigmaGlobalEdgeStyle(sigmaEdgeFixture({
+      relationType: "依赖",
+      confidence: "INFERRED",
+      weight: 0.4
+    }), "shan-shui", undefined, new Set(), { communityReadingConfidence: true });
+    const ambiguous = sigmaGlobalEdgeStyle(sigmaEdgeFixture({
+      relationType: "依赖",
+      confidence: "AMBIGUOUS",
+      weight: 0.4
+    }), "shan-shui", undefined, new Set(), { communityReadingConfidence: true });
+
+    assert.equal(edgeStyleRgb(inferred.color), edgeStyleRgb(extracted.color));
+    assert.equal(edgeStyleRgb(ambiguous.color), edgeStyleRgb(extracted.color));
+    assert.ok(edgeStyleAlpha(inferred.color) < edgeStyleAlpha(extracted.color));
+    assert.ok(edgeStyleAlpha(ambiguous.color) < edgeStyleAlpha(inferred.color));
+    assert.ok(inferred.size < extracted.size);
+    assert.ok(ambiguous.size < inferred.size);
+  });
+
+  it("passes the community-reading confidence treatment into Graphology edge attributes", () => {
+    const globalData = adapterDataWithEdgeConfidence(adapterDataFixture(), "INFERRED");
+    const communityData = adapterDataWithEdgeConfidence(communityReadingAdapterDataFixture(), "INFERRED");
+    const globalGraph = buildSigmaGlobalGraphologyGraph(globalData, { GraphologyGraph });
+    const communityGraph = buildSigmaGlobalGraphologyGraph(communityData, { GraphologyGraph });
+
+    assert.equal(edgeStyleRgb(communityGraph.getEdgeAttribute("adapter-edge", "color")), edgeStyleRgb(globalGraph.getEdgeAttribute("adapter-edge", "color")));
+    assert.ok(edgeStyleAlpha(communityGraph.getEdgeAttribute("adapter-edge", "color")) < edgeStyleAlpha(globalGraph.getEdgeAttribute("adapter-edge", "color")));
+    assert.ok(communityGraph.getEdgeAttribute("adapter-edge", "size") < globalGraph.getEdgeAttribute("adapter-edge", "size"));
   });
 
   it("lets semantic emphasis thin neutral edges and lift semantic edges", () => {
@@ -1590,6 +1627,152 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("prefers the DOM overlay node under a stale root click target", async () => {
+    const runtime = fakeRuntime();
+    const hits: Array<{ target: unknown; additive: boolean }> = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target, context) => hits.push({ target, additive: Boolean(context?.additive) })
+    });
+    const betaTarget = renderer.overlayRoot.children.find(
+      (child) => child.className === "sigma-global-node-hit-target" && child.dataset.nodeId === "render-beta"
+    ) as (HTMLElement & { closest?: (selector: string) => unknown }) | undefined;
+    assert.ok(betaTarget);
+    betaTarget.closest = (selector: string) => selector === ".sigma-global-node-hit-target" ? betaTarget : null;
+    (renderer.root.ownerDocument as unknown as { elementsFromPoint: (x: number, y: number) => unknown[] }).elementsFromPoint = () => [betaTarget];
+
+    renderer.root.dispatchEvent({
+      type: "click",
+      clientX: 250,
+      clientY: 250,
+      shiftKey: true,
+      target: { closest: () => null }
+    } as unknown as MouseEvent);
+    await Promise.resolve();
+
+    assert.deepEqual(hits, [{ target: { kind: "node", id: "render-beta" }, additive: true }]);
+
+    renderer.destroy();
+  });
+
+  it("does not reopen a dragged node through the stale root click fallback", async () => {
+    const runtime = fakeRuntime();
+    const hits: unknown[] = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: communityReadingAdapterDataFixture(),
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target) => hits.push(target)
+    });
+    const alphaTarget = renderer.overlayRoot.children.find(
+      (child) => child.className === "sigma-global-node-hit-target" && child.dataset.nodeId === "render-alpha"
+    ) as (HTMLElement & { closest?: (selector: string) => unknown }) | undefined;
+    assert.ok(alphaTarget);
+    alphaTarget.closest = (selector: string) => selector === ".sigma-global-node-hit-target" ? alphaTarget : null;
+    (renderer.root.ownerDocument as unknown as { elementsFromPoint: (x: number, y: number) => unknown[] }).elementsFromPoint = () => [alphaTarget];
+
+    alphaTarget.dispatchEvent(fakePointerEvent("pointerdown", { pointerId: 7, clientX: 116, clientY: 228 }));
+    renderer.root.ownerDocument.dispatchEvent(fakePointerEvent("pointerup", { pointerId: 7, clientX: 116, clientY: 228 }));
+    renderer.root.dispatchEvent({
+      type: "click",
+      clientX: 116,
+      clientY: 228,
+      target: { closest: () => null }
+    } as unknown as MouseEvent);
+    await Promise.resolve();
+
+    assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    renderer.root.dispatchEvent({
+      type: "click",
+      clientX: 116,
+      clientY: 228,
+      target: { closest: () => null }
+    } as unknown as MouseEvent);
+    await Promise.resolve();
+
+    assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }, { kind: "node", id: "render-alpha" }]);
+
+    renderer.destroy();
+  });
+
+  it("routes Sigma community-reading edge hover and click events", () => {
+    const runtime = fakeRuntime();
+    const hits: Array<{ target: unknown; additive: boolean }> = [];
+    const edgeHovers: Array<string | null> = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: communityReadingAdapterDataFixture(),
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target, context) => hits.push({ target, additive: Boolean(context?.additive) }),
+      onEdgeHover: (edgeId) => edgeHovers.push(edgeId)
+    });
+    const sigma = runtime.instances[0];
+
+    sigma.emit("enterEdge", { edge: "adapter-edge" });
+    sigma.emit("clickEdge", { edge: "adapter-edge", event: { shiftKey: true } });
+    sigma.emit("leaveEdge", { edge: "adapter-edge" });
+    sigma.emit("clickEdge", { edge: "missing-edge" });
+
+    assert.deepEqual(edgeHovers, ["adapter-edge", null]);
+    assert.deepEqual(hits, [{ target: { kind: "edge", id: "adapter-edge" }, additive: true }]);
+    assert.equal(renderer.root.dataset.lastHitKind, "edge");
+    assert.equal(renderer.root.dataset.lastHitId, "adapter-edge");
+
+    renderer.destroy();
+  });
+
+  it("keeps Sigma edge events disabled outside community reading", () => {
+    const runtime = fakeRuntime();
+    const hits: Array<{ target: unknown; additive: boolean }> = [];
+    const edgeHovers: Array<string | null> = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target, context) => hits.push({ target, additive: Boolean(context?.additive) }),
+      onEdgeHover: (edgeId) => edgeHovers.push(edgeId)
+    });
+    const sigma = runtime.instances[0];
+
+    assert.equal(sigma.settings.enableEdgeEvents, false);
+
+    sigma.emit("enterEdge", { edge: "adapter-edge" });
+    sigma.emit("clickEdge", { edge: "adapter-edge", event: { shiftKey: true } });
+
+    assert.deepEqual(edgeHovers, []);
+    assert.deepEqual(hits, []);
+
+    renderer.update({ adapterData: communityReadingAdapterDataFixture() });
+
+    assert.equal(sigma.settings.enableEdgeEvents, true);
+
+    sigma.emit("enterEdge", { edge: "adapter-edge" });
+    sigma.emit("clickEdge", { edge: "adapter-edge", event: { shiftKey: true } });
+
+    assert.deepEqual(edgeHovers, ["adapter-edge"]);
+    assert.deepEqual(hits, [{ target: { kind: "edge", id: "adapter-edge" }, additive: true }]);
+
+    renderer.update({ adapterData: adapterDataFixture() });
+
+    assert.equal(sigma.settings.enableEdgeEvents, false);
+
+    sigma.emit("leaveEdge", { edge: "adapter-edge" });
+    sigma.emit("clickEdge", { edge: "adapter-edge" });
+
+    assert.deepEqual(edgeHovers, ["adapter-edge"]);
+    assert.deepEqual(hits, [{ target: { kind: "edge", id: "adapter-edge" }, additive: true }]);
+
+    renderer.destroy();
+  });
+
   it("passes Shift-click additive context from DOM node hit target clicks", () => {
     const hits: Array<{ target: unknown; additive: boolean }> = [];
     const dragChanges: boolean[] = [];
@@ -1637,7 +1820,7 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
-  it("routes an un-moved DOM node pointer gesture without waiting for a browser click", () => {
+  it("routes an un-moved DOM node pointer gesture without waiting for a browser click", async () => {
     const hits: unknown[] = [];
     const dragChanges: boolean[] = [];
     const renderer = createSigmaGlobalRenderer({
@@ -1661,6 +1844,87 @@ describe("Sigma global renderer production boundary", () => {
 
     alphaTarget.dispatchEvent(fakePointerEvent("click", { clientX: 116, clientY: 228 }) as unknown as MouseEvent);
     assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    alphaTarget.dispatchEvent(fakePointerEvent("click", { clientX: 116, clientY: 228 }) as unknown as MouseEvent);
+    assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }, { kind: "node", id: "render-alpha" }]);
+
+    renderer.destroy();
+  });
+
+  it("treats a touch tap on a community node as a predictable node read hit", () => {
+    const hits: unknown[] = [];
+    const dragChanges: boolean[] = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: communityReadingAdapterDataFixture(),
+      theme: "shan-shui",
+      runtime: fakeRuntime(),
+      onHitTarget: (target) => hits.push(target),
+      onDragActiveChange: (dragging) => dragChanges.push(dragging)
+    });
+    const alphaTarget = renderer.overlayRoot.children.find(
+      (child) => child.className === "sigma-global-node-hit-target" && child.dataset.nodeId === "render-alpha"
+    );
+    assert.ok(alphaTarget);
+
+    alphaTarget.dispatchEvent(fakePointerEvent("pointerdown", {
+      pointerId: 11,
+      pointerType: "touch",
+      clientX: 116,
+      clientY: 228
+    }));
+    renderer.root.ownerDocument.dispatchEvent(fakePointerEvent("pointerup", {
+      pointerId: 11,
+      pointerType: "touch",
+      clientX: 116,
+      clientY: 228
+    }));
+
+    assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }]);
+    assert.deepEqual(dragChanges, [true, false]);
+
+    renderer.destroy();
+  });
+
+  it("keeps slight touch movement as a community node tap instead of pinning the node", () => {
+    const hits: unknown[] = [];
+    const pinUpdates: PinMap[] = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: communityReadingAdapterDataFixture(),
+      theme: "shan-shui",
+      runtime: fakeRuntime(),
+      onHitTarget: (target) => hits.push(target),
+      onPinsChanged: (pins) => pinUpdates.push(pins)
+    });
+    const alphaTarget = renderer.overlayRoot.children.find(
+      (child) => child.className === "sigma-global-node-hit-target" && child.dataset.nodeId === "render-alpha"
+    );
+    assert.ok(alphaTarget);
+
+    alphaTarget.dispatchEvent(fakePointerEvent("pointerdown", {
+      pointerId: 12,
+      pointerType: "touch",
+      clientX: 116,
+      clientY: 228
+    }));
+    renderer.root.ownerDocument.dispatchEvent(fakePointerEvent("pointermove", {
+      pointerId: 12,
+      pointerType: "touch",
+      clientX: 119,
+      clientY: 228
+    }));
+    renderer.root.ownerDocument.dispatchEvent(fakePointerEvent("pointerup", {
+      pointerId: 12,
+      pointerType: "touch",
+      clientX: 119,
+      clientY: 228
+    }));
+
+    assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }]);
+    assert.deepEqual(pinUpdates, []);
+    assert.equal(renderer.graph.getNodeAttribute("render-alpha", "pinned"), false);
 
     renderer.destroy();
   });
@@ -3106,6 +3370,20 @@ function sigmaEdgeFixture(
 function edgeStyleAlpha(color: string): number {
   const match = color.match(/,\s*([0-9.]+)\)$/);
   return match ? Number(match[1]) : Number.NaN;
+}
+
+function edgeStyleRgb(color: string): string {
+  return color.replace(/,\s*[0-9.]+\)$/, ")");
+}
+
+function adapterDataWithEdgeConfidence(
+  data: GraphRendererAdapterData,
+  confidence: GraphRendererAdapterData["edges"][number]["confidence"]
+): GraphRendererAdapterData {
+  return {
+    ...data,
+    edges: data.edges.map((edge) => ({ ...edge, confidence }))
+  };
 }
 
 function adapterDataWithPolygonCommunityCloud(): GraphRendererAdapterData {
