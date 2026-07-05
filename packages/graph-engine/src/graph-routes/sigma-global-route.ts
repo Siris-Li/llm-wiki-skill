@@ -58,6 +58,35 @@ export function selectionInputForSigmaHit(
   return null;
 }
 
+export type SigmaGlobalHitAction =
+  | { kind: "select"; selection: SelectionInput }
+  | { kind: "clear"; resetCamera: boolean }
+  | { kind: "none" };
+
+export function sigmaGlobalHitActionForSigmaHit(
+  data: GraphData,
+  current: SelectionInput | null | undefined,
+  target: GraphGestureTarget,
+  context: SigmaGlobalHitContext,
+  sourceCommunityId: string | null | undefined
+): SigmaGlobalHitAction {
+  if (target.kind === "node" && target.id && sourceCommunityId) {
+    return { kind: "select", selection: { kind: "node", id: target.id } };
+  }
+  const nextSelection = selectionInputForSigmaHit(data, current, target, context);
+  if (nextSelection) return { kind: "select", selection: nextSelection };
+  if (target.kind === "graph-blank") {
+    if (current?.kind === "node" && sourceCommunityId && nodeBelongsToCommunity(data, current.id, sourceCommunityId)) {
+      return { kind: "select", selection: { kind: "community", id: sourceCommunityId } };
+    }
+    return { kind: "clear", resetCamera: current?.kind === "community" || sourceCommunityId != null };
+  }
+  if (target.kind === "node" || target.kind === "community-wash" || target.kind === "aggregation-container") {
+    return { kind: "clear", resetCamera: false };
+  }
+  return { kind: "none" };
+}
+
 export type SigmaCommunityReadingHitAction =
   | { kind: "select"; selection: SelectionInput; relationFocusNodeId: NodeId }
   | { kind: "open-node"; nodeId: NodeId; selection: SelectionInput }
@@ -337,28 +366,16 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       }
       return;
     }
-    const nextSelection = selectionInputForSigmaHit(options.data, options.selection, target, context);
-    if (nextSelection) {
-      selectOnSigma(nextSelection);
+    const action = sigmaGlobalHitActionForSigmaHit(options.data, options.selection, target, context, options.sourceCommunityId);
+    if (action.kind === "select") {
+      selectOnSigma(action.selection);
       return;
     }
-    switch (target.kind) {
-      case "node":
-      case "community-wash":
-      case "aggregation-container":
-        options = { ...options, sourceCommunityId: null };
-        input.options.callbacks.onSelectionClearRequested?.();
-        updateSigmaSelection(null);
-        break;
-      case "edge":
-        break;
-      case "graph-blank":
-        const shouldResetCamera = options.selection?.kind === "community" || options.sourceCommunityId != null;
-        options = { ...options, temporaryObject: null, sourceCommunityId: null };
-        input.options.callbacks.onSelectionClearRequested?.();
-        updateSigmaSelection(null);
-        if (shouldResetCamera) renderer?.resetView();
-        break;
+    if (action.kind === "clear") {
+      options = { ...options, temporaryObject: null, sourceCommunityId: null };
+      input.options.callbacks.onSelectionClearRequested?.();
+      updateSigmaSelection(null);
+      if (action.resetCamera) renderer?.resetView();
     }
   }
 
@@ -805,6 +822,10 @@ function communityReadingSelectionInputForAdditiveNodeHit(
   const selection = toggleNodeInSelection(data, current, nodeId);
   if (!selection) return null;
   return selection.kind === "node" ? { kind: "nodes", ids: [selection.id] } : selection;
+}
+
+function nodeBelongsToCommunity(data: GraphData, nodeId: NodeId, communityId: string): boolean {
+  return data.nodes.some((node) => node.id === nodeId && node.community === communityId);
 }
 
 function measuredViewportSize(element: HTMLElement): RendererViewportSize | undefined {

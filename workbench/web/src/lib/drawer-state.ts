@@ -47,6 +47,7 @@ export type DrawerState =
 		| {
 			mode: "graph-node-summary";
 			payload: GraphNodeSummaryPayload;
+			returnCommunityId: string | null;
 		}
 		| {
 			mode: "graph-community-summary";
@@ -134,8 +135,11 @@ export function graphSelectionDrawer(selection: Selection, title: string, freeTe
 	};
 }
 
-export function graphNodeSummaryDrawer(payload: GraphNodeSummaryPayload): DrawerState {
-	return { mode: "graph-node-summary", payload };
+export function graphNodeSummaryDrawer(
+	payload: GraphNodeSummaryPayload,
+	options: { returnCommunityId?: string | null } = {},
+): DrawerState {
+	return { mode: "graph-node-summary", payload, returnCommunityId: options.returnCommunityId ?? null };
 }
 
 export function graphCommunitySummaryDrawer(payload: GraphCommunitySummaryPayload, freeText = ""): DrawerState {

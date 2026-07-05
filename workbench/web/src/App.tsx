@@ -573,6 +573,7 @@ function App() {
 			if (clearCommand) {
 				setSelectionCommand(clearCommand);
 				setGraphFocusPath(null);
+				if (clearCommand.type === "select-community-summary") return current;
 			}
 			return closedDrawer();
 		});
@@ -638,10 +639,12 @@ function App() {
 	}, [active, graphVisibilityState]);
 
 	const handleGraphSummaryCommand = useCallback((command: GraphSummaryCommand) => {
-		if (command.kind === "open-detail-read") {
+		if (command.kind === "open-detail-read" || command.kind === "enter-node-community") {
 			const payload = graphOpenPagePayloadForCommand(graphData, command);
-			const focusCommand = graphSelectionCommandForOpenDetail(graphData, command);
-			if (focusCommand) {
+			const focusCommand = command.kind === "open-detail-read"
+				? graphSelectionCommandForOpenDetail(graphData, command)
+				: graphSelectionCommandForSummaryCommand(command);
+			if (focusCommand?.type === "enter-community-node") {
 				setSelectionCommand({
 					commandId: `open-detail-${command.nodeId}-${Math.random().toString(36).slice(2, 10)}`,
 					id: focusCommand.id,
@@ -649,7 +652,7 @@ function App() {
 					type: "enter-community-node",
 				});
 			}
-			if (payload) void handleOpenGraphPage(payload, { syncGraphFocus: !focusCommand });
+			if (payload) void handleOpenGraphPage(payload, { syncGraphFocus: focusCommand?.type !== "enter-community-node" });
 			return;
 		}
 		if (command.kind === "enter-community") {
@@ -736,6 +739,13 @@ function App() {
 	const handleGraphSummaryNodeSelect = useCallback((nodeId: string) => {
 		setDrawer((current) => drawerForGraphSummaryNode(graphData, nodeId, current, { pins: graphPins }));
 	}, [graphData, graphPins]);
+
+	const handleGraphSummaryReturnCommunity = useCallback((communityId: string) => {
+		setSelectionCommand({
+			id: communityId,
+			type: "select-community-summary",
+		});
+	}, []);
 
 	const handleGraphSummaryNodePreview = useCallback((nodeId: string | null) => {
 		setSelectionCommand({
@@ -1065,6 +1075,7 @@ function App() {
 						onGraphSummaryCommand={handleGraphSummaryCommand}
 						onGraphSummaryNodeSelect={handleGraphSummaryNodeSelect}
 						onGraphSummaryNodePreview={handleGraphSummaryNodePreview}
+						onGraphSummaryReturnCommunity={handleGraphSummaryReturnCommunity}
 						onGraphSelectionTextChange={handleGraphSelectionTextChange}
 						onGraphSelectionAsk={handleGraphSelectionAsk}
 						onGraphCommunityTextChange={handleGraphCommunityTextChange}

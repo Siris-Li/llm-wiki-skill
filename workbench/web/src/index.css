@@ -3002,6 +3002,32 @@
     line-height: 1.25;
   }
 
+  .graph-summary-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .graph-summary-return {
+    flex: 0 0 auto;
+    min-height: 30px;
+    padding: 5px 10px;
+    border: 1px solid color-mix(in srgb, var(--app-accent) 28%, var(--app-border));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--app-surface) 84%, transparent);
+    color: var(--app-accent-deep);
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .graph-summary-return:hover,
+  .graph-summary-return:focus-visible {
+    border-color: color-mix(in srgb, var(--app-accent) 58%, var(--app-border));
+    background: var(--app-accent-soft);
+  }
+
   .graph-summary-facts {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

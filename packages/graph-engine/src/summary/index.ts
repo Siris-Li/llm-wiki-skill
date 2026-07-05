@@ -396,11 +396,13 @@ function nodeSummaryCommands(node: GraphNode, pinHint: GraphPinHint): GraphSumma
       label: pinHint.pinned ? "取消固定位置" : "固定位置"
     }
   ];
-  if (node.community) {
+  if (node.community && node.community !== UNGROUPED_COMMUNITY_ID) {
     commands.push({
-      kind: "enter-community",
+      kind: "enter-node-community",
       communityId: node.community,
-      label: "进入社区"
+      nodeId: node.id,
+      path: wikiPathForGraphNode(node),
+      label: "进入所属社区"
     });
   }
   return commands;

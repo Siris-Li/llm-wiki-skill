@@ -77,6 +77,7 @@ describe("drawer state", () => {
 		assert.deepEqual(graphNodeSummaryDrawer(node), {
 			mode: "graph-node-summary",
 			payload: node,
+			returnCommunityId: null,
 		});
 		assert.deepEqual(graphCommunitySummaryDrawer(community), {
 			mode: "graph-community-summary",

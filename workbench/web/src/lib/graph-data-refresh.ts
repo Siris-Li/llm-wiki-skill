@@ -22,6 +22,7 @@ export function sameGraphDrawerTarget(left: DrawerState, right: DrawerState): bo
 	if (left.mode !== right.mode) return false;
 	if (left.mode === "graph-node-summary" && right.mode === "graph-node-summary") {
 		return left.payload.nodeId === right.payload.nodeId
+			&& left.returnCommunityId === right.returnCommunityId
 			&& graphSummaryCommandSignature(left.payload.commands) === graphSummaryCommandSignature(right.payload.commands);
 	}
 	if (left.mode === "graph-excluded-object" && right.mode === "graph-excluded-object") {
@@ -193,6 +194,7 @@ function graphSummaryCommandSignature(commands: readonly GraphSummaryCommand[]):
 		if (command.kind === "open-detail-read") return `${command.kind}:${command.nodeId}`;
 		if (command.kind === "select-neighbors") return `${command.kind}:${command.nodeId}`;
 		if (command.kind === "enter-community") return `${command.kind}:${command.communityId}`;
+		if (command.kind === "enter-node-community") return `${command.kind}:${command.communityId}:${command.nodeId}`;
 		if (command.kind === "show-this-object") return `${command.kind}:${JSON.stringify(command.object)}`;
 		return command.kind;
 	}).join(",");

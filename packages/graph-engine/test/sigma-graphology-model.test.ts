@@ -100,6 +100,17 @@ describe("Sigma graphology render model", () => {
     assert.equal(graph.getNodeAttribute("beta-pinned", "communityDimmed"), false);
   });
 
+  it("keeps a selected node on its community color while source community spotlight stays active", () => {
+    const adapterData = spotlightAdapterData();
+    const graph = buildSigmaGlobalGraphologyGraph(adapterData, { GraphologyGraph });
+    const alpha = adapterData.nodes.find((node) => node.id === "alpha");
+    assert.ok(alpha);
+
+    assert.equal(graph.getNodeAttribute("alpha", "selected"), true);
+    assert.equal(graph.getNodeAttribute("alpha", "communityDimmed"), false);
+    assert.equal(graph.getNodeAttribute("alpha", "color"), sigmaGlobalNodeColor(alpha, communityColorMap(adapterData), "shan-shui"));
+  });
+
   it("builds Sigma community reading from only the focused community while preserving color and positions", () => {
     const pins = {
       "wiki/alpha.md": { x: 111, y: 222, coordinateSpace: "world" as const }

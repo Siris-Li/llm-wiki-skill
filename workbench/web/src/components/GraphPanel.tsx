@@ -527,6 +527,10 @@ export function GraphPanel({
 			engineRef.current?.focusCommunity(selectionCommand.id);
 			if (selected) onSelectionChangeRef.current?.(selected);
 		}
+		if (selectionCommand.type === "select-community-summary") {
+			const selected = engineRef.current?.select({ kind: "community", id: selectionCommand.id });
+			if (selected) onSelectionChangeRef.current?.(selected);
+		}
 		if (selectionCommand.type === "preview-node") {
 			engineRef.current?.previewNode(selectionCommand.nodeId);
 		}
