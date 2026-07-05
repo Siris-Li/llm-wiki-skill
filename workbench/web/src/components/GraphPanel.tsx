@@ -103,7 +103,11 @@ export function GraphPanel({
 	const lastSelectionCommandRef = useRef<GraphSelectionCommand | undefined>(selectionCommand);
 	const [data, setData] = useState<GraphData | null>(null);
 	const [edgeStyle, setEdgeStyle] = useState<GraphEdgeStyleOptions>(() => readGraphEdgeStylePreference());
-	const edgeStyleRef = useRef<GraphEdgeStyleOptions>(edgeStyle);
+	const [communityEdgeStyle, setCommunityEdgeStyle] = useState<GraphEdgeStyleOptions>({ ...DEFAULT_GRAPH_EDGE_STYLE });
+	const [communityFocusId, setCommunityFocusId] = useState<string | null>(null);
+	const communityFocusIdRef = useRef<string | null>(null);
+	const activeEdgeStyle = communityFocusId ? communityEdgeStyle : edgeStyle;
+	const activeEdgeStyleRef = useRef<GraphEdgeStyleOptions>(activeEdgeStyle);
 	const edgeTuningRef = useRef<HTMLDivElement | null>(null);
 	const edgeTuningButtonRef = useRef<HTMLButtonElement | null>(null);
 	const edgeTuningFirstToggleRef = useRef<HTMLInputElement | null>(null);
@@ -130,6 +134,9 @@ export function GraphPanel({
 		activeKbPathRef.current = currentKnowledgeBasePath;
 		layoutPinsRef.current = {};
 		lastDragStateRef.current = false;
+		communityFocusIdRef.current = null;
+		setCommunityFocusId(null);
+		setCommunityEdgeStyle({ ...DEFAULT_GRAPH_EDGE_STYLE });
 		setData(null);
 		setDataKnowledgeBasePath(currentKnowledgeBasePath);
 	}, [currentKnowledgeBasePath]);
@@ -153,10 +160,13 @@ export function GraphPanel({
 	}, [currentKnowledgeBasePath, graphBuildError]);
 
 	useEffect(() => {
-		edgeStyleRef.current = edgeStyle;
 		writeGraphEdgeStylePreference(edgeStyle);
-		engineRef.current?.setEdgeStyle(edgeStyle);
 	}, [edgeStyle]);
+
+	useEffect(() => {
+		activeEdgeStyleRef.current = activeEdgeStyle;
+		engineRef.current?.setEdgeStyle(activeEdgeStyle);
+	}, [activeEdgeStyle]);
 
 	useEffect(() => {
 		if (!edgeTuningOpen) return;
@@ -183,6 +193,28 @@ export function GraphPanel({
 	useEffect(() => {
 		if (!edgeTuningAvailable) setEdgeTuningOpen(false);
 	}, [edgeTuningAvailable]);
+
+	const clearCommunityEdgeScope = useCallback((): void => {
+		communityFocusIdRef.current = null;
+		setCommunityFocusId(null);
+		setCommunityEdgeStyle({ ...DEFAULT_GRAPH_EDGE_STYLE });
+	}, []);
+
+	const enterCommunityEdgeScope = useCallback((communityId: string): void => {
+		if (communityFocusIdRef.current !== communityId) {
+			setCommunityEdgeStyle({ ...DEFAULT_GRAPH_EDGE_STYLE });
+		}
+		communityFocusIdRef.current = communityId;
+		setCommunityFocusId(communityId);
+	}, []);
+
+	const updateActiveEdgeStyle = useCallback((patch: Partial<GraphEdgeStyleOptions>): void => {
+		if (communityFocusIdRef.current) {
+			setCommunityEdgeStyle((current) => ({ ...current, ...patch }));
+			return;
+		}
+		setEdgeStyle((current) => ({ ...current, ...patch }));
+	}, []);
 
 	useLayoutEffect(() => {
 		graphThemeRef.current = graphTheme;
@@ -427,13 +459,16 @@ export function GraphPanel({
 			data,
 			pins: layoutPinsRef.current,
 			theme: graphThemeRef.current,
-			edgeStyle: edgeStyleRef.current,
+			edgeStyle: activeEdgeStyleRef.current,
 			aggregationMarkers,
 			capabilities: createGraphWorkbenchCapabilities({
 				onOpenPage: (payload) => onOpenPageRef.current?.(payload),
 				onSelectionChange: (nextSelection) => onSelectionChangeRef.current?.(nextSelection),
 				onSelectionClear: () => onSelectionChangeRef.current?.(null),
-				onViewReset: () => onViewResetRef.current?.(),
+				onViewReset: () => {
+					clearCommunityEdgeScope();
+					onViewResetRef.current?.();
+				},
 				onAsk: (nextSelection) => onSelectionChangeRef.current?.(nextSelection),
 				persistPins,
 				onDragStateChange: (dragging) => {
@@ -443,13 +478,20 @@ export function GraphPanel({
 						void playDiff(decision.diff);
 					}
 				},
-				onVisibilityStateChange: (state) => onGraphVisibilityChangeRef.current?.(state),
+				onVisibilityStateChange: (state) => {
+					if ("focusCommunityId" in state) {
+						const nextCommunityFocusId = state.focusCommunityId ?? null;
+						if (nextCommunityFocusId) enterCommunityEdgeScope(nextCommunityFocusId);
+						else clearCommunityEdgeScope();
+					}
+					onGraphVisibilityChangeRef.current?.(state);
+				},
 			}).capabilities,
 		});
 		engineRef.current = engine;
 		engineKbPathRef.current = currentKnowledgeBasePath;
 		engineDataRef.current = data;
-	}, [aggregationMarkers, currentKnowledgeBasePath, data, dataKnowledgeBasePath, persistPins, playDiff, selectionCommand]);
+	}, [aggregationMarkers, clearCommunityEdgeScope, currentKnowledgeBasePath, data, dataKnowledgeBasePath, enterCommunityEdgeScope, persistPins, playDiff, selectionCommand]);
 
 	useEffect(() => {
 		engineRef.current?.setTheme(graphTheme);
@@ -472,10 +514,12 @@ export function GraphPanel({
 			if (selected) onSelectionChangeRef.current?.(selected);
 		}
 		if (selectionCommand.type === "enter-community") {
+			enterCommunityEdgeScope(selectionCommand.id);
 			const selected = engineRef.current ? applyCommunityEnter(engineRef.current, selectionCommand.id) : null;
 			onSelectionChangeRef.current?.(selected);
 		}
 		if (selectionCommand.type === "enter-community-node") {
+			enterCommunityEdgeScope(selectionCommand.id);
 			const selected = engineRef.current?.select({ kind: "node", id: selectionCommand.nodeId });
 			engineRef.current?.focusCommunity(selectionCommand.id);
 			if (selected) onSelectionChangeRef.current?.(selected);
@@ -492,7 +536,7 @@ export function GraphPanel({
 		if (selectionCommand.type === "clear-temporary-object-display") {
 			engineRef.current?.clearTemporaryObjectDisplay();
 		}
-	}, [selectionCommand, status]);
+	}, [enterCommunityEdgeScope, selectionCommand, status]);
 
 	useEffect(() => {
 		if (
@@ -616,13 +660,10 @@ export function GraphPanel({
 										<input
 											type="checkbox"
 											ref={edgeTuningFirstToggleRef}
-											checked={edgeStyle.semanticEmphasis}
+											checked={activeEdgeStyle.semanticEmphasis}
 											onChange={(event) => {
 												const checked = event.currentTarget.checked;
-												setEdgeStyle((current) => ({
-													...current,
-													semanticEmphasis: checked,
-												}));
+												updateActiveEdgeStyle({ semanticEmphasis: checked });
 											}}
 										/>
 										<span>语义强调</span>
@@ -630,13 +671,10 @@ export function GraphPanel({
 									<label className="graph-edge-tuning-toggle">
 										<input
 											type="checkbox"
-											checked={edgeStyle.focusHighlight}
+											checked={activeEdgeStyle.focusHighlight}
 											onChange={(event) => {
 												const checked = event.currentTarget.checked;
-												setEdgeStyle((current) => ({
-													...current,
-													focusHighlight: checked,
-												}));
+												updateActiveEdgeStyle({ focusHighlight: checked });
 											}}
 										/>
 										<span>聚焦点亮</span>
@@ -725,6 +763,13 @@ function readGraphEdgeStylePreference(): GraphEdgeStyleOptions {
 
 function writeGraphEdgeStylePreference(style: GraphEdgeStyleOptions): void {
 	try {
+		if (
+			style.semanticEmphasis === DEFAULT_GRAPH_EDGE_STYLE.semanticEmphasis
+			&& style.focusHighlight === DEFAULT_GRAPH_EDGE_STYLE.focusHighlight
+		) {
+			localStorage.removeItem(GRAPH_EDGE_STYLE_STORAGE_KEY);
+			return;
+		}
 		localStorage.setItem(GRAPH_EDGE_STYLE_STORAGE_KEY, JSON.stringify(style));
 	} catch {
 		// localStorage can be unavailable in restricted browser contexts.

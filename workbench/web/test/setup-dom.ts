@@ -48,6 +48,21 @@ Object.defineProperty(globalThis, "ResizeObserver", {
 	value: TestResizeObserver,
 });
 
+Object.defineProperties(window.HTMLElement.prototype, {
+	hasPointerCapture: {
+		configurable: true,
+		value: () => false,
+	},
+	releasePointerCapture: {
+		configurable: true,
+		value: () => undefined,
+	},
+	setPointerCapture: {
+		configurable: true,
+		value: () => undefined,
+	},
+});
+
 const { cleanup } = await import("@testing-library/react");
 
 beforeEach(() => {

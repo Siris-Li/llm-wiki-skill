@@ -314,13 +314,29 @@ export function createGraphFacadeRouteManager(
       state.data = data;
       if (pins) state.pins = pins;
       let clearedSourceCommunity = false;
+      let clearedFocusedCommunity = false;
+      let clearedTemporaryObject = false;
       // Drop a stale source highlight when refreshed data no longer contains it.
       if (state.sourceCommunityId && !dataHasCommunity(state.data, state.sourceCommunityId)) {
         state.sourceCommunityId = null;
         clearedSourceCommunity = true;
       }
+      if (state.focus?.kind === "community" && !dataHasCommunity(state.data, state.focus.id)) {
+        state.focus = null;
+        state.selection = null;
+        state.searchQuery = "";
+        state.searchResultIds = [];
+        state.temporaryObject = null;
+        clearedFocusedCommunity = true;
+      } else if (state.temporaryObject && !dataHasSummaryObject(state.data, state.temporaryObject)) {
+        state.temporaryObject = null;
+        clearedTemporaryObject = true;
+      }
       if (clearedSourceCommunity) {
         currentRenderer().setSourceCommunityContext?.(null);
+      }
+      if (clearedTemporaryObject) {
+        currentRenderer().clearTemporaryObjectDisplay();
       }
       clearStaleCommunityReadingSelectionForData(data);
       if (graphExceedsGlobalNodeLimit(state.data)) {
@@ -342,6 +358,10 @@ export function createGraphFacadeRouteManager(
           switchToFallbackRoute();
         }
         return;
+      }
+      if (clearedFocusedCommunity) {
+        switchToGlobalRoute();
+        if (routeId === "sigma-global") currentRenderer().resetView();
       }
       currentRenderer().setData(data, pins);
     },
@@ -741,6 +761,16 @@ export function graphExceedsGlobalNodeLimit(data: GraphData): boolean {
 function dataHasCommunity(data: GraphData, communityId: string): boolean {
   if (data.nodes.some((node) => node.community === communityId)) return true;
   return (data.learning?.communities ?? []).some((community) => community.id === communityId);
+}
+
+function dataHasSummaryObject(data: GraphData, object: GraphSummaryObjectRef): boolean {
+  if (object.kind === "node") return data.nodes.some((node) => node.id === object.nodeId);
+  if (object.kind === "community") return dataHasCommunity(data, object.communityId);
+  if (object.kind === "aggregation") {
+    const nodeIds = new Set(data.nodes.map((node) => node.id));
+    return object.nodeIds.some((nodeId) => nodeIds.has(nodeId));
+  }
+  return false;
 }
 
 function clearFacadeInteractionState(state: GraphFacadeState): { preservedCommunityFocus: boolean; clearedSourceCommunity: boolean } {

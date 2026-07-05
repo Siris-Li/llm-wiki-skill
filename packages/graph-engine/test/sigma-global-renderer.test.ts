@@ -1735,6 +1735,62 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("drags a Sigma community reading node without losing reading interactions", () => {
+    const runtime = fakeRuntime();
+    const pins: unknown[] = [];
+    const hovers: unknown[] = [];
+    const hits: unknown[] = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: communityReadingAdapterDataFixture({
+        selectedNodeId: "render-alpha",
+        searchResultIds: ["render-alpha"],
+        betaPinned: true
+      }),
+      theme: "shan-shui",
+      runtime,
+      pins: {
+        "adapter/beta.md": { x: 333, y: 444, coordinateSpace: "world" }
+      },
+      onPinsChanged: (nextPins) => pins.push(nextPins),
+      onNodeHover: (nodeId) => hovers.push(nodeId),
+      onHitTarget: (target) => hits.push(target)
+    });
+    const sigma = runtime.instances[0];
+
+    assert.equal(renderer.root.dataset.communityFocusId, "adapter-community");
+
+    sigma.emit("downNode", sigmaEventPayload("render-alpha", 116, 228));
+    sigma.emit("moveBody", sigmaEventPayload(null, 156, 268));
+    sigma.emit("upStage", sigmaEventPayload(null, 176, 288));
+
+    assert.deepEqual(pins, [
+      {
+        "adapter/beta.md": { x: 333, y: 444, coordinateSpace: "world" },
+        "adapter/alpha.md": {
+          x: 171,
+          y: 282,
+          coordinateSpace: "world"
+        }
+      }
+    ]);
+    assert.equal(renderer.graph.getNodeAttribute("render-alpha", "x"), 171);
+    assert.equal(renderer.graph.getNodeAttribute("render-alpha", "y"), 282);
+    assert.equal(renderer.graph.getNodeAttribute("render-alpha", "selected"), true);
+    assert.equal(renderer.graph.getNodeAttribute("render-alpha", "searchHit"), true);
+    assert.equal(renderer.graph.getNodeAttribute("render-alpha", "relationFocusDepth"), "first");
+    assert.equal(renderer.overlayRoot.children.find((child) => child.dataset.nodeId === "render-alpha")?.dataset.pinned, "true");
+
+    sigma.emit("enterNode", sigmaEventPayload("render-alpha", 171, 282));
+    assert.equal(hovers.at(-1), "render-alpha");
+
+    sigma.emit("clickNode", sigmaEventPayload("render-alpha", 171, 282));
+    sigma.emit("clickNode", sigmaEventPayload("render-alpha", 171, 282));
+    assert.deepEqual(hits, [{ kind: "node", id: "render-alpha" }]);
+
+    renderer.destroy();
+  });
+
   it("keeps selected search and pinned metadata intact while dragging a Sigma global node", () => {
     const runtime = fakeRuntime();
     const renderer = createSigmaGlobalRenderer({
@@ -2289,6 +2345,78 @@ function adapterDataFixture(options: {
         stableCoreNodeIds: ["render-alpha"],
         stableSkeletonEdgeIds: ["adapter-edge"],
         temporaryBoostNodeIds: []
+      }
+    }
+  };
+}
+
+function communityReadingAdapterDataFixture(options: {
+  selectedNodeId?: string;
+  searchResultIds?: string[];
+  alphaPinned?: boolean;
+  betaPinned?: boolean;
+} = {}): GraphRendererAdapterData {
+  const data = adapterDataFixture(options);
+  const focusedCommunityId = "adapter-community";
+  const nodes = data.nodes.map((node) => (
+    node.id === "render-alpha"
+      ? { ...node, relationFocusDepth: "first" as const }
+      : node
+  ));
+  const edges = data.edges.map((edge) => ({
+    ...edge,
+    render: {
+      ...edge.render,
+      relationFocusDepth: "first" as const
+    }
+  }));
+  const current = {
+    communityId: focusedCommunityId,
+    source: "focus" as const,
+    nodeRulesById: Object.fromEntries(nodes.map((node) => [
+      node.id,
+      {
+        nodeId: node.id,
+        tier: node.render.communityMapTier,
+        basePoint: node.point,
+        labelVisible: node.render.labelVisible,
+        labelSide: node.render.communityMapLabelSide,
+        relationLabel: node.render.communityMapRelationLabel,
+        importance: node.render.communityMapImportance,
+        dotSize: node.render.communityMapDotSize
+      }
+    ])),
+    edgeRulesById: Object.fromEntries(edges.map((edge) => [
+      edge.id,
+      {
+        edgeId: edge.id,
+        layer: edge.render.communityMapLayer,
+        skeleton: edge.render.skeleton,
+        traceable: edge.render.traceable
+      }
+    ])),
+    layout: {
+      coordinateSpace: "world" as const,
+      bounds: { minX: 111, minY: 222, maxX: 333, maxY: 444, width: 222, height: 222 },
+      viewportAspectRatio: null
+    },
+    labelBudget: { limit: 1, visible: 1, hidden: 1 },
+    edgeLayers: { skeleton: 1, related: 0, background: 0 }
+  };
+  return {
+    ...data,
+    sourceCommunityId: focusedCommunityId,
+    nodes,
+    edges,
+    renderable: {
+      ...data.renderable,
+      communityMap: {
+        active: true,
+        sourceCommunityId: focusedCommunityId,
+        motionMode: "frozen",
+        maxNodeDriftRatio: 0,
+        current,
+        rulesByCommunityId: { [focusedCommunityId]: current }
       }
     }
   };

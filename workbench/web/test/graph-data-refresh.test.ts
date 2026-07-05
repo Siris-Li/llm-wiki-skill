@@ -61,6 +61,57 @@ describe("graph data refresh drawer state", () => {
 		assert.deepEqual(missing, { mode: "closed" });
 		assert.deepEqual(moved, { mode: "closed" });
 	});
+
+	it("turns a stale community drawer into an unavailable message after refresh", () => {
+		const current = {
+			mode: "graph-community-summary" as const,
+			payload: {
+				communityId: "c1",
+				label: "Community 1",
+				nodeCount: 1,
+				description: "Old summary",
+				facts: { pageCount: 1, internalLinkCount: 0, communityCount: 1, isolatedCount: 1 },
+				structureState: "loose" as const,
+				canEnterCommunity: true,
+				coreNodeIds: ["a"],
+				coreNodes: [],
+				searchResultIds: [],
+				pinHints: [],
+				selection: {
+					input: { kind: "community" as const, id: "c1" },
+					selectionId: "community:c1",
+					selectedNodeIds: ["a"],
+					selectedCommunityIds: ["c1"],
+					containsCurrentObject: true,
+				},
+				strongestRelations: [],
+				bridgeRelations: [],
+				aggregationMarkers: [],
+				commands: [],
+			},
+			freeText: "",
+		};
+
+		const next = drawerAfterGraphDataRefresh(current, graphData("c2"), {
+			pins: {},
+			visibility: {
+				searchQuery: "",
+				searchResultIds: [],
+				typeFilters: {},
+				temporaryObject: null,
+				focusCommunityId: null,
+				hiddenReadingNodeId: null,
+			},
+			temporaryObject: null,
+		});
+
+		assert.equal(next.mode, "graph-unavailable-object");
+		assert.equal(next.mode === "graph-unavailable-object" ? next.payload.reason : null, "missing-community");
+		assert.deepEqual(next.mode === "graph-unavailable-object" ? next.payload.object : null, {
+			kind: "community",
+			communityId: "c1",
+		});
+	});
 });
 
 function openPagePayload(id: string, community: string): GraphOpenPagePayload {
