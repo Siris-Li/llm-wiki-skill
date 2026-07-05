@@ -198,6 +198,227 @@ describe("graph route state continuity", () => {
     assert.equal(state.selection, null);
   });
 
+  it("returns to global and clears community-local state when refreshed data removes the focused community", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: { "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" } },
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: { topic: true, source: true },
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "Alpha",
+      searchResultIds: ["a"],
+      temporaryObject: { kind: "node", nodeId: "a" }
+    };
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: () => trackRenderer(sigmaRenderers, "sigma-global"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c1");
+    manager.select({ kind: "node", id: "a" });
+    assert.equal(manager.sourceCommunityId, "c1");
+    manager.setData({
+      ...DATA,
+      nodes: DATA.nodes.map((node) => ({ ...node, community: "c2" })),
+      edges: []
+    });
+
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(state.focus, null);
+    assert.equal(state.sourceCommunityId, null);
+    assert.equal(state.selection, null);
+    assert.equal(state.searchQuery, "");
+    assert.deepEqual(state.searchResultIds, []);
+    assert.deepEqual(state.temporaryObject, null);
+    assert.deepEqual(state.pins, { "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" } });
+    assert.deepEqual(
+      sigmaRenderers[0].calls.filter((call) => call[0] === "clearTemporaryObjectDisplay"),
+      [["clearTemporaryObjectDisplay"]]
+    );
+    assert.deepEqual(sigmaRenderers[0].calls.slice(-4), [
+      ["setSourceCommunityContext", null],
+      ["clearTemporaryObjectDisplay"],
+      ["resetView"],
+      ["setData", state.data, undefined]
+    ]);
+  });
+
+  it("keeps dragged pins when returning global and re-entering the same community", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return trackRenderer(sigmaRenderers, "sigma-global");
+        },
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+    const draggedPins: PinMap = {
+      "wiki/a.md": { x: 88, y: 99, coordinateSpace: "world" },
+      "wiki/b.md": { x: 188, y: 199, coordinateSpace: "world" }
+    };
+
+    manager.focusCommunity("c1");
+    sigmaInputs[0].options.callbacks.onPinsChanged?.(draggedPins);
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+    manager.focusCommunity("c1");
+
+    assert.deepEqual(state.pins, draggedPins);
+    assert.deepEqual(
+      sigmaRenderers[0].calls.filter((call) => call[0] === "focusCommunity"),
+      [["focusCommunity", "c1"], ["focusCommunity", "c1"]]
+    );
+  });
+
+  it("clears stale temporary display state when refreshed data removes the object", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: () => trackRenderer(sigmaRenderers, "sigma-global"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c1");
+    manager.showTemporaryObject({ kind: "node", nodeId: "b" });
+    manager.setData({
+      ...DATA,
+      nodes: DATA.nodes.filter((node) => node.id !== "b"),
+      edges: []
+    });
+
+    assert.deepEqual(state.focus, { kind: "community", id: "c1" });
+    assert.equal(state.temporaryObject, null);
+    assert.deepEqual(sigmaRenderers[0].calls.slice(-2), [
+      ["clearTemporaryObjectDisplay"],
+      ["setData", state.data, undefined]
+    ]);
+  });
+
+  it("downgrades temporary aggregation state when refreshed data removes only some referenced nodes", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: () => trackRenderer(sigmaRenderers, "sigma-global"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.showTemporaryObject({ kind: "aggregation", aggregationId: "agg", nodeIds: ["a", "b"], communityId: "c1" });
+    manager.setData({
+      ...DATA,
+      nodes: DATA.nodes.filter((node) => node.id !== "b"),
+      edges: []
+    });
+
+    assert.deepEqual(state.temporaryObject, { kind: "aggregation", aggregationId: "agg", nodeIds: ["a"], communityId: "c1" });
+    assert.deepEqual(
+      sigmaRenderers[0].calls.filter((call) => call[0] === "showTemporaryObject").slice(-1),
+      [["showTemporaryObject", { kind: "aggregation", aggregationId: "agg", nodeIds: ["a"], communityId: "c1" }]]
+    );
+  });
+
+  it("resets all persisted pins while staying in Sigma community reading", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {
+        "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" },
+        "wiki/b.md": { x: 30, y: 40, coordinateSpace: "world" }
+      },
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const pinsChanged: unknown[] = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      callbacks: {
+        onPinsChanged: (pins) => pinsChanged.push(pins)
+      },
+      factories: {
+        createSigmaGlobal: () => trackRenderer(sigmaRenderers, "sigma-global"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c1");
+    manager.resetLayout();
+
+    assert.equal(manager.routeId, "sigma-global");
+    assert.deepEqual(state.focus, { kind: "community", id: "c1" });
+    assert.deepEqual(state.pins, {});
+    assert.deepEqual(pinsChanged, [{}]);
+    assert.deepEqual(sigmaRenderers[0].calls.slice(-2), [["focusCommunity", "c1"], ["resetLayout"]]);
+  });
+
   it("passes shared interaction state into DOM/SVG small fallback and keeps return-global rules consistent", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const state: GraphFacadeState = {
@@ -282,6 +503,9 @@ function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
     },
     focusCommunity(id: string) {
       calls.push(["focusCommunity", id]);
+    },
+    setSourceCommunityContext(id: string | null) {
+      calls.push(["setSourceCommunityContext", id]);
     },
     previewNode(id: string | null) {
       calls.push(["previewNode", id]);

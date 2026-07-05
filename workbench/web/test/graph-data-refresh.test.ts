@@ -1,11 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import type { GraphData, GraphOpenPagePayload, GraphVisibilityState } from "@llm-wiki/graph-engine";
-import { graphReaderDrawer } from "../src/lib/drawer-state";
+import type { GraphData, GraphOpenPagePayload, GraphSummaryObjectRef, GraphVisibilityState } from "@llm-wiki/graph-engine";
+import { closedDrawer, graphReaderDrawer } from "../src/lib/drawer-state";
 import {
 	drawerAfterGraphDataRefresh,
 	graphReaderStaleAfterRefresh,
+	temporaryObjectAfterGraphDataRefresh,
 } from "../src/lib/graph-data-refresh";
 
 describe("graph data refresh drawer state", () => {
@@ -44,15 +45,40 @@ describe("graph data refresh drawer state", () => {
 		};
 
 		assert.equal(graphReaderStaleAfterRefresh(current, graphData("c1"), visibility), false);
-		assert.equal(graphReaderStaleAfterRefresh(current, { ...graphData("c1"), nodes: [] }, visibility), true);
-		assert.equal(graphReaderStaleAfterRefresh(current, graphData("c2"), visibility), true);
+		const missingNodeInFocusedCommunity = {
+			...graphData("c1"),
+			nodes: [
+				{
+					id: "community-anchor",
+					label: "Anchor",
+					type: "topic",
+					community: "c1",
+					source_path: "wiki/community-anchor.md",
+				},
+			],
+		};
+		assert.equal(graphReaderStaleAfterRefresh(current, missingNodeInFocusedCommunity, visibility), true);
+		const movedOutsideFocusedCommunity = {
+			...graphData("c2"),
+			nodes: [
+				...graphData("c2").nodes,
+				{
+					id: "community-anchor",
+					label: "Anchor",
+					type: "topic",
+					community: "c1",
+					source_path: "wiki/community-anchor.md",
+				},
+			],
+		};
+		assert.equal(graphReaderStaleAfterRefresh(current, movedOutsideFocusedCommunity, visibility), true);
 
-		const missing = drawerAfterGraphDataRefresh(current, { ...graphData("c1"), nodes: [] }, {
+		const missing = drawerAfterGraphDataRefresh(current, missingNodeInFocusedCommunity, {
 			pins: {},
 			visibility,
 			temporaryObject: null,
 		});
-		const moved = drawerAfterGraphDataRefresh(current, graphData("c2"), {
+		const moved = drawerAfterGraphDataRefresh(current, movedOutsideFocusedCommunity, {
 			pins: {},
 			visibility,
 			temporaryObject: null,
@@ -60,6 +86,91 @@ describe("graph data refresh drawer state", () => {
 
 		assert.deepEqual(missing, { mode: "closed" });
 		assert.deepEqual(moved, { mode: "closed" });
+	});
+
+	it("shows an unavailable message when the focused community disappears while the drawer is closed", () => {
+		const next = drawerAfterGraphDataRefresh(closedDrawer(), graphData("c2"), {
+			pins: {},
+			visibility: {
+				searchQuery: "",
+				searchResultIds: [],
+				typeFilters: {},
+				temporaryObject: null,
+				focusCommunityId: "c1",
+				hiddenReadingNodeId: null,
+			},
+			temporaryObject: null,
+		});
+
+		assert.equal(next.mode, "graph-unavailable-object");
+		assert.equal(next.mode === "graph-unavailable-object" ? next.payload.reason : null, "missing-community");
+		assert.deepEqual(next.mode === "graph-unavailable-object" ? next.payload.object : null, {
+			kind: "community",
+			communityId: "c1",
+		});
+	});
+
+	it("drops or downgrades temporary display objects when refreshed data no longer contains them", () => {
+		const helper: (data: GraphData | null, object: GraphSummaryObjectRef | null) => GraphSummaryObjectRef | null =
+			temporaryObjectAfterGraphDataRefresh;
+
+		assert.deepEqual(helper(graphData("c1"), { kind: "node", nodeId: "a" }), { kind: "node", nodeId: "a" });
+		assert.equal(helper({ ...graphData("c1"), nodes: [] }, { kind: "node", nodeId: "a" }), null);
+		assert.deepEqual(
+			helper(graphData("c1"), { kind: "aggregation", aggregationId: "agg", nodeIds: ["a", "missing"], communityId: "c1" }),
+			{ kind: "aggregation", aggregationId: "agg", nodeIds: ["a"], communityId: "c1" },
+		);
+	});
+
+	it("turns a stale community drawer into an unavailable message after refresh", () => {
+		const current = {
+			mode: "graph-community-summary" as const,
+			payload: {
+				communityId: "c1",
+				label: "Community 1",
+				nodeCount: 1,
+				description: "Old summary",
+				facts: { pageCount: 1, internalLinkCount: 0, communityCount: 1, isolatedCount: 1 },
+				structureState: "loose" as const,
+				canEnterCommunity: true,
+				coreNodeIds: ["a"],
+				coreNodes: [],
+				searchResultIds: [],
+				pinHints: [],
+				selection: {
+					input: { kind: "community" as const, id: "c1" },
+					selectionId: "community:c1",
+					selectedNodeIds: ["a"],
+					selectedCommunityIds: ["c1"],
+					containsCurrentObject: true,
+				},
+				strongestRelations: [],
+				bridgeRelations: [],
+				aggregationMarkers: [],
+				commands: [],
+			},
+			freeText: "",
+		};
+
+		const next = drawerAfterGraphDataRefresh(current, graphData("c2"), {
+			pins: {},
+			visibility: {
+				searchQuery: "",
+				searchResultIds: [],
+				typeFilters: {},
+				temporaryObject: null,
+				focusCommunityId: null,
+				hiddenReadingNodeId: null,
+			},
+			temporaryObject: null,
+		});
+
+		assert.equal(next.mode, "graph-unavailable-object");
+		assert.equal(next.mode === "graph-unavailable-object" ? next.payload.reason : null, "missing-community");
+		assert.deepEqual(next.mode === "graph-unavailable-object" ? next.payload.object : null, {
+			kind: "community",
+			communityId: "c1",
+		});
 	});
 });
 

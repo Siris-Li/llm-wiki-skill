@@ -94,6 +94,57 @@ describe("GraphPanel Paper shell", () => {
 		assert.equal(document.activeElement, tuningButton);
 	});
 
+	it("keeps edge tuning changes local to community reading and clears them on return", async () => {
+		mockGraphFetch();
+		const selectionChanges: unknown[] = [];
+		const { rerender } = render(
+			<GraphPanel
+				currentKnowledgeBaseName="AI 学习库"
+				currentKnowledgeBasePath="/kb"
+				theme="light"
+				onSelectionChange={(selection) => selectionChanges.push(selection)}
+			/>,
+		);
+
+		await waitFor(() => {
+			assert.match(document.body.textContent ?? "", /1 节点 · 0 关联/);
+		});
+
+		rerender(
+			<GraphPanel
+				currentKnowledgeBaseName="AI 学习库"
+				currentKnowledgeBasePath="/kb"
+				theme="light"
+				onSelectionChange={(selection) => selectionChanges.push(selection)}
+				selectionCommand={{ id: "paper", type: "enter-community" }}
+			/>,
+		);
+
+		await waitFor(() => {
+			assert.deepEqual(selectionChanges, [null]);
+			assert.notEqual(screen.queryByRole("button", { name: "回全图" }), null);
+		});
+
+		const tuningButton = screen.getByRole("button", { name: /调参/ }) as HTMLButtonElement;
+		await click(tuningButton);
+		const semanticToggle = screen.getByRole("checkbox", { name: "语义强调" }) as HTMLInputElement;
+		await click(semanticToggle);
+
+		await waitFor(() => {
+			assert.equal(semanticToggle.checked, true);
+			assert.equal(localStorage.getItem("llm-wiki.graph.edge-style"), null);
+		});
+
+		await click(screen.getByRole("button", { name: "回全图" }));
+
+		await waitFor(() => {
+			assert.equal(localStorage.getItem("llm-wiki.graph.edge-style"), null);
+		});
+		await click(tuningButton);
+		const returnedSemanticToggle = screen.getByRole("checkbox", { name: "语义强调" }) as HTMLInputElement;
+		assert.equal(returnedSemanticToggle.checked, false);
+	});
+
 	it("surfaces graph build errors in the graph panel", async () => {
 		mockGraphFetch({ needsBuild: true });
 

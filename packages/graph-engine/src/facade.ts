@@ -314,14 +314,38 @@ export function createGraphFacadeRouteManager(
       state.data = data;
       if (pins) state.pins = pins;
       let clearedSourceCommunity = false;
+      let clearedFocusedCommunity = false;
+      let clearedTemporaryObject = false;
+      let downgradedTemporaryObject: GraphSummaryObjectRef | null = null;
       // Drop a stale source highlight when refreshed data no longer contains it.
       if (state.sourceCommunityId && !dataHasCommunity(state.data, state.sourceCommunityId)) {
         state.sourceCommunityId = null;
         clearedSourceCommunity = true;
       }
+      if (state.focus?.kind === "community" && !dataHasCommunity(state.data, state.focus.id)) {
+        clearedTemporaryObject = state.temporaryObject != null;
+        state.focus = null;
+        state.selection = null;
+        state.searchQuery = "";
+        state.searchResultIds = [];
+        state.temporaryObject = null;
+        clearedFocusedCommunity = true;
+      } else if (state.temporaryObject) {
+        const nextTemporaryObject = summaryObjectForData(state.data, state.temporaryObject);
+        if (nextTemporaryObject !== state.temporaryObject) {
+          state.temporaryObject = nextTemporaryObject;
+          if (nextTemporaryObject) {
+            downgradedTemporaryObject = nextTemporaryObject;
+          } else {
+            clearedTemporaryObject = true;
+          }
+        }
+      }
       if (clearedSourceCommunity) {
         currentRenderer().setSourceCommunityContext?.(null);
       }
+      if (clearedTemporaryObject) currentRenderer().clearTemporaryObjectDisplay();
+      if (downgradedTemporaryObject) currentRenderer().showTemporaryObject(downgradedTemporaryObject);
       clearStaleCommunityReadingSelectionForData(data);
       if (graphExceedsGlobalNodeLimit(state.data)) {
         if (routeId === "over-limit-notice" && active) {
@@ -342,6 +366,10 @@ export function createGraphFacadeRouteManager(
           switchToFallbackRoute();
         }
         return;
+      }
+      if (clearedFocusedCommunity) {
+        switchToGlobalRoute();
+        if (routeId === "sigma-global") currentRenderer().resetView();
       }
       currentRenderer().setData(data, pins);
     },
@@ -741,6 +769,19 @@ export function graphExceedsGlobalNodeLimit(data: GraphData): boolean {
 function dataHasCommunity(data: GraphData, communityId: string): boolean {
   if (data.nodes.some((node) => node.community === communityId)) return true;
   return (data.learning?.communities ?? []).some((community) => community.id === communityId);
+}
+
+function summaryObjectForData(data: GraphData, object: GraphSummaryObjectRef): GraphSummaryObjectRef | null {
+  if (object.kind === "node") return data.nodes.some((node) => node.id === object.nodeId) ? object : null;
+  if (object.kind === "community") return dataHasCommunity(data, object.communityId) ? object : null;
+  if (object.kind === "aggregation") {
+    const nodeIds = new Set(data.nodes.map((node) => node.id));
+    const survivingNodeIds = object.nodeIds.filter((nodeId) => nodeIds.has(nodeId));
+    if (survivingNodeIds.length === 0) return null;
+    if (survivingNodeIds.length === object.nodeIds.length) return object;
+    return { ...object, nodeIds: survivingNodeIds };
+  }
+  return null;
 }
 
 function clearFacadeInteractionState(state: GraphFacadeState): { preservedCommunityFocus: boolean; clearedSourceCommunity: boolean } {
