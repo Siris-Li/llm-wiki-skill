@@ -68,6 +68,25 @@ describe("Sigma overlay DOM controller", () => {
     assert.equal(nodeTarget(fixture.overlayRoot, "beta")?.dataset.relationFocusDepth, "first");
   });
 
+  it("extends community reading hit targets over visible node labels", () => {
+    const fixture = controllerFixture({
+      adapterData: adapterDataFixture({
+        communityMapActive: true,
+        nodes: [
+          nodeFixture("alpha", { labelVisible: true }),
+          nodeFixture("beta", { labelVisible: false })
+        ]
+      })
+    });
+
+    fixture.controller.rebuild();
+
+    const alphaWidth = Number.parseFloat(nodeTarget(fixture.overlayRoot, "alpha")?.style.width || "0");
+    const betaWidth = Number.parseFloat(nodeTarget(fixture.overlayRoot, "beta")?.style.width || "0");
+    assert.ok(alphaWidth > 48, `visible label hit target should cover the label area, got ${alphaWidth}`);
+    assert.equal(betaWidth, 16);
+  });
+
   it("keeps every community reading node reachable through the overlay hit layer", () => {
     const nodes = Array.from({ length: 180 }, (_, index) => (
       nodeFixture(`node-${index}`, {
@@ -582,6 +601,7 @@ function nodeFixture(id: string, options: {
   searchHit?: boolean;
   pinned?: boolean;
   communityId?: string;
+  labelVisible?: boolean;
   relationFocusDepth?: GraphRendererAdapterData["nodes"][number]["relationFocusDepth"];
 } = {}) {
   const index = Number(id.match(/\d+$/)?.[0] ?? 1);
@@ -611,7 +631,12 @@ function nodeFixture(id: string, options: {
       displayMode: "point",
       visualRole: "landmark",
       priority: options.selected ? 1000 : 100,
-      labelVisible: Boolean(options.selected)
+      labelVisible: options.labelVisible ?? Boolean(options.selected),
+      communityMapTier: "related",
+      communityMapImportance: 3,
+      communityMapDotSize: 18,
+      communityMapLabelSide: "right",
+      communityMapRelationLabel: true
     }
   };
 }

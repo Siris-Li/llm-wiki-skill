@@ -1,8 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { graphCommunitySummaryDrawer, graphNodeSummaryDrawer, graphReaderDrawer, graphSelectionDrawer } from "../src/lib/drawer-state";
-import { graphCloseCommandForDrawer } from "../src/lib/graph-drawer-close";
+import { graphCommunitySummaryDrawer, graphNodeSummaryDrawer, graphReaderDrawer, graphSelectionDrawer, wikiDrawer } from "../src/lib/drawer-state";
+import { graphCloseCommandForDrawer, shouldCloseDrawerAfterGraphSelectionClear } from "../src/lib/graph-drawer-close";
 import type {
 	GraphCommunitySummaryPayload,
 	GraphNodeSummaryPayload,
@@ -26,6 +26,13 @@ describe("graph drawer close behavior", () => {
 
 	it("clears node reading and relation focus when closing node content with Escape", () => {
 		assert.equal(graphCloseCommandForDrawer(graphReaderDrawer(graphReaderPayloadFixture()), "escape")?.type, "clear");
+	});
+
+	it("closes node reading when the graph reports a blank selection clear", () => {
+		assert.equal(shouldCloseDrawerAfterGraphSelectionClear(graphReaderDrawer(graphReaderPayloadFixture())), true);
+		assert.equal(shouldCloseDrawerAfterGraphSelectionClear(graphSelectionDrawer(selectionFixture(), "选区")), true);
+		assert.equal(shouldCloseDrawerAfterGraphSelectionClear(graphNodeSummaryDrawer(nodeSummaryFixture())), true);
+		assert.equal(shouldCloseDrawerAfterGraphSelectionClear(wikiDrawer("wiki/paper.md")), false);
 	});
 });
 

@@ -50,6 +50,11 @@ import {
 
 const SIGMA_GLOBAL_COMMUNITY_LABEL_LIMIT = 8;
 const SIGMA_GLOBAL_NODE_HIT_TARGET_LIMIT = 160;
+const SIGMA_COMMUNITY_NODE_LABEL_HIT_MAX_WIDTH = 180;
+const SIGMA_COMMUNITY_NODE_LABEL_HIT_MIN_WIDTH = 32;
+const SIGMA_COMMUNITY_NODE_LABEL_HIT_HEIGHT = 28;
+const SIGMA_COMMUNITY_NODE_LABEL_GUTTER = 8;
+const SIGMA_COMMUNITY_NODE_LABEL_GAP = 3;
 
 export interface SigmaOverlayDomController {
   rebuild(): void;
@@ -211,12 +216,7 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
       if (!element) continue;
       const size = Math.max(16, sigmaGlobalNodeSize(node) * 3);
       const center = sigmaWorldPointToScreenPoint(sigma, node.point, options);
-      applyOverlayBox(element, {
-        left: center.x - size / 2,
-        top: center.y - size / 2,
-        width: size,
-        height: size
-      });
+      applyOverlayBox(element, sigmaNodeHitTargetBox(node, center, size, adapterData, options.viewportSize));
     }
     for (const community of sigmaCommunityLabels(adapterData, SIGMA_GLOBAL_COMMUNITY_LABEL_LIMIT)) {
       if (!community.wash) continue;
@@ -399,6 +399,57 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
   function clearActiveDragListeners(): void {
     overlayPointerDragCleanup?.();
   }
+}
+
+function sigmaNodeHitTargetBox(
+  node: GraphRendererAdapterNode,
+  center: GraphScreenPoint,
+  nodeHitSize: number,
+  adapterData: GraphRendererAdapterData,
+  viewportSize?: { width: number; height: number }
+): { left: number; top: number; width: number; height: number } {
+  const dotBox = {
+    left: center.x - nodeHitSize / 2,
+    top: center.y - nodeHitSize / 2,
+    width: nodeHitSize,
+    height: nodeHitSize
+  };
+  if (!adapterData.renderable.communityMap?.active || !node.render.labelVisible) return dotBox;
+
+  const labelWidth = sigmaEstimatedNodeLabelWidth(node.label || node.id);
+  const nodeSize = sigmaGlobalNodeSize(node);
+  const rightX = center.x + nodeSize + SIGMA_COMMUNITY_NODE_LABEL_GAP;
+  const leftX = center.x - nodeSize - SIGMA_COMMUNITY_NODE_LABEL_GAP - labelWidth;
+  const viewportWidth = viewportSize?.width ?? 0;
+  const shouldDrawLeft = viewportWidth > 0
+    && rightX + labelWidth > viewportWidth - SIGMA_COMMUNITY_NODE_LABEL_GUTTER
+    && leftX >= SIGMA_COMMUNITY_NODE_LABEL_GUTTER;
+  const labelBox = {
+    left: (shouldDrawLeft ? leftX : rightX) - 4,
+    top: center.y - SIGMA_COMMUNITY_NODE_LABEL_HIT_HEIGHT / 2,
+    width: labelWidth + 8,
+    height: SIGMA_COMMUNITY_NODE_LABEL_HIT_HEIGHT
+  };
+  return unionOverlayBoxes(dotBox, labelBox);
+}
+
+function sigmaEstimatedNodeLabelWidth(label: string): number {
+  const width = [...label].reduce((sum, char) => {
+    const code = char.codePointAt(0) ?? 0;
+    return sum + (code > 255 ? 12 : 7);
+  }, 12);
+  return Math.min(SIGMA_COMMUNITY_NODE_LABEL_HIT_MAX_WIDTH, Math.max(SIGMA_COMMUNITY_NODE_LABEL_HIT_MIN_WIDTH, width));
+}
+
+function unionOverlayBoxes(
+  leftBox: { left: number; top: number; width: number; height: number },
+  rightBox: { left: number; top: number; width: number; height: number }
+): { left: number; top: number; width: number; height: number } {
+  const left = Math.min(leftBox.left, rightBox.left);
+  const top = Math.min(leftBox.top, rightBox.top);
+  const right = Math.max(leftBox.left + leftBox.width, rightBox.left + rightBox.width);
+  const bottom = Math.max(leftBox.top + leftBox.height, rightBox.top + rightBox.height);
+  return { left, top, width: right - left, height: bottom - top };
 }
 
 function communityLabelScreenPoint(
