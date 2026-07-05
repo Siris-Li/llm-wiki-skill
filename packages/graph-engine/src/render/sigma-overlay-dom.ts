@@ -431,10 +431,13 @@ export function sigmaOverlayNodes(adapterData: GraphRendererAdapterData): GraphR
   const nodes = adapterData.nodes;
   const seen = new Set<string>();
   const output: GraphRendererAdapterNode[] = [];
+  const totalLimit = adapterData.renderable.communityMap?.active
+    ? Number.POSITIVE_INFINITY
+    : SIGMA_GLOBAL_NODE_HIT_TARGET_LIMIT;
   const append = (candidates: GraphRendererAdapterNode[], limit: number) => {
     let count = 0;
     for (const node of candidates) {
-      if (output.length >= SIGMA_GLOBAL_NODE_HIT_TARGET_LIMIT || count >= limit || seen.has(node.id)) continue;
+      if (output.length >= totalLimit || count >= limit || seen.has(node.id)) continue;
       seen.add(node.id);
       output.push(node);
       count += 1;

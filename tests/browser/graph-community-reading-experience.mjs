@@ -71,13 +71,10 @@ async function runViewport(viewport, label, options) {
       const readingShot = await captureState(page, `${label}-${community.slug}-03-community.png`);
       const reading = await communityReadingSnapshot(page, community);
       assertCommunityReading(community, reading);
-      assert.equal(
-        selected.selected.regionFill,
-        reading.regionFill,
-        `${community.label}: selected and reading community region color should stay continuous`
-      );
+      const visualReview = reviewVisualContinuity(community, selected.selected, reading);
+      assertVisualReview(visualReview);
 
-      const record = { community, global, selected: selectedShot, reading: readingShot, readingState: reading };
+      const record = { community, global, selected: selectedShot, reading: readingShot, readingState: reading, visualReview };
       visualCases.push(record);
 
       if (options.fullPath && community.id === "dense-agent") {
@@ -110,6 +107,11 @@ async function runFullDesktopPath(page, community) {
   await setTypeFilter(page, "source", false);
   await page.waitForSelector('.sigma-community-hidden-node-hint[data-state="visible"]');
   await page.waitForSelector(".graph-reader-hidden-badge");
+  await page.waitForFunction(() => {
+    const status = document.querySelector(".graph-search-status")?.textContent || "";
+    return status.includes("0 个结果");
+  });
+  assert.equal(await page.locator('.graph-search-result-item[data-node-id="dense-source-1"]').count(), 0, "type filter should remove hidden nodes from community search results");
   const hiddenByFilter = await interactionSnapshot(page, "dense-source-1");
   assert.equal(hiddenByFilter.hiddenReadingNode, "true", "filtering out the reading node should keep logical focus with a visible hint");
   assert.equal(hiddenByFilter.drawerHiddenBadge, true, "reader title should explain the node is filtered hidden");
@@ -222,6 +224,7 @@ async function resetToPlainGlobal(page) {
   await clickReturnGlobal(page);
   await waitForSigmaGlobalUnfocused(page);
   await closeGraphToolbarPanel(page);
+  await page.waitForTimeout(520);
   await clickGlobalBlank(page);
   await waitForPlainGlobal(page);
   await clickReturnGlobal(page);
@@ -270,18 +273,7 @@ async function openCommunitySummaryFromRegion(page, communityId) {
 }
 
 async function openCommunitySummary(page, community) {
-  try {
-    const selected = await openCommunitySummaryFromRegion(page, community.id);
-    assertSelectedCommunity(community, selected);
-    return selected;
-  } catch (error) {
-    pushGraphDiagnostic(page, {
-      kind: "community-region-open-fallback",
-      communityId: community.id,
-      message: error instanceof Error ? error.message : String(error)
-    });
-  }
-  const selected = await openCommunitySummaryFromToolbar(page, community.id);
+  const selected = await openCommunitySummaryFromRegion(page, community.id);
   assertSelectedCommunity(community, selected);
   return selected;
 }
@@ -320,6 +312,7 @@ function assertSelectedCommunity(community, selected) {
 async function communityRegionDiagnostics(page, communityId) {
   return page.evaluate((communityId) => {
     const region = document.querySelector(`.sigma-global-community-region[data-community-id="${CSS.escape(communityId)}"]`);
+    const root = document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']");
     const rect = region?.getBoundingClientRect();
     if (!rect) return { missing: true };
     const candidates = [
@@ -378,8 +371,24 @@ async function selectedCommunitySnapshot(page, communityId) {
         .filter(Boolean)
         .sort(),
       dimmedLabelCount: Array.from(document.querySelectorAll(".sigma-global-community-label[data-dim='true']")).length,
-      regionFill: selectedShape ? getComputedStyle(selectedShape).fill : ""
+      regionFill: selectedShape ? getComputedStyle(selectedShape).fill : "",
+      region: selectedRegion ? rectOf(selectedRegion.getBoundingClientRect()) : null,
+      nodeLabelNoiseCount: Array.from(document.querySelectorAll(".sigma-global-node-hit-target[data-community-dimmed='true']")).filter((node) => {
+        const label = node.getAttribute("aria-label") || "";
+        const id = node.getAttribute("data-node-id") || "";
+        return label && label !== id;
+      }).length
     };
+
+    function rectOf(rect) {
+      return {
+        width: round(rect.width),
+        height: round(rect.height)
+      };
+    }
+    function round(value) {
+      return Math.round(value * 1000) / 1000;
+    }
   }, communityId);
 }
 
@@ -460,6 +469,77 @@ function assertCommunityReading(community, snapshot) {
   assert.ok(
     snapshot.region.width > 40 && snapshot.region.height > 40,
     `${community.label}: community region should be visible and readable. Snapshot: ${JSON.stringify(snapshot)}`
+  );
+}
+
+function reviewVisualContinuity(community, selected, reading) {
+  const selectedAspectRatio = selected.region ? selected.region.width / Math.max(1, selected.region.height) : 0;
+  const readingAspectRatio = reading.region ? reading.region.width / Math.max(1, reading.region.height) : 0;
+  const aspectDrift = selectedAspectRatio && readingAspectRatio
+    ? Math.abs(selectedAspectRatio - readingAspectRatio) / Math.max(selectedAspectRatio, readingAspectRatio)
+    : 1;
+  const checks = [
+    {
+      name: "color continuity",
+      pass: selected.regionFill === reading.regionFill,
+      details: {
+        selectedRegionFill: selected.regionFill,
+        readingRegionFill: reading.regionFill
+      }
+    },
+    {
+      name: "node-shape continuity",
+      pass: aspectDrift <= 0.38,
+      details: {
+        selectedAspectRatio: round(selectedAspectRatio),
+        readingAspectRatio: round(readingAspectRatio),
+        aspectDrift: round(aspectDrift)
+      }
+    },
+    {
+      name: "community centering/readability",
+      pass: Boolean(reading.centerDistance)
+        && reading.centerDistance.xRatio <= 0.28
+        && reading.centerDistance.yRatio <= 0.28
+        && reading.region?.width > 40
+        && reading.region?.height > 40
+        && reading.communityMapVisibleLabels <= reading.communityMapLabelLimit,
+      details: {
+        centerDistance: reading.centerDistance,
+        region: reading.region,
+        labelBudget: {
+          limit: reading.communityMapLabelLimit,
+          visible: reading.communityMapVisibleLabels
+        }
+      }
+    },
+    {
+      name: "quiet unselected community landmarks",
+      pass: selected.dimmedLabelCount > 0
+        && selected.nodeLabelNoiseCount === 0
+        && reading.regionCount === 1
+        && reading.labelCount === 1,
+      details: {
+        globalDimmedCommunityLabels: selected.dimmedLabelCount,
+        globalDimmedNodeLabelNoise: selected.nodeLabelNoiseCount,
+        readingRegionCount: reading.regionCount,
+        readingLabelCount: reading.labelCount
+      }
+    }
+  ];
+  return {
+    communityId: community.id,
+    communityLabel: community.label,
+    pass: checks.every((check) => check.pass),
+    checks
+  };
+}
+
+function assertVisualReview(review) {
+  assert.equal(
+    review.pass,
+    true,
+    `${review.communityLabel}: visual review failed ${JSON.stringify(review.checks.filter((check) => !check.pass))}`
   );
 }
 
@@ -601,12 +681,23 @@ async function waitForNoSelectedCommunity(page) {
 }
 
 async function waitForPlainGlobal(page) {
-  await waitForNoSelectedCommunity(page);
-  await page.waitForFunction(() => {
-    const root = document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']");
-    return root?.getAttribute("data-community-focus-id") === ""
-      && root?.getAttribute("data-source-community-id") === "";
-  });
+  try {
+    await waitForNoSelectedCommunity(page);
+    await page.waitForFunction(() => {
+      const root = document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']");
+      return root?.getAttribute("data-community-focus-id") === ""
+        && root?.getAttribute("data-source-community-id") === "";
+    });
+  } catch (error) {
+    const snapshot = await sigmaSnapshot(page).catch((snapshotError) => ({ snapshotError: String(snapshotError) }));
+    const diagnostics = page.__graphDiagnostics || [];
+    throw new assert.AssertionError({
+      message: `Expected plain global graph. Snapshot: ${JSON.stringify({ snapshot, diagnostics })}`,
+      actual: error,
+      expected: "plain global graph",
+      operator: "strictEqual"
+    });
+  }
 }
 
 async function clickCommunityRegion(page, communityId) {
@@ -638,64 +729,90 @@ async function findCommunityRegionPoint(page, communityId) {
 }
 
 async function clickGlobalBlank(page) {
-  const point = await graphBlankPoint(page);
-  await page.mouse.click(point.x, point.y);
+  const candidates = await graphBlankCandidates(page);
+  for (const point of candidates) {
+    pushGraphDiagnostic(page, {
+      kind: "blank-click",
+      point
+    });
+    await page.mouse.click(point.x, point.y);
+    await page.waitForTimeout(120);
+    const snapshot = await sigmaSnapshot(page);
+    const hit = await lastSigmaHit(page);
+    pushGraphDiagnostic(page, {
+      kind: "blank-click-after",
+      hit,
+      snapshot
+    });
+    if (
+      snapshot.sourceCommunityId === "" &&
+      snapshot.selectedRegions.length === 0 &&
+      snapshot.selectedLabels.length === 0
+    ) {
+      return;
+    }
+    await closeDrawerIfOpen(page);
+  }
+  throw new Error(`Could not clear the graph with ${candidates.length} blank candidates`);
 }
 
-async function graphBlankPoint(page) {
+async function lastSigmaHit(page) {
+  return page.evaluate(() => {
+    const root = document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']");
+    return {
+      kind: root?.getAttribute("data-last-hit-kind") || "",
+      id: root?.getAttribute("data-last-hit-id") || ""
+    };
+  });
+}
+
+async function graphBlankCandidates(page) {
   return page.evaluate(() => {
     const host = document.querySelector(".sigma-global-route") || document.querySelector(".graph-host");
     if (!host) throw new Error("Missing Sigma global route for blank click");
     const rect = host.getBoundingClientRect();
+    const nodeRects = [...document.querySelectorAll(".sigma-global-node-hit-target")]
+      .map((element) => element.getBoundingClientRect())
+      .filter((item) => item.width > 0 && item.height > 0)
+      .map((item) => ({
+        left: item.left - 24,
+        top: item.top - 24,
+        right: item.right + 24,
+        bottom: item.bottom + 24
+      }));
     const candidates = [];
     for (const rx of [0.08, 0.18, 0.28, 0.38, 0.5, 0.62, 0.74, 0.86, 0.94]) {
       for (const ry of [0.1, 0.2, 0.32, 0.44, 0.56, 0.68, 0.8, 0.9]) {
         candidates.push([rx, ry]);
       }
     }
+    const points = [];
     for (const [rx, ry] of candidates) {
       const x = rect.left + rect.width * rx;
       const y = rect.top + rect.height * ry;
+      if (nodeRects.some((node) => x >= node.left && x <= node.right && y >= node.top && y <= node.bottom)) continue;
       const hit = document.elementFromPoint(x, y);
       if (!hit?.closest?.(".drawer-panel-open, .drawer-panel, .sigma-global-community-region, .sigma-global-node-hit-target, .sigma-global-community-label, .sigma-global-aggregation-container, .graph-toolbar, .graph-search")) {
-        return { x, y };
+        points.push({
+          x,
+          y,
+          hitTag: hit?.tagName || "",
+          hitClass: typeof hit?.className === "string" ? hit.className : String(hit?.className || "")
+        });
       }
     }
+    if (points.length) return points.slice(0, 16);
     throw new Error("Could not find a graph blank point outside communities, nodes, labels, and controls");
   });
 }
 
 async function clickReturnGlobal(page) {
-  await page.getByRole("button", { name: "回全图" }).click({ force: true }).catch(() => undefined);
-  const returned = await page.waitForFunction(() => {
+  await page.getByRole("button", { name: "回全图" }).click({ force: true });
+  await page.waitForFunction(() => {
     const root = document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']");
     return root?.getAttribute("data-community-focus-id") === ""
       && Number(root?.getAttribute("data-community-count") || "0") > 1;
-  }, undefined, { timeout: 1200 })
-    .then(() => true)
-    .catch(() => false);
-  if (returned) return;
-  await dispatchGraphBlankDoubleClick(page);
-}
-
-async function dispatchGraphBlankDoubleClick(page) {
-  const rootFound = await page.evaluate(() => {
-    const root = document.querySelector(".sigma-global-renderer") || document.querySelector("[data-llm-wiki-graph-root='true']");
-    if (!root) return false;
-    const rect = root.getBoundingClientRect();
-    const x = rect.left + Math.max(12, Math.min(32, rect.width * 0.08));
-    const y = rect.top + Math.max(12, Math.min(32, rect.height * 0.08));
-    root.dispatchEvent(new MouseEvent("dblclick", {
-      bubbles: true,
-      cancelable: true,
-      clientX: x,
-      clientY: y,
-      detail: 2,
-      view: window
-    }));
-    return true;
-  });
-  assert.equal(rootFound, true, "graph blank double-click fallback should dispatch to the graph root");
+  }, undefined, { timeout: 2_000 });
 }
 
 async function closeDrawerIfOpen(page) {

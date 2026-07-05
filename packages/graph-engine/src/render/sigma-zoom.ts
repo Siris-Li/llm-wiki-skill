@@ -11,7 +11,7 @@ export const SIGMA_WHEEL_ZOOM_SPEED = 0.0016;
 export const SIGMA_WHEEL_ZOOM_FACTOR_MIN = 0.2;
 export const SIGMA_WHEEL_ZOOM_FACTOR_MAX = 5;
 export const SIGMA_CAMERA_MIN_RATIO = 0.3;
-export const SIGMA_CAMERA_MAX_RATIO = 3;
+export const SIGMA_CAMERA_MAX_RATIO = 8;
 export const SIGMA_BUTTON_ZOOM_RATIO = 1.18;
 export const SIGMA_BUTTON_ZOOM_DURATION_MS = 140;
 

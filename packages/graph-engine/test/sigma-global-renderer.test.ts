@@ -773,6 +773,33 @@ describe("Sigma global renderer production boundary", () => {
     assert.equal(disconnected, true);
   });
 
+  it("reports host resize so the route can rebuild viewport-sized community reading data", () => {
+    let resizeCallback: ResizeObserverCallback | null = null;
+    class FakeResizeObserver implements ResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    const observedSizes: Array<{ width: number; height: number }> = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer({ ResizeObserver: FakeResizeObserver as typeof ResizeObserver }),
+      adapterData: communityReadingAdapterDataFixture(),
+      theme: "shan-shui",
+      runtime: fakeRuntime(),
+      viewportSize: { width: 1600, height: 900 },
+      onViewportSizeChange: (size) => observedSizes.push(size)
+    });
+
+    resizeCallback?.([resizeObserverEntry(390, 844)], {} as ResizeObserver);
+
+    assert.deepEqual(observedSizes, [{ width: 390, height: 844 }]);
+
+    renderer.destroy();
+  });
+
   it("repositions overlays on camera updates without rebuilding DOM or rebinding listeners", () => {
     const runtime = fakeRuntime();
     const renderer = createSigmaGlobalRenderer({
@@ -1536,6 +1563,90 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("routes DOM root canvas clicks through hit projection when Sigma does not emit clickStage", async () => {
+    const hits: unknown[] = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: {
+        ...adapterDataFixture({ selectedCommunityId: "adapter-community" }),
+        sourceCommunityId: "adapter-community"
+      },
+      theme: "shan-shui",
+      runtime: fakeRuntime(),
+      onHitTarget: (target) => hits.push(target)
+    });
+
+    renderer.root.dispatchEvent({
+      type: "click",
+      clientX: 250,
+      clientY: 250,
+      target: { closest: () => null }
+    } as unknown as Event);
+    await Promise.resolve();
+
+    assert.deepEqual(hits.at(-1), { kind: "graph-blank" });
+
+    renderer.destroy();
+  });
+
+  it("does not duplicate root canvas clicks when Sigma already emitted the stage click", async () => {
+    const hits: unknown[] = [];
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target) => hits.push(target)
+    });
+    const sigma = runtime.instances[0];
+
+    sigma.emit("clickStage", sigmaEventPayload(null, 490, 490));
+    renderer.root.dispatchEvent({
+      type: "click",
+      clientX: 490,
+      clientY: 490,
+      target: { closest: () => null }
+    } as unknown as Event);
+    await Promise.resolve();
+
+    assert.deepEqual(hits, [{ kind: "graph-blank" }]);
+
+    renderer.destroy();
+  });
+
+  it("still lets returned source-context canvas clicks clear when Sigma reports a node click", async () => {
+    const hits: unknown[] = [];
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: {
+        ...adapterDataFixture({ selectedCommunityId: "adapter-community" }),
+        sourceCommunityId: "adapter-community"
+      },
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target) => hits.push(target)
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.root.dispatchEvent({
+      type: "click",
+      clientX: 250,
+      clientY: 250,
+      target: { closest: () => null }
+    } as unknown as Event);
+    sigma.emit("clickNode", { node: "render-beta" });
+    await Promise.resolve();
+
+    assert.deepEqual(hits, [
+      { kind: "node", id: "render-beta" },
+      { kind: "graph-blank" }
+    ]);
+
+    renderer.destroy();
+  });
+
   it("patches node spotlight attributes in place when community selection changes", () => {
     const runtime = fakeRuntime();
     const renderer = createSigmaGlobalRenderer({
@@ -1596,6 +1707,29 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("does not move the Sigma camera for returned global source-community context alone", () => {
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectionKind: null }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.update({
+      adapterData: {
+        ...nodeSpotlightAdapterData({ selectionKind: null }),
+        sourceCommunityId: "community-1"
+      }
+    });
+
+    assert.equal(sigma.camera.animateCalls.length, 0);
+    assert.deepEqual(sigma.camera.getState(), { x: 0, y: 0, angle: 0, ratio: 1 });
+
+    renderer.destroy();
+  });
+
   it("uses updated viewport size for Sigma community reading camera updates", () => {
     const runtime = fakeRuntime();
     const renderer = createSigmaGlobalRenderer({
@@ -1615,6 +1749,37 @@ describe("Sigma global renderer production boundary", () => {
     assert.ok(
       (sigma.camera.activeAnimationTarget?.ratio ?? 0) > 2,
       `narrow community reading should zoom out with the updated viewport size, got ${JSON.stringify(sigma.camera.activeAnimationTarget)}`
+    );
+
+    renderer.destroy();
+  });
+
+  it("refits the Sigma community reading camera when the same community viewport narrows", () => {
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture({ selectedCommunityIds: [] }),
+      theme: "shan-shui",
+      runtime,
+      viewportSize: { width: 1600, height: 900 }
+    });
+    const sigma = runtime.instances[0];
+    const readingData = wideCommunityReadingAdapterDataFixture();
+
+    renderer.update({
+      adapterData: readingData,
+      viewportSize: { width: 390, height: 844 }
+    });
+    const firstTarget = sigma.camera.activeAnimationTarget;
+    renderer.update({
+      adapterData: readingData,
+      viewportSize: { width: 320, height: 844 }
+    });
+
+    assert.equal(sigma.camera.animateCalls.length, 2);
+    assert.ok(
+      (sigma.camera.activeAnimationTarget?.ratio ?? 0) > (firstTarget?.ratio ?? 0),
+      `narrow resize should refit the same community, got ${JSON.stringify({ before: firstTarget, after: sigma.camera.activeAnimationTarget })}`
     );
 
     renderer.destroy();
@@ -2000,7 +2165,7 @@ describe("Sigma global renderer production boundary", () => {
     const sigma = runtime.instances[0];
 
     assert.equal(sigma.settings.minCameraRatio, 0.3);
-    assert.equal(sigma.settings.maxCameraRatio, 3);
+    assert.equal(sigma.settings.maxCameraRatio, 8);
     assert.equal(sigma.settings.zoomingRatio, 1.18);
     assert.equal(sigma.settings.zoomDuration, 120);
   });
@@ -3087,6 +3252,10 @@ function fakeElement(_tagName: string, defaultView?: FakeDefaultView): HTMLEleme
       list.push(listener);
       listeners.set(type, list);
     },
+    removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => {
+      const list = listeners.get(type) ?? [];
+      listeners.set(type, list.filter((item) => item !== listener));
+    },
     dispatchEvent: (event: Event) => {
       for (const listener of listeners.get(event.type) ?? []) {
         if (typeof listener === "function") listener.call(element, event);
@@ -3099,6 +3268,7 @@ function fakeElement(_tagName: string, defaultView?: FakeDefaultView): HTMLEleme
     },
     getAttribute: (name: string) => attributes.get(name) ?? null,
     querySelector: () => null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 680, right: 1000, bottom: 680 }),
     remove: () => undefined
   };
   element.ownerDocument = {

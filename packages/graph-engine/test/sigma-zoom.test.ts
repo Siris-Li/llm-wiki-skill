@@ -15,7 +15,7 @@ describe("sigma zoom math", () => {
   it("keeps the zoom constants aligned with the global zoom design", () => {
     assert.equal(SIGMA_WHEEL_ZOOM_SPEED, 0.0016);
     assert.equal(SIGMA_CAMERA_MIN_RATIO, 0.3);
-    assert.equal(SIGMA_CAMERA_MAX_RATIO, 3);
+    assert.equal(SIGMA_CAMERA_MAX_RATIO, 8);
     assert.equal(SIGMA_BUTTON_ZOOM_RATIO, 1.18);
   });
 
@@ -52,7 +52,7 @@ describe("sigma zoom math", () => {
     assertClose(sigmaButtonZoomRatio(1, "in"), 1 / SIGMA_BUTTON_ZOOM_RATIO);
     assertClose(sigmaButtonZoomRatio(1, "out"), SIGMA_BUTTON_ZOOM_RATIO);
     assert.equal(sigmaButtonZoomRatio(0.31, "in"), SIGMA_CAMERA_MIN_RATIO);
-    assert.equal(sigmaButtonZoomRatio(2.9, "out"), SIGMA_CAMERA_MAX_RATIO);
+    assert.equal(sigmaButtonZoomRatio(7.9, "out"), SIGMA_CAMERA_MAX_RATIO);
   });
 });
 

@@ -68,6 +68,24 @@ describe("Sigma overlay DOM controller", () => {
     assert.equal(nodeTarget(fixture.overlayRoot, "beta")?.dataset.relationFocusDepth, "first");
   });
 
+  it("keeps every community reading node reachable through the overlay hit layer", () => {
+    const nodes = Array.from({ length: 180 }, (_, index) => (
+      nodeFixture(`node-${index}`, {
+        selected: false,
+        searchHit: false,
+        pinned: false,
+        communityId: "community-a"
+      })
+    ));
+    const data = adapterDataFixture({
+      communityMapActive: true,
+      nodes
+    });
+
+    assert.equal(sigmaOverlayNodes(data).length, nodes.length);
+    assert.equal(sigmaOverlayNodes(data).at(-1)?.id, "node-179");
+  });
+
   it("binds pointer overlay drag and clears document listeners on pointerup", () => {
     const fixture = controllerFixture();
     fixture.controller.rebuild();

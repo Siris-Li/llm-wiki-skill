@@ -68,6 +68,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   applyGraphThemeToElement(shell, options.theme);
   input.container.append(shell);
   ensureGraphRendererStyles(input.container.ownerDocument);
+  let observedViewportSize = measuredViewportSize(shell) ?? measuredViewportSize(input.container);
   let currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute(), sigmaRouteViewportSize());
   const hiddenReadingNodeHint = input.container.ownerDocument.createElement("div");
   hiddenReadingNodeHint.className = "sigma-community-hidden-node-hint";
@@ -95,6 +96,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
           onDragActiveChange: input.options.callbacks.onDragActiveChange,
           onHitTarget: handleSigmaHitTarget,
           onNodeHover: handleSigmaNodeHover,
+          onViewportSizeChange: handleSigmaViewportSizeChange,
           onFatalError: (error) => input.onSigmaUnavailable?.(error)
         });
       } catch (error) {
@@ -228,7 +230,8 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   };
 
   function updateSigmaRenderer(): void {
-    currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute(), sigmaRouteViewportSize());
+    const viewportSize = sigmaRouteViewportSize();
+    currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute(), viewportSize);
     syncHiddenReadingNodeHint();
     if (!renderer || destroyed) return;
     renderer.update({
@@ -236,12 +239,17 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       theme: options.theme,
       edgeStyle: options.edgeStyle,
       pins: options.pins,
-      viewportSize: sigmaRouteViewportSize()
+      viewportSize
     });
   }
 
   function sigmaRouteViewportSize(): RendererViewportSize | undefined {
-    return measuredViewportSize(shell) ?? measuredViewportSize(input.container);
+    return observedViewportSize ?? measuredViewportSize(shell) ?? measuredViewportSize(input.container);
+  }
+
+  function handleSigmaViewportSizeChange(size: RendererViewportSize): void {
+    observedViewportSize = size;
+    updateSigmaRenderer();
   }
 
   function updateSigmaSelection(selection: SelectionInput | null): void {

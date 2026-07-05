@@ -157,9 +157,42 @@ describe("Sigma global camera helpers", () => {
   it("computes full graph camera state and community spotlight centers", () => {
     const adapterData = adapterDataFixture();
 
-    assert.deepEqual(sigmaGlobalCameraState({}, adapterData), { x: 50, y: 50, angle: 0, ratio: 1 });
+    assert.deepEqual(sigmaGlobalCameraState({}, adapterData), { x: 30, y: 40, angle: 0, ratio: 1 });
     assert.deepEqual(sigmaCommunitySpotlightCenter(adapterData, "community-a"), { x: 20, y: 30 });
     assert.deepEqual(sigmaCommunitySpotlightCenter(adapterDataWithoutWash(), "community-a"), { x: 30, y: 40 });
+  });
+
+  it("computes full graph camera reset in Sigma camera coordinates", () => {
+    const adapterData = adapterDataFixture();
+
+    assert.deepEqual(
+      sigmaGlobalCameraState({
+        graphToViewport: () => ({ x: 900, y: -400 }),
+        viewportToFramedGraph: () => ({ x: 1200, y: -800 })
+      }, adapterData),
+      { x: 0.5, y: 0.5, angle: 0, ratio: 1 }
+    );
+  });
+
+  it("zooms out full graph camera reset when global nodes would be cropped", () => {
+    const adapterData = adapterDataFixture();
+    adapterData.nodes = [
+      nodeFixture("left", { x: -400, y: 0 }),
+      nodeFixture("right", { x: 400, y: 0 }),
+      nodeFixture("top", { x: 0, y: -260 }),
+      nodeFixture("bottom", { x: 0, y: 260 })
+    ];
+    adapterData.renderable.worldBounds = { minX: -400, maxX: 400, minY: -260, maxY: 260 };
+
+    const target = sigmaGlobalCameraState(
+      sigmaLikeWithProjection({ x: 0, y: 0, angle: 0, ratio: 1 }, { width: 500, height: 500 }),
+      adapterData,
+      { width: 500, height: 500 }
+    );
+
+    assert.equal(target.x, 0.5);
+    assert.equal(target.y, 0.5);
+    assert.ok((target.ratio ?? 1) > 2, `full graph reset should zoom out enough to fit wide nodes, got ${JSON.stringify(target)}`);
   });
 
   it("keeps drawer offset out of community reading camera targets", () => {

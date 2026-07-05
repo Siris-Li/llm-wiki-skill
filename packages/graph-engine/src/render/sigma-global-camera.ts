@@ -1,5 +1,6 @@
 import type { GraphRendererAdapterData } from "./adapter";
 import type { RendererViewportSize } from "./viewport";
+import { SIGMA_CAMERA_MAX_RATIO } from "./sigma-zoom";
 import type {
   SigmaGlobalCameraState,
   SigmaGlobalSigmaLike
@@ -144,7 +145,7 @@ function sigmaCommunityReadingCameraRatio(
   viewportSize?: RendererViewportSize
 ): number {
   const baseRatio = Math.max(baseState.ratio, 1);
-  const size = viewportSize && viewportSize.width > 0 && viewportSize.height > 0 ? viewportSize : null;
+  const size = viewportSize && viewportSize.width >= 32 && viewportSize.height >= 32 ? viewportSize : null;
   if (!size || !sigma.graphToViewport) return baseRatio;
   const points: Array<{ x: number; y: number }> = [];
   for (const node of adapterData.nodes) {
@@ -189,18 +190,137 @@ function sigmaCommunityReadingCameraRatio(
 
 export function sigmaGlobalCameraState(
   sigma: SigmaGlobalSigmaLike,
-  adapterData: GraphRendererAdapterData
+  adapterData: GraphRendererAdapterData,
+  viewportSize?: RendererViewportSize
 ): Partial<SigmaGlobalCameraState> {
-  const bounds = adapterData.renderable.worldBounds;
-  const center = sigmaGraphPointToCameraPoint(sigma, {
-    x: (finiteNumber(bounds.minX, 0) + finiteNumber(bounds.maxX, 0)) / 2,
-    y: (finiteNumber(bounds.minY, 0) + finiteNumber(bounds.maxY, 0)) / 2
-  });
-  return {
+  const graphCenter = sigmaGraphExtentCenterPoint(adapterData);
+  const center = sigma.graphToViewport
+    ? sigmaGraphPointToNormalizedCameraPoint(adapterData, graphCenter)
+    : sigmaGraphPointToCameraPoint(sigma, graphCenter);
+  const baseState = {
     x: roundNumber(center.x, 3),
     y: roundNumber(center.y, 3),
     angle: 0,
     ratio: 1
+  };
+  return {
+    ...baseState,
+    ratio: roundNumber(sigmaGlobalCameraRatio(sigma, adapterData, baseState, viewportSize), 3)
+  };
+}
+
+function sigmaGraphExtentCenterPoint(adapterData: GraphRendererAdapterData): { x: number; y: number } {
+  const points = adapterData.nodes.length > 0
+    ? adapterData.nodes.map((node) => node.point)
+    : sigmaWorldBoundsCornerPoints(adapterData);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of points) {
+    const x = finiteNumber(point.x, 0);
+    const y = finiteNumber(point.y, 0);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    const bounds = adapterData.renderable.worldBounds;
+    return {
+      x: (finiteNumber(bounds.minX, 0) + finiteNumber(bounds.maxX, 0)) / 2,
+      y: (finiteNumber(bounds.minY, 0) + finiteNumber(bounds.maxY, 0)) / 2
+    };
+  }
+  return {
+    x: (minX + maxX) / 2,
+    y: (minY + maxY) / 2
+  };
+}
+
+function sigmaGlobalCameraRatio(
+  sigma: SigmaGlobalSigmaLike,
+  adapterData: GraphRendererAdapterData,
+  baseState: SigmaGlobalCameraState,
+  viewportSize?: RendererViewportSize
+): number {
+  const size = viewportSize && viewportSize.width > 0 && viewportSize.height > 0 ? viewportSize : null;
+  if (!size || !sigma.graphToViewport) return baseState.ratio;
+  const points = adapterData.nodes.length > 0
+    ? adapterData.nodes.map((node) => node.point)
+    : sigmaWorldBoundsCornerPoints(adapterData);
+  const projected = points
+    .map((point) => sigma.graphToViewport?.(point, { cameraState: baseState }))
+    .filter((point): point is { x: number; y: number } => Boolean(point && Number.isFinite(point.x) && Number.isFinite(point.y)));
+  if (projected.length < 2) return baseState.ratio;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of projected) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+  const projectedWidth = Math.max(0, maxX - minX);
+  const projectedHeight = Math.max(0, maxY - minY);
+  const usableWidth = Math.max(1, size.width * 0.78);
+  const usableHeight = Math.max(1, size.height * 0.76);
+  return clamp(
+    Math.max(
+      baseState.ratio,
+      projectedWidth / usableWidth,
+      projectedHeight / usableHeight
+    ),
+    baseState.ratio,
+    SIGMA_CAMERA_MAX_RATIO
+  );
+}
+
+function sigmaWorldBoundsCornerPoints(adapterData: GraphRendererAdapterData): Array<{ x: number; y: number }> {
+  const bounds = adapterData.renderable.worldBounds;
+  const minX = finiteNumber(bounds.minX, 0);
+  const maxX = finiteNumber(bounds.maxX, minX);
+  const minY = finiteNumber(bounds.minY, 0);
+  const maxY = finiteNumber(bounds.maxY, minY);
+  return [
+    { x: minX, y: minY },
+    { x: maxX, y: minY },
+    { x: maxX, y: maxY },
+    { x: minX, y: maxY }
+  ];
+}
+
+function sigmaGraphPointToNormalizedCameraPoint(
+  adapterData: GraphRendererAdapterData,
+  point: { x: number; y: number }
+): { x: number; y: number } {
+  const points = adapterData.nodes.length > 0
+    ? adapterData.nodes.map((node) => node.point)
+    : sigmaWorldBoundsCornerPoints(adapterData);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const item of points) {
+    const x = finiteNumber(item.x, 0);
+    const y = finiteNumber(item.y, 0);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return point;
+  }
+  const ratio = Math.max(maxX - minX, maxY - minY, 1);
+  const centerX = (maxX + minX) / 2;
+  const centerY = (maxY + minY) / 2;
+  return {
+    x: 0.5 + (finiteNumber(point.x, centerX) - centerX) / ratio,
+    y: 0.5 + (finiteNumber(point.y, centerY) - centerY) / ratio
   };
 }
 
