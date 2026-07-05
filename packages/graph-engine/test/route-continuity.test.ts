@@ -240,11 +240,61 @@ describe("graph route state continuity", () => {
     assert.deepEqual(state.searchResultIds, []);
     assert.deepEqual(state.temporaryObject, null);
     assert.deepEqual(state.pins, { "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" } });
-    assert.deepEqual(sigmaRenderers[0].calls.slice(-3), [
+    assert.deepEqual(
+      sigmaRenderers[0].calls.filter((call) => call[0] === "clearTemporaryObjectDisplay"),
+      [["clearTemporaryObjectDisplay"]]
+    );
+    assert.deepEqual(sigmaRenderers[0].calls.slice(-4), [
       ["setSourceCommunityContext", null],
+      ["clearTemporaryObjectDisplay"],
       ["resetView"],
       ["setData", state.data, undefined]
     ]);
+  });
+
+  it("keeps dragged pins when returning global and re-entering the same community", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return trackRenderer(sigmaRenderers, "sigma-global");
+        },
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+    const draggedPins: PinMap = {
+      "wiki/a.md": { x: 88, y: 99, coordinateSpace: "world" },
+      "wiki/b.md": { x: 188, y: 199, coordinateSpace: "world" }
+    };
+
+    manager.focusCommunity("c1");
+    sigmaInputs[0].options.callbacks.onPinsChanged?.(draggedPins);
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+    manager.focusCommunity("c1");
+
+    assert.deepEqual(state.pins, draggedPins);
+    assert.deepEqual(
+      sigmaRenderers[0].calls.filter((call) => call[0] === "focusCommunity"),
+      [["focusCommunity", "c1"], ["focusCommunity", "c1"]]
+    );
   });
 
   it("clears stale temporary display state when refreshed data removes the object", () => {
@@ -286,6 +336,45 @@ describe("graph route state continuity", () => {
       ["clearTemporaryObjectDisplay"],
       ["setData", state.data, undefined]
     ]);
+  });
+
+  it("downgrades temporary aggregation state when refreshed data removes only some referenced nodes", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: () => trackRenderer(sigmaRenderers, "sigma-global"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.showTemporaryObject({ kind: "aggregation", aggregationId: "agg", nodeIds: ["a", "b"], communityId: "c1" });
+    manager.setData({
+      ...DATA,
+      nodes: DATA.nodes.filter((node) => node.id !== "b"),
+      edges: []
+    });
+
+    assert.deepEqual(state.temporaryObject, { kind: "aggregation", aggregationId: "agg", nodeIds: ["a"], communityId: "c1" });
+    assert.deepEqual(
+      sigmaRenderers[0].calls.filter((call) => call[0] === "showTemporaryObject").slice(-1),
+      [["showTemporaryObject", { kind: "aggregation", aggregationId: "agg", nodeIds: ["a"], communityId: "c1" }]]
+    );
   });
 
   it("resets all persisted pins while staying in Sigma community reading", () => {

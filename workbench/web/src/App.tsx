@@ -62,6 +62,7 @@ import {
 	graphReaderFilteredHidden,
 	graphReaderStaleAfterRefresh,
 	sameGraphDrawerTarget,
+	temporaryObjectAfterGraphDataRefresh,
 	visibilityWithTemporaryObject,
 } from "@/lib/graph-data-refresh";
 import {
@@ -431,7 +432,10 @@ function App() {
 
 	const handleGraphVisibilityChange = useCallback((state: GraphVisibilityState | null) => {
 		setGraphVisibilityState(state);
-		const effectiveState = visibilityWithTemporaryObject(state, graphTemporaryObjectRef.current ?? state?.temporaryObject ?? null);
+		const nextTemporaryObject = temporaryObjectAfterGraphDataRefresh(graphData, state?.temporaryObject ?? null);
+		graphTemporaryObjectRef.current = nextTemporaryObject;
+		setGraphTemporaryObject(nextTemporaryObject);
+		const effectiveState = visibilityWithTemporaryObject(state, nextTemporaryObject);
 		setDrawer((current) => {
 			if (current.mode === "graph-node-summary") {
 				if (
@@ -472,13 +476,16 @@ function App() {
 
 	const handleGraphDataChange = useCallback((nextData: GraphData | null) => {
 		setGraphData(nextData);
-		const effectiveState = visibilityWithTemporaryObject(graphVisibilityState, graphTemporaryObjectRef.current);
+		const nextTemporaryObject = temporaryObjectAfterGraphDataRefresh(nextData, graphTemporaryObjectRef.current);
+		graphTemporaryObjectRef.current = nextTemporaryObject;
+		setGraphTemporaryObject(nextTemporaryObject);
+		const effectiveState = visibilityWithTemporaryObject(graphVisibilityState, nextTemporaryObject);
 		setDrawer((current) => {
 			if (graphReaderStaleAfterRefresh(current, nextData, effectiveState)) clearStaleGraphReaderFocus();
 			const next = drawerAfterGraphDataRefresh(current, nextData, {
 				pins: graphPins,
 				visibility: graphVisibilityState,
-				temporaryObject: graphTemporaryObjectRef.current,
+				temporaryObject: nextTemporaryObject,
 			});
 			return sameGraphDrawerTarget(current, next) ? current : next;
 		});
@@ -708,14 +715,17 @@ function App() {
 	}, [graphData, graphPins, graphVisibilityState, handleOpenGraphPage]);
 
 	useEffect(() => {
-		const effectiveState = visibilityWithTemporaryObject(graphVisibilityState, graphTemporaryObjectRef.current);
+		const nextTemporaryObject = temporaryObjectAfterGraphDataRefresh(graphData, graphTemporaryObjectRef.current);
+		graphTemporaryObjectRef.current = nextTemporaryObject;
+		setGraphTemporaryObject(nextTemporaryObject);
+		const effectiveState = visibilityWithTemporaryObject(graphVisibilityState, nextTemporaryObject);
 		setDrawer((current) => {
 			if (!isGraphInteractionDrawer(current)) return current;
 			if (graphReaderStaleAfterRefresh(current, graphData, effectiveState)) clearStaleGraphReaderFocus();
 			return drawerAfterGraphDataRefresh(current, graphData, {
 				pins: graphPins,
 				visibility: graphVisibilityState,
-				temporaryObject: graphTemporaryObjectRef.current,
+				temporaryObject: nextTemporaryObject,
 			});
 		});
 	}, [clearStaleGraphReaderFocus, graphData, graphPins, graphVisibilityState]);

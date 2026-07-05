@@ -79,6 +79,24 @@ export function visibilityWithTemporaryObject(
 	};
 }
 
+export function temporaryObjectAfterGraphDataRefresh(
+	data: GraphData | null,
+	object: GraphSummaryObjectRef | null,
+): GraphSummaryObjectRef | null {
+	if (!data || !object) return null;
+	if (object.kind === "node") {
+		return data.nodes.some((node) => node.id === object.nodeId) ? object : null;
+	}
+	if (object.kind === "community") {
+		return graphDataHasCommunity(data, object.communityId) ? object : null;
+	}
+	const nodeIds = new Set(data.nodes.map((node) => node.id));
+	const survivingNodeIds = object.nodeIds.filter((nodeId) => nodeIds.has(nodeId));
+	if (survivingNodeIds.length === 0) return null;
+	if (survivingNodeIds.length === object.nodeIds.length) return object;
+	return { ...object, nodeIds: survivingNodeIds };
+}
+
 export function graphReaderFilteredHidden(nodeId: string, state: GraphVisibilityState | null): boolean {
 	return state?.hiddenReadingNodeId === nodeId;
 }
@@ -103,7 +121,17 @@ export function drawerAfterGraphDataRefresh(
 		temporaryObject: GraphSummaryObjectRef | null;
 	},
 ): DrawerState {
-	const visibility = visibilityWithTemporaryObject(options.visibility, options.temporaryObject);
+	const temporaryObject = temporaryObjectAfterGraphDataRefresh(data, options.temporaryObject);
+	const visibility = visibilityWithTemporaryObject(options.visibility, temporaryObject);
+	const missingFocusedCommunityId = focusedCommunityMissingAfterRefresh(data, options.visibility);
+	if (missingFocusedCommunityId) {
+		return drawerForUnavailableGraphObject(data, { kind: "community", communityId: missingFocusedCommunityId }, "missing-community", current, {
+			pins: options.pins,
+			selection: { kind: "community", id: missingFocusedCommunityId },
+			searchResultIds: visibility?.searchResultIds ?? [],
+			temporaryObject: visibility?.temporaryObject ?? null,
+		});
+	}
 	if (current.mode === "graph-reader") {
 		if (graphReaderStaleAfterRefresh(current, data, visibility)) return closedDrawer();
 		return {
@@ -146,6 +174,17 @@ export function drawerAfterGraphDataRefresh(
 		});
 	}
 	return current;
+}
+
+function focusedCommunityMissingAfterRefresh(data: GraphData | null, visibility: GraphVisibilityState | null): string | null {
+	const communityId = visibility?.focusCommunityId ?? null;
+	if (!data || !communityId) return null;
+	return graphDataHasCommunity(data, communityId) ? null : communityId;
+}
+
+function graphDataHasCommunity(data: GraphData, communityId: string): boolean {
+	if (data.nodes.some((node) => node.community === communityId)) return true;
+	return (data.learning?.communities ?? []).some((community) => community.id === communityId);
 }
 
 function graphSummaryCommandSignature(commands: readonly GraphSummaryCommand[]): string {
