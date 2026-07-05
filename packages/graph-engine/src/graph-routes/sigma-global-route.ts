@@ -61,7 +61,7 @@ export function sigmaCommunityReadingHitActionForSigmaHit(
   target: GraphGestureTarget,
   context: SigmaGlobalHitContext
 ): SigmaCommunityReadingHitAction {
-  if (target.kind === "graph-blank") return { kind: "clear" };
+  if (target.kind === "graph-blank" || target.kind === "community-wash") return { kind: "clear" };
   if (target.kind !== "node" || !target.id) return { kind: "none" };
   if (!context.additive) {
     return {

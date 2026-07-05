@@ -55,7 +55,7 @@ import {
 } from "@/lib/drawer-state";
 import type { GraphReaderActionId } from "@/lib/graph-reader";
 import { buildSelectionPromptPayload } from "@/lib/graph-selection";
-import { graphCloseCommandForDrawer } from "@/lib/graph-drawer-close";
+import { graphCloseCommandForDrawer, shouldCloseDrawerAfterGraphSelectionClear } from "@/lib/graph-drawer-close";
 import {
 	drawerAfterGraphDataRefresh,
 	drawerForGraphNodeVisibility,
@@ -417,7 +417,7 @@ function App() {
 
 	const handleGraphSelectionChange = useCallback((selection: Selection | null) => {
 		if (!selection) {
-			setDrawer((current) => isGraphInteractionDrawer(current) ? closedDrawer() : current);
+			setDrawer((current) => shouldCloseDrawerAfterGraphSelectionClear(current) ? closedDrawer() : current);
 			return;
 		}
 		if (drawer.mode === "graph-reader" && selection.nodeIds.length === 1 && drawer.payload.node.id === selection.nodeIds[0]) {

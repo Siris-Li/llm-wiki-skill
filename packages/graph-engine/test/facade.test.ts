@@ -1484,6 +1484,19 @@ describe("selectionInputForSigmaHit", () => {
       }
     );
   });
+
+  it("treats Sigma community-reading background hits as a clear action", () => {
+    const data = sigmaHitGraph();
+
+    assert.deepEqual(
+      sigmaCommunityReadingHitActionForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "graph-blank" }, { additive: false }),
+      { kind: "clear" }
+    );
+    assert.deepEqual(
+      sigmaCommunityReadingHitActionForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "community-wash", id: "alpha" }, { additive: false }),
+      { kind: "clear" }
+    );
+  });
 });
 
 function sigmaHitGraph(): GraphData {

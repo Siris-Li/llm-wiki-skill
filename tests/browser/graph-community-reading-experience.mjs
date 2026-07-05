@@ -93,6 +93,7 @@ async function runViewport(viewport, label, options) {
 async function runFullDesktopPath(page, community) {
   const beforeSearch = await communityReadingSnapshot(page, community);
   const hoverFocus = await hoverRelationFocus(page, "dense-overview", "dense-source-1");
+  const nearNodeBlankClick = await clickNearNodeBlankClosesReader(page);
 
   await setGraphSearchQuery(page, "实践案例");
   await page.waitForFunction(() => document.querySelector(".graph-search-status")?.textContent?.includes("1 个结果"));
@@ -142,7 +143,7 @@ async function runFullDesktopPath(page, community) {
   assert.equal(returned.searchQuery, "", "returning global should clear community-local search");
   assert.equal(returned.typeFiltersActive, false, "returning global should clear community-local type filters");
 
-  return { beforeSearch, hoverFocus, afterSearchActivation, hiddenByFilter, drag, afterDrag, afterReset, returned };
+  return { beforeSearch, hoverFocus, nearNodeBlankClick, afterSearchActivation, hiddenByFilter, drag, afterDrag, afterReset, returned };
 }
 
 async function openWorkbenchGraphPage(viewport) {
@@ -573,6 +574,58 @@ async function hoverRelationFocus(page, focusNodeId, firstNeighborId) {
       firstNeighborDepth: node(firstNeighborId)?.getAttribute("data-relation-focus-depth") || ""
     };
   }, { focusNodeId, firstNeighborId });
+}
+
+async function clickNearNodeBlankClosesReader(page) {
+  const point = await nearNodeBlankPoint(page);
+  await page.locator(`.sigma-global-node-hit-target[data-node-id="${cssString(point.nodeId)}"]`).click({ force: true });
+  await page.waitForSelector(".graph-reader-drawer");
+
+  await page.mouse.click(point.blank.x, point.blank.y);
+  await page.waitForFunction(() => !document.querySelector(".graph-reader-drawer"));
+  const hit = await lastSigmaHit(page);
+
+  assert.notEqual(hit.kind, "node", "clicking just outside a visible node target should not reopen node reading");
+  return { nodeId: point.nodeId, blank: point.blank, hit };
+}
+
+async function nearNodeBlankPoint(page) {
+  return page.evaluate(() => {
+    const candidates = [...document.querySelectorAll(".sigma-global-node-hit-target")]
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          element,
+          rect,
+          nodeId: element.getAttribute("data-node-id") || ""
+        };
+      })
+      .filter(({ rect, nodeId }) => nodeId && rect.width > 0 && rect.height > 0 && rect.width <= 24 && rect.height <= 24);
+
+    for (const { rect, nodeId } of candidates) {
+      const centerY = rect.top + rect.height / 2;
+      const points = [
+        { x: rect.right + 2, y: centerY },
+        { x: rect.left - 2, y: centerY },
+        { x: rect.left + rect.width / 2, y: rect.bottom + 2 },
+        { x: rect.left + rect.width / 2, y: rect.top - 2 }
+      ];
+      for (const point of points) {
+        const hit = document.elementFromPoint(point.x, point.y);
+        if (!hit || hit.closest?.(".sigma-global-node-hit-target, .graph-toolbar, .graph-search, .drawer-panel-open")) continue;
+        return {
+          nodeId,
+          blank: {
+            x: point.x,
+            y: point.y,
+            hitTag: hit.tagName || "",
+            hitClass: typeof hit.className === "string" ? hit.className : String(hit.className || "")
+          }
+        };
+      }
+    }
+    throw new Error("Could not find a near-node blank point beside a compact community node");
+  });
 }
 
 async function sigmaSnapshot(page) {

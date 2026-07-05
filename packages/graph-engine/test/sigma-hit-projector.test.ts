@@ -49,6 +49,35 @@ describe("Sigma hit projector", () => {
     );
   });
 
+  it("does not turn community-reading canvas point fallback into node clicks", () => {
+    const base = adapterDataFixture();
+    const projector = createSigmaGlobalHitProjector(projectorInput({
+      adapterData: {
+        ...base,
+        renderable: {
+          ...base.renderable,
+          communityMap: {
+            active: true,
+            sourceCommunityId: "community-a",
+            motionMode: "frozen",
+            maxNodeDriftRatio: 0,
+            current: null,
+            rulesByCommunityId: {}
+          }
+        }
+      }
+    }));
+
+    assert.deepEqual(
+      projector.targetFromSigmaHit({ screenPoint: { x: 10, y: 10 } }),
+      { kind: "graph-blank" }
+    );
+    assert.deepEqual(
+      projector.targetFromSigmaHit({ nodeId: "alpha", screenPoint: { x: 10, y: 10 } }),
+      { kind: "node", id: "alpha" }
+    );
+  });
+
   it("translates rendered objects into graph gesture targets", () => {
     const adapterData = adapterDataFixture();
 

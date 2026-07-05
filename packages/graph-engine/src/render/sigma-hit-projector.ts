@@ -52,6 +52,9 @@ export function createSigmaGlobalHitProjector(input: SigmaGlobalHitProjectorInpu
               input.adapterData.renderable.worldBounds
             );
         const target = graphSpatialHitToGestureTarget(spatialIndex.hitTest(worldPoint));
+        if (input.adapterData.renderable.communityMap?.active && target.kind === "node") {
+          return { kind: "graph-blank" };
+        }
         if (
           target.kind === "community-wash" &&
           input.adapterData.sourceCommunityId &&
