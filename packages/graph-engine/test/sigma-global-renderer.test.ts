@@ -7,6 +7,7 @@ import {
   SIGMA_GLOBAL_RENDERER_BUNDLE_BOUNDARY,
   SIGMA_GLOBAL_RENDERER_ROUTE_MANAGER_OWNER,
   createSigmaGlobalRenderer,
+  drawSigmaReadingAwareNodeLabel,
   type SigmaGlobalGraphologyGraph,
   type SigmaGlobalRendererRuntime,
   type SigmaGlobalSigmaLike,
@@ -48,6 +49,48 @@ describe("Sigma global renderer production boundary", () => {
       () => createSigmaGlobalRenderer({} as never),
       /container|runtime/
     );
+  });
+
+  it("draws Sigma node labels to the left when a right-side label would be clipped", () => {
+    const context = fakeLabelContext(220);
+
+    drawSigmaReadingAwareNodeLabel(
+      context,
+      { x: 190, y: 80, size: 10, label: "右侧标签", color: "#123456" },
+      {
+        labelSize: 14,
+        labelFont: "Inter",
+        labelWeight: "600",
+        labelColor: { color: "#6b6256" }
+      }
+    );
+
+    assert.deepEqual(context.fillTextCalls, [
+      { text: "右侧标签", x: 137, y: 84.667 }
+    ]);
+  });
+
+  it("keeps normal Sigma node labels on the right side", () => {
+    const context = fakeLabelContext(320);
+
+    drawSigmaReadingAwareNodeLabel(
+      context,
+      { x: 80, y: 60, size: 10, label: "普通标签", color: "#123456" },
+      {
+        labelSize: 14,
+        labelFont: "Inter",
+        labelWeight: "600",
+        labelColor: { color: "#6b6256" }
+      }
+    );
+
+    assert.deepEqual(context.fillTextCalls, [
+      { text: "普通标签", x: 93, y: 64.667 }
+    ]);
+  });
+
+  it("uses the clipping-aware node label renderer in Sigma settings", () => {
+    assert.equal(sigmaSettingsForTheme("shan-shui").defaultDrawNodeLabel, drawSigmaReadingAwareNodeLabel);
   });
 
   it("builds a Graphology render graph entirely from adapter output", () => {
@@ -1553,6 +1596,30 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("uses updated viewport size for Sigma community reading camera updates", () => {
+    const runtime = fakeRuntime();
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture({ selectedCommunityIds: [] }),
+      theme: "shan-shui",
+      runtime,
+      viewportSize: { width: 1600, height: 900 }
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.update({
+      adapterData: wideCommunityReadingAdapterDataFixture(),
+      viewportSize: { width: 390, height: 844 }
+    });
+
+    assert.ok(
+      (sigma.camera.activeAnimationTarget?.ratio ?? 0) > 2,
+      `narrow community reading should zoom out with the updated viewport size, got ${JSON.stringify(sigma.camera.activeAnimationTarget)}`
+    );
+
+    renderer.destroy();
+  });
+
   it("sets the Sigma camera instantly when reduced motion is requested", () => {
     const runtime = fakeRuntime({ worldScale: 200 });
     const renderer = createSigmaGlobalRenderer({
@@ -2422,6 +2489,42 @@ function communityReadingAdapterDataFixture(options: {
   };
 }
 
+function wideCommunityReadingAdapterDataFixture(): GraphRendererAdapterData {
+  const data = communityReadingAdapterDataFixture();
+  const nextNodes = data.nodes.map((node) => node.id === "render-alpha"
+    ? { ...node, point: { x: -400, y: 0 } }
+    : node.id === "render-beta"
+    ? { ...node, point: { x: 400, y: 0 } }
+    : node);
+  const current = data.renderable.communityMap.current;
+  return {
+    ...data,
+    nodes: nextNodes,
+    renderable: {
+      ...data.renderable,
+      communityMap: {
+        ...data.renderable.communityMap,
+        current: current
+          ? {
+              ...current,
+              nodeRulesById: Object.fromEntries(nextNodes.map((node) => [
+                node.id,
+                {
+                  ...current.nodeRulesById[node.id],
+                  basePoint: node.point
+                }
+              ])),
+              layout: {
+                ...current.layout,
+                bounds: { minX: -400, minY: 0, maxX: 400, maxY: 0, width: 800, height: 0 }
+              }
+            }
+          : current
+      }
+    }
+  };
+}
+
 function adapterDataWithAddedNodeAndEdge(data: GraphRendererAdapterData = adapterDataFixture()): GraphRendererAdapterData {
   const seedNode = data.nodes[0];
   const seedEdge = data.edges[0];
@@ -2798,6 +2901,32 @@ function sigmaCommunityCloudShape(renderer: { overlayRoot: HTMLElement & { child
 
 function sigmaCommunityRegion(renderer: { overlayRoot: HTMLElement & { children: HTMLElement[] } }, communityId: string): HTMLElement | undefined {
   return renderer.overlayRoot.children.find((child) => child.dataset.communityId === communityId);
+}
+
+function fakeLabelContext(width: number): CanvasRenderingContext2D & {
+  fillTextCalls: Array<{ text: string; x: number; y: number }>;
+} {
+  const fillTextCalls: Array<{ text: string; x: number; y: number }> = [];
+  return {
+    canvas: {
+      clientWidth: width,
+      width,
+      getBoundingClientRect: () => ({ width })
+    },
+    fillStyle: "",
+    font: "",
+    measureText: (text: string) => ({ width: text.length * 10 }),
+    fillText: (text: string, x: number, y: number) => {
+      fillTextCalls.push({ text, x: roundLabelTestNumber(x), y: roundLabelTestNumber(y) });
+    },
+    fillTextCalls
+  } as unknown as CanvasRenderingContext2D & {
+    fillTextCalls: Array<{ text: string; x: number; y: number }>;
+  };
+}
+
+function roundLabelTestNumber(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 function densePointMapGraph(): GraphData {

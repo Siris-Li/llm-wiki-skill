@@ -158,23 +158,21 @@ async function graphBlankPoint(page) {
     const host = document.querySelector(".sigma-global-route") || document.querySelector(".graph-host");
     if (!host) throw new Error("Missing Sigma global route for blank click");
     const rect = host.getBoundingClientRect();
-    const candidates = [
-      [0.08, 0.12],
-      [0.92, 0.12],
-      [0.08, 0.88],
-      [0.92, 0.88],
-      [0.5, 0.08],
-      [0.5, 0.92]
-    ];
+    const candidates = [];
+    for (const rx of [0.08, 0.18, 0.28, 0.38, 0.5, 0.62, 0.74, 0.86, 0.94]) {
+      for (const ry of [0.1, 0.2, 0.32, 0.44, 0.56, 0.68, 0.8, 0.9]) {
+        candidates.push([rx, ry]);
+      }
+    }
     for (const [rx, ry] of candidates) {
       const x = rect.left + rect.width * rx;
       const y = rect.top + rect.height * ry;
       const hit = document.elementFromPoint(x, y);
-      if (!hit?.closest?.(".drawer-panel-open, .drawer-panel, .sigma-global-community-region, .sigma-global-node-hit-target, .sigma-global-community-label, .sigma-global-aggregation-container")) {
+      if (!hit?.closest?.(".drawer-panel-open, .drawer-panel, .sigma-global-community-region, .sigma-global-node-hit-target, .sigma-global-community-label, .sigma-global-aggregation-container, .graph-toolbar, .graph-search")) {
         return { x, y };
       }
     }
-    return { x: rect.left + 12, y: rect.top + 12 };
+    throw new Error("Could not find a graph blank point outside communities, nodes, labels, and controls");
   });
 }
 

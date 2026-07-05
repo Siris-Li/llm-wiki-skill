@@ -8,6 +8,14 @@ export interface SigmaCommunityCloud {
   localPoints: Array<{ x: number; y: number }> | null;
 }
 
+export interface SigmaCommunityCloudOptions {
+  minBoxWidth?: number;
+  minBoxHeight?: number;
+}
+
+export const SIGMA_READING_COMMUNITY_CLOUD_MIN_WIDTH = 96;
+export const SIGMA_READING_COMMUNITY_CLOUD_MIN_HEIGHT = 72;
+
 export interface SigmaCommunityCloudBasis {
   hullPoints: Array<{ x: number; y: number }>;
   signature: string;
@@ -112,7 +120,8 @@ export function clampPointToWorldEllipse(
 
 export function sigmaCommunityCloud(
   screenHullPoints: GraphScreenPoint[],
-  fallbackBox: { left: number; top: number; width: number; height: number }
+  fallbackBox: { left: number; top: number; width: number; height: number },
+  options: SigmaCommunityCloudOptions = {}
 ): SigmaCommunityCloud {
   const hull = screenHullPoints;
   if (hull.length >= 3) {
@@ -132,10 +141,51 @@ export function sigmaCommunityCloud(
       maxX = Math.max(maxX, p.x);
       maxY = Math.max(maxY, p.y);
     }
-    const box = { left: minX, top: minY, width: Math.max(8, maxX - minX), height: Math.max(8, maxY - minY) };
+    const box = expandScreenBox({
+      left: minX,
+      top: minY,
+      width: Math.max(8, maxX - minX),
+      height: Math.max(8, maxY - minY)
+    }, options);
     return { box, localPoints: expanded.map((p) => ({ x: p.x - box.left, y: p.y - box.top })) };
   }
-  return { box: fallbackBox, localPoints: null };
+  if (hull.length > 0) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of hull) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+    return {
+      box: expandScreenBox({
+        left: minX,
+        top: minY,
+        width: Math.max(8, maxX - minX),
+        height: Math.max(8, maxY - minY)
+      }, options),
+      localPoints: null
+    };
+  }
+  return { box: expandScreenBox(fallbackBox, options), localPoints: null };
+}
+
+export function expandScreenBox(
+  box: { left: number; top: number; width: number; height: number },
+  options: SigmaCommunityCloudOptions = {}
+): { left: number; top: number; width: number; height: number } {
+  const width = Math.max(box.width, finitePositiveNumber(options.minBoxWidth, box.width));
+  const height = Math.max(box.height, finitePositiveNumber(options.minBoxHeight, box.height));
+  if (width === box.width && height === box.height) return box;
+  return {
+    left: box.left + box.width / 2 - width / 2,
+    top: box.top + box.height / 2 - height / 2,
+    width,
+    height
+  };
 }
 
 export function clampPointToScreenEllipse(
@@ -175,4 +225,8 @@ export function convexHull2d(points: GraphScreenPoint[]): GraphScreenPoint[] {
   lower.pop();
   upper.pop();
   return lower.concat(upper);
+}
+
+function finitePositiveNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }

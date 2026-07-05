@@ -2,6 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  SIGMA_READING_COMMUNITY_CLOUD_MIN_HEIGHT,
+  SIGMA_READING_COMMUNITY_CLOUD_MIN_WIDTH,
   clampPointToScreenEllipse,
   clampPointToWorldEllipse,
   convexHull2d,
@@ -82,5 +84,38 @@ describe("community cloud geometry", () => {
     assert.ok(cloud.localPoints);
     assert.equal(cloud.localPoints?.length, 3);
     assert.ok(cloud.box.width >= 8 && cloud.box.height >= 8);
+  });
+
+  it("keeps near-linear community-reading clouds visibly readable", () => {
+    const cloud = sigmaCommunityCloud(
+      [{ x: 0, y: 1 }, { x: 130, y: 0 }, { x: 260, y: 2 }],
+      { left: -20, top: -20, width: 300, height: 40 },
+      {
+        minBoxWidth: SIGMA_READING_COMMUNITY_CLOUD_MIN_WIDTH,
+        minBoxHeight: SIGMA_READING_COMMUNITY_CLOUD_MIN_HEIGHT
+      }
+    );
+
+    assert.ok(cloud.localPoints);
+    assert.equal(cloud.box.height, SIGMA_READING_COMMUNITY_CLOUD_MIN_HEIGHT);
+    assert.ok(cloud.box.width >= SIGMA_READING_COMMUNITY_CLOUD_MIN_WIDTH);
+    assert.ok(cloud.box.top < 0, "the expanded cloud should grow around the thin hull");
+  });
+
+  it("does not inflate two-point community-reading clouds to an oversized fallback box", () => {
+    const cloud = sigmaCommunityCloud(
+      [{ x: 210, y: 220 }, { x: 250, y: 230 }],
+      { left: -30000, top: -30000, width: 60000, height: 60000 },
+      {
+        minBoxWidth: SIGMA_READING_COMMUNITY_CLOUD_MIN_WIDTH,
+        minBoxHeight: SIGMA_READING_COMMUNITY_CLOUD_MIN_HEIGHT
+      }
+    );
+
+    assert.equal(cloud.localPoints, null);
+    assert.equal(cloud.box.width, SIGMA_READING_COMMUNITY_CLOUD_MIN_WIDTH);
+    assert.equal(cloud.box.height, SIGMA_READING_COMMUNITY_CLOUD_MIN_HEIGHT);
+    assert.ok(cloud.box.left > 150);
+    assert.ok(cloud.box.top > 180);
   });
 });

@@ -653,6 +653,7 @@ function App() {
 			return;
 		}
 		if (command.kind === "enter-community") {
+			setDrawer(closedDrawer());
 			setSelectionCommand({ id: command.communityId, type: "enter-community" });
 			return;
 		}

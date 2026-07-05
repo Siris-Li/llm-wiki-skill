@@ -1,4 +1,5 @@
 import type { GraphRendererAdapterData } from "./adapter";
+import type { RendererViewportSize } from "./viewport";
 import type {
   SigmaGlobalCameraState,
   SigmaGlobalSigmaLike
@@ -47,6 +48,7 @@ export function maybeAnimateSigmaCommunitySpotlightCamera(
   adapterData: GraphRendererAdapterData,
   communityId: string | null,
   previousCommunityId: string | null,
+  viewportSize?: RendererViewportSize,
   onAnimationError?: (error: unknown) => void
 ): SigmaCommunitySpotlightCameraResult {
   if (!communityId) {
@@ -55,7 +57,7 @@ export function maybeAnimateSigmaCommunitySpotlightCamera(
   if (communityId === previousCommunityId) {
     return { communityId, movement: "skipped", skipReason: "already-settled" };
   }
-  const target = sigmaCommunitySpotlightCameraState(sigma, adapterData, communityId);
+  const target = sigmaCommunitySpotlightCameraState(sigma, adapterData, communityId, viewportSize);
   if (!target) {
     return { communityId, movement: "skipped", skipReason: "no-target" };
   }
@@ -96,14 +98,16 @@ export function moveSigmaCamera(
 export function sigmaCommunitySpotlightCameraState(
   sigma: SigmaGlobalSigmaLike,
   adapterData: GraphRendererAdapterData,
-  communityId: string
+  communityId: string,
+  viewportSize?: RendererViewportSize
 ): Partial<SigmaGlobalCameraState> | null {
   const current = readCameraState(sigma) ?? { x: 0, y: 0, angle: 0, ratio: 1 };
   const center = sigmaCommunitySpotlightCenter(adapterData, communityId);
   if (!center) return null;
+  const communityReading = adapterData.renderable.communityMap?.active === true;
   const bounds = adapterData.renderable.worldBounds;
   const worldWidth = Math.max(0, finiteNumber(bounds.maxX, center.x) - finiteNumber(bounds.minX, center.x));
-  const drawerOffset = worldWidth * 0.08;
+  const drawerOffset = communityReading ? 0 : worldWidth * 0.08;
   const graphTargetPoint = { x: center.x + drawerOffset, y: center.y };
   const targetPoint = sigmaGraphPointToCameraPoint(sigma, graphTargetPoint);
   const targetX = roundNumber(targetPoint.x, 3);
@@ -115,13 +119,72 @@ export function sigmaCommunitySpotlightCameraState(
     x: targetX,
     y: targetY,
     angle: current.angle,
-    ratio: positionSettled || current.ratio <= 0.9
+    ratio: communityReading
+      ? roundNumber(sigmaCommunityReadingCameraRatio(
+          sigma,
+          adapterData,
+          communityId,
+          { x: targetX, y: targetY, angle: current.angle, ratio: Math.max(current.ratio, 1) },
+          viewportSize
+        ), 3)
+      : positionSettled || current.ratio <= 0.9
       ? current.ratio
       : roundNumber(clamp(current.ratio * 0.92, 0.72, current.ratio), 3)
   };
   const settled = positionSettled
     && Math.abs(current.ratio - target.ratio) <= 0.025;
   return settled ? null : target;
+}
+
+function sigmaCommunityReadingCameraRatio(
+  sigma: SigmaGlobalSigmaLike,
+  adapterData: GraphRendererAdapterData,
+  communityId: string,
+  baseState: SigmaGlobalCameraState,
+  viewportSize?: RendererViewportSize
+): number {
+  const baseRatio = Math.max(baseState.ratio, 1);
+  const size = viewportSize && viewportSize.width > 0 && viewportSize.height > 0 ? viewportSize : null;
+  if (!size || !sigma.graphToViewport) return baseRatio;
+  const points: Array<{ x: number; y: number }> = [];
+  for (const node of adapterData.nodes) {
+    if (node.communityId !== communityId) continue;
+    const point = sigma.graphToViewport(node.point, { cameraState: baseState });
+    if (Number.isFinite(point.x) && Number.isFinite(point.y)) points.push(point);
+  }
+  if (points.length < 2) return baseRatio;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of points) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+  const projectedWidth = Math.max(0, maxX - minX);
+  const projectedHeight = Math.max(0, maxY - minY);
+  const maxReadableWidth = size.width * 0.72;
+  const maxReadableHeight = size.height * 0.68;
+  const minReadableWidth = Math.min(maxReadableWidth, Math.max(180, size.width * 0.28));
+  const minReadableHeight = Math.min(maxReadableHeight, Math.max(140, size.height * 0.22));
+  const minRatio = 0.3;
+  const maxRatio = 3;
+  const lowerBound = Math.max(
+    minRatio,
+    maxReadableWidth > 0 ? baseRatio * projectedWidth / maxReadableWidth : minRatio,
+    maxReadableHeight > 0 ? baseRatio * projectedHeight / maxReadableHeight : minRatio
+  );
+  let upperBound = maxRatio;
+  if (projectedWidth > 0 && projectedWidth < minReadableWidth) {
+    upperBound = Math.min(upperBound, baseRatio * projectedWidth / minReadableWidth);
+  }
+  if (projectedHeight > 0 && projectedHeight < minReadableHeight) {
+    upperBound = Math.min(upperBound, baseRatio * projectedHeight / minReadableHeight);
+  }
+  if (upperBound < lowerBound) return roundNumber(lowerBound, 3);
+  return clamp(baseRatio, roundNumber(lowerBound, 3), roundNumber(upperBound, 3));
 }
 
 export function sigmaGlobalCameraState(
@@ -172,6 +235,11 @@ export function sigmaCommunitySpotlightCenter(
   adapterData: GraphRendererAdapterData,
   communityId: string
 ): { x: number; y: number } | null {
+  const communityReadingCenter = adapterData.renderable.communityMap?.active
+    ? sigmaCommunityNodeCenter(adapterData, communityId)
+    : null;
+  if (communityReadingCenter) return communityReadingCenter;
+
   const renderableCommunity = adapterData.renderable.communities.find((community) => community.id === communityId);
   if (renderableCommunity?.wash) {
     return {
@@ -179,6 +247,13 @@ export function sigmaCommunitySpotlightCenter(
       y: finiteNumber(renderableCommunity.wash.cy, 0)
     };
   }
+  return sigmaCommunityNodeCenter(adapterData, communityId);
+}
+
+function sigmaCommunityNodeCenter(
+  adapterData: GraphRendererAdapterData,
+  communityId: string
+): { x: number; y: number } | null {
   const nodes = adapterData.nodes.filter((node) => node.communityId === communityId);
   if (nodes.length === 0) return null;
   const sum = nodes.reduce((acc, node) => ({

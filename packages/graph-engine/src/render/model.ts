@@ -451,7 +451,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const focusedCommunityNodeCount = focus?.kind === "community" ? model.nodes.filter((node) => node.community === focus.id).length : 0;
   const communityFocus = resolveCommunityFocusScale(focus, focusedCommunityNodeCount);
   const communityQuality = evaluateCommunityQuality(data);
-  const budgetLimits = resolveGraphRenderBudget(focus, focusedCommunityNodeCount);
+  const budgetLimits = resolveGraphRenderBudget(focus, focusedCommunityNodeCount, options.viewportSize);
   const budgetView: GraphRenderBudgetView = focus?.kind === "community" ? "community" : "global";
   const typeFilters = normalizeGraphTypeFilters(options.typeFilters, model.nodes);
   const visible = resolveAtlasVisibleSnapshot(model, layout, {
@@ -1056,9 +1056,17 @@ function aggregationContainerRadius(nodeCount: number): number {
   return round(Math.max(34, Math.min(88, 28 + Math.sqrt(Math.max(1, nodeCount)) * 7)));
 }
 
-export function resolveGraphRenderBudget(focus: GraphFocusInput, focusedCommunityNodeCount = 0): GraphRenderBudgetLimits {
+export function resolveGraphRenderBudget(
+  focus: GraphFocusInput,
+  focusedCommunityNodeCount = 0,
+  viewportSize?: { width: number; height: number }
+): GraphRenderBudgetLimits {
   if (focus?.kind !== "community") return { ...GRAPH_RENDER_BUDGETS.global };
-  return { ...GRAPH_COMMUNITY_FOCUS_BUDGETS[communityFocusSizeBand(focusedCommunityNodeCount)] };
+  const budget = { ...GRAPH_COMMUNITY_FOCUS_BUDGETS[communityFocusSizeBand(focusedCommunityNodeCount)] };
+  if (!viewportSize || viewportSize.width <= 0 || viewportSize.height <= 0) return budget;
+  if (viewportSize.width <= 430) return { ...budget, maxLabels: Math.min(budget.maxLabels, 2) };
+  if (viewportSize.width <= 640) return { ...budget, maxLabels: Math.min(budget.maxLabels, 4) };
+  return budget;
 }
 
 export function resolveCommunityFocusScale(focus: GraphFocusInput, focusedCommunityNodeCount: number): GraphCommunityFocusScale | null {

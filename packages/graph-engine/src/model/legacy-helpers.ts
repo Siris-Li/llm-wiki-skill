@@ -1102,10 +1102,45 @@
       });
       var center = centers[(communityIndex[communityId] || 0) % centers.length];
       var count = grouped[communityId].length;
+      var explicitNodes = grouped[communityId].filter(function (node) {
+        return node.x != null && node.y != null && Number.isFinite(Number(node.x)) && Number.isFinite(Number(node.y));
+      });
+      var rawBounds = explicitNodes.reduce(function (bounds, node) {
+        var x = Number(node.x);
+        var y = Number(node.y);
+        return {
+          minX: Math.min(bounds.minX, x),
+          minY: Math.min(bounds.minY, y),
+          maxX: Math.max(bounds.maxX, x),
+          maxY: Math.max(bounds.maxY, y)
+        };
+      }, { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+      var rawWidth = Math.max(0, rawBounds.maxX - rawBounds.minX);
+      var rawHeight = Math.max(0, rawBounds.maxY - rawBounds.minY);
+      var shouldNormalizeExplicitShape = explicitNodes.length === grouped[communityId].length
+        && explicitNodes.length > 1
+        && (rawWidth > 0 || rawHeight > 0)
+        && explicitNodes.some(function (node) {
+          return Number(node.x) < 5 || Number(node.x) > 95 || Number(node.y) < 8 || Number(node.y) > 92;
+        });
+      var rawCenterX = (rawBounds.minX + rawBounds.maxX) / 2;
+      var rawCenterY = (rawBounds.minY + rawBounds.maxY) / 2;
+      var relativeScale = shouldNormalizeExplicitShape
+        ? Math.min(
+          1,
+          rawWidth > 0 ? 62 / rawWidth : 1,
+          rawHeight > 0 ? 54 / rawHeight : 1
+        )
+        : 1;
       grouped[communityId].forEach(function (node, index) {
         if (node.x != null && node.y != null && Number.isFinite(Number(node.x)) && Number.isFinite(Number(node.y))) {
-          node.x = clampAtlasNumber(node.x, center.x, 5, 95);
-          node.y = clampAtlasNumber(node.y, center.y, 8, 92);
+          if (shouldNormalizeExplicitShape) {
+            node.x = clampAtlasNumber(center.x + (Number(node.x) - rawCenterX) * relativeScale, center.x, 5, 95);
+            node.y = clampAtlasNumber(center.y + (Number(node.y) - rawCenterY) * relativeScale, center.y, 8, 92);
+          } else {
+            node.x = clampAtlasNumber(node.x, center.x, 5, 95);
+            node.y = clampAtlasNumber(node.y, center.y, 8, 92);
+          }
           return;
         }
         var ring = Math.floor(index / 8);

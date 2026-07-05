@@ -152,6 +152,24 @@ describe("atlas state contract", () => {
     );
   });
 
+  it("preserves relative shape when explicit community coordinates are outside the legacy percent range", () => {
+    const model = buildAtlasModel({
+      nodes: [
+        { id: "a", label: "A", community: "edge-dense", x: 132, y: 126 },
+        { id: "b", label: "B", community: "edge-dense", x: 148, y: 142 },
+        { id: "c", label: "C", community: "edge-dense", x: 164, y: 158 }
+      ],
+      edges: []
+    });
+    deriveAtlasLayout(model);
+
+    const points = ["a", "b", "c"].map((id) => ({ x: model.byId[id].x, y: model.byId[id].y }));
+    assert.ok(new Set(points.map((point) => point.x)).size > 1, "x positions should not collapse to one clamp boundary");
+    assert.ok(new Set(points.map((point) => point.y)).size > 1, "y positions should not collapse to one clamp boundary");
+    assert.ok(points.every((point) => point.x >= 5 && point.x <= 95));
+    assert.ok(points.every((point) => point.y >= 8 && point.y <= 92));
+  });
+
   it("uses one visible snapshot for filters, search, density, and starts", () => {
     const model = buildAtlasModel(rawGraph);
     const layout = deriveAtlasLayout(model);

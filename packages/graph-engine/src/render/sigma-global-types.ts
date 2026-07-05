@@ -92,6 +92,7 @@ export interface SigmaGlobalRendererUpdateOptions {
   theme?: ThemeId;
   edgeStyle?: GraphEdgeStyleOptions;
   pins?: PinMap;
+  viewportSize?: RendererViewportSize;
 }
 
 export interface SigmaGlobalRenderer {

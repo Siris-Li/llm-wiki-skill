@@ -8,6 +8,7 @@ import {
   moveSigmaCamera,
   readCameraState,
   restoreCameraState,
+  sigmaCommunitySpotlightCameraState,
   sigmaCommunitySpotlightCenter,
   sigmaGlobalCameraState,
   sigmaGraphPointToCameraPoint
@@ -161,6 +162,87 @@ describe("Sigma global camera helpers", () => {
     assert.deepEqual(sigmaCommunitySpotlightCenter(adapterDataWithoutWash(), "community-a"), { x: 30, y: 40 });
   });
 
+  it("keeps drawer offset out of community reading camera targets", () => {
+    const globalTarget = sigmaCommunitySpotlightCameraState(
+      sigmaLike({ x: 0, y: 0, angle: 0, ratio: 1 }),
+      adapterDataFixture(),
+      "community-a"
+    );
+    const readingTarget = sigmaCommunitySpotlightCameraState(
+      sigmaLike({ x: 0, y: 0, angle: 0, ratio: 1 }),
+      adapterDataWithCommunityReading(),
+      "community-a"
+    );
+
+    assert.equal(globalTarget?.x, 28);
+    assert.equal(readingTarget?.x, 30);
+    assert.equal(readingTarget?.y, 40);
+  });
+
+  it("centers community reading on visible community nodes instead of oversized wash geometry", () => {
+    const adapterData = adapterDataWithCommunityReading();
+    adapterData.renderable.communities = adapterData.renderable.communities.map((community) => ({
+      ...community,
+      wash: { cx: 5, cy: 10, rx: 90, ry: 80 }
+    }));
+
+    const target = sigmaCommunitySpotlightCameraState(
+      sigmaLike({ x: 0, y: 0, angle: 0, ratio: 1 }),
+      adapterData,
+      "community-a"
+    );
+
+    assert.equal(target?.x, 30);
+    assert.equal(target?.y, 40);
+  });
+
+  it("does not carry an over-zoomed global spotlight ratio into community reading", () => {
+    const target = sigmaCommunitySpotlightCameraState(
+      sigmaLike({ x: 0, y: 0, angle: 0, ratio: 0.72 }),
+      adapterDataWithCommunityReading(),
+      "community-a"
+    );
+
+    assert.equal(target?.ratio, 1);
+  });
+
+  it("widens community reading camera when projected nodes would overflow the viewport", () => {
+    const adapterData = adapterDataWithCommunityReading();
+    adapterData.nodes = [
+      nodeFixture("left", { x: -400, y: 0 }),
+      nodeFixture("right", { x: 400, y: 0 }),
+      nodeFixture("top", { x: 0, y: -260 })
+    ];
+
+    const target = sigmaCommunitySpotlightCameraState(
+      sigmaLikeWithProjection({ x: 0, y: 0, angle: 0, ratio: 1 }, { width: 500, height: 500 }),
+      adapterData,
+      "community-a",
+      { width: 500, height: 500 }
+    );
+
+    assert.ok((target?.ratio ?? 0) > 2, "community reading should zoom out until the nodes fit");
+  });
+
+  it("moves closer when projected community nodes are too small to read", () => {
+    const adapterData = adapterDataWithCommunityReading();
+    adapterData.nodes = [
+      nodeFixture("a", { x: -20, y: -16 }),
+      nodeFixture("b", { x: 20, y: -16 }),
+      nodeFixture("c", { x: 18, y: 16 }),
+      nodeFixture("d", { x: -18, y: 16 })
+    ];
+
+    const target = sigmaCommunitySpotlightCameraState(
+      sigmaLikeWithProjection({ x: 0, y: 0, angle: 0, ratio: 1 }, { width: 500, height: 500 }),
+      adapterData,
+      "community-a",
+      { width: 500, height: 500 }
+    );
+
+    assert.ok((target?.ratio ?? 1) < 0.4, "tight community reading should zoom in until the nodes are readable");
+  });
+
   it("does not decide selected community internally", () => {
     const sigma = sigmaLike({ x: 0, y: 0, angle: 0, ratio: 1 });
 
@@ -198,6 +280,24 @@ function sigmaLike(
     }
   };
   return output;
+}
+
+function sigmaLikeWithProjection(
+  state: SigmaGlobalCameraState,
+  size: { width: number; height: number }
+): SigmaGlobalSigmaLike {
+  return {
+    getCamera: () => ({
+      getState: () => state
+    }),
+    graphToViewport: (point, override) => {
+      const camera = { ...state, ...(override?.cameraState ?? {}) };
+      return {
+        x: size.width / 2 + (point.x - camera.x) / camera.ratio,
+        y: size.height / 2 + (point.y - camera.y) / camera.ratio
+      };
+    }
+  };
 }
 
 function rootWithReducedMotion(reduce: boolean): HTMLElement {
@@ -324,6 +424,19 @@ function adapterDataFixture(): GraphRendererAdapterData {
 function adapterDataWithoutWash(): GraphRendererAdapterData {
   const data = adapterDataFixture();
   data.renderable.communities = data.renderable.communities.map((community) => ({ ...community, wash: null }));
+  return data;
+}
+
+function adapterDataWithCommunityReading(): GraphRendererAdapterData {
+  const data = adapterDataFixture();
+  data.renderable.communityMap = {
+    active: true,
+    sourceCommunityId: "community-a",
+    motionMode: "frozen",
+    maxNodeDriftRatio: 0,
+    current: null,
+    rulesByCommunityId: {}
+  };
   return data;
 }
 

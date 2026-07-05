@@ -24,6 +24,7 @@ import type {
   WikiPath
 } from "../types";
 import { buildRenderableGraph, type CommunityMapEdgeLayer, type CommunityMapLabelSide, type CommunityMapNodeTier, type RenderPosition, type RenderPositionMap, type RenderableGraph } from "./model";
+import type { RendererViewportSize } from "./viewport";
 import type { GraphRelationFocusDepth } from "./relation-focus";
 
 export const GRAPH_RENDERER_ADAPTER_ROUTES = ["dom-svg", "candidate-global", "aggregation-fallback"] as const;
@@ -39,6 +40,7 @@ export interface GraphRendererAdapterOptions {
   focus?: GraphFocusInput;
   typeFilters?: GraphTypeFilters;
   positions?: RenderPositionMap;
+  viewportSize?: RendererViewportSize;
   sourceCommunityId?: string | null;
   relationFocusNodeId?: NodeId | null;
 }
@@ -203,6 +205,7 @@ export function buildGraphRendererAdapterData(
     focus: options.focus,
     typeFilters: options.typeFilters,
     positions: options.positions,
+    viewportSize: options.viewportSize,
     searchResultIds: options.searchResultIds,
     sourceCommunityId: options.sourceCommunityId,
     relationFocusNodeId: options.relationFocusNodeId

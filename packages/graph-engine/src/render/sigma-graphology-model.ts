@@ -1,6 +1,7 @@
 import type { GraphEdgeStyleOptions, ThemeId } from "../types";
 import { getThemeTokens } from "../themes";
 import type { GraphRelationFocusDepth } from "./relation-focus";
+import { truncateLabel } from "../model/labels";
 import type {
   GraphRendererAdapterAggregation,
   GraphRendererAdapterCommunity,
@@ -86,6 +87,9 @@ export interface SigmaGlobalEdgeStyle {
   size: number;
 }
 
+const SIGMA_COMMUNITY_READING_LABEL_MAX_WIDTH = 180;
+const SIGMA_COMMUNITY_READING_NARROW_LABEL_MAX_WIDTH = 128;
+
 export function buildSigmaGlobalGraphologyGraph(
   adapterData: GraphRendererAdapterData,
   runtime: SigmaGlobalGraphologyRuntime,
@@ -97,9 +101,12 @@ export function buildSigmaGlobalGraphologyGraph(
   const aggregationRenderById = new Map(adapterData.renderable.aggregationContainers.map((aggregation) => [aggregation.id, aggregation]));
   const selectedCommunityIds = sigmaSelectedCommunityIds(adapterData);
   const spotlightCommunityIds = sigmaSpotlightCommunityIds(adapterData);
+  const communityReadingLabelBudget = adapterData.renderable.communityMap?.active
+    ? adapterData.renderable.communityMap.current?.labelBudget.limit ?? null
+    : null;
 
   for (const node of adapterData.nodes) {
-    graph.addNode(node.id, sigmaGlobalNodeAttributes(node, communityColorById, spotlightCommunityIds, theme));
+    graph.addNode(node.id, sigmaGlobalNodeAttributes(node, communityColorById, spotlightCommunityIds, theme, { communityReadingLabelBudget }));
   }
 
   for (const edge of adapterData.edges) {
@@ -148,10 +155,13 @@ export function patchSigmaGlobalGraphAttributes(
   const aggregationRenderById = new Map(adapterData.renderable.aggregationContainers.map((aggregation) => [aggregation.id, aggregation]));
   const selectedCommunityIds = sigmaSelectedCommunityIds(adapterData);
   const spotlightCommunityIds = sigmaSpotlightCommunityIds(adapterData);
+  const communityReadingLabelBudget = adapterData.renderable.communityMap?.active
+    ? adapterData.renderable.communityMap.current?.labelBudget.limit ?? null
+    : null;
 
   for (const node of adapterData.nodes) {
     if (!graph.hasNode(node.id)) continue;
-    graph.mergeNodeAttributes(node.id, sigmaGlobalNodeAttributes(node, communityColorById, spotlightCommunityIds, theme));
+    graph.mergeNodeAttributes(node.id, sigmaGlobalNodeAttributes(node, communityColorById, spotlightCommunityIds, theme, { communityReadingLabelBudget }));
   }
   for (const edge of adapterData.edges) {
     graph.mergeEdgeAttributes(edge.id, sigmaGlobalEdgeAttributes(edge, theme, edgeStyle, selectedCommunityIds));
@@ -172,7 +182,8 @@ export function sigmaGlobalNodeAttributes(
   node: GraphRendererAdapterNode,
   communityColorById: Map<string, string>,
   selectedCommunityIds: ReadonlySet<string> = new Set(),
-  theme: ThemeId
+  theme: ThemeId,
+  options: { communityReadingLabelBudget?: number | null } = {}
 ): SigmaGlobalGraphologyNodeAttributes {
   const spotlight = sigmaGlobalNodeSpotlightState(node, selectedCommunityIds);
   const baseSize = sigmaGlobalNodeSize(node);
@@ -180,7 +191,7 @@ export function sigmaGlobalNodeAttributes(
   return {
     x: finiteNumber(node.point.x, 0),
     y: finiteNumber(node.point.y, 0),
-    label: node.render.labelVisible ? node.label : "",
+    label: sigmaGlobalNodeCanvasLabel(node, options),
     size: spotlight.dimmed ? roundNumber(baseSize * 0.72, 2) : baseSize,
     color: spotlight.dimmed ? rgbaColor(baseColor, 0.2) : baseColor,
     type: "circle",
@@ -202,6 +213,20 @@ export function sigmaGlobalNodeAttributes(
     communityMapImportance: finiteNumber(node.render.communityMapImportance, 0),
     drawerTarget: node.drawerTarget
   };
+}
+
+export function sigmaGlobalNodeCanvasLabel(
+  node: GraphRendererAdapterNode,
+  options: { communityReadingLabelBudget?: number | null } = {}
+): string {
+  if (!node.render.labelVisible) return "";
+  const label = node.label || node.id;
+  const labelBudget = options.communityReadingLabelBudget;
+  if (!labelBudget || labelBudget <= 0) return label;
+  const maxWidth = labelBudget <= 4
+    ? SIGMA_COMMUNITY_READING_NARROW_LABEL_MAX_WIDTH
+    : SIGMA_COMMUNITY_READING_LABEL_MAX_WIDTH;
+  return truncateLabel(label, maxWidth).text;
 }
 
 export function sigmaSelectedCommunityIds(adapterData: GraphRendererAdapterData): Set<string> {
