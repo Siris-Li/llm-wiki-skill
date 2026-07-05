@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import type { GraphData, GraphOpenPagePayload, GraphSummaryObjectRef, GraphVisibilityState } from "@llm-wiki/graph-engine";
 import { closedDrawer, graphReaderDrawer } from "../src/lib/drawer-state";
 import {
+	drawerForGraphNodeVisibility,
 	drawerAfterGraphDataRefresh,
 	graphReaderStaleAfterRefresh,
 	temporaryObjectAfterGraphDataRefresh,
@@ -122,6 +123,40 @@ describe("graph data refresh drawer state", () => {
 		);
 	});
 
+	it("turns a community-scope hidden node into a summary while temporary display is active", () => {
+		const data = graphDataWithExternalNode();
+		const hiddenVisibility: GraphVisibilityState = {
+			searchQuery: "",
+			searchResultIds: [],
+			typeFilters: {},
+			temporaryObject: null,
+			focusCommunityId: "c1",
+			hiddenReadingNodeId: null,
+		};
+		const shownVisibility: GraphVisibilityState = {
+			...hiddenVisibility,
+			temporaryObject: { kind: "node", nodeId: "external" },
+		};
+
+		const hidden = drawerForGraphNodeVisibility(data, "external", closedDrawer(), {
+			pins: {},
+			visibility: hiddenVisibility,
+		});
+		const shown = drawerForGraphNodeVisibility(data, "external", hidden, {
+			pins: {},
+			visibility: shownVisibility,
+		});
+		const cleared = drawerForGraphNodeVisibility(data, "external", shown, {
+			pins: {},
+			visibility: hiddenVisibility,
+		});
+
+		assert.equal(hidden.mode, "graph-excluded-object");
+		assert.equal(shown.mode, "graph-node-summary");
+		assert.equal(shown.mode === "graph-node-summary" ? shown.payload.nodeId : null, "external");
+		assert.equal(cleared.mode, "graph-excluded-object");
+	});
+
 	it("turns a stale community drawer into an unavailable message after refresh", () => {
 		const current = {
 			mode: "graph-community-summary" as const,
@@ -207,5 +242,26 @@ function graphData(community: string): GraphData {
 			},
 		],
 		edges: [],
+	};
+}
+
+function graphDataWithExternalNode(): GraphData {
+	const base = graphData("c1");
+	return {
+		...base,
+		meta: {
+			...base.meta,
+			total_nodes: 2,
+		},
+		nodes: [
+			...base.nodes,
+			{
+				id: "external",
+				label: "External",
+				type: "source",
+				community: "c2",
+				source_path: "wiki/external.md",
+			},
+		],
 	};
 }

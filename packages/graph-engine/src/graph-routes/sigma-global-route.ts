@@ -1,4 +1,4 @@
-import type { GraphNode, GraphData, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId } from "../types";
+import type { GraphNode, GraphData, GraphSummaryObjectRef, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId } from "../types";
 import {
   buildGraphRendererAdapterData,
   buildCommunityLegend,
@@ -47,6 +47,31 @@ export function selectionInputForSigmaHit(
   if (target.kind === "community-wash") return target.id ? { kind: "community", id: target.id } : null;
   if (target.kind === "aggregation-container") return target.communityId ? { kind: "community", id: target.communityId } : null;
   return null;
+}
+
+export type SigmaCommunityReadingHitAction =
+  | { kind: "select"; selection: SelectionInput; relationFocusNodeId: NodeId }
+  | { kind: "open-node"; nodeId: NodeId; selection: SelectionInput }
+  | { kind: "clear" }
+  | { kind: "none" };
+
+export function sigmaCommunityReadingHitActionForSigmaHit(
+  data: GraphData,
+  current: SelectionInput | null | undefined,
+  target: GraphGestureTarget,
+  context: SigmaGlobalHitContext
+): SigmaCommunityReadingHitAction {
+  if (target.kind === "graph-blank") return { kind: "clear" };
+  if (target.kind !== "node" || !target.id) return { kind: "none" };
+  if (!context.additive) {
+    return {
+      kind: "open-node",
+      nodeId: target.id,
+      selection: { kind: "node", id: target.id }
+    };
+  }
+  const selection = communityReadingSelectionInputForAdditiveNodeHit(data, current, target.id);
+  return selection ? { kind: "select", selection, relationFocusNodeId: target.id } : { kind: "clear" };
 }
 
 export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererFactoryInput): GraphFacadeRenderer {
@@ -135,7 +160,10 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     focusCommunity(id) {
       hoverNodeId = null;
       ensureCommunityTypeFilterScope(id);
-      options = applyScopedSearch({ ...options, focus: { kind: "community", id }, sourceCommunityId: id });
+      const temporaryObject = temporaryObjectCompatibleWithCommunity(options.data, options.temporaryObject, id)
+        ? options.temporaryObject
+        : null;
+      options = applyScopedSearch({ ...options, focus: { kind: "community", id }, sourceCommunityId: id, temporaryObject });
       syncVisibilityState();
       updateSigmaRenderer();
     },
@@ -265,13 +293,21 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   }
 
   function handleSigmaHitTarget(target: GraphGestureTarget, context: SigmaGlobalHitContext): void {
-    if (options.focus?.kind === "community" && target.kind === "node" && target.id) {
-      selectOnSigma({ kind: "node", id: target.id });
-      input.options.callbacks.onNodeOpen?.(target.id);
-      return;
-    }
-    if (options.focus?.kind === "community" && target.kind === "graph-blank") {
-      clearCommunityNodeInteraction();
+    if (options.focus?.kind === "community") {
+      const action = sigmaCommunityReadingHitActionForSigmaHit(options.data, options.selection, target, context);
+      if (action.kind === "select") {
+        selectOnSigma(action.selection, action.relationFocusNodeId);
+        return;
+      }
+      if (action.kind === "open-node") {
+        selectOnSigma(action.selection);
+        input.options.callbacks.onNodeOpen?.(action.nodeId);
+        return;
+      }
+      if (action.kind === "clear") {
+        clearCommunityNodeInteraction();
+        return;
+      }
       return;
     }
     const nextSelection = selectionInputForSigmaHit(options.data, options.selection, target, context);
@@ -299,8 +335,8 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     }
   }
 
-  function selectOnSigma(selection: SelectionInput): void {
-    hoverNodeId = null;
+  function selectOnSigma(selection: SelectionInput, relationFocusNodeId: NodeId | null = null): void {
+    hoverNodeId = relationFocusNodeId;
     input.options.callbacks.onSelectionInput?.(selection);
     updateSigmaSelection(selection);
   }
@@ -642,8 +678,37 @@ function adapterDataForSigmaRoute(
     typeFilters,
     viewportSize,
     sourceCommunityId: options.sourceCommunityId,
-    relationFocusNodeId: hoverNodeId
+    relationFocusNodeId: hoverNodeId,
+    temporaryObject: options.temporaryObject
   });
+}
+
+function temporaryObjectCompatibleWithCommunity(
+  data: GraphData,
+  object: GraphSummaryObjectRef | null,
+  communityId: string
+): boolean {
+  if (!object) return true;
+  if (object.kind === "node") {
+    return data.nodes.some((node) => node.id === object.nodeId && node.community === communityId);
+  }
+  if (object.kind === "aggregation") {
+    if (object.communityId) return object.communityId === communityId;
+    const nodeIds = new Set(object.nodeIds);
+    const nodes = data.nodes.filter((node) => nodeIds.has(node.id));
+    return nodes.length > 0 && nodes.every((node) => node.community === communityId);
+  }
+  return object.communityId === communityId;
+}
+
+function communityReadingSelectionInputForAdditiveNodeHit(
+  data: GraphData,
+  current: SelectionInput | null | undefined,
+  nodeId: NodeId
+): SelectionInput | null {
+  const selection = toggleNodeInSelection(data, current, nodeId);
+  if (!selection) return null;
+  return selection.kind === "node" ? { kind: "nodes", ids: [selection.id] } : selection;
 }
 
 function measuredViewportSize(element: HTMLElement): RendererViewportSize | undefined {

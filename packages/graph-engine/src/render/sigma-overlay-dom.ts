@@ -60,6 +60,10 @@ export interface SigmaOverlayDomController {
   destroy(): void;
 }
 
+export interface SigmaOverlayHitContext {
+  additive?: boolean;
+}
+
 export interface SigmaOverlayDomControllerInput {
   overlayRoot: HTMLElement;
   cloudFilterId: string;
@@ -68,7 +72,7 @@ export interface SigmaOverlayDomControllerInput {
   getOptions: () => Pick<SigmaGlobalRendererCreateOptions, "viewport" | "viewportSize" | "adapterData">;
   communityCloudFor: (communityId: string, wash: { cx: number; cy: number; rx: number; ry: number }) => SigmaCommunityCloud;
   isDestroyed: () => boolean;
-  onHit: (object: SigmaGlobalRenderedObject) => void;
+  onHit: (object: SigmaGlobalRenderedObject, context?: SigmaOverlayHitContext) => void;
   onNodeHover: (nodeId: string | null) => void;
   beginNodeDrag: (nodeId: string, point: GraphScreenPoint, payload?: unknown) => void;
   moveNodeDrag: (point: GraphScreenPoint, payload?: unknown) => void;
@@ -184,6 +188,7 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
     pruneOverlayEntries(overlayLabelEntries, nextLabelIds);
 
     input.overlayRoot.replaceChildren(...ordered);
+    appendMissingOverlayChildren(ordered);
     reposition();
   }
 
@@ -293,7 +298,7 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
     element.addEventListener("click", (event) => {
       event.stopPropagation();
       if (input.consumeSuppressedNodeClick(nodeId)) return;
-      input.onHit({ kind: "node", id: nodeId });
+      input.onHit({ kind: "node", id: nodeId }, { additive: event.shiftKey });
     });
     element.addEventListener("pointerenter", () => input.onNodeHover(nodeId));
     element.addEventListener("pointerleave", () => input.onNodeHover(null));
@@ -301,7 +306,10 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
     element.addEventListener("blur", () => input.onNodeHover(null));
     element.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
-      event.preventDefault();
+      if (event.shiftKey) {
+        event.stopPropagation();
+        return;
+      }
       event.stopPropagation();
       input.beginNodeDrag(nodeId, input.screenPointFromEvent(event), event);
       if (input.activeNodeDragId() === nodeId) {
@@ -311,7 +319,10 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
     element.addEventListener("mousedown", (event) => {
       if (event.button !== 0) return;
       if (element.ownerDocument.defaultView?.PointerEvent) return;
-      event.preventDefault();
+      if (event.shiftKey) {
+        event.stopPropagation();
+        return;
+      }
       event.stopPropagation();
       if (input.activeNodeDragId() !== nodeId) {
         input.beginNodeDrag(nodeId, input.screenPointFromEvent(event), event);
@@ -324,6 +335,17 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
       event.preventDefault();
     });
     return element;
+  }
+
+  function appendMissingOverlayChildren(children: HTMLElement[]): void {
+    for (const child of children) {
+      if (overlayRootContains(child)) continue;
+      input.overlayRoot.append(child);
+    }
+  }
+
+  function overlayRootContains(child: HTMLElement): boolean {
+    return Array.prototype.includes.call(input.overlayRoot.children, child);
   }
 
   function bindOverlayPointerDragListeners(ownerDocument: Document, element: HTMLElement, nodeId: string, pointerId: number): void {

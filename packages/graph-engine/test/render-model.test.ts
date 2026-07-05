@@ -53,6 +53,38 @@ function sampleGraph(): GraphData {
   };
 }
 
+function graphWithExternalTemporaryNode(): GraphData {
+  const base = sampleGraph();
+  return {
+    ...base,
+    meta: {
+      ...base.meta,
+      total_nodes: 5,
+      total_edges: 3
+    },
+    nodes: [
+      ...base.nodes.filter((node) => node.id !== "source"),
+      { id: "external", label: "External", type: "source", community: "c2", source_path: "wiki/external.md", weight: 40, x: 70, y: 60 },
+      { id: "external-peer", label: "External peer", type: "entity", community: "c2", source_path: "wiki/external-peer.md", weight: 30, x: 75, y: 65 }
+    ],
+    edges: [
+      { id: "internal", from: "topic", to: "entity", type: "EXTRACTED", confidence: "EXTRACTED", relation_type: "实现", weight: 1 },
+      { id: "bridge", from: "topic", to: "external", type: "INFERRED", confidence: "INFERRED", relation_type: "对比", weight: 0.5 },
+      { id: "external-peer-edge", from: "external", to: "external-peer", type: "EXTRACTED", confidence: "EXTRACTED", relation_type: "依赖", weight: 0.6 }
+    ],
+    learning: base.learning
+      ? {
+        ...base.learning,
+        communities: [
+          { id: "c1", label: "核心", node_count: 2, color_index: 0, recommended_start_node_id: "topic" },
+          { id: "c2", label: "外部", node_count: 2, color_index: 1 },
+          { id: "c3", label: "孤岛", node_count: 1, color_index: 2 }
+        ]
+      }
+      : base.learning
+  };
+}
+
 function outlierCommunityGraph(): GraphData {
   const nodes = [
     { id: "core-a", label: "Core A", type: "entity", community: "c1", source_path: "wiki/core-a.md", weight: 70, x: 20, y: 40 },
@@ -686,6 +718,24 @@ describe("buildRenderableGraph", () => {
     assert.equal(restored.nodes.find((node) => node.id === "a")?.relationFocusDepth, "first");
   });
 
+  it("keeps multi-selected nodes visible while hover relation focus changes in community reading", () => {
+    const graph = buildRenderableGraph(relationFocusCommunityGraph(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      selection: { kind: "nodes", ids: ["b", "d"] },
+      relationFocusNodeId: "a"
+    });
+
+    assert.deepEqual(
+      graph.nodes.filter((node) => node.selected).map((node) => node.id),
+      ["b", "d"]
+    );
+    assert.equal(graph.selectedNodeId, null);
+    assert.equal(graph.nodes.find((node) => node.id === "a")?.relationFocusDepth, "focus");
+    assert.equal(graph.nodes.find((node) => node.id === "b")?.relationFocusDepth, "first");
+    assert.equal(graph.nodes.find((node) => node.id === "d")?.relationFocusDepth, "second");
+  });
+
   it("keeps the hovered node label visible even when the label budget is crowded", () => {
     const nodes = Array.from({ length: 20 }, (_, index) => ({
       id: `n${index}`,
@@ -1021,6 +1071,34 @@ describe("buildRenderableGraph", () => {
     );
   });
 
+  it("temporarily displays a community-scope hidden node without expanding its whole community", () => {
+    const graph = buildRenderableGraph(graphWithExternalTemporaryNode(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      temporaryObject: { kind: "node", nodeId: "external" }
+    });
+
+    assert.deepEqual(graph.nodes.map((node) => node.id), ["topic", "entity", "external"]);
+    assert.deepEqual(graph.edges.map((edge) => edge.id), ["internal", "bridge"]);
+    assert.equal(graph.communityMap.current?.communityId, "c1");
+    assert.deepEqual(Object.keys(graph.communityMap.current?.nodeRulesById ?? {}), ["topic", "entity"]);
+  });
+
+  it("keeps temporary aggregation display scoped to the focused community", () => {
+    const graph = buildRenderableGraph(graphWithExternalTemporaryNode(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      temporaryObject: {
+        kind: "aggregation",
+        aggregationId: "mixed",
+        nodeIds: ["topic", "external"]
+      }
+    });
+
+    assert.deepEqual(graph.nodes.map((node) => node.id), ["topic", "entity"]);
+    assert.deepEqual(graph.edges.map((edge) => edge.id), ["internal"]);
+  });
+
   it("filters visible nodes by graph node type and stacks with community focus", () => {
     const graph = buildRenderableGraph(sampleGraph(), {
       theme: "shan-shui",
@@ -1035,6 +1113,23 @@ describe("buildRenderableGraph", () => {
     assert.deepEqual(graph.nodes.map((node) => node.id), ["entity"]);
     assert.deepEqual(graph.edges, []);
     assert.equal(graph.counts.visibleNodes, 1);
+    assert.equal(graph.typeFilters.topic, false);
+  });
+
+  it("temporarily displays a type-filtered community node without clearing the filter", () => {
+    const graph = buildRenderableGraph(sampleGraph(), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      typeFilters: {
+        entity: true,
+        topic: false,
+        source: true
+      },
+      temporaryObject: { kind: "node", nodeId: "topic" }
+    });
+
+    assert.deepEqual(graph.nodes.map((node) => node.id), ["topic", "entity"]);
+    assert.deepEqual(graph.edges.map((edge) => edge.id), ["e1"]);
     assert.equal(graph.typeFilters.topic, false);
   });
 

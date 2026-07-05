@@ -43,6 +43,7 @@ export interface GraphRendererAdapterOptions {
   viewportSize?: RendererViewportSize;
   sourceCommunityId?: string | null;
   relationFocusNodeId?: NodeId | null;
+  temporaryObject?: GraphSummaryObjectRef | null;
 }
 
 export interface GraphRendererAdapterData {
@@ -208,7 +209,8 @@ export function buildGraphRendererAdapterData(
     viewportSize: options.viewportSize,
     searchResultIds: options.searchResultIds,
     sourceCommunityId: options.sourceCommunityId,
-    relationFocusNodeId: options.relationFocusNodeId
+    relationFocusNodeId: options.relationFocusNodeId,
+    temporaryObject: options.temporaryObject
   });
   const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
   const renderNodeById = new Map(renderable.nodes.map((node) => [node.id, node]));

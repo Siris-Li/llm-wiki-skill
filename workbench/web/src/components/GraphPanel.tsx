@@ -515,8 +515,11 @@ export function GraphPanel({
 		}
 		if (selectionCommand.type === "enter-community") {
 			enterCommunityEdgeScope(selectionCommand.id);
-			const selected = engineRef.current ? applyCommunityEnter(engineRef.current, selectionCommand.id) : null;
-			onSelectionChangeRef.current?.(selected);
+			if (engineRef.current) {
+				applyCommunityEnter(engineRef.current, selectionCommand.id);
+			} else {
+				onSelectionChangeRef.current?.(null);
+			}
 		}
 		if (selectionCommand.type === "enter-community-node") {
 			enterCommunityEdgeScope(selectionCommand.id);

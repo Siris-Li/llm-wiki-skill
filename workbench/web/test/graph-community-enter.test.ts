@@ -5,7 +5,7 @@ import { applyCommunityEnter } from "../src/lib/graph-community-enter";
 import type { GraphEngine } from "@llm-wiki/graph-engine";
 
 describe("applyCommunityEnter", () => {
-	it("records source community context separately before entering Sigma community reading", () => {
+	it("clears the old selection and records source community context before entering Sigma community reading", () => {
 		const calls: string[] = [];
 		const engine = {
 			clearSelection() {
@@ -21,7 +21,7 @@ describe("applyCommunityEnter", () => {
 
 		const result = applyCommunityEnter(engine, "alpha");
 
-		assert.deepEqual(calls, ["source:alpha", "focus:alpha"]);
+		assert.deepEqual(calls, ["clear", "source:alpha", "focus:alpha"]);
 		assert.equal(result, null);
 	});
 });

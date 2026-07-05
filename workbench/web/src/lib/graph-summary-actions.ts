@@ -43,7 +43,7 @@ export function drawerForGraphSelection(
 	options: GraphSummaryOptions = {},
 ): DrawerState {
 	const selectionInput = options.selection ?? selection.input ?? null;
-	if (data && selection.nodeIds.length === 1) {
+	if (data && selection.nodeIds.length === 1 && selectionInput?.kind !== "nodes") {
 		const summary = summarizeGraphNode(data, selection.nodeIds[0], {
 			...options,
 			selection: { kind: "node", id: selection.nodeIds[0] },
@@ -163,7 +163,8 @@ export function graphObjectVisibilityReason(
 	if (!data || !state) return null;
 	const node = object.kind === "node" ? data.nodes.find((item) => item.id === object.nodeId) ?? null : null;
 	if (object.kind === "node" && node && state.typeFilters[node.type] === false) return "filter";
-	if (object.kind === "node" && state.searchQuery && !state.searchResultIds.includes(object.nodeId)) return "search";
+	if (object.kind === "node" && node && state.searchQuery && !state.searchResultIds.includes(object.nodeId)) return "search";
+	if (object.kind === "node" && node && state.focusCommunityId && node.community !== state.focusCommunityId) return "community-scope";
 	return null;
 }
 

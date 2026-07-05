@@ -46,6 +46,14 @@ describe("graph summary actions", () => {
 		assert.equal(drawer.mode === "graph-selection" ? drawer.title : null, "选中 2 个节点");
 	});
 
+	it("keeps a manual single-node selection in the selection drawer", () => {
+		const drawer = drawerForGraphSelection(graphFixture(), manualSingleNodeSelection(), closedDrawer());
+
+		assert.equal(drawer.mode, "graph-selection");
+		assert.deepEqual(drawer.mode === "graph-selection" ? drawer.selection.nodeIds : [], ["a"]);
+		assert.equal(drawer.mode === "graph-selection" ? drawer.title : null, "Alpha");
+	});
+
 	it("switches a community core node list click to node summary without entering community", () => {
 		const drawer = drawerForGraphSummaryNode(graphFixture(), "b", communitySummaryDrawer());
 
@@ -150,6 +158,30 @@ describe("graph summary actions", () => {
 		assert.equal(unavailable.mode, "graph-unavailable-object");
 	});
 
+	it("classifies nodes outside the current Sigma community as temporarily displayable", () => {
+		const data = graphFixtureWithExternalNode();
+		const object = { kind: "node" as const, nodeId: "external" };
+		const communityState = {
+			searchQuery: "",
+			searchResultIds: [],
+			typeFilters: { topic: true, entity: true, source: true },
+			temporaryObject: null,
+			focusCommunityId: "c1",
+			hiddenReadingNodeId: null,
+		};
+
+		assert.equal(graphObjectVisibilityReason(data, communityState, object), "community-scope");
+
+		const excluded = drawerForExcludedGraphObject(data, object, "community-scope", closedDrawer(), {
+			selection: { kind: "node", id: "external" },
+		});
+		assert.equal(excluded.mode, "graph-excluded-object");
+		assert.deepEqual(
+			excluded.mode === "graph-excluded-object" ? excluded.payload.commands.map((command) => command.kind) : [],
+			["show-this-object", "clear-temporary-object-display"],
+		);
+	});
+
 	it("maps a select-neighbors summary command to a neighbors selection command", () => {
 		assert.deepEqual(
 			graphSelectionCommandForSummaryCommand({ kind: "select-neighbors", nodeId: "a", label: "+邻居" }),
@@ -211,6 +243,22 @@ function manualSameCommunitySelection(): Selection {
 	};
 }
 
+function manualSingleNodeSelection(): Selection {
+	return {
+		id: "nodes:a",
+		nodeIds: ["a"],
+		communityIds: ["c1"],
+		facts: {
+			pageCount: 1,
+			internalLinkCount: 0,
+			communityCount: 1,
+			isolatedCount: 0,
+		},
+		input: { kind: "nodes", ids: ["a"] },
+		actions: [],
+	};
+}
+
 function ungroupedSelection(): Selection {
 	return {
 		id: "community:loose-a,loose-b",
@@ -248,6 +296,27 @@ function graphFixtureWithThreeNodeCommunity(): GraphData {
 					...base.learning,
 					communities: [
 						{ id: "c1", label: "Community", node_count: 3, color_index: 0, members: ["a", "b", "c"] },
+					],
+				}
+			: base.learning,
+	};
+}
+
+function graphFixtureWithExternalNode(): GraphData {
+	const base = graphFixture();
+	return {
+		...base,
+		meta: { ...base.meta, total_nodes: 3 },
+		nodes: [
+			...base.nodes,
+			{ id: "external", label: "External", type: "source", community: "c2", source_path: "wiki/external.md" },
+		],
+		learning: base.learning
+			? {
+					...base.learning,
+					communities: [
+						...(base.learning.communities ?? []),
+						{ id: "c2", label: "External", node_count: 1, color_index: 1, members: ["external"] },
 					],
 				}
 			: base.learning,
