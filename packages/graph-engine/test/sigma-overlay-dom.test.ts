@@ -51,6 +51,41 @@ describe("Sigma overlay DOM controller", () => {
     assert.equal(shape?.style.cursor, "default");
   });
 
+  it("creates community reading hit targets for ordinary visible nodes", () => {
+    const fixture = controllerFixture({
+      adapterData: adapterDataFixture({
+        communityMapActive: true,
+        nodes: [
+          nodeFixture("alpha", { relationFocusDepth: "focus" }),
+          nodeFixture("beta", { relationFocusDepth: "first" })
+        ]
+      })
+    });
+
+    fixture.controller.rebuild();
+
+    assert.equal(nodeTarget(fixture.overlayRoot, "alpha")?.dataset.relationFocusDepth, "focus");
+    assert.equal(nodeTarget(fixture.overlayRoot, "beta")?.dataset.relationFocusDepth, "first");
+  });
+
+  it("keeps every community reading node reachable through the overlay hit layer", () => {
+    const nodes = Array.from({ length: 180 }, (_, index) => (
+      nodeFixture(`node-${index}`, {
+        selected: false,
+        searchHit: false,
+        pinned: false,
+        communityId: "community-a"
+      })
+    ));
+    const data = adapterDataFixture({
+      communityMapActive: true,
+      nodes
+    });
+
+    assert.equal(sigmaOverlayNodes(data).length, nodes.length);
+    assert.equal(sigmaOverlayNodes(data).at(-1)?.id, "node-179");
+  });
+
   it("binds pointer overlay drag and clears document listeners on pointerup", () => {
     const fixture = controllerFixture();
     fixture.controller.rebuild();
@@ -527,6 +562,7 @@ function nodeFixture(id: string, options: {
   searchHit?: boolean;
   pinned?: boolean;
   communityId?: string;
+  relationFocusDepth?: GraphRendererAdapterData["nodes"][number]["relationFocusDepth"];
 } = {}) {
   const index = Number(id.match(/\d+$/)?.[0] ?? 1);
   return {
@@ -539,7 +575,7 @@ function nodeFixture(id: string, options: {
     point: { x: 40 + index, y: 80 + index },
     selected: options.selected ?? false,
     searchHit: options.searchHit ?? false,
-    relationFocusDepth: "none" as const,
+    relationFocusDepth: options.relationFocusDepth ?? "none" as const,
     pinHint: {
       nodeId: id,
       wikiPath: `${id}.md`,

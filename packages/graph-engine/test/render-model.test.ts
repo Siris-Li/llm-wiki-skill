@@ -776,6 +776,17 @@ describe("buildRenderableGraph", () => {
     assert.ok(graph.nodes.some((node) => node.displayMode === "point" || node.displayMode === "overview"), "ordinary nodes should remain point-like");
   });
 
+  it("tightens default community labels on narrow viewports", () => {
+    const graph = buildRenderableGraph(budgetGraph(5, 4), {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "c1" },
+      viewportSize: { width: 390, height: 844 }
+    });
+
+    assert.equal(graph.communityMap.current?.labelBudget.limit, 2);
+    assert.ok(graph.nodes.filter((node) => node.labelVisible).length <= 2);
+  });
+
   it("uses the medium community band with all nodes present and no full cards", () => {
     const graph = buildRenderableGraph(budgetGraph(120, 600), {
       theme: "shan-shui",

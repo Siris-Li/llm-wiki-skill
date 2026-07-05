@@ -32,6 +32,23 @@ describe("Sigma hit projector", () => {
     );
   });
 
+  it("treats stage clicks on the returned source community wash as blank so users can clear the source highlight", () => {
+    const adapterData = {
+      ...adapterDataFixture(),
+      sourceCommunityId: "community-a"
+    };
+    const projector = createSigmaGlobalHitProjector(projectorInput({ adapterData }));
+
+    assert.deepEqual(
+      projector.targetFromSigmaHit({ screenPoint: { x: 50, y: 30 } }),
+      { kind: "graph-blank" }
+    );
+    assert.deepEqual(
+      projector.targetFromSigmaHit({ renderedObject: { kind: "community-wash", id: "community-a" } }),
+      { kind: "community-wash", id: "community-a" }
+    );
+  });
+
   it("translates rendered objects into graph gesture targets", () => {
     const adapterData = adapterDataFixture();
 
@@ -68,9 +85,9 @@ describe("Sigma hit projector", () => {
   });
 });
 
-function projectorInput() {
+function projectorInput(options: { adapterData?: GraphRendererAdapterData } = {}) {
   return {
-    adapterData: adapterDataFixture(),
+    adapterData: options.adapterData ?? adapterDataFixture(),
     viewport: { x: 0, y: 0, scale: 1 },
     viewportSize: { width: 100, height: 100 },
     screenPointToWorldPoint: (point: { x: number; y: number }) => point

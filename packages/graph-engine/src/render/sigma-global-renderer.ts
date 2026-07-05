@@ -8,9 +8,12 @@ import {
 } from "./sigma-global-drag";
 import type { GraphScreenPoint } from "./geometry";
 import type { GraphGestureTarget } from "./gestures";
+import type { GraphRendererAdapterData } from "./adapter";
 import { DEFAULT_RENDERER_VIEWPORT, type RendererViewport, type RendererViewportSize } from "./viewport";
 import { overlayPointerScreenPoint, sigmaScreenPointToWorldPoint, sigmaWorldPointToScreenPoint } from "./sigma-coordinates";
 import {
+  SIGMA_READING_COMMUNITY_CLOUD_MIN_HEIGHT,
+  SIGMA_READING_COMMUNITY_CLOUD_MIN_WIDTH,
   sigmaCommunityCloud,
   sigmaCommunityCloudBasisById,
   sigmaCommunityCloudBasisByIdWithNodePoint,
@@ -91,6 +94,32 @@ export const SIGMA_GLOBAL_RENDERER_ID = "sigma-global" as const;
 
 export const SIGMA_GLOBAL_RENDERER_ROUTE_MANAGER_OWNER = "facade" as const;
 const SIGMA_CAMERA_MINIMUM_FAST_PATH_FRAMES = 1;
+const SIGMA_NODE_LABEL_EDGE_GUTTER = 8;
+const SIGMA_ROOT_CLICK_FALLBACK_IGNORE_SELECTORS = [
+  ".sigma-global-node-hit-target",
+  ".sigma-global-community-region",
+  ".sigma-global-aggregation-container",
+  "[data-control=\"sigma-zoom\"]"
+] as const;
+
+interface SigmaNodeLabelData {
+  x: number;
+  y: number;
+  size: number;
+  label?: string | null;
+  color?: string;
+  [key: string]: unknown;
+}
+
+interface SigmaNodeLabelSettings {
+  labelSize: number;
+  labelFont: string;
+  labelWeight: string;
+  labelColor: {
+    attribute?: string;
+    color?: string;
+  };
+}
 
 export const SIGMA_GLOBAL_RENDERER_BUNDLE_BOUNDARY = {
   sigma: "runtime-loaded-by-sigma-global-renderer",
@@ -138,23 +167,27 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   filterHost.append(sigmaSharedCloudFilterDef(sigmaRoot.ownerDocument, cloudFilterId));
   sigmaRoot.append(filterHost);
   let cloudBasisByCommunityId = sigmaCommunityCloudBasisById(adapterData);
+  let currentViewportSize: RendererViewportSize = options.viewportSize ?? { width: 1, height: 1 };
   let projector = createSigmaGlobalHitProjector({
     adapterData,
     viewport: options.viewport ?? DEFAULT_RENDERER_VIEWPORT,
-    viewportSize: options.viewportSize ?? { width: 1, height: 1 },
-    screenPointToWorldPoint: (point) => sigmaScreenPointToWorldPoint(sigma, point, options)
+    viewportSize: currentViewportSize,
+    screenPointToWorldPoint: (point) => sigmaScreenPointToWorldPoint(sigma, point, rendererCoordinateOptions())
   });
   let sigma: SigmaGlobalSigmaLike;
   let generation = 0;
   let lastHitTarget: GraphGestureTarget | null = null;
   let activeNodeDrag: SigmaGlobalNodeDragSession | null = null;
   let currentPins: PinMap = { ...(options.pins ?? {}) };
-  let cameraSpotlightCommunityId: string | null = sigmaSpotlightCommunityId(adapterData);
+  let cameraSpotlightKey: string | null = sigmaSpotlightCameraKey(adapterData);
   let suppressNextNodeClickId: string | null = null;
   let overlayDomController: SigmaOverlayDomController | null = null;
   let sigmaWheelZoomController: SigmaWheelZoomController | null = null;
   let eventBindings: Array<{ event: string; listener: (payload?: unknown) => void }> = [];
   let cameraEventBindings: Array<{ event: "updated"; listener: (state?: SigmaGlobalCameraState) => void }> = [];
+  let sigmaRootClickFallbackListener: ((event: MouseEvent) => void) | null = null;
+  let suppressSigmaRootClickFallback = false;
+  let suppressSigmaRootClickFallbackToken = 0;
   let resizeObserver: ResizeObserver | null = null;
   let resizeAnimationFrame: number | null = null;
   let lastObservedRootSize: RendererViewportSize | null = null;
@@ -176,7 +209,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       cloudFilterId,
       getAdapterData: () => adapterData,
       getSigma: () => sigma,
-      getOptions: () => ({ ...options, adapterData }),
+      getOptions: () => rendererCoordinateOptions(),
       communityCloudFor: sigmaCommunityCloudFor,
       isDestroyed: () => destroyed,
       onHit: (renderedObject) => handleSigmaHit({ renderedObject }),
@@ -198,6 +231,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       onFatalError: options.onFatalError
     });
     bindSigmaEvents();
+    bindSigmaRootClickFallback();
     bindSigmaResizeObserver();
     overlayDomController.rebuild();
   } catch (error) {
@@ -222,8 +256,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     },
     resetView() {
       assertActive();
-      cameraSpotlightCommunityId = null;
-      sigma.getCamera?.().setState?.(sigmaGlobalCameraState(sigma, adapterData));
+      cameraSpotlightKey = null;
+      sigma.getCamera?.().setState?.(sigmaGlobalCameraState(sigma, adapterData, currentViewportSize));
       suppressOverlayAnimationFastPathUntilSettled();
     },
     zoomIn() {
@@ -237,7 +271,9 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     update(updateOptions) {
       assertActive();
       const cameraState = readCameraState(sigma);
-      const previousCameraSpotlightCommunityId = cameraSpotlightCommunityId;
+      const previousCameraSpotlightKey = cameraSpotlightKey;
+      let spotlightCameraPreviousKey = previousCameraSpotlightKey;
+      const previousViewportSize = currentViewportSize;
       cancelNodeDrag();
       generation += 1;
       const finalizeUpdate = (): void => {
@@ -245,7 +281,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
           restoreCameraState(sigma, cameraState);
           sigma.refresh?.();
           overlayDomController?.rebuild();
-          scheduleSpotlightCameraUpdate(previousCameraSpotlightCommunityId, generation);
+          scheduleSpotlightCameraUpdate(spotlightCameraPreviousKey, generation);
         } catch (error) {
           options.onFatalError?.(error);
         }
@@ -254,6 +290,10 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       const nextTheme = updateOptions.theme ?? currentTheme;
       const nextEdgeStyle = updateOptions.edgeStyle ?? currentEdgeStyle;
       const nextPins = { ...(updateOptions.pins ?? currentPins) };
+      if (updateOptions.viewportSize) currentViewportSize = updateOptions.viewportSize;
+      if (shouldRefitSpotlightCameraAfterViewportChange(previousViewportSize, currentViewportSize, nextAdapterData)) {
+        spotlightCameraPreviousKey = null;
+      }
       if (canPatchSigmaGlobalGraphAttributes(adapterData, nextAdapterData, currentTheme, nextTheme)) {
         adapterData = nextAdapterData;
         currentEdgeStyle = nextEdgeStyle;
@@ -264,8 +304,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
         projector = createSigmaGlobalHitProjector({
           adapterData,
           viewport: options.viewport ?? DEFAULT_RENDERER_VIEWPORT,
-          viewportSize: options.viewportSize ?? { width: 1, height: 1 },
-          screenPointToWorldPoint: (point) => sigmaScreenPointToWorldPoint(sigma, point, options)
+          viewportSize: currentViewportSize,
+          screenPointToWorldPoint: (point) => sigmaScreenPointToWorldPoint(sigma, point, rendererCoordinateOptions())
         });
         finalizeUpdate();
         return;
@@ -280,8 +320,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       projector = createSigmaGlobalHitProjector({
         adapterData,
         viewport: options.viewport ?? DEFAULT_RENDERER_VIEWPORT,
-        viewportSize: options.viewportSize ?? { width: 1, height: 1 },
-        screenPointToWorldPoint: (point) => sigmaScreenPointToWorldPoint(sigma, point, options)
+        viewportSize: currentViewportSize,
+        screenPointToWorldPoint: (point) => sigmaScreenPointToWorldPoint(sigma, point, rendererCoordinateOptions())
       });
       try {
         sigma.setGraph?.(graph);
@@ -304,6 +344,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       overlayDomController?.destroy();
       overlayDomController = null;
       unbindSigmaEvents();
+      unbindSigmaRootClickFallback();
       cancelScheduledResizeRefresh();
       cancelOverlayAnimationSettleCheck();
       cancelDeferredSpotlightCameraUpdate();
@@ -320,16 +361,28 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
 
   return renderer;
 
+  function rendererCoordinateOptions(): Pick<SigmaGlobalRendererCreateOptions, "viewport" | "viewportSize" | "adapterData"> {
+    return {
+      ...options,
+      adapterData,
+      viewportSize: currentViewportSize
+    };
+  }
+
   function bindSigmaEvents(): void {
     const nodeClick = (payload?: unknown): void => {
+      if (shouldSuppressRootClickFallbackForSigmaNodeClick()) suppressRootClickFallbackForSigmaPointerEvent();
       const nodeId = sigmaNodeIdFromPayload(payload);
       if (consumeSuppressedNodeClick(nodeId)) return;
       handleSigmaHit({ nodeId, additive: sigmaAdditiveFromPayload(payload) });
     };
-    const stageClick = (payload?: unknown): void => handleSigmaHit({
-      screenPoint: sigmaScreenPointFromPayload(payload),
-      additive: sigmaAdditiveFromPayload(payload)
-    });
+    const stageClick = (payload?: unknown): void => {
+      suppressRootClickFallbackForSigmaPointerEvent();
+      handleSigmaHit({
+        screenPoint: sigmaScreenPointFromPayload(payload),
+        additive: sigmaAdditiveFromPayload(payload)
+      });
+    };
     const requestCameraFrame = (): void => requestOverlayAnimationFrame(overlayAnimationFrameOwner);
     const nodeDown = (payload?: unknown): void => beginNodeDrag(sigmaNodeIdFromPayload(payload), sigmaScreenPointFromPayload(payload), payload);
     const nodeMove = (payload?: unknown): void => moveNodeDrag(sigmaScreenPointFromPayload(payload), payload);
@@ -356,6 +409,54 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       camera.on("updated", listener);
       cameraEventBindings = [{ event: "updated", listener }];
     }
+  }
+
+  function bindSigmaRootClickFallback(): void {
+    const listener = (event: MouseEvent): void => {
+      if (destroyed || suppressSigmaRootClickFallback || event.defaultPrevented) return;
+      if (typeof event.button === "number" && event.button !== 0) return;
+      if (sigmaRootClickTargetIsExplicitControl(event.target)) return;
+      const screenPoint = overlayPointerScreenPoint(event, sigmaRoot);
+      const additive = event.shiftKey;
+      queueMicrotask(() => {
+        if (destroyed || suppressSigmaRootClickFallback) return;
+        handleSigmaHit({ screenPoint, additive });
+      });
+    };
+    sigmaRootClickFallbackListener = listener;
+    sigmaRoot.addEventListener("click", listener, true);
+  }
+
+  function unbindSigmaRootClickFallback(): void {
+    if (!sigmaRootClickFallbackListener) return;
+    sigmaRoot.removeEventListener?.("click", sigmaRootClickFallbackListener, true);
+    sigmaRootClickFallbackListener = null;
+  }
+
+  function suppressRootClickFallbackForSigmaPointerEvent(): void {
+    const token = suppressSigmaRootClickFallbackToken + 1;
+    suppressSigmaRootClickFallbackToken = token;
+    suppressSigmaRootClickFallback = true;
+    setTimeout(() => {
+      if (suppressSigmaRootClickFallbackToken !== token) return;
+      suppressSigmaRootClickFallback = false;
+    }, 0);
+  }
+
+  function shouldSuppressRootClickFallbackForSigmaNodeClick(): boolean {
+    return adapterData.renderable.communityMap?.active === true || !adapterData.sourceCommunityId;
+  }
+
+  function sigmaRootClickTargetIsExplicitControl(target: EventTarget | null): boolean {
+    return SIGMA_ROOT_CLICK_FALLBACK_IGNORE_SELECTORS.some((selector) => Boolean(closestSigmaRootClickTarget(target, selector)));
+  }
+
+  function closestSigmaRootClickTarget(target: EventTarget | null, selector: string): unknown {
+    const candidate = target as {
+      closest?: (query: string) => unknown;
+      parentElement?: { closest?: (query: string) => unknown } | null;
+    } | null;
+    return candidate?.closest?.(selector) ?? candidate?.parentElement?.closest?.(selector) ?? null;
   }
 
   function unbindSigmaEvents(): void {
@@ -471,7 +572,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   }
 
   function applySpotlightCameraResult(result: SigmaCommunitySpotlightCameraResult): void {
-    cameraSpotlightCommunityId = result.communityId;
+    cameraSpotlightKey = result.communityId ? sigmaSpotlightCameraKey(adapterData) : null;
     if (result.movement === "animated") {
       startProjectCameraFrameTracking(
         SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS,
@@ -484,17 +585,20 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     }
   }
 
-  function scheduleSpotlightCameraUpdate(previousCommunityId: string | null, updateGeneration: number): void {
+  function scheduleSpotlightCameraUpdate(previousSpotlightKey: string | null, updateGeneration: number): void {
     const run = (): void => {
       deferredSpotlightCameraFrame = null;
       if (destroyed || updateGeneration !== generation) return;
       try {
+        const currentCommunityId = sigmaSpotlightCameraCommunityId(adapterData);
+        const currentSpotlightKey = sigmaSpotlightCameraKey(adapterData);
         const spotlightCamera = maybeAnimateSigmaCommunitySpotlightCamera(
           sigma,
           sigmaRoot,
           adapterData,
-          sigmaSpotlightCommunityId(adapterData),
-          previousCommunityId,
+          currentCommunityId,
+          previousSpotlightKey === currentSpotlightKey ? currentCommunityId : null,
+          currentViewportSize,
           options.onFatalError
         );
         applySpotlightCameraResult(spotlightCamera);
@@ -557,7 +661,11 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       if (destroyed) return;
       const nextSize = readResizeEntrySize(entries) ?? readObservedRootSize();
       if (nextSize && lastObservedRootSize && sameRendererViewportSize(nextSize, lastObservedRootSize)) return;
-      if (nextSize) lastObservedRootSize = nextSize;
+      if (nextSize) {
+        lastObservedRootSize = nextSize;
+        currentViewportSize = nextSize;
+        options.onViewportSizeChange?.(nextSize);
+      }
       scheduleResizeRefresh();
     });
     resizeObserver.observe(sigmaRoot);
@@ -571,6 +679,12 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       try {
         if (destroyed) return;
         suppressOverlayAnimationFastPathUntilSettled();
+        projector = createSigmaGlobalHitProjector({
+          adapterData,
+          viewport: options.viewport ?? DEFAULT_RENDERER_VIEWPORT,
+          viewportSize: currentViewportSize,
+          screenPointToWorldPoint: (point) => sigmaScreenPointToWorldPoint(sigma, point, rendererCoordinateOptions())
+        });
         sigma.refresh?.();
         overlayDomController?.reposition();
       } catch (error) {
@@ -613,6 +727,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     const target = projector.targetFromSigmaHit(input);
     if (destroyed || eventGeneration !== generation) return;
     lastHitTarget = target;
+    syncSigmaRootLastHitMetadata(target);
     options.onHitTarget?.(target, { additive: Boolean(input.additive) });
   }
 
@@ -628,7 +743,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     handleNodeHover(null);
     suppressOverlayAnimationFastPathUntilSettled();
     const startPoint = sigmaNodeWorldPoint(nodeId);
-    const pointerWorldPoint = sigmaScreenPointToWorldPoint(sigma, screenPoint, options);
+    const pointerWorldPoint = sigmaScreenPointToWorldPoint(sigma, screenPoint, rendererCoordinateOptions());
     activeNodeDrag = createSigmaGlobalNodeDragSession({
       nodeId,
       pinKey: sigmaPinKeyForNode(nodeId),
@@ -648,7 +763,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     const drag = activeNodeDrag;
     if (!drag || destroyed || !screenPoint) return;
     preventSigmaDefault(payload);
-    const pointerWorldPoint = sigmaScreenPointToWorldPoint(sigma, screenPoint, options);
+    const pointerWorldPoint = sigmaScreenPointToWorldPoint(sigma, screenPoint, rendererCoordinateOptions());
     moveSigmaGlobalNodeDragSession(drag, screenPoint, pointerWorldPoint);
     if (drag.moved) {
       applyNodeDragPoint(drag.nodeId, drag.currentPoint, drag.initiallyPinned, drag.initialPinPosition);
@@ -743,14 +858,20 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   function sigmaCommunityCloudFor(communityId: string, wash: { cx: number; cy: number; rx: number; ry: number }): SigmaCommunityCloud {
     const fallbackBox = overlayBoxFromWorldEllipse(wash.cx, wash.cy, wash.rx, wash.ry);
     return sigmaCommunityCloud(
-      sigmaProjectedCloudHullPoints(cloudBasisByCommunityId.get(communityId), sigma, options),
-      fallbackBox
+      sigmaProjectedCloudHullPoints(cloudBasisByCommunityId.get(communityId), sigma, rendererCoordinateOptions()),
+      fallbackBox,
+      adapterData.renderable.communityMap?.active
+        ? {
+            minBoxWidth: SIGMA_READING_COMMUNITY_CLOUD_MIN_WIDTH,
+            minBoxHeight: SIGMA_READING_COMMUNITY_CLOUD_MIN_HEIGHT
+          }
+        : {}
     );
   }
 
   function overlayBoxFromWorldEllipse(x: number, y: number, rx: number, ry: number): { left: number; top: number; width: number; height: number } {
-    const topLeft = sigmaWorldPointToScreenPoint(sigma, { x: x - rx, y: y - ry }, options);
-    const bottomRight = sigmaWorldPointToScreenPoint(sigma, { x: x + rx, y: y + ry }, options);
+    const topLeft = sigmaWorldPointToScreenPoint(sigma, { x: x - rx, y: y - ry }, rendererCoordinateOptions());
+    const bottomRight = sigmaWorldPointToScreenPoint(sigma, { x: x + rx, y: y + ry }, rendererCoordinateOptions());
     const left = Math.min(topLeft.x, bottomRight.x);
     const top = Math.min(topLeft.y, bottomRight.y);
     return {
@@ -777,8 +898,34 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     sigmaRoot.dataset.communityFocusId = focusCommunityId;
     sigmaRoot.dataset.communityContextId = currentCommunityId;
     sigmaRoot.dataset.sourceCommunityId = adapterData.sourceCommunityId ?? "";
+    sigmaRoot.dataset.communityMapLabelLimit = String(communityMap?.current?.labelBudget.limit ?? 0);
+    sigmaRoot.dataset.communityMapVisibleLabels = String(communityMap?.current?.labelBudget.visible ?? 0);
   }
 
+  function syncSigmaRootLastHitMetadata(target: GraphGestureTarget): void {
+    sigmaRoot.dataset.lastHitKind = target.kind;
+    sigmaRoot.dataset.lastHitId = "id" in target && typeof target.id === "string" ? target.id : "";
+  }
+
+}
+
+function sigmaSpotlightCameraCommunityId(adapterData: GraphRendererAdapterData): string | null {
+  if (adapterData.renderable.communityMap?.active) return sigmaSpotlightCommunityId(adapterData);
+  return adapterData.selection.input?.kind === "community" ? adapterData.selection.input.id : null;
+}
+
+function sigmaSpotlightCameraKey(adapterData: GraphRendererAdapterData): string | null {
+  const communityId = sigmaSpotlightCameraCommunityId(adapterData);
+  if (!communityId) return null;
+  return `${adapterData.renderable.communityMap?.active ? "reading" : "global"}:${communityId}`;
+}
+
+function shouldRefitSpotlightCameraAfterViewportChange(
+  previousSize: RendererViewportSize,
+  nextSize: RendererViewportSize,
+  adapterData: GraphRendererAdapterData
+): boolean {
+  return adapterData.renderable.communityMap?.active === true && !sameRendererViewportSize(previousSize, nextSize);
 }
 
 function createSigmaRoot(container: HTMLElement, theme: ThemeId): HTMLElement {
@@ -799,6 +946,7 @@ export function sigmaSettingsForTheme(theme: ThemeId): Record<string, unknown> {
     allowInvalidContainer: false,
     labelColor: sigmaLabelColor(theme),
     labelFont: tokens.vars["--font-ui"],
+    defaultDrawNodeLabel: drawSigmaReadingAwareNodeLabel,
     zoomingRatio: SIGMA_BUTTON_ZOOM_RATIO,
     // Sigma 默认 wheel 的兜底参数：wheel 已被 sigma-wheel-zoom controller 接管（preventSigmaDefault），
     // zoomingRatio/zoomDuration 只在 Sigma 内置缩放入口（如 animatedZoom）被触发时生效，
@@ -807,6 +955,41 @@ export function sigmaSettingsForTheme(theme: ThemeId): Record<string, unknown> {
     minCameraRatio: SIGMA_CAMERA_MIN_RATIO,
     maxCameraRatio: SIGMA_CAMERA_MAX_RATIO
   };
+}
+
+/** @internal 仅为单元测试直接断言而导出，生产中通过 sigmaSettingsForTheme 注入 Sigma。 */
+export function drawSigmaReadingAwareNodeLabel(
+  context: CanvasRenderingContext2D,
+  data: SigmaNodeLabelData,
+  settings: SigmaNodeLabelSettings
+): void {
+  if (!data.label) return;
+  const label = String(data.label);
+  const size = settings.labelSize;
+  const font = settings.labelFont;
+  const weight = settings.labelWeight;
+  const color = settings.labelColor.attribute
+    ? String(data[settings.labelColor.attribute] || settings.labelColor.color || "#000")
+    : settings.labelColor.color || "#000";
+  context.fillStyle = color;
+  context.font = `${weight} ${size}px ${font}`;
+  const rightX = data.x + data.size + 3;
+  const textWidth = context.measureText(label).width;
+  const canvasWidth = sigmaLabelCanvasCssWidth(context);
+  const leftX = data.x - data.size - 3 - textWidth;
+  const shouldDrawLeft = canvasWidth > 0
+    && rightX + textWidth > canvasWidth - SIGMA_NODE_LABEL_EDGE_GUTTER
+    && leftX >= SIGMA_NODE_LABEL_EDGE_GUTTER;
+  context.fillText(label, shouldDrawLeft ? leftX : rightX, data.y + size / 3);
+}
+
+function sigmaLabelCanvasCssWidth(context: CanvasRenderingContext2D): number {
+  const canvas = context.canvas;
+  const clientWidth = finiteNumber(canvas?.clientWidth, 0);
+  if (clientWidth > 0) return clientWidth;
+  const rectWidth = finiteNumber(canvas?.getBoundingClientRect?.().width, 0);
+  if (rectWidth > 0) return rectWidth;
+  return finiteNumber(canvas?.width, 0);
 }
 
 function sigmaLabelColor(theme: ThemeId): { color: string } {

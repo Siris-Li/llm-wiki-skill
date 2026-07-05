@@ -2,7 +2,14 @@ import type {
   GraphRendererAdapterData,
   GraphRendererAdapterNode
 } from "./adapter";
-import type { SigmaCommunityCloud } from "./community-cloud-geometry";
+import {
+  SIGMA_READING_COMMUNITY_CLOUD_MIN_HEIGHT,
+  SIGMA_READING_COMMUNITY_CLOUD_MIN_WIDTH,
+  sigmaCommunityCloud,
+  sigmaCommunityCloudBasisById,
+  sigmaProjectedCloudHullPoints,
+  type SigmaCommunityCloud
+} from "./community-cloud-geometry";
 import type { GraphScreenPoint } from "./geometry";
 import {
   bindSigmaGlobalOverlayMouseDrag,
@@ -151,6 +158,7 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
       element.dataset.searchHit = node.searchHit ? "true" : "false";
       element.dataset.selected = node.selected ? "true" : "false";
       element.dataset.pinned = node.pinHint.pinned ? "true" : "false";
+      element.dataset.relationFocusDepth = node.relationFocusDepth ?? "none";
       element.dataset.communityDimmed = sigmaGlobalNodeSpotlightState(node, spotlightCommunityIds).dimmed ? "true" : "false";
       ordered.push(element);
     }
@@ -209,10 +217,7 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
       if (!community.wash) continue;
       const element = overlayLabelEntries.get(community.id);
       if (!element) continue;
-      const center = sigmaWorldPointToScreenPoint(sigma, {
-        x: community.wash.cx,
-        y: community.wash.cy - community.wash.ry * 0.16
-      }, options);
+      const center = communityLabelScreenPoint(community, adapterData, sigma, options);
       applyOverlayBox(element, {
         left: center.x,
         top: center.y,
@@ -374,14 +379,65 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
   }
 }
 
+function communityLabelScreenPoint(
+  community: GraphRendererAdapterData["renderable"]["communities"][number],
+  adapterData: GraphRendererAdapterData,
+  sigma: SigmaGlobalSigmaLike,
+  options: Pick<SigmaGlobalRendererCreateOptions, "viewport" | "viewportSize" | "adapterData">
+): GraphScreenPoint {
+  if (adapterData.renderable.communityMap?.active && community.wash) {
+    const fallbackBox = overlayBoxFromWorldEllipse(community.wash, sigma, options);
+    const cloud = sigmaCommunityCloud(
+      sigmaProjectedCloudHullPoints(
+        sigmaCommunityCloudBasisById(adapterData).get(community.id),
+        sigma,
+        options
+      ),
+      fallbackBox,
+      {
+        minBoxWidth: SIGMA_READING_COMMUNITY_CLOUD_MIN_WIDTH,
+        minBoxHeight: SIGMA_READING_COMMUNITY_CLOUD_MIN_HEIGHT
+      }
+    );
+    return {
+      x: cloud.box.left + cloud.box.width / 2,
+      y: cloud.box.top + 15
+    };
+  }
+  return sigmaWorldPointToScreenPoint(sigma, {
+    x: community.wash?.cx ?? 0,
+    y: (community.wash?.cy ?? 0) - (community.wash?.ry ?? 0) * 0.16
+  }, options);
+}
+
+function overlayBoxFromWorldEllipse(
+  wash: { cx: number; cy: number; rx: number; ry: number },
+  sigma: SigmaGlobalSigmaLike,
+  options: Pick<SigmaGlobalRendererCreateOptions, "viewport" | "viewportSize" | "adapterData">
+): { left: number; top: number; width: number; height: number } {
+  const topLeft = sigmaWorldPointToScreenPoint(sigma, { x: wash.cx - wash.rx, y: wash.cy - wash.ry }, options);
+  const bottomRight = sigmaWorldPointToScreenPoint(sigma, { x: wash.cx + wash.rx, y: wash.cy + wash.ry }, options);
+  const left = Math.min(topLeft.x, bottomRight.x);
+  const top = Math.min(topLeft.y, bottomRight.y);
+  return {
+    left,
+    top,
+    width: Math.max(8, Math.abs(bottomRight.x - topLeft.x)),
+    height: Math.max(8, Math.abs(bottomRight.y - topLeft.y))
+  };
+}
+
 export function sigmaOverlayNodes(adapterData: GraphRendererAdapterData): GraphRendererAdapterNode[] {
   const nodes = adapterData.nodes;
   const seen = new Set<string>();
   const output: GraphRendererAdapterNode[] = [];
+  const totalLimit = adapterData.renderable.communityMap?.active
+    ? Number.POSITIVE_INFINITY
+    : SIGMA_GLOBAL_NODE_HIT_TARGET_LIMIT;
   const append = (candidates: GraphRendererAdapterNode[], limit: number) => {
     let count = 0;
     for (const node of candidates) {
-      if (output.length >= SIGMA_GLOBAL_NODE_HIT_TARGET_LIMIT || count >= limit || seen.has(node.id)) continue;
+      if (output.length >= totalLimit || count >= limit || seen.has(node.id)) continue;
       seen.add(node.id);
       output.push(node);
       count += 1;
@@ -389,6 +445,9 @@ export function sigmaOverlayNodes(adapterData: GraphRendererAdapterData): GraphR
   };
   if (adapterData.selection.input?.kind !== "community") {
     append(nodes.filter((node) => node.selected), Number.POSITIVE_INFINITY);
+  }
+  if (adapterData.renderable.communityMap?.active) {
+    append(nodes, Number.POSITIVE_INFINITY);
   }
   append(nodes.filter((node) => node.searchHit), 80);
   append(nodes.filter((node) => node.pinHint.pinned), 80);

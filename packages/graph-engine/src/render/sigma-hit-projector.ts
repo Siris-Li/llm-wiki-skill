@@ -51,7 +51,15 @@ export function createSigmaGlobalHitProjector(input: SigmaGlobalHitProjectorInpu
               input.viewportSize,
               input.adapterData.renderable.worldBounds
             );
-        return graphSpatialHitToGestureTarget(spatialIndex.hitTest(worldPoint));
+        const target = graphSpatialHitToGestureTarget(spatialIndex.hitTest(worldPoint));
+        if (
+          target.kind === "community-wash" &&
+          input.adapterData.sourceCommunityId &&
+          !input.adapterData.renderable.communityMap?.active
+        ) {
+          return { kind: "graph-blank" };
+        }
+        return target;
       }
 
       return { kind: "graph-blank" };

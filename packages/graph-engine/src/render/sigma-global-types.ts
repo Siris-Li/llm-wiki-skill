@@ -80,6 +80,7 @@ export interface SigmaGlobalRendererCreateOptions {
   onNodeHover?: (nodeId: string | null) => void;
   onPinsChanged?: (pins: PinMap) => void;
   onDragActiveChange?: (dragging: boolean) => void;
+  onViewportSizeChange?: (size: RendererViewportSize) => void;
   onFatalError?: (error: unknown) => void;
   pins?: PinMap;
   runtime?: SigmaGlobalRendererRuntime;
@@ -92,6 +93,7 @@ export interface SigmaGlobalRendererUpdateOptions {
   theme?: ThemeId;
   edgeStyle?: GraphEdgeStyleOptions;
   pins?: PinMap;
+  viewportSize?: RendererViewportSize;
 }
 
 export interface SigmaGlobalRenderer {

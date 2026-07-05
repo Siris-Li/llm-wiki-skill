@@ -133,6 +133,24 @@ describe("Sigma graphology render model", () => {
     assert.equal(graph.getNodeAttribute("alpha", "y"), 222);
   });
 
+  it("truncates long canvas labels in narrow Sigma community reading", () => {
+    const data = sigmaCommunityReadingGraphData();
+    const longLabel = "一个标题非常长用来测试社区阅读标签截断是否稳定的核心节点";
+    data.nodes = data.nodes.map((node) => node.id === "alpha" ? { ...node, label: longLabel } : node);
+    const adapter = buildGraphRendererAdapterData(data, {
+      theme: "shan-shui",
+      focus: { kind: "community", id: "community-a" },
+      sourceCommunityId: "community-a",
+      viewportSize: { width: 390, height: 844 }
+    });
+    const graph = buildSigmaGlobalGraphologyGraph(adapter, { GraphologyGraph });
+    const canvasLabel = graph.getNodeAttribute("alpha", "label");
+
+    assert.ok(adapter.nodes.find((node) => node.id === "alpha")?.label === longLabel, "adapter keeps the full node title");
+    assert.ok(canvasLabel.endsWith("…"), `canvas label should be truncated, got ${canvasLabel}`);
+    assert.ok(canvasLabel.length < longLabel.length);
+  });
+
   it("detects patch eligibility from graph structure and theme", () => {
     const adapterData = adapterDataFixture();
     const sameShape = adapterDataFixture({ alphaLabel: "Alpha changed" });

@@ -42,6 +42,23 @@ describe("graph renderer adapter contract", () => {
     assert.equal(typeof edge.render.traceable, "boolean");
   });
 
+  it("passes viewport size into focused community reading bounds", () => {
+    const wide = buildGraphRendererAdapterData(graphFixture(), {
+      focus: { kind: "community", id: "alpha" },
+      viewportSize: { width: 1600, height: 900 }
+    });
+    const narrow = buildGraphRendererAdapterData(graphFixture(), {
+      focus: { kind: "community", id: "alpha" },
+      viewportSize: { width: 390, height: 844 }
+    });
+
+    const wideRatio = wide.renderable.worldBounds.width / wide.renderable.worldBounds.height;
+    const narrowRatio = narrow.renderable.worldBounds.width / narrow.renderable.worldBounds.height;
+
+    assert.ok(Math.abs(wideRatio - 1600 / 900) < 0.05, `wide bounds should match viewport ratio, got ${wideRatio}`);
+    assert.ok(Math.abs(narrowRatio - 390 / 844) < 0.05, `narrow bounds should match viewport ratio, got ${narrowRatio}`);
+  });
+
   it("preserves shared object ids, selected state, search hits, Pin hints, aggregations, and drawer targets", () => {
     const adapter = buildGraphRendererAdapterData(graphFixture(), adapterOptions());
 

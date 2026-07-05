@@ -7,7 +7,8 @@ import {
   readToolbarPanelState,
   writeToolbarPanelState,
   type GraphRendererAdapterData,
-  type GraphGestureTarget
+  type GraphGestureTarget,
+  type RendererViewportSize
 } from "../render";
 import type { SigmaGlobalHitContext } from "../render/sigma-global-types";
 import {
@@ -61,13 +62,14 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   let toolbarPanelState = readToolbarPanelState(input.container.ownerDocument.defaultView?.localStorage);
   let searchStatus: HTMLElement | null = null;
   let searchResultsList: HTMLElement | null = null;
-  let currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute());
   const shell = input.container.ownerDocument.createElement("div");
   shell.className = "sigma-global-route llm-wiki-graph-engine";
   shell.dataset.route = "sigma-global";
   applyGraphThemeToElement(shell, options.theme);
   input.container.append(shell);
   ensureGraphRendererStyles(input.container.ownerDocument);
+  let observedViewportSize = measuredViewportSize(shell) ?? measuredViewportSize(input.container);
+  let currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute(), sigmaRouteViewportSize());
   const hiddenReadingNodeHint = input.container.ownerDocument.createElement("div");
   hiddenReadingNodeHint.className = "sigma-community-hidden-node-hint";
   hiddenReadingNodeHint.textContent = "当前节点被筛选隐藏";
@@ -81,17 +83,20 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     .then((runtime) => {
       if (destroyed) return;
       try {
+        currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute(), sigmaRouteViewportSize());
         renderer = createSigmaGlobalRenderer({
           container: shell,
           adapterData: currentSigmaAdapterData,
           theme: options.theme,
           edgeStyle: options.edgeStyle,
           runtime: runtime as unknown as SigmaGlobalRendererRuntime,
+          viewportSize: sigmaRouteViewportSize(),
           pins: options.pins,
           onPinsChanged: handleSigmaPinsChanged,
           onDragActiveChange: input.options.callbacks.onDragActiveChange,
           onHitTarget: handleSigmaHitTarget,
           onNodeHover: handleSigmaNodeHover,
+          onViewportSizeChange: handleSigmaViewportSizeChange,
           onFatalError: (error) => input.onSigmaUnavailable?.(error)
         });
       } catch (error) {
@@ -187,7 +192,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       const path = wikiPathForGraphNode(node);
       const nextPins: PinMap = { ...options.pins };
       if (mode === "fix") {
-        const adapterNode = adapterDataForSigmaRoute(options, null, typeFiltersForCurrentRoute()).nodes.find((item) => item.id === id);
+        const adapterNode = adapterDataForSigmaRoute(options, null, typeFiltersForCurrentRoute(), sigmaRouteViewportSize()).nodes.find((item) => item.id === id);
         nextPins[path] = {
           x: adapterNode?.point.x ?? numericNodeCoordinate(node.x),
           y: adapterNode?.point.y ?? numericNodeCoordinate(node.y),
@@ -225,15 +230,26 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   };
 
   function updateSigmaRenderer(): void {
-    currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute());
+    const viewportSize = sigmaRouteViewportSize();
+    currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute(), viewportSize);
     syncHiddenReadingNodeHint();
     if (!renderer || destroyed) return;
     renderer.update({
       adapterData: currentSigmaAdapterData,
       theme: options.theme,
       edgeStyle: options.edgeStyle,
-      pins: options.pins
+      pins: options.pins,
+      viewportSize
     });
+  }
+
+  function sigmaRouteViewportSize(): RendererViewportSize | undefined {
+    return observedViewportSize ?? measuredViewportSize(shell) ?? measuredViewportSize(input.container);
+  }
+
+  function handleSigmaViewportSizeChange(size: RendererViewportSize): void {
+    observedViewportSize = size;
+    updateSigmaRenderer();
   }
 
   function updateSigmaSelection(selection: SelectionInput | null): void {
@@ -274,7 +290,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       case "edge":
         break;
       case "graph-blank":
-        const shouldResetCamera = options.selection?.kind === "community";
+        const shouldResetCamera = options.selection?.kind === "community" || options.sourceCommunityId != null;
         options = { ...options, temporaryObject: null, sourceCommunityId: null };
         input.options.callbacks.onSelectionClearRequested?.();
         updateSigmaSelection(null);
@@ -613,7 +629,8 @@ function typeFiltersForRouteControls(
 function adapterDataForSigmaRoute(
   options: GraphFacadeRouteRendererOptions,
   hoverNodeId: string | null = null,
-  typeFilters = options.typeFilters
+  typeFilters = options.typeFilters,
+  viewportSize?: RendererViewportSize
 ): GraphRendererAdapterData {
   return buildGraphRendererAdapterData(options.data, {
     theme: options.theme,
@@ -623,9 +640,18 @@ function adapterDataForSigmaRoute(
     aggregationMarkers: options.aggregationMarkers,
     focus: options.focus,
     typeFilters,
+    viewportSize,
     sourceCommunityId: options.sourceCommunityId,
     relationFocusNodeId: hoverNodeId
   });
+}
+
+function measuredViewportSize(element: HTMLElement): RendererViewportSize | undefined {
+  const rect = element.getBoundingClientRect();
+  const width = Math.floor(Number(rect.width));
+  const height = Math.floor(Number(rect.height));
+  if (width > 0 && height > 0) return { width, height };
+  return undefined;
 }
 
 function applyGraphThemeToElement(element: HTMLElement, theme: ThemeId): void {
