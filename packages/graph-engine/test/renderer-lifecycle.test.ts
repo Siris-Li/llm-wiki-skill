@@ -1181,6 +1181,49 @@ describe("graph renderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("keeps source-community nodes clickable after a Sigma global community click", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const runtime = fakeSigmaRouteRuntime();
+    const selections: SelectionInput[] = [];
+    const renderer = createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      sigmaRuntime: runtime,
+      options: {
+        data: graphDataForReturnGlobal(),
+        pins: {},
+        theme: "shan-shui",
+        focus: null,
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: null,
+        sourceCommunityId: null,
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {
+          onSelectionInput: (selection) => selections.push(selection)
+        }
+      }
+    });
+
+    await Promise.resolve();
+    const shape = findByClass(container, "sigma-global-community-region")[0]?.children[0]?.children[0];
+    assert.ok(shape, "expected a Sigma community region hit shape");
+
+    shape.dispatch("click");
+
+    const sigmaRoot = findByClass(container, "sigma-global-renderer")[0];
+    assert.deepEqual(selections.at(-1), { kind: "community", id: "community-a" });
+    assert.equal(sigmaRoot?.dataset.sourceCommunityId, "community-a");
+    assert.deepEqual(
+      findByClass(container, "sigma-global-node-hit-target").map((target) => target.dataset.nodeId).sort(),
+      ["a", "b"]
+    );
+
+    renderer.destroy();
+  });
+
   it("applies Escape priority without clearing pins or resetting layout", async () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");

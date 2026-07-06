@@ -1375,6 +1375,11 @@ describe("GraphFacade", () => {
     assert.deepEqual(state.selection, { kind: "node", id: "a" });
     assert.deepEqual(selections, [{ kind: "node", id: "a" }]);
 
+    sigmaInputs[0].options.callbacks.onSelectionInput?.({ kind: "community", id: "c1" });
+    assert.deepEqual(state.selection, { kind: "community", id: "c1" });
+    assert.equal(state.sourceCommunityId, "c1");
+    assert.deepEqual(selections.at(-1), { kind: "community", id: "c1" });
+
     sigmaInputs[0].options.callbacks.onSelectionClearRequested?.();
     assert.equal(state.selection, null);
     assert.equal(state.temporaryObject, null);

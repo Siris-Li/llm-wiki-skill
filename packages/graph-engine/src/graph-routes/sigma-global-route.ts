@@ -331,7 +331,11 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   }
 
   function updateSigmaSelection(selection: SelectionInput | null): void {
-    options = { ...options, selection };
+    options = {
+      ...options,
+      selection,
+      sourceCommunityId: selection?.kind === "community" ? selection.id : options.sourceCommunityId
+    };
     syncVisibilityState();
     updateSigmaRenderer();
   }

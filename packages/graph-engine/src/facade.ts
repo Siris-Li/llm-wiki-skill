@@ -681,6 +681,7 @@ export function createGraphFacadeRouteManager(
           ...(options.callbacks || {}),
           onSelectionInput: (selection) => {
             state.selection = selection;
+            if (selection.kind === "community") state.sourceCommunityId = selection.id;
             options.callbacks?.onSelectionInput?.(selection);
           },
           onSelectionClearRequested: () => {
