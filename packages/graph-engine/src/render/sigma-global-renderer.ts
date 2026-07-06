@@ -296,7 +296,6 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     },
     update(updateOptions) {
       assertActive();
-      cancelActiveViewTransition(readCameraState(sigma) ?? undefined);
       const cameraState = readCameraState(sigma);
       const previousCameraSpotlightKey = cameraSpotlightKey;
       let spotlightCameraPreviousKey = previousCameraSpotlightKey;
@@ -885,6 +884,10 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       cancelActiveViewTransition(nextState);
       return;
     }
+    if (cancelledViewTransitionGuard?.isGuardingStaleAnimation()) {
+      cancelledViewTransitionGuard.takeover(nextState);
+      return;
+    }
     camera?.setState?.(nextState);
   }
 
@@ -940,7 +943,6 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       resizeAnimationFrame = null;
       try {
         if (destroyed) return;
-        cancelActiveViewTransition(readCameraState(sigma) ?? undefined);
         suppressOverlayAnimationFastPathUntilSettled();
         projector = createSigmaGlobalHitProjector({
           adapterData,

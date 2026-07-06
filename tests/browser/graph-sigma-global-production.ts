@@ -1452,14 +1452,23 @@ async function measureReturnGlobalTakeover(page: PageLike, metadata: LargeGraphF
     runs.push(await runReturnGlobalTakeover(page, mode));
   }
   const failures = runs.flatMap((run) => run.failures.map((failure) => `${run.mode}:${failure}`));
+  const fps = medianReturnGlobalTakeoverMetric(runs, "fps");
+  const p95 = medianReturnGlobalTakeoverMetric(runs, "p95");
+  const failureClass = failures.length
+    ? "return_global_takeover_failed"
+    : null;
+  const metricDetail = `median_fps=${fps}; median_frame_p95_ms=${p95}; floor=${FPS_FLOOR}; ceiling=${FRAME_P95_CEILING_MS}`;
   return recordFromPage(page, metadata, {
     action: "return_global_takeover",
     duration_ms: performance.now() - started,
-    pass: failures.length === 0,
-    failure_class: failures.length ? "return_global_takeover_failed" : null,
-    failure_detail: failures.length
+    fps,
+    frame_p95_ms: p95,
+    pass: failureClass == null,
+    failure_class: failureClass,
+    failure_detail: failureClass
       ? [
-        failures.join("; "),
+        failures.length ? failures.join("; ") : null,
+        metricDetail,
         ...runs.map((run) => `${run.mode}=${JSON.stringify({
           selectedId: run.selectedId,
           duringSelected: run.duringSelected,
@@ -1467,12 +1476,25 @@ async function measureReturnGlobalTakeover(page: PageLike, metadata: LargeGraphF
           finalSelectedContainerId: run.finalSelectedContainerId,
           finalSelectedNodeId: run.finalSelectedNodeId,
           overlayTransform: run.finalOverlayTransform,
-          productionPath: run.productionPath
+          productionPath: run.productionPath,
+          fps: run.fps,
+          p95: run.p95,
+          durationMs: run.durationMs
         })}`)
-      ].join("; ")
+      ].filter(Boolean).join("; ")
       : null,
     artifact_path: resultPath
   });
+}
+
+function medianReturnGlobalTakeoverMetric(
+  runs: ReturnGlobalTakeoverRun[],
+  key: "fps" | "p95"
+): number {
+  const values = runs.map((run) => run[key]).sort((a, b) => a - b);
+  if (!values.length) return 0;
+  const mid = Math.floor(values.length / 2);
+  return values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
 }
 
 type ReturnGlobalTakeoverMode = "wheel" | "drag" | "click";
@@ -1486,6 +1508,9 @@ interface ReturnGlobalTakeoverRun {
   finalSelectedNodeId: string | null;
   finalOverlayTransform: string;
   productionPath: boolean;
+  fps: number;
+  p95: number;
+  durationMs: number;
   failures: string[];
 }
 
@@ -1508,6 +1533,8 @@ async function runReturnGlobalTakeover(
     return trial.communityRegionState(id);
   }, selectedId) as SigmaSpotlightRegionState;
 
+  const samplePromise = sampleAnimationFrames(page, 420);
+  const takeoverStarted = performance.now();
   if (mode === "wheel") {
     const point = await page.evaluate(() => (window as any).__sigmaProduction.blankStagePoint()) as { x: number; y: number };
     await page.mouse.move(point.x, point.y);
@@ -1518,7 +1545,9 @@ async function runReturnGlobalTakeover(
     const nodeTarget = await page.evaluate(() => (window as any).__sigmaProduction.nodeHitTarget()) as PointerTarget | null;
     if (nodeTarget) await clickPoint(page, nodeTarget);
   }
-  await waitForAnimationFrames(page, 35);
+  await waitForReturnGlobalTakeoverFinal(page, selectedId, mode);
+  const sample = await samplePromise;
+  const takeoverDuration = performance.now() - takeoverStarted;
 
   const final = await page.evaluate((id: string | null) => {
     const trial = (window as any).__sigmaProduction;
@@ -1560,8 +1589,31 @@ async function runReturnGlobalTakeover(
     finalSelectedNodeId: final.counts.selectedNodeId ?? final.counts.lastSelectionNodeIds?.[0] ?? null,
     finalOverlayTransform: final.region.overlayTransform,
     productionPath: final.productionPath,
+    fps: sample.fps,
+    p95: sample.p95,
+    durationMs: takeoverDuration,
     failures
   };
+}
+
+async function waitForReturnGlobalTakeoverFinal(
+  page: PageLike,
+  selectedId: string | null,
+  mode: ReturnGlobalTakeoverMode
+): Promise<void> {
+  await page.waitForFunction(
+    (input: { selectedId: string | null; mode: ReturnGlobalTakeoverMode }) => {
+      const trial = (window as any).__sigmaProduction;
+      const counts = trial?.counts?.();
+      const region = trial?.communityRegionState?.(input.selectedId);
+      const probe = trial?.productionProbe?.({ canvasSignal: false });
+      if (!probe?.productionPath || !region?.exists || region.overlayTransform) return false;
+      if (input.mode === "click") return counts?.lastSelectionKind === "node";
+      return counts?.lastSelectionKind === "community" && counts?.selectedContainerId === input.selectedId;
+    },
+    { selectedId, mode },
+    { timeout: 4000 }
+  );
 }
 
 async function selectCommunityForReturnGlobalTakeover(page: PageLike): Promise<string> {

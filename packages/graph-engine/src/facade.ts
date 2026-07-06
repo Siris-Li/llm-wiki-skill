@@ -423,9 +423,9 @@ export function createGraphFacadeRouteManager(
       state.temporaryObject = null;
       currentRenderer().clearTemporaryObjectDisplay();
     },
-    resetView() {
+    resetView(resetOptions?: { onComplete?: () => void; onCancel?: () => void; onCleanup?: () => void }) {
       assertActive();
-      resetViewToGlobalRoute();
+      resetViewToGlobalRoute(resetOptions);
     },
     select(selection) {
       assertActive();
@@ -542,11 +542,12 @@ export function createGraphFacadeRouteManager(
               onComplete: () => {
                 state.sourceCommunityId = null;
                 clearCommunitySelectionForGlobalReset();
+                options.callbacks?.onViewReset?.();
               }
             }
           : undefined);
       }
-      return { shouldNotifyViewReset: true };
+      return { shouldNotifyViewReset: !shouldDelayGlobalCommunityClear };
     }
     if (shouldDelayGlobalCommunityClear) {
       state.sourceCommunityId = null;
@@ -556,7 +557,7 @@ export function createGraphFacadeRouteManager(
     return { shouldNotifyViewReset: routeId !== "dom-svg-small-fallback" };
   }
 
-  function resetViewToGlobalRoute(): void {
+  function resetViewToGlobalRoute(resetOptions?: { onComplete?: () => void; onCancel?: () => void; onCleanup?: () => void }): void {
     const previousRouteId = routeId;
     // Explicit reset clears the source community context (unlike the toolbar
     // "return to global", which keeps it so the source stays highlighted).
@@ -566,9 +567,12 @@ export function createGraphFacadeRouteManager(
     if (!wasCommunityReading && previousRouteId === "sigma-global" && state.selection?.kind === "community") {
       currentRenderer().resetView({
         onComplete: () => {
+          resetOptions?.onComplete?.();
           state.sourceCommunityId = null;
           clearCommunitySelectionForGlobalReset();
-        }
+        },
+        onCancel: resetOptions?.onCancel,
+        onCleanup: resetOptions?.onCleanup
       });
       return;
     }
@@ -577,7 +581,7 @@ export function createGraphFacadeRouteManager(
     switchToGlobalRoute();
     if (previousRouteId === routeId) {
       if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
-      currentRenderer().resetView();
+      currentRenderer().resetView(resetOptions);
     }
   }
 
@@ -1082,14 +1086,19 @@ export function createGraphFacadeFromRenderer(
       };
       if (shouldDelayGlobalCommunityClear) {
         facadeState.focus = null;
+        let resetCompleted = false;
+        const completeReset = (): void => {
+          if (resetCompleted) return;
+          resetCompleted = true;
+          facadeState.sourceCommunityId = null;
+          if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
+          clearCommunitySelection();
+          capabilities?.onViewReset?.();
+        };
         renderer.resetView({
-          onComplete: () => {
-            facadeState.sourceCommunityId = null;
-            if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
-            clearCommunitySelection();
-            capabilities?.onViewReset?.();
-          }
+          onComplete: completeReset
         });
+        if (renderer.resetView.length === 0) completeReset();
         return;
       }
       clearCommunitySelection();

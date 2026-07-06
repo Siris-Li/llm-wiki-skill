@@ -26,6 +26,7 @@ export const REQUIRED_TRIAL_ACTIONS = [
   "drawer_open",
   "enter_community",
   "return_global",
+  "return_global_takeover",
   "repeated_search_community_drawer_cycles"
 ] as const;
 
@@ -39,7 +40,8 @@ export const DURATION_GATED_ACTIONS = new Set<string>([
   "initial_render",
   "search_highlight",
   "drawer_open",
-  "return_global"
+  "return_global",
+  "return_global_takeover"
 ]);
 // The memory-gated repeated-cycle action.
 export const MEMORY_GATED_ACTION = "repeated_search_community_drawer_cycles";
@@ -158,6 +160,12 @@ export function returnGlobalLimitMs(metadata: LargeGraphFixtureMetadata): number
   return 250;
 }
 
+export function returnGlobalTakeoverLimitMs(metadata: LargeGraphFixtureMetadata): number {
+  if (metadata.nodes >= 10000) return 9000;
+  if (metadata.nodes >= 5000) return 7500;
+  return 6000;
+}
+
 export function durationLimitMs(metadata: LargeGraphFixtureMetadata, action: string): number | null {
   switch (action) {
     case "initial_render":
@@ -168,6 +176,8 @@ export function durationLimitMs(metadata: LargeGraphFixtureMetadata, action: str
       return drawerOpenLimitMs(metadata);
     case "return_global":
       return returnGlobalLimitMs(metadata);
+    case "return_global_takeover":
+      return returnGlobalTakeoverLimitMs(metadata);
     default:
       return null;
   }

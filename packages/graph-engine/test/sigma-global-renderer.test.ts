@@ -2332,6 +2332,35 @@ describe("Sigma global renderer production boundary", () => {
     renderer.destroy();
   });
 
+  it("keeps later wheel input from being reclaimed by a cancelled resetView animation", () => {
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.resetView();
+    sigma.camera.advanceAnimation(0.5);
+    sigma.emit("afterRender");
+
+    sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
+    const firstWheelState = sigma.camera.getState();
+    sigma.mouseCaptor.emitWheel({ x: 120, y: 90, deltaY: 80, deltaMode: 0 });
+    const secondWheelState = sigma.camera.getState();
+
+    assert.notDeepEqual(secondWheelState, firstWheelState);
+
+    sigma.camera.finishAnimation();
+    sigma.emit("afterRender");
+
+    assert.deepEqual(sigma.camera.getState(), secondWheelState);
+
+    renderer.destroy();
+  });
+
   it("keeps a stage drag takeover from being reclaimed by a cancelled resetView animation", () => {
     const runtime = fakeRuntime({ worldScale: 200 });
     const renderer = createSigmaGlobalRenderer({
@@ -2368,6 +2397,82 @@ describe("Sigma global renderer production boundary", () => {
     assert.deepEqual(events, ["cancel", "cleanup"]);
     assert.equal(renderer.overlayRoot.style.transform, "");
     assert.equal(renderer.overlayRoot.style.willChange, "");
+
+    renderer.destroy();
+  });
+
+  it("keeps resetView cleanup pending across passive renderer updates", () => {
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+    const events: string[] = [];
+
+    renderer.resetView({
+      onComplete: () => events.push("complete"),
+      onCancel: () => events.push("cancel"),
+      onCleanup: () => events.push("cleanup")
+    });
+    sigma.camera.advanceAnimation(0.5);
+
+    renderer.update({ adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }) });
+
+    assert.deepEqual(events, []);
+
+    sigma.camera.finishAnimation();
+    sigma.emit("afterRender");
+
+    assert.deepEqual(events, ["complete", "cleanup"]);
+
+    renderer.destroy();
+  });
+
+  it("keeps resetView cleanup pending across passive viewport resize", () => {
+    let resizeCallback: ResizeObserverCallback | null = null;
+    class FakeResizeObserver implements ResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    }
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer({
+        ResizeObserver: FakeResizeObserver as typeof ResizeObserver,
+        requestAnimationFrame: (callback) => {
+          callback(0);
+          return 1;
+        },
+        cancelAnimationFrame: () => undefined
+      }),
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+    const events: string[] = [];
+
+    renderer.resetView({
+      onComplete: () => events.push("complete"),
+      onCancel: () => events.push("cancel"),
+      onCleanup: () => events.push("cleanup")
+    });
+    sigma.camera.advanceAnimation(0.5);
+
+    resizeCallback?.([resizeObserverEntry(480, 320)], {} as ResizeObserver);
+
+    assert.deepEqual(events, []);
+
+    sigma.camera.finishAnimation();
+    sigma.emit("afterRender");
+
+    assert.deepEqual(events, ["complete", "cleanup"]);
 
     renderer.destroy();
   });

@@ -186,6 +186,58 @@ describe("GraphFacade", () => {
     assert.deepEqual(renderer.calls.at(-1), ["setSourceCommunityContext", null]);
   });
 
+  it("forwards delayed public reset completion through the route manager", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const viewResets: number[] = [];
+    const selectionClears: number[] = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: () => trackRenderer(sigmaRenderers, "sigma-global"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+    const engine = createGraphFacadeFromRenderer(container as unknown as HTMLElement, manager, {
+      data: state.data,
+      theme: "shan-shui",
+      capabilities: {
+        onSelectionClear: () => selectionClears.push(1),
+        onViewReset: () => viewResets.push(1)
+      }
+    }, state);
+
+    engine.select({ kind: "community", id: "c1" });
+    engine.resetView();
+
+    assert.deepEqual(state.selection, { kind: "community", id: "c1" });
+    assert.deepEqual(viewResets, []);
+    assert.deepEqual(selectionClears, []);
+    const resetCall = sigmaRenderers[0].calls.find((call) => call[0] === "resetView");
+    assert.ok(resetCall, "public facade reset should reach Sigma renderer");
+    const resetCallbacks = resetCall[1] as { onComplete: () => void };
+
+    resetCallbacks.onComplete();
+
+    assert.equal(state.selection, null);
+    assert.equal(state.sourceCommunityId, null);
+    assert.deepEqual(selectionClears, [1]);
+    assert.deepEqual(viewResets, [1]);
+  });
+
   it("notifies a standalone renderer when clear commands drop source community context", () => {
     for (const clear of ["clearSelection", "clearInteraction"] as const) {
       const container = { dataset: {} as Record<string, string | undefined> };
@@ -670,6 +722,7 @@ describe("GraphFacade", () => {
     assert.deepEqual(state.selection, { kind: "community", id: "c1" });
     assert.deepEqual(state.temporaryObject, { kind: "community", communityId: "c1" });
     assert.deepEqual(selectionClears, []);
+    assert.deepEqual(viewResets, []);
     const resetCall = renderers[0].calls.at(-1);
     assert.equal(resetCall?.[0], "resetView");
     const resetCallbacks = resetCall?.[1] as { onComplete: () => void };
