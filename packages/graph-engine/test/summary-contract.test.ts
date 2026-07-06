@@ -17,6 +17,7 @@ import {
   type GraphFacadeRouteRendererFactoryInput,
   type GraphFacadeState
 } from "../src/facade";
+import { UNGROUPED_COMMUNITY_ID } from "../src/types";
 import type { GraphAggregationMarker, GraphData, GraphSummaryCommand, GraphSummaryObjectRef, GraphTypeFilters, PinMap, SelectionInput, ThemeId } from "../src/types";
 
 describe("graph summary contract", () => {
@@ -63,18 +64,18 @@ describe("graph summary contract", () => {
     assert.deepEqual(summary.bridgeRelations.map((relation) => relation.edgeId), ["a-c"]);
   });
 
-  it("keeps open-detail/read distinct from enter-community overview", () => {
+  it("keeps node-level community entry distinct from community overview entry", () => {
     const node = summarizeGraphNode(graphFixture(), "a");
     const community = summarizeGraphCommunity(graphFixture(), "alpha");
 
     assert.equal(node.kind, "node-summary");
     assert.equal(community.kind, "community-summary");
-    assert.deepEqual(commandKinds(node.commands), ["open-detail-read", "select-neighbors", "set-fixed-position", "enter-community"]);
+    assert.deepEqual(commandKinds(node.commands), ["open-detail-read", "select-neighbors", "set-fixed-position", "enter-node-community"]);
     assert.deepEqual(commandKinds(community.commands), ["enter-community"]);
 
     const openDetail = node.commands.find((command) => command.kind === "open-detail-read");
     const selectNeighbors = node.commands.find((command) => command.kind === "select-neighbors");
-    const enterCommunity = node.commands.find((command) => command.kind === "enter-community");
+    const enterCommunity = node.commands.find((command) => command.kind === "enter-node-community");
 
     assert.deepEqual(openDetail, {
       kind: "open-detail-read",
@@ -88,9 +89,11 @@ describe("graph summary contract", () => {
       label: "+邻居"
     });
     assert.deepEqual(enterCommunity, {
-      kind: "enter-community",
+      kind: "enter-node-community",
       communityId: "alpha",
-      label: "进入社区"
+      nodeId: "a",
+      path: "wiki/alpha/a.md",
+      label: "进入所属社区"
     });
   });
 
@@ -187,6 +190,19 @@ describe("graph summary contract", () => {
     assert.deepEqual(summary.commands.map((command) => command.kind), []);
     assert.deepEqual(summary.coreNodes.map((node) => node.nodeId), ["loose-a", "loose-b"]);
     assert.deepEqual(summary.coreNodes.map((node) => node.label), ["Loose A", "Loose B"]);
+  });
+
+  it("keeps ungrouped node summaries without community entry commands", () => {
+    const data = graphFixtureWithUngroupedNodes();
+    data.nodes = data.nodes.map((node) => node.id === "loose-a"
+      ? { ...node, community: UNGROUPED_COMMUNITY_ID }
+      : node
+    );
+
+    const summary = summarizeGraphNode(data, "loose-a");
+
+    assert.equal(summary.kind, "node-summary");
+    assert.deepEqual(commandKinds(summary.commands), ["open-detail-read", "select-neighbors", "set-fixed-position"]);
   });
 
   it("counts internal links inside the ungrouped virtual community", () => {

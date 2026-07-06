@@ -20,6 +20,13 @@ describe("graph drawer close behavior", () => {
 		assert.equal(graphCloseCommandForDrawer(graphNodeSummaryDrawer(nodeSummaryFixture()), "button"), null);
 	});
 
+	it("returns source-community node summaries to the community summary on Escape", () => {
+		assert.deepEqual(graphCloseCommandForDrawer(graphNodeSummaryDrawer(nodeSummaryFixture(), { returnCommunityId: "build" }), "escape"), {
+			id: "build",
+			type: "select-community-summary",
+		});
+	});
+
 	it("keeps node relation focus when closing node content with the close button", () => {
 		assert.equal(graphCloseCommandForDrawer(graphReaderDrawer(graphReaderPayloadFixture()), "button"), null);
 	});

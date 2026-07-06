@@ -29,7 +29,7 @@ function communityFreeText(current: DrawerState, communityId: string): string {
 }
 
 export type GraphSelectionCommand =
-	| { id: string; type: "clear" | "clear-selection" | "neighbors" | "enter-community" }
+	| { id: string; type: "clear" | "clear-selection" | "neighbors" | "enter-community" | "select-community-summary" }
 	| { id: string; commandId?: string; nodeId: string; type: "enter-community-node" }
 	| { id: string; nodeId: string | null; type: "preview-node" }
 	| { id: string; nodeId: string; mode: "fix" | "unfix"; type: "set-fixed-position" }
@@ -43,15 +43,7 @@ export function drawerForGraphSelection(
 	options: GraphSummaryOptions = {},
 ): DrawerState {
 	const selectionInput = options.selection ?? selection.input ?? null;
-	if (data && selection.nodeIds.length === 1 && selectionInput?.kind !== "nodes") {
-		const summary = summarizeGraphNode(data, selection.nodeIds[0], {
-			...options,
-			selection: { kind: "node", id: selection.nodeIds[0] },
-		});
-		if (summary.kind === "node-summary") return graphNodeSummaryDrawer(summary);
-	}
-
-	if (data && selectionInput?.kind === "community" && selection.nodeIds.length > 1 && selection.communityIds.length === 1) {
+	if (data && selectionInput?.kind === "community" && selection.communityIds.length === 1) {
 		const summary = summarizeGraphCommunity(data, selection.communityIds[0], {
 			...options,
 			selection: selectionInput,
@@ -60,13 +52,23 @@ export function drawerForGraphSelection(
 		if (summary.kind === "community-summary") return graphCommunitySummaryDrawer(summary, communityFreeText(current, selection.communityIds[0]));
 	}
 
+	if (data && selection.nodeIds.length === 1 && selectionInput?.kind !== "nodes") {
+		const summary = summarizeGraphNode(data, selection.nodeIds[0], {
+			...options,
+			selection: { kind: "node", id: selection.nodeIds[0] },
+		});
+		if (summary.kind === "node-summary") return graphNodeSummaryDrawer(summary, {
+			returnCommunityId: returnCommunityIdForNodeSummary(current, summary),
+		});
+	}
+
 	const freeText = current.mode === "graph-selection" ? current.freeText : "";
 	const title = data ? selectionTitle(data, selection) : "选区";
 	return graphSelectionDrawer(selection, title, freeText);
 }
 
 export function graphOpenPagePayloadForCommand(data: GraphData | null, command: GraphSummaryCommand): GraphOpenPagePayload | null {
-	if (command.kind !== "open-detail-read") return null;
+	if (command.kind !== "open-detail-read" && command.kind !== "enter-node-community") return null;
 	if (!data) {
 		return fallbackPayloadForOpenDetail(command);
 	}
@@ -113,7 +115,9 @@ export function drawerForGraphSummaryNode(
 		selection: { kind: "node", id: nodeId },
 	});
 	if (summary.kind !== "node-summary") return current;
-	return graphNodeSummaryDrawer(summary);
+	return graphNodeSummaryDrawer(summary, {
+		returnCommunityId: returnCommunityIdForNodeSummary(current, summary),
+	});
 }
 
 export function drawerForGraphSummaryCommunity(
@@ -168,7 +172,7 @@ export function graphObjectVisibilityReason(
 	return null;
 }
 
-function fallbackPayloadForOpenDetail(command: Extract<GraphSummaryCommand, { kind: "open-detail-read" }>): GraphOpenPagePayload {
+function fallbackPayloadForOpenDetail(command: Extract<GraphSummaryCommand, { kind: "open-detail-read" | "enter-node-community" }>): GraphOpenPagePayload {
 	return {
 		path: command.path,
 		node: {
@@ -193,5 +197,18 @@ export function graphSelectionCommandForSummaryCommand(command: GraphSummaryComm
 	if (command.kind === "select-neighbors") {
 		return { id: command.nodeId, type: "neighbors" };
 	}
+	if (command.kind === "enter-node-community") {
+		return { id: command.communityId, nodeId: command.nodeId, type: "enter-community-node" };
+	}
+	return null;
+}
+
+function returnCommunityIdForNodeSummary(current: DrawerState, summary: { communityId: string | null }): string | null {
+	const communityId = summary.communityId;
+	if (!communityId) return null;
+	if (current.mode === "graph-community-summary" && current.payload.canEnterCommunity && current.payload.communityId === communityId) {
+		return communityId;
+	}
+	if (current.mode === "graph-node-summary" && current.returnCommunityId === communityId) return communityId;
 	return null;
 }

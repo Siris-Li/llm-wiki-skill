@@ -34,6 +34,7 @@ interface Props {
 	onGraphSummaryCommand?: (command: GraphSummaryCommand) => void;
 	onGraphSummaryNodeSelect?: (nodeId: string) => void;
 	onGraphSummaryNodePreview?: (nodeId: string | null) => void;
+	onGraphSummaryReturnCommunity?: (communityId: string) => void;
 	onGraphSelectionTextChange: (value: string) => void;
 	onGraphSelectionAsk: (actionId: string | null, newConversation: boolean) => void;
 	onGraphCommunityTextChange?: (value: string) => void;
@@ -63,6 +64,7 @@ export function RightDrawer({
 	onGraphSummaryCommand = () => {},
 	onGraphSummaryNodeSelect = () => {},
 	onGraphSummaryNodePreview = () => {},
+	onGraphSummaryReturnCommunity = () => {},
 	onGraphSelectionTextChange,
 	onGraphSelectionAsk,
 	onGraphCommunityTextChange = () => {},
@@ -237,7 +239,12 @@ export function RightDrawer({
 					/>
 				)}
 				{drawer.mode === "graph-node-summary" && (
-					<GraphNodeSummary payload={drawer.payload} onCommand={onGraphSummaryCommand} />
+					<GraphNodeSummary
+						payload={drawer.payload}
+						returnCommunityId={drawer.returnCommunityId}
+						onCommand={onGraphSummaryCommand}
+						onReturnCommunity={onGraphSummaryReturnCommunity}
+					/>
 				)}
 				{drawer.mode === "graph-community-summary" && (
 					<GraphCommunitySummary

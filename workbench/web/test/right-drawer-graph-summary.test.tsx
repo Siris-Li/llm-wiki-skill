@@ -41,6 +41,26 @@ describe("RightDrawer graph lightweight summaries", () => {
 		assert.doesNotMatch(html, /summary-left-rail|ai-slop|border-left/);
 	});
 
+	it("renders source-community node summaries with a title return entry and without +neighbor actions", () => {
+		const html = renderDrawer(graphNodeSummaryDrawer(nodeSummaryFixture({
+			commands: [
+				{ kind: "open-detail-read", nodeId: "alpha-node", path: "wiki/alpha.md", label: "打开详情" },
+				{ kind: "select-neighbors", nodeId: "alpha-node", label: "+邻居" },
+				{ kind: "set-fixed-position", mode: "fix", nodeId: "alpha-node", wikiPath: "wiki/alpha.md", label: "固定位置" },
+				{ kind: "enter-node-community", communityId: "alpha", nodeId: "alpha-node", path: "wiki/alpha.md", label: "进入所属社区" },
+			],
+		}), { returnCommunityId: "alpha" }));
+
+		assert.match(html, /data-testid="graph-node-summary"/);
+		assert.match(html, /graph-summary-return/);
+		assert.match(html, /返回社区摘要/);
+		assert.match(html, /打开详情/);
+		assert.match(html, /固定位置/);
+		assert.match(html, /进入所属社区/);
+		assert.doesNotMatch(html, /\+邻居/);
+		assert.doesNotMatch(html, /graph-summary-actions[\s\S]*返回社区摘要/);
+	});
+
 	it("renders unified community drawer with overview, fixed actions, core nodes, and dialogue controls", () => {
 		const html = renderDrawer(graphCommunitySummaryDrawer(communitySummaryFixture()));
 
@@ -231,7 +251,7 @@ function renderDrawer(drawer: DrawerState): string {
 	);
 }
 
-function nodeSummaryFixture(): GraphNodeSummaryPayload {
+function nodeSummaryFixture(overrides: Partial<GraphNodeSummaryPayload> = {}): GraphNodeSummaryPayload {
 	return {
 		kind: "node-summary",
 		object: { kind: "node", nodeId: "alpha-node" },
@@ -269,6 +289,7 @@ function nodeSummaryFixture(): GraphNodeSummaryPayload {
 			{ kind: "select-neighbors", nodeId: "alpha-node", label: "+邻居" },
 			{ kind: "set-fixed-position", mode: "fix", nodeId: "alpha-node", wikiPath: "wiki/alpha.md", label: "固定位置" },
 		],
+		...overrides,
 	};
 }
 

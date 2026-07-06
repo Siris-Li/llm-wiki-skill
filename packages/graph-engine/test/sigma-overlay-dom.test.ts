@@ -117,6 +117,27 @@ describe("Sigma overlay DOM controller", () => {
     assert.equal(sigmaOverlayNodes(data).at(-1)?.id, "node-179");
   });
 
+  it("keeps source-community spotlight nodes reachable through the overlay hit layer", () => {
+    const data = adapterDataFixture({
+      selectionInput: { kind: "community", id: "community-a" },
+      sourceCommunityId: "community-a",
+      nodes: [
+        nodeFixture("alpha", { selected: false, searchHit: false, pinned: false, communityId: "community-a" }),
+        nodeFixture("beta", { selected: false, searchHit: false, pinned: false, communityId: "community-a" }),
+        nodeFixture("outside", { selected: false, searchHit: false, pinned: false, communityId: "community-b" })
+      ],
+      communities: [
+        communityFixture("community-a", { selected: true }),
+        communityFixture("community-b", { selected: false })
+      ]
+    });
+
+    assert.deepEqual(
+      sigmaOverlayNodes(data).map((node) => node.id).sort(),
+      ["alpha", "beta"]
+    );
+  });
+
   it("keeps community reading node hit targets mounted when replaceChildren drops reusable children", () => {
     const fixture = controllerFixture({
       adapterData: adapterDataFixture({ communityMapActive: true })
@@ -495,6 +516,7 @@ function adapterDataFixture(options: {
   communities?: ReturnType<typeof communityFixture>[];
   selectionInput?: GraphRendererAdapterData["selection"]["input"];
   communityMapActive?: boolean;
+  sourceCommunityId?: string | null;
 } = {}): GraphRendererAdapterData {
   const nodes = options.nodes ?? [
     nodeFixture("alpha", { selected: true }),
@@ -502,6 +524,23 @@ function adapterDataFixture(options: {
   ];
   const communities = options.communities ?? [communityFixture("community-a", { selected: true })];
   const selectedNodeIds = nodes.filter((node) => node.selected).map((node) => node.id);
+  const sourceCommunityId = options.sourceCommunityId ?? (options.communityMapActive ? "community-a" : null);
+  const communityMapActive = options.communityMapActive === true;
+  const communityMapCurrent = sourceCommunityId
+    ? {
+        communityId: sourceCommunityId,
+        source: communityMapActive ? "focus" as const : "source-context" as const,
+        nodeRulesById: {},
+        edgeRulesById: {},
+        layout: {
+          coordinateSpace: "world" as const,
+          bounds: { minX: 0, minY: 0, maxX: 500, maxY: 500, width: 500, height: 500 },
+          viewportAspectRatio: null
+        },
+        labelBudget: { limit: 8, visible: 0, hidden: 0 },
+        edgeLayers: { related: 0, skeleton: 0, background: 0 }
+      }
+    : null;
   return {
     counts: {
       nodes: nodes.length,
@@ -521,6 +560,7 @@ function adapterDataFixture(options: {
     },
     nodes,
     edges: [],
+    sourceCommunityId,
     communities: communities.map((community) => ({
       id: community.id,
       object: { kind: "community", communityId: community.id },
@@ -572,25 +612,13 @@ function adapterDataFixture(options: {
         }
       },
       qualityNotice: null,
-      communityMap: options.communityMapActive
+      communityMap: communityMapCurrent
         ? {
-            active: true,
-            sourceCommunityId: "community-a",
-            motionMode: "frozen",
-            maxNodeDriftRatio: 0,
-            current: {
-              communityId: "community-a",
-              source: "focus",
-              nodeRulesById: {},
-              edgeRulesById: {},
-              layout: {
-                coordinateSpace: "world",
-                bounds: { minX: 0, minY: 0, maxX: 500, maxY: 500, width: 500, height: 500 },
-                viewportAspectRatio: null
-              },
-              labelBudget: { limit: 8, visible: 0, hidden: 0 },
-              edgeLayers: { related: 0, skeleton: 0, background: 0 }
-            },
+            active: communityMapActive,
+            sourceCommunityId,
+            motionMode: communityMapActive ? "frozen" : "live",
+            maxNodeDriftRatio: communityMapActive ? 0 : 1,
+            current: communityMapCurrent,
             rulesByCommunityId: {}
           }
         : null,

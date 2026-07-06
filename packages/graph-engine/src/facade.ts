@@ -16,7 +16,7 @@ import type {
 } from "./types";
 import { createGraphRenderer } from "./render";
 import { createSigmaGlobalFacadeRenderer } from "./graph-routes/sigma-global-route";
-export { selectionInputForSigmaHit, sigmaCommunityReadingHitActionForSigmaHit } from "./graph-routes/sigma-global-route";
+export { selectionInputForSigmaHit, sigmaCommunityReadingHitActionForSigmaHit, sigmaGlobalHitActionForSigmaHit } from "./graph-routes/sigma-global-route";
 import { resolveSelectionForCapabilities } from "./select";
 import { graphNodeTypeLabel, wikiPathForGraphNode } from "./graph-node";
 import {
@@ -681,6 +681,7 @@ export function createGraphFacadeRouteManager(
           ...(options.callbacks || {}),
           onSelectionInput: (selection) => {
             state.selection = selection;
+            if (selection.kind === "community") state.sourceCommunityId = selection.id;
             options.callbacks?.onSelectionInput?.(selection);
           },
           onSelectionClearRequested: () => {

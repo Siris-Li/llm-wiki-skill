@@ -16,7 +16,9 @@ import { graphCommunityDrawerViewModel } from "../lib/graph-group-drawer";
 
 interface NodeSummaryProps {
 	payload: GraphNodeSummaryPayload;
+	returnCommunityId?: string | null;
 	onCommand: (command: GraphSummaryCommand) => void;
+	onReturnCommunity?: (communityId: string) => void;
 }
 
 interface CommunitySummaryProps {
@@ -35,12 +37,26 @@ interface SimpleStateProps {
 	message: string;
 }
 
-export function GraphNodeSummary({ payload, onCommand }: NodeSummaryProps) {
+export function GraphNodeSummary({ payload, returnCommunityId = null, onCommand, onReturnCommunity }: NodeSummaryProps) {
+	const commands = returnCommunityId
+		? payload.commands.filter((command) => command.kind !== "select-neighbors")
+		: payload.commands;
 	return (
 		<React.Fragment>
 		<article className="graph-summary-drawer" data-testid="graph-node-summary">
 			<div className="graph-summary-kicker">节点</div>
-			<h2 className="graph-summary-title">{payload.label}</h2>
+			<div className="graph-summary-title-row">
+				<h2 className="graph-summary-title">{payload.label}</h2>
+				{returnCommunityId && (
+					<button
+						type="button"
+						className="graph-summary-return"
+						onClick={() => onReturnCommunity?.(returnCommunityId)}
+					>
+						返回社区摘要
+					</button>
+				)}
+			</div>
 			<div className="graph-summary-facts">
 				<SummaryFact label="连接" value={payload.connectionCount} />
 				<SummaryFact label="强关系" value={payload.strongestRelations.length} />
@@ -55,7 +71,7 @@ export function GraphNodeSummary({ payload, onCommand }: NodeSummaryProps) {
 			{payload.summary && <p className="graph-summary-excerpt">{payload.summary}</p>}
 			<RelationList title="最强关系" relations={payload.strongestRelations} emptyText="暂无强关系" />
 			<RelationList title="桥接关系" relations={payload.bridgeRelations} emptyText="暂无桥接关系" />
-			<CommandRow commands={payload.commands} onCommand={onCommand} />
+			<CommandRow commands={commands} onCommand={onCommand} />
 		</article>
 		</React.Fragment>
 	);
@@ -222,6 +238,7 @@ function CommandRow({ commands, onCommand }: { commands: GraphSummaryCommand[]; 
 
 function commandKey(command: GraphSummaryCommand): string {
 	if (command.kind === "enter-community") return `${command.kind}:${command.communityId}`;
+	if (command.kind === "enter-node-community") return `${command.kind}:${command.communityId}:${command.nodeId}`;
 	if (command.kind === "open-detail-read") return `${command.kind}:${command.nodeId}`;
 	if (command.kind === "set-fixed-position") return `${command.kind}:${command.mode}:${command.nodeId}`;
 	if (command.kind === "show-this-object") return `${command.kind}:${objectLabel(command.object)}`;

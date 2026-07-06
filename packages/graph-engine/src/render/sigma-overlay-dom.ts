@@ -504,7 +504,8 @@ export function sigmaOverlayNodes(adapterData: GraphRendererAdapterData): GraphR
   const nodes = adapterData.nodes;
   const seen = new Set<string>();
   const output: GraphRendererAdapterNode[] = [];
-  const totalLimit = adapterData.renderable.communityMap?.active
+  const sourceContextCommunityId = sigmaOverlaySourceContextCommunityId(adapterData);
+  const totalLimit = adapterData.renderable.communityMap?.active || sourceContextCommunityId
     ? Number.POSITIVE_INFINITY
     : SIGMA_GLOBAL_NODE_HIT_TARGET_LIMIT;
   const append = (candidates: GraphRendererAdapterNode[], limit: number) => {
@@ -522,9 +523,19 @@ export function sigmaOverlayNodes(adapterData: GraphRendererAdapterData): GraphR
   if (adapterData.renderable.communityMap?.active) {
     append(nodes, Number.POSITIVE_INFINITY);
   }
+  if (sourceContextCommunityId) {
+    append(nodes.filter((node) => node.communityId === sourceContextCommunityId), Number.POSITIVE_INFINITY);
+  }
   append(nodes.filter((node) => node.searchHit), 80);
   append(nodes.filter((node) => node.pinHint.pinned), 80);
   return output;
+}
+
+function sigmaOverlaySourceContextCommunityId(adapterData: GraphRendererAdapterData): string | null {
+  const communityMap = adapterData.renderable.communityMap;
+  if (communityMap?.active) return null;
+  if (communityMap?.current?.source === "source-context") return communityMap.current.communityId;
+  return adapterData.sourceCommunityId ?? null;
 }
 
 export function sigmaCommunityLabels(adapterData: GraphRendererAdapterData, limit: number): GraphRendererAdapterData["renderable"]["communities"] {

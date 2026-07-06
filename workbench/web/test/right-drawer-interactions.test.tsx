@@ -129,6 +129,42 @@ describe("RightDrawer interactions", () => {
 		assert.deepEqual(commands, [{ kind: "select-neighbors", nodeId: "alpha-node", label: "+邻居" }]);
 	});
 
+	it("dispatches source-community node summary return from the title area", async () => {
+		const returned: string[] = [];
+		renderDrawer(graphNodeSummaryDrawer(nodeSummaryFixture(), { returnCommunityId: "alpha" }), {
+			onGraphSummaryReturnCommunity: (communityId) => returned.push(communityId),
+		});
+
+		await click(screen.getByRole("button", { name: "返回社区摘要" }));
+
+		assert.deepEqual(returned, ["alpha"]);
+	});
+
+	it("dispatches node-level enter-community without showing +neighbors in source-community node summaries", async () => {
+		const commands: GraphSummaryCommand[] = [];
+		renderDrawer(graphNodeSummaryDrawer(nodeSummaryFixture({
+			commands: [
+				{ kind: "open-detail-read", nodeId: "alpha-node", path: "wiki/alpha.md", label: "打开详情" },
+				{ kind: "select-neighbors", nodeId: "alpha-node", label: "+邻居" },
+				{ kind: "set-fixed-position", mode: "fix", nodeId: "alpha-node", wikiPath: "wiki/alpha.md", label: "固定位置" },
+				{ kind: "enter-node-community", communityId: "alpha", nodeId: "alpha-node", path: "wiki/alpha.md", label: "进入所属社区" },
+			],
+		}), { returnCommunityId: "alpha" }), {
+			onGraphSummaryCommand: (command) => commands.push(command),
+		});
+
+		assert.equal(screen.queryByRole("button", { name: "+邻居" }), null);
+		await click(screen.getByRole("button", { name: "进入所属社区" }));
+
+		assert.deepEqual(commands, [{
+			kind: "enter-node-community",
+			communityId: "alpha",
+			nodeId: "alpha-node",
+			path: "wiki/alpha.md",
+			label: "进入所属社区",
+		}]);
+	});
+
 	it("dispatches free-text send as a free graph selection question", async () => {
 		const asks: Array<{ actionId: string | null; newConversation: boolean }> = [];
 		renderDrawer(graphSelectionDrawer(selectionFixture(), "Alpha/Beta", "只看这两页的差异"), {
@@ -273,7 +309,7 @@ describe("RightDrawer interactions", () => {
 	});
 });
 
-function nodeSummaryFixture(): GraphNodeSummaryPayload {
+function nodeSummaryFixture(overrides: Partial<GraphNodeSummaryPayload> = {}): GraphNodeSummaryPayload {
 	return {
 		kind: "node-summary",
 		object: { kind: "node", nodeId: "alpha-node" },
@@ -301,6 +337,7 @@ function nodeSummaryFixture(): GraphNodeSummaryPayload {
 			{ kind: "select-neighbors", nodeId: "alpha-node", label: "+邻居" },
 			{ kind: "set-fixed-position", mode: "fix", nodeId: "alpha-node", wikiPath: "wiki/alpha.md", label: "固定位置" },
 		],
+		...overrides,
 	};
 }
 
@@ -366,6 +403,7 @@ function drawerElement(drawer: DrawerState, props: Partial<RightDrawerProps> = {
 			onGraphSummaryCommand={props.onGraphSummaryCommand ?? noop}
 			onGraphSummaryNodeSelect={props.onGraphSummaryNodeSelect ?? noopString}
 			onGraphSummaryNodePreview={props.onGraphSummaryNodePreview ?? noopPreviewNode}
+			onGraphSummaryReturnCommunity={props.onGraphSummaryReturnCommunity ?? noopString}
 			onGraphSelectionTextChange={noopString}
 			onGraphSelectionAsk={props.onGraphSelectionAsk ?? noopSelectionAsk}
 			onGraphCommunityTextChange={noopString}

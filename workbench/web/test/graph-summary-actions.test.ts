@@ -23,7 +23,7 @@ describe("graph summary actions", () => {
 		assert.equal(drawer.mode === "graph-node-summary" ? drawer.payload.label : null, "Alpha");
 		assert.deepEqual(
 			drawer.mode === "graph-node-summary" ? drawer.payload.commands.map((command) => command.kind) : [],
-			["open-detail-read", "select-neighbors", "set-fixed-position", "enter-community"],
+			["open-detail-read", "select-neighbors", "set-fixed-position", "enter-node-community"],
 		);
 	});
 
@@ -32,6 +32,18 @@ describe("graph summary actions", () => {
 
 		assert.equal(drawer.mode, "graph-community-summary");
 		assert.equal(drawer.mode === "graph-community-summary" ? drawer.payload.communityId : null, "c1");
+		assert.deepEqual(
+			drawer.mode === "graph-community-summary" ? drawer.payload.commands.map((command) => command.kind) : [],
+			["enter-community"],
+		);
+	});
+
+	it("turns a real single-node community selection into a community summary drawer", () => {
+		const drawer = drawerForGraphSelection(graphFixtureWithExternalNode(), singleNodeCommunitySelection(), closedDrawer());
+
+		assert.equal(drawer.mode, "graph-community-summary");
+		assert.equal(drawer.mode === "graph-community-summary" ? drawer.payload.communityId : null, "c2");
+		assert.equal(drawer.mode === "graph-community-summary" ? drawer.payload.nodeCount : null, 1);
 		assert.deepEqual(
 			drawer.mode === "graph-community-summary" ? drawer.payload.commands.map((command) => command.kind) : [],
 			["enter-community"],
@@ -59,6 +71,25 @@ describe("graph summary actions", () => {
 
 		assert.equal(drawer.mode, "graph-node-summary");
 		assert.equal(drawer.mode === "graph-node-summary" ? drawer.payload.nodeId : null, "b");
+		assert.equal(drawer.mode === "graph-node-summary" ? drawer.returnCommunityId : null, "c1");
+	});
+
+	it("moves from a highlighted community summary to a graph node summary and back to the community summary", () => {
+		const communityDrawer = communitySummaryDrawer();
+		const nodeDrawer = drawerForGraphSelection(graphFixture(), nodeSelection("b"), communityDrawer, {
+			selection: { kind: "node", id: "b" },
+		});
+
+		assert.equal(nodeDrawer.mode, "graph-node-summary");
+		assert.equal(nodeDrawer.mode === "graph-node-summary" ? nodeDrawer.payload.nodeId : null, "b");
+		assert.equal(nodeDrawer.mode === "graph-node-summary" ? nodeDrawer.returnCommunityId : null, "c1");
+
+		const returnedDrawer = drawerForGraphSelection(graphFixture(), communitySelection(), nodeDrawer, {
+			selection: { kind: "community", id: "c1" },
+		});
+
+		assert.equal(returnedDrawer.mode, "graph-community-summary");
+		assert.equal(returnedDrawer.mode === "graph-community-summary" ? returnedDrawer.payload.communityId : null, "c1");
 	});
 
 	it("keeps open detail/read as an explicit graph-reader payload", () => {
@@ -103,6 +134,36 @@ describe("graph summary actions", () => {
 			id: "c1",
 			nodeId: "a",
 			type: "enter-community-node",
+		});
+	});
+
+	it("turns node-level enter-community into community focus with the node selected", () => {
+		const command: GraphSummaryCommand = {
+			kind: "enter-node-community",
+			communityId: "c1",
+			nodeId: "a",
+			path: "wiki/a.md",
+			label: "进入所属社区",
+		};
+
+		assert.deepEqual(graphSelectionCommandForSummaryCommand(command), {
+			id: "c1",
+			nodeId: "a",
+			type: "enter-community-node",
+		});
+		assert.deepEqual(graphOpenPagePayloadForCommand(graphFixture(), command), {
+			path: "wiki/a.md",
+			node: {
+				id: "a",
+				title: "Alpha",
+				type: "topic",
+				typeLabel: "主题",
+				sourcePath: "wiki/a.md",
+				community: "c1",
+				date: null,
+				source: null,
+				isolated: false,
+			},
 		});
 	});
 
@@ -191,18 +252,20 @@ describe("graph summary actions", () => {
 	});
 });
 
-function nodeSelection(): Selection {
+function nodeSelection(nodeId = "a"): Selection {
+	const node = graphFixture().nodes.find((item) => item.id === nodeId);
+	assert.ok(node);
 	return {
-		id: "node:a",
-		nodeIds: ["a"],
-		communityIds: ["c1"],
+		id: `node:${node.id}`,
+		nodeIds: [node.id],
+		communityIds: node.community ? [node.community] : [],
 		facts: {
 			pageCount: 1,
 			internalLinkCount: 0,
-			communityCount: 1,
+			communityCount: node.community ? 1 : 0,
 			isolatedCount: 0,
 		},
-		input: { kind: "node", id: "a" },
+		input: { kind: "node", id: node.id },
 		actions: [],
 	};
 }
@@ -219,6 +282,22 @@ function communitySelection(): Selection {
 			isolatedCount: 0,
 		},
 		input: { kind: "community", id: "c1" },
+		actions: [],
+	};
+}
+
+function singleNodeCommunitySelection(): Selection {
+	return {
+		id: "community:external",
+		nodeIds: ["external"],
+		communityIds: ["c2"],
+		facts: {
+			pageCount: 1,
+			internalLinkCount: 0,
+			communityCount: 1,
+			isolatedCount: 0,
+		},
+		input: { kind: "community", id: "c2" },
 		actions: [],
 	};
 }

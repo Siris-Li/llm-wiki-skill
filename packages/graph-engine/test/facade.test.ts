@@ -16,6 +16,7 @@ import {
   createGraphWorkbenchCapabilities,
   selectionInputForSigmaHit,
   sigmaCommunityReadingHitActionForSigmaHit,
+  sigmaGlobalHitActionForSigmaHit,
   type GraphFacadeRenderer,
   type GraphFacadeRouteManager,
   type GraphFacadeRouteRendererFactoryInput,
@@ -234,7 +235,7 @@ describe("GraphFacade", () => {
     assert.equal(node.nodeId, "a");
     assert.equal(node.pinHint.pinned, true);
     assert.equal(node.selection.containsCurrentObject, true);
-    assert.deepEqual(node.commands.map((command) => command.kind), ["open-detail-read", "select-neighbors", "set-fixed-position", "enter-community"]);
+    assert.deepEqual(node.commands.map((command) => command.kind), ["open-detail-read", "select-neighbors", "set-fixed-position", "enter-node-community"]);
 
     assert.equal(community.kind, "community-summary");
     assert.equal(community.communityId, "c1");
@@ -1374,6 +1375,11 @@ describe("GraphFacade", () => {
     assert.deepEqual(state.selection, { kind: "node", id: "a" });
     assert.deepEqual(selections, [{ kind: "node", id: "a" }]);
 
+    sigmaInputs[0].options.callbacks.onSelectionInput?.({ kind: "community", id: "c1" });
+    assert.deepEqual(state.selection, { kind: "community", id: "c1" });
+    assert.equal(state.sourceCommunityId, "c1");
+    assert.deepEqual(selections.at(-1), { kind: "community", id: "c1" });
+
     sigmaInputs[0].options.callbacks.onSelectionClearRequested?.();
     assert.equal(state.selection, null);
     assert.equal(state.temporaryObject, null);
@@ -1556,6 +1562,32 @@ describe("selectionInputForSigmaHit", () => {
     assert.deepEqual(
       sigmaCommunityReadingHitActionForSigmaHit(data, { kind: "node", id: "a1" }, { kind: "community-wash", id: "alpha" }, { additive: false }),
       { kind: "clear" }
+    );
+  });
+
+  it("returns global source-community node summaries to the community summary before clearing the highlight", () => {
+    const data = sigmaHitGraph();
+
+    assert.deepEqual(
+      sigmaGlobalHitActionForSigmaHit(data, { kind: "node", id: "a2" }, { kind: "graph-blank" }, { additive: false }, "alpha"),
+      { kind: "select", selection: { kind: "community", id: "alpha" } }
+    );
+    assert.deepEqual(
+      sigmaGlobalHitActionForSigmaHit(data, { kind: "community", id: "alpha" }, { kind: "graph-blank" }, { additive: false }, "alpha"),
+      { kind: "clear", resetCamera: true }
+    );
+  });
+
+  it("keeps source-community node hits as single-node drilldown even when additive selection is pressed", () => {
+    const data = sigmaHitGraph();
+
+    assert.deepEqual(
+      sigmaGlobalHitActionForSigmaHit(data, { kind: "community", id: "alpha" }, { kind: "node", id: "a2" }, { additive: true }, "alpha"),
+      { kind: "select", selection: { kind: "node", id: "a2" } }
+    );
+    assert.deepEqual(
+      sigmaGlobalHitActionForSigmaHit(data, { kind: "node", id: "a2" }, { kind: "node", id: "b1" }, { additive: true }, "alpha"),
+      { kind: "select", selection: { kind: "node", id: "b1" } }
     );
   });
 });

@@ -330,6 +330,13 @@ export type GraphSummaryCommand =
       label: string;
     }
   | {
+      kind: "enter-node-community";
+      communityId: CommunityId;
+      nodeId: NodeId;
+      path: WikiPath;
+      label: string;
+    }
+  | {
       kind: "select-neighbors";
       nodeId: NodeId;
       label: string;
