@@ -92,13 +92,19 @@ export function graphSelectionGroupDrawerViewModel(title: string, selection: Sel
 			...action,
 			recommended: action.id === recommendedActionId
 		})),
-		nodes: selection.nodeIds.slice(0, 3).map((nodeId) => ({
+		nodes: selection.nodeIds.map((nodeId) => ({
 			nodeId,
 			label: nodeId,
 			role: "已选"
 		})),
-		nodeListExpandable: false,
-		nodeListKey: JSON.stringify(["selection", selection.id]),
+		// #119：选区抽屉复用社区抽屉的"查看全部 / 收起"骨架，把全量选中页面交给组件，
+		// 由组件统一 cap 到前 3 个并提供展开入口。
+		nodeListExpandable: true,
+		// #119：nodeListKey 必须独立于 selection.id。Shift 多选会持续改变 id，
+		// 若 key 跟着变，GraphSelection 上的 <GraphGroupDrawer key={nodeListKey}> 会被重挂载，
+		// 导致丢焦点、清补充说明、重置展开态。用固定 "selection" 让抽屉在多选增长期间
+		// 保持同一组件实例，展开态由组件内部 useState 自行记住。
+		nodeListKey: JSON.stringify(["selection"]),
 		dialogueHint: "当前选区会带入对话"
 	};
 }

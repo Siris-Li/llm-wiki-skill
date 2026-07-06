@@ -643,6 +643,46 @@ describe("graph route state continuity", () => {
     assert.deepEqual(Object.keys(fallbackInputs.at(-1)?.options.pins || {}), ["wiki/a.md"]);
     assert.deepEqual(fallbackRenderers.at(-1)?.calls.filter((call) => call[0] === "resetView"), [["resetView"]]);
   });
+
+  it("does not move the camera when growing a shift multi-selection in community reading", () => {
+    // #119：Shift 多选只更新选区，不能触发相机移动 / 缩放 / 居中。
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: { topic: true, source: true },
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: () => trackRenderer(sigmaRenderers, "sigma-global"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    // 进入社区阅读（这一步合理地聚焦社区，允许动相机）。
+    manager.focusCommunity("c1");
+    const baseline = sigmaRenderers.at(-1)?.calls.length ?? 0;
+
+    // 模拟连续 Shift 多选：选区从单节点增长到多节点。
+    manager.select({ kind: "nodes", ids: ["a"] });
+    manager.select({ kind: "nodes", ids: ["a", "b"] });
+
+    const cameraMethods = (calls: unknown[][]) =>
+      calls.filter((call) => call[0] === "resetView" || call[0] === "focusNode" || call[0] === "focusCommunity");
+    // 选区增长期间不应再触发任何相机方法。
+    assert.deepEqual(cameraMethods(sigmaRenderers.at(-1)?.calls.slice(baseline) ?? []), []);
+  });
 });
 
 function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {

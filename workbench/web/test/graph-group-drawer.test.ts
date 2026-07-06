@@ -82,10 +82,13 @@ describe("graph group drawer view model", () => {
 		assert.equal(view.title, "选区");
 		assert.equal(view.canEnterCommunity, false);
 		assert.equal(view.recommendedActionId, "explore_potential_links");
-		assert.equal(view.nodeListExpandable, false);
-		assert.equal(view.nodeListKey, JSON.stringify(["selection", "nodes:a,b,c,d"]));
+		// #119：选区抽屉复用社区抽屉的"查看全部 / 收起"骨架——给全量节点、可展开。
+		assert.equal(view.nodeListExpandable, true);
+		// 选区 nodeListKey 必须独立于 selection.id：Shift 加节点时 id 会变，
+		// key 若跟着变会触发 GraphGroupDrawer 重挂载（丢焦点、重置展开态、清输入）。
+		assert.equal(view.nodeListKey, JSON.stringify(["selection"]));
 		assert.equal(view.dialogueHint, "当前选区会带入对话");
-		assert.deepEqual(view.nodes.map((node) => node.nodeId), ["a", "b", "c"]);
+		assert.deepEqual(view.nodes.map((node) => node.nodeId), ["a", "b", "c", "d"]);
 		assert.deepEqual(view.facts, [
 			{ label: "页", value: 3 },
 			{ label: "链接", value: 0 },
@@ -98,6 +101,26 @@ describe("graph group drawer view model", () => {
 			"生成主题页",
 			"探索潜在关系"
 		]);
+	});
+
+	it("keeps selection node-list key stable while shift multi-select grows", () => {
+		// Shift 多选会不断增长 selection（id 与 nodeIds 都变），但抽屉的展开/收起状态
+		// 由组件按 nodeListKey 记住。key 必须在增长过程中保持不变，否则每次加节点都会
+		// 重置展开态并触发 GraphGroupDrawer 重挂载（丢焦点、清补充说明）。
+		const before = graphSelectionGroupDrawerViewModel("选区", selectionFixture({
+			id: "nodes:a,b",
+			nodeIds: ["a", "b"],
+		}));
+		const after = graphSelectionGroupDrawerViewModel("选区", selectionFixture({
+			id: "nodes:a,b,c,d",
+			nodeIds: ["a", "b", "c", "d"],
+		}));
+
+		assert.equal(before.nodeListKey, after.nodeListKey);
+		assert.equal(before.nodeListExpandable, true);
+		assert.equal(after.nodeListExpandable, true);
+		// 节点 > 3 时仍给全量，让组件自己 slice 到前 3 个并启用"查看全部"。
+		assert.deepEqual(after.nodes.map((node) => node.nodeId), ["a", "b", "c", "d"]);
 	});
 
 	it("finds fixed actions by id for prompt dispatch", () => {
