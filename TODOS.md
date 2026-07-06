@@ -1,9 +1,9 @@
 # TODOs
 
-## Phase 2.1: Community Enter Transition
+## Graph Spatial Continuity: Sigma Community Enter Transition
 
-- **What:** Add a lightweight transition from the selected Sigma community region into the DOM community reading view.
-- **Why:** Phase 2 intentionally fixes the static close-up first. Once that landing view is stable, a short transition can make the route change feel more continuous.
-- **Context:** Do this only after Phase 2 passes browser screenshots and manual QA. The transition must not change final node positions, label rules, edge layers, or source community context state.
-- **Depends on:** Phase 2 local-map implementation and visual acceptance.
-- **Start with:** Reuse the selected community region bounds from Sigma and the focused DOM community root bounds; animate camera/opacity only if the final static map remains identical before and after the transition.
+- **What:** Implement the Sigma spatial transition from a highlighted global community into Sigma community reading; see GitHub #117 and #120.
+- **Why:** The user should feel they are moving deeper into the same knowledge map, not switching from one unrelated view to another.
+- **Context:** This now belongs to the Sigma-first graph route. The transition should coordinate drawer exit, canvas expansion, camera movement, and community-reading appearance without changing final graph semantics.
+- **Depends on:** #118 shared Sigma view-transition basis and the current Sigma community reading route.
+- **Start with:** Reuse the selected global community bounds, the Sigma community-reading target camera, and the shared transition/cancellation contract from #118.
