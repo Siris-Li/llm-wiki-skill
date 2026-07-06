@@ -687,6 +687,62 @@ async function writeProductionHtml(
         };
       }
 
+      function blankStagePoint() {
+        const root = document.querySelector(".sigma-global-renderer");
+        const rect = root?.getBoundingClientRect();
+        if (!root || !rect) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        const blockedSelector = [
+          ".sigma-global-node-hit-target",
+          ".sigma-global-community-region",
+          ".sigma-global-aggregation-container",
+          ".graph-zoom-controls",
+          ".graph-search",
+          ".graph-toolbar",
+          "#drawer"
+        ].join(",");
+        const columns = 8;
+        const rows = 6;
+        for (let row = 1; row < rows; row += 1) {
+          for (let column = 1; column < columns; column += 1) {
+            const x = rect.left + (rect.width * column / columns);
+            const y = rect.top + (rect.height * row / rows);
+            const element = document.elementFromPoint(x, y);
+            if (!element || !root.contains(element)) continue;
+            if (element.closest(blockedSelector)) continue;
+            return { x, y };
+          }
+        }
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      }
+
+      function dispatchSigmaStageDrag() {
+        const root = document.querySelector(".sigma-global-renderer");
+        if (!root) return false;
+        const point = blankStagePoint();
+        const target = document.elementFromPoint(point.x, point.y) || root;
+        const eventInit = {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          buttons: 1,
+          clientX: point.x,
+          clientY: point.y
+        };
+        target.dispatchEvent(new MouseEvent("mousedown", eventInit));
+        document.dispatchEvent(new MouseEvent("mousemove", {
+          ...eventInit,
+          clientX: point.x + 60,
+          clientY: point.y + 50
+        }));
+        document.dispatchEvent(new MouseEvent("mouseup", {
+          ...eventInit,
+          buttons: 0,
+          clientX: point.x + 60,
+          clientY: point.y + 50
+        }));
+        return true;
+      }
+
       function summaryPayload() {
         if (selectedContainerId) return engine.summarizeCommunity(selectedContainerId, { searchResultIds });
         if (selectedNodeId) return engine.summarizeNode(selectedNodeId, { searchResultIds });
@@ -809,6 +865,8 @@ async function writeProductionHtml(
         enterCommunity,
         returnGlobal,
         productionProbe,
+        blankStagePoint,
+        dispatchSigmaStageDrag,
         zoomControlsSetup,
         zoomAnchorRect,
         clickZoomIn,
@@ -916,7 +974,8 @@ async function measureShape(browser: BrowserLike, metadata: LargeGraphFixtureMet
       { name: "spotlight_animation", run: () => measureSpotlightAnimation(page, metadata) },
       { name: "drawer_open", run: () => measureDrawerOpen(page, metadata) },
       { name: "enter_community", run: () => measureEnterCommunity(page, metadata) },
-      { name: "return_global", run: () => measureReturnGlobal(page, metadata) }
+      { name: "return_global", run: () => measureReturnGlobal(page, metadata) },
+      { name: "return_global_takeover", run: () => measureReturnGlobalTakeover(page, metadata) }
     ];
     for (const action of actions) {
       if (requestedActions && !requestedActions.has(action.name)) continue;
@@ -1383,6 +1442,149 @@ async function measureReturnGlobal(page: PageLike, metadata: LargeGraphFixtureMe
     failure_detail: Boolean((readyProbe as { productionPath?: boolean }).productionPath) && selectedContainerId == null ? null : `productionPath=${probe?.productionPath}; readyProductionPath=${(readyProbe as { productionPath?: boolean }).productionPath}; selectedContainerId=${selectedContainerId ?? "null"}`,
     artifact_path: resultPath
   });
+}
+
+async function measureReturnGlobalTakeover(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
+  const started = performance.now();
+  const modes: ReturnGlobalTakeoverMode[] = ["wheel", "drag", "click"];
+  const runs: ReturnGlobalTakeoverRun[] = [];
+  for (const mode of modes) {
+    runs.push(await runReturnGlobalTakeover(page, mode));
+  }
+  const failures = runs.flatMap((run) => run.failures.map((failure) => `${run.mode}:${failure}`));
+  return recordFromPage(page, metadata, {
+    action: "return_global_takeover",
+    duration_ms: performance.now() - started,
+    pass: failures.length === 0,
+    failure_class: failures.length ? "return_global_takeover_failed" : null,
+    failure_detail: failures.length
+      ? [
+        failures.join("; "),
+        ...runs.map((run) => `${run.mode}=${JSON.stringify({
+          selectedId: run.selectedId,
+          duringSelected: run.duringSelected,
+          finalKind: run.finalKind,
+          finalSelectedContainerId: run.finalSelectedContainerId,
+          finalSelectedNodeId: run.finalSelectedNodeId,
+          overlayTransform: run.finalOverlayTransform,
+          productionPath: run.productionPath
+        })}`)
+      ].join("; ")
+      : null,
+    artifact_path: resultPath
+  });
+}
+
+type ReturnGlobalTakeoverMode = "wheel" | "drag" | "click";
+
+interface ReturnGlobalTakeoverRun {
+  mode: ReturnGlobalTakeoverMode;
+  selectedId: string | null;
+  duringSelected: boolean;
+  finalKind: string | null;
+  finalSelectedContainerId: string | null;
+  finalSelectedNodeId: string | null;
+  finalOverlayTransform: string;
+  productionPath: boolean;
+  failures: string[];
+}
+
+async function runReturnGlobalTakeover(
+  page: PageLike,
+  mode: ReturnGlobalTakeoverMode
+): Promise<ReturnGlobalTakeoverRun> {
+  const selectedId = await selectCommunityForReturnGlobalTakeover(page);
+  const before = await page.evaluate((id: string | null) => {
+    const trial = (window as any).__sigmaProduction;
+    return trial.communityRegionState(id);
+  }, selectedId) as SigmaSpotlightRegionState;
+  await page.evaluate(() => {
+    const trial = (window as any).__sigmaProduction;
+    trial.engine.resetView();
+  });
+  await waitForAnimationFrames(page, 2);
+  const during = await page.evaluate((id: string | null) => {
+    const trial = (window as any).__sigmaProduction;
+    return trial.communityRegionState(id);
+  }, selectedId) as SigmaSpotlightRegionState;
+
+  if (mode === "wheel") {
+    const point = await page.evaluate(() => (window as any).__sigmaProduction.blankStagePoint()) as { x: number; y: number };
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.wheel(0, -240);
+  } else if (mode === "drag") {
+    await page.evaluate(() => (window as any).__sigmaProduction.dispatchSigmaStageDrag());
+  } else {
+    const nodeTarget = await page.evaluate(() => (window as any).__sigmaProduction.nodeHitTarget()) as PointerTarget | null;
+    if (nodeTarget) await clickPoint(page, nodeTarget);
+  }
+  await waitForAnimationFrames(page, 35);
+
+  const final = await page.evaluate((id: string | null) => {
+    const trial = (window as any).__sigmaProduction;
+    const counts = trial.counts();
+    const region = trial.communityRegionState(id);
+    const probe = trial.productionProbe({ canvasSignal: false });
+    return {
+      region,
+      counts,
+      productionPath: Boolean(probe.productionPath)
+    };
+  }, selectedId) as {
+    region: SigmaSpotlightRegionState;
+    counts: {
+      lastSelectionKind?: string | null;
+      selectedContainerId?: string | null;
+      selectedNodeId?: string | null;
+      lastSelectionNodeIds?: string[];
+      lastSelectionCommunityIds?: string[];
+    };
+    productionPath: boolean;
+  };
+  const failures: string[] = [];
+  if (!before.selected) failures.push("community_not_selected_before_reset");
+  if (!during.selected) failures.push("community_highlight_cleared_before_takeover");
+  if (!final.productionPath) failures.push("production_path_missing");
+  if (final.region.overlayTransform) failures.push(`overlay_transform_not_cleared=${final.region.overlayTransform}`);
+  if (mode === "click") {
+    if (final.counts.lastSelectionKind !== "node") failures.push(`click_did_not_select_node=${final.counts.lastSelectionKind ?? "null"}`);
+  } else if (final.counts.lastSelectionKind !== "community" || final.counts.selectedContainerId !== selectedId) {
+    failures.push(`community_selection_not_preserved=${final.counts.lastSelectionKind ?? "null"}/${final.counts.selectedContainerId ?? "null"}`);
+  }
+  return {
+    mode,
+    selectedId,
+    duringSelected: during.selected,
+    finalKind: final.counts.lastSelectionKind ?? null,
+    finalSelectedContainerId: final.counts.selectedContainerId ?? null,
+    finalSelectedNodeId: final.counts.selectedNodeId ?? final.counts.lastSelectionNodeIds?.[0] ?? null,
+    finalOverlayTransform: final.region.overlayTransform,
+    productionPath: final.productionPath,
+    failures
+  };
+}
+
+async function selectCommunityForReturnGlobalTakeover(page: PageLike): Promise<string> {
+  await waitForSpotlightReady(page);
+  const target = await page.evaluate(() => {
+    const trial = (window as any).__sigmaProduction;
+    return trial.containerHitTarget(trial.firstCommunityId);
+  }) as PointerTarget | null;
+  if (!target) throw new Error("measureReturnGlobalTakeover: no Sigma container hit target");
+  await clickPoint(page, target);
+  await page.waitForFunction(
+    () => {
+      const counts = (window as any).__sigmaProduction?.counts?.();
+      return counts?.lastSelectionKind === "community" && (counts.lastSelectionCommunityIds || []).length > 0;
+    },
+    undefined,
+    { timeout: 8000 }
+  );
+  const counts = await page.evaluate(() => (window as any).__sigmaProduction.counts()) as { lastSelectionCommunityIds?: string[] };
+  const selectedId = counts.lastSelectionCommunityIds?.[0] ?? target.communityId ?? target.id ?? null;
+  if (!selectedId) throw new Error("measureReturnGlobalTakeover: no selected community id");
+  await waitForSpotlightSettled(page, selectedId);
+  return selectedId;
 }
 
 function allowsNonSigmaRouteForAction(action: string): boolean {

@@ -84,7 +84,7 @@ export interface GraphFacadeRenderer {
   setTypeFilters(filters: NonNullable<GraphEngineOptions["typeFilters"]>): void;
   showTemporaryObject(object: GraphSummaryObjectRef): void;
   clearTemporaryObjectDisplay(): void;
-  resetView(): void;
+  resetView(options?: { onComplete?: () => void; onCancel?: () => void; onCleanup?: () => void }): void;
   select(selection: SelectionInput): void;
   previewNode(id: string | null): void;
   clearSelection(): void;
@@ -523,13 +523,34 @@ export function createGraphFacadeRouteManager(
   function requestGlobalRouteFromRenderer(): { shouldNotifyViewReset: boolean } {
     const previousRouteId = routeId;
     const wasCommunityReading = state.focus?.kind === "community";
+    const shouldDelayGlobalCommunityClear =
+      !wasCommunityReading && previousRouteId === "sigma-global" && state.selection?.kind === "community";
     state.focus = null;
     if (wasCommunityReading) clearCommunityLocalVisibilityState();
-    clearCommunitySelectionForGlobalReset();
+    if (wasCommunityReading && state.selection) {
+      state.selection = null;
+      state.temporaryObject = null;
+      options.callbacks?.onSelectionClearRequested?.();
+    } else if (!shouldDelayGlobalCommunityClear) {
+      clearCommunitySelectionForGlobalReset();
+    }
     switchToGlobalRoute();
     if (routeId === "sigma-global") {
-      if (previousRouteId === routeId) currentRenderer().resetView();
+      if (previousRouteId === routeId) {
+        currentRenderer().resetView(shouldDelayGlobalCommunityClear
+          ? {
+              onComplete: () => {
+                state.sourceCommunityId = null;
+                clearCommunitySelectionForGlobalReset();
+              }
+            }
+          : undefined);
+      }
       return { shouldNotifyViewReset: true };
+    }
+    if (shouldDelayGlobalCommunityClear) {
+      state.sourceCommunityId = null;
+      clearCommunitySelectionForGlobalReset();
     }
     currentRenderer().resetView();
     return { shouldNotifyViewReset: routeId !== "dom-svg-small-fallback" };
@@ -540,14 +561,18 @@ export function createGraphFacadeRouteManager(
     // Explicit reset clears the source community context (unlike the toolbar
     // "return to global", which keeps it so the source stays highlighted).
     const hadSourceCommunity = state.sourceCommunityId != null;
-    state.sourceCommunityId = null;
+    const wasCommunityReading = state.focus?.kind === "community";
     state.focus = null;
-    if (previousRouteId === "sigma-global" && state.selection?.kind === "community") {
-      clearCommunitySelectionForGlobalReset();
-      if (hadSourceCommunity) currentRenderer().setSourceCommunityContext?.(null);
-      currentRenderer().resetView();
+    if (!wasCommunityReading && previousRouteId === "sigma-global" && state.selection?.kind === "community") {
+      currentRenderer().resetView({
+        onComplete: () => {
+          state.sourceCommunityId = null;
+          clearCommunitySelectionForGlobalReset();
+        }
+      });
       return;
     }
+    state.sourceCommunityId = null;
     clearCommunitySelectionForGlobalReset();
     switchToGlobalRoute();
     if (previousRouteId === routeId) {
@@ -1046,13 +1071,29 @@ export function createGraphFacadeFromRenderer(
     resetView(): void {
       assertActive();
       delete container.dataset.llmWikiGraphFocus;
-      if (facadeState.selection?.kind === "community") {
+      const wasCommunityReading = facadeState.focus?.kind === "community";
+      const shouldDelayGlobalCommunityClear = !wasCommunityReading && facadeState.selection?.kind === "community";
+      const hadSourceCommunity = facadeState.sourceCommunityId != null;
+      const clearCommunitySelection = (): void => {
+        if (facadeState.selection?.kind !== "community") return;
         facadeState.selection = null;
         facadeState.temporaryObject = null;
         capabilities?.onSelectionClear?.();
+      };
+      if (shouldDelayGlobalCommunityClear) {
+        facadeState.focus = null;
+        renderer.resetView({
+          onComplete: () => {
+            facadeState.sourceCommunityId = null;
+            if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
+            clearCommunitySelection();
+            capabilities?.onViewReset?.();
+          }
+        });
+        return;
       }
+      clearCommunitySelection();
       facadeState.focus = null;
-      const hadSourceCommunity = facadeState.sourceCommunityId != null;
       facadeState.sourceCommunityId = null;
       if (hadSourceCommunity) renderer.setSourceCommunityContext?.(null);
       renderer.resetView();

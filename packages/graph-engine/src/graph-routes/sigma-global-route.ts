@@ -234,8 +234,9 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       options = { ...options, temporaryObject: null };
       updateSigmaRenderer();
     },
-    resetView() {
+    resetView(resetOptions?: { onComplete?: () => void; onCancel?: () => void; onCleanup?: () => void }) {
       const wasCommunityReading = options.focus?.kind === "community";
+      const shouldDelayGlobalCommunityClear = !wasCommunityReading && options.selection?.kind === "community";
       clearSigmaTransientHoverState();
       if (wasCommunityReading) clearCommunityTypeFilterScope();
       options = wasCommunityReading
@@ -243,8 +244,26 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
         : { ...options, focus: null };
       syncVisibilityState();
       mountSigmaControls();
+      if (shouldDelayGlobalCommunityClear) {
+        renderer?.resetView({
+          onComplete: () => {
+            options = { ...options, sourceCommunityId: null };
+            updateSigmaSelection(null);
+            resetOptions?.onComplete?.();
+          },
+          onCancel: resetOptions?.onCancel,
+          onCleanup: resetOptions?.onCleanup
+        });
+        if (!renderer) {
+          options = { ...options, sourceCommunityId: null };
+          updateSigmaSelection(null);
+          resetOptions?.onComplete?.();
+          resetOptions?.onCleanup?.();
+        }
+        return;
+      }
       updateSigmaSelection(null);
-      renderer?.resetView();
+      renderer?.resetView(resetOptions);
     },
     select(selection) {
       updateSigmaSelection(selection);

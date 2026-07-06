@@ -157,6 +157,35 @@ describe("GraphFacade", () => {
     assert.deepEqual(renderer.calls.slice(-2), [["setSourceCommunityContext", null], ["resetView"]]);
   });
 
+  it("keeps standalone community highlight until explicit reset completes", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const renderer = createFakeRenderer();
+    const facadeState = twoCommunityState();
+    const selectionClears: number[] = [];
+    const engine = createGraphFacadeFromRenderer(container, renderer, {
+      data: facadeState.data,
+      theme: "shan-shui",
+      capabilities: {
+        onSelectionClear: () => selectionClears.push(1)
+      }
+    }, facadeState);
+
+    engine.select({ kind: "community", id: "c1" });
+    engine.resetView();
+
+    assert.deepEqual(facadeState.selection, { kind: "community", id: "c1" });
+    assert.deepEqual(selectionClears, []);
+    const resetCall = renderer.calls.at(-1);
+    assert.equal(resetCall?.[0], "resetView");
+
+    const resetCallbacks = resetCall?.[1] as { onComplete: () => void };
+    resetCallbacks.onComplete();
+
+    assert.equal(facadeState.selection, null);
+    assert.deepEqual(selectionClears, [1]);
+    assert.deepEqual(renderer.calls.at(-1), ["setSourceCommunityContext", null]);
+  });
+
   it("notifies a standalone renderer when clear commands drop source community context", () => {
     for (const clear of ["clearSelection", "clearInteraction"] as const) {
       const container = { dataset: {} as Record<string, string | undefined> };
@@ -585,11 +614,19 @@ describe("GraphFacade", () => {
 
     assert.equal(manager.routeId, "sigma-global");
     assert.equal(state.focus, null);
-    assert.equal(state.selection, null);
-    assert.equal(state.temporaryObject, null);
+    assert.deepEqual(state.selection, { kind: "community", id: "c1" });
+    assert.deepEqual(state.temporaryObject, { kind: "community", communityId: "c1" });
     assert.deepEqual(state.searchResultIds, ["a"]);
     assert.deepEqual(Object.keys(state.pins), ["wiki/a.md"]);
-    assert.deepEqual(renderers[0].calls.slice(-1), [["resetView"]]);
+    assert.equal(selectionClears.length, 0);
+
+    const resetCall = renderers[0].calls.at(-1);
+    assert.equal(resetCall?.[0], "resetView");
+    const resetCallbacks = resetCall?.[1] as { onComplete: () => void };
+    resetCallbacks.onComplete();
+
+    assert.equal(state.selection, null);
+    assert.equal(state.temporaryObject, null);
     assert.deepEqual(selectionClears, [1]);
   });
 
@@ -630,11 +667,18 @@ describe("GraphFacade", () => {
     sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
 
     assert.equal(manager.routeId, "sigma-global");
+    assert.deepEqual(state.selection, { kind: "community", id: "c1" });
+    assert.deepEqual(state.temporaryObject, { kind: "community", communityId: "c1" });
+    assert.deepEqual(selectionClears, []);
+    const resetCall = renderers[0].calls.at(-1);
+    assert.equal(resetCall?.[0], "resetView");
+    const resetCallbacks = resetCall?.[1] as { onComplete: () => void };
+    resetCallbacks.onComplete();
+
     assert.equal(state.selection, null);
     assert.equal(state.temporaryObject, null);
     assert.deepEqual(selectionClears, [1]);
     assert.deepEqual(viewResets, [1]);
-    assert.deepEqual(renderers[0].calls.slice(-1), [["resetView"]]);
   });
 
   it("returns from Sigma community reading to a plain global map on explicit reset", () => {
@@ -734,7 +778,7 @@ describe("GraphFacade", () => {
     assert.equal(smallFallbackInputs.length, 2);
     assert.equal(state.focus, null);
     assert.deepEqual(smallFallbackInputs[1].options.focus, null);
-    assert.deepEqual(smallFallbackInputs[1].options.selection, { kind: "node", id: "a" });
+    assert.equal(smallFallbackInputs[1].options.selection, null);
     assert.equal(smallFallbackInputs[1].options.searchQuery, "");
     assert.deepEqual(smallFallbackInputs[1].options.searchResultIds, []);
     assert.deepEqual(smallFallbackInputs[1].options.typeFilters, { topic: true, source: true });
@@ -1725,8 +1769,8 @@ function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
     clearTemporaryObjectDisplay() {
       calls.push(["clearTemporaryObjectDisplay"]);
     },
-    resetView() {
-      calls.push(["resetView"]);
+    resetView(options?: unknown) {
+      calls.push(options === undefined ? ["resetView"] : ["resetView", options]);
     },
     select(selection: SelectionInput) {
       calls.push(["select", selection]);

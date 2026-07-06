@@ -2,6 +2,7 @@ import type { GraphRendererAdapterData } from "./adapter";
 import type { RendererViewportSize } from "./viewport";
 import { SIGMA_CAMERA_MAX_RATIO } from "./sigma-zoom";
 import type {
+  SigmaGlobalCameraLike,
   SigmaGlobalCameraState,
   SigmaGlobalSigmaLike
 } from "./sigma-global-types";
@@ -26,6 +27,31 @@ export interface SigmaCommunitySpotlightCameraResult extends SigmaGlobalCameraMo
 }
 
 export const SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS = 380;
+
+export interface SigmaGlobalViewTransition {
+  isActive(): boolean;
+  isGuardingStaleAnimation(): boolean;
+  takeover(takeoverState: Partial<SigmaGlobalCameraState>): void;
+  complete(): void;
+  cancel(takeoverState?: Partial<SigmaGlobalCameraState>): void;
+  dispose(): void;
+}
+
+export interface SigmaGlobalViewTransitionResult extends SigmaGlobalCameraMoveResult {
+  transition: SigmaGlobalViewTransition | null;
+}
+
+export interface SigmaGlobalViewTransitionOptions {
+  target: Partial<SigmaGlobalCameraState>;
+  animate: boolean;
+  reducedMotion: boolean;
+  durationMs?: number;
+  easing?: string;
+  onComplete?: () => void;
+  onCancel?: () => void;
+  onCleanup?: () => void;
+  onAnimationError?: (error: unknown) => void;
+}
 
 export function readCameraState(sigma: SigmaGlobalSigmaLike): SigmaGlobalCameraState | null {
   const state = sigma.getCamera?.().getState?.();
@@ -77,23 +103,133 @@ export function moveSigmaCamera(
   reducedMotion: boolean,
   onAnimationError?: (error: unknown) => void
 ): SigmaGlobalCameraMoveResult {
+  const result = startSigmaGlobalViewTransition(sigma, {
+    target,
+    animate: true,
+    reducedMotion,
+    onAnimationError
+  });
+  if (result.movement === "immediate" && !result.skipReason) {
+    return { movement: "immediate", skipReason: undefined };
+  }
+  return result.skipReason
+    ? { movement: result.movement, skipReason: result.skipReason }
+    : { movement: result.movement };
+}
+
+export function startSigmaGlobalViewTransition(
+  sigma: SigmaGlobalSigmaLike,
+  options: SigmaGlobalViewTransitionOptions
+): SigmaGlobalViewTransitionResult {
   const camera = sigma.getCamera?.();
-  if (!camera) return { movement: "skipped", skipReason: "camera-unavailable" };
-  if (reducedMotion || !camera.animate) {
-    if (!camera.setState) return { movement: "skipped", skipReason: "animate-unavailable" };
-    camera.setState(target);
-    return { movement: "immediate", skipReason: !camera.animate ? "animate-unavailable" : undefined };
-  }
-  try {
-    const animation = camera.animate(target, { duration: SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS, easing: "quadraticInOut" });
-    if (animation && typeof (animation as Promise<unknown>).catch === "function") {
-      void (animation as Promise<unknown>).catch((error) => onAnimationError?.(error));
+  if (!camera) return { movement: "skipped", skipReason: "camera-unavailable", transition: null };
+  const canAnimate = options.animate && !options.reducedMotion && Boolean(camera.animate);
+  if (!canAnimate) {
+    if (!camera.setState) return { movement: "skipped", skipReason: "animate-unavailable", transition: null };
+    camera.setState(options.target);
+    options.onComplete?.();
+    options.onCleanup?.();
+    if (options.animate && !options.reducedMotion && !camera.animate) {
+      return { movement: "immediate", skipReason: "animate-unavailable", transition: null };
     }
-    return { movement: "animated" };
-  } catch (error) {
-    onAnimationError?.(error);
-    return { movement: "skipped", skipReason: "animate-error" };
+    return { movement: "immediate", transition: null };
   }
+  const transition = createSigmaGlobalViewTransition(camera, options);
+  try {
+    const animation = camera.animate?.(options.target, {
+      duration: options.durationMs ?? SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS,
+      easing: options.easing ?? "quadraticInOut"
+    });
+    if (animation && typeof (animation as Promise<unknown>).catch === "function") {
+      void (animation as Promise<unknown>).catch((error) => {
+        options.onAnimationError?.(error);
+        transition.cancel();
+      });
+    }
+    return { movement: "animated", transition };
+  } catch (error) {
+    transition.dispose();
+    options.onAnimationError?.(error);
+    return { movement: "skipped", skipReason: "animate-error", transition: null };
+  }
+}
+
+function createSigmaGlobalViewTransition(
+  camera: SigmaGlobalCameraLike,
+  options: SigmaGlobalViewTransitionOptions
+): SigmaGlobalViewTransition {
+  let active = true;
+  let cleaned = false;
+  let guardingStaleAnimation = false;
+  let applyingTakeover = false;
+  let takeoverState: Partial<SigmaGlobalCameraState> | null = null;
+  const onCameraUpdated = (): void => {
+    if (!guardingStaleAnimation || !takeoverState || applyingTakeover) return;
+    if (!camera.isAnimated?.()) {
+      disposeGuard();
+      return;
+    }
+    applyTakeoverState();
+  };
+  const cleanup = (): void => {
+    if (cleaned) return;
+    cleaned = true;
+    options.onCleanup?.();
+  };
+  const disposeGuard = (): void => {
+    if (!guardingStaleAnimation) return;
+    camera.off?.("updated", onCameraUpdated);
+    guardingStaleAnimation = false;
+    takeoverState = null;
+  };
+  const applyTakeoverState = (): void => {
+    if (!takeoverState || !camera.setState) return;
+    applyingTakeover = true;
+    try {
+      camera.setState(takeoverState);
+    } finally {
+      applyingTakeover = false;
+    }
+  };
+  const beginGuard = (state: Partial<SigmaGlobalCameraState>): void => {
+    if (!camera.setState) return;
+    takeoverState = { ...state };
+    if (!guardingStaleAnimation) {
+      guardingStaleAnimation = true;
+      camera.on?.("updated", onCameraUpdated);
+    }
+    applyTakeoverState();
+  };
+  return {
+    isActive() {
+      return active;
+    },
+    isGuardingStaleAnimation() {
+      return guardingStaleAnimation;
+    },
+    takeover(takeover) {
+      beginGuard(takeover);
+    },
+    complete() {
+      if (!active) return;
+      active = false;
+      disposeGuard();
+      options.onComplete?.();
+      cleanup();
+    },
+    cancel(takeover?: Partial<SigmaGlobalCameraState>) {
+      if (!active) return;
+      active = false;
+      if (takeover) beginGuard(takeover);
+      else disposeGuard();
+      options.onCancel?.();
+      cleanup();
+    },
+    dispose() {
+      active = false;
+      disposeGuard();
+    }
+  };
 }
 
 export function sigmaCommunitySpotlightCameraState(

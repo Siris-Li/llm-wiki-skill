@@ -97,6 +97,12 @@ export interface SigmaGlobalRendererUpdateOptions {
   viewportSize?: RendererViewportSize;
 }
 
+export interface SigmaGlobalRendererResetViewOptions {
+  onComplete?: () => void;
+  onCancel?: () => void;
+  onCleanup?: () => void;
+}
+
 export interface SigmaGlobalRenderer {
   readonly id: "sigma-global";
   readonly root: HTMLElement;
@@ -105,7 +111,7 @@ export interface SigmaGlobalRenderer {
   readonly updateStrategy: "rebuild-graph-preserve-camera";
   readonly lastHitTarget: GraphGestureTarget | null;
   isDragging(): boolean;
-  resetView(): void;
+  resetView(options?: SigmaGlobalRendererResetViewOptions): void;
   zoomIn(): void;
   zoomOut(): void;
   update(options: SigmaGlobalRendererUpdateOptions): void;

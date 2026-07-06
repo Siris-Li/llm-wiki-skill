@@ -10,7 +10,7 @@
 
 把碎片化的信息变成持续积累、互相链接的知识库
 
-[![version](https://img.shields.io/badge/v3.6.25-社区钻取修复-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.26-Sigma回全图过渡-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-多平台-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -89,7 +89,7 @@ bash install.sh --platform hermes
 
 | | 功能 | 说明 |
 |---|---|---|
-| 🧭 | **社区近景地图** | 进入社区后像从全局图靠近刚才那片区域；节点位置、层级和标签更稳定，社区内可多选节点并带入对话，返回全图仍能看见来源社区 |
+| 🧭 | **社区近景地图** | 进入社区后像从全局图靠近刚才那片区域；节点位置、层级和标签更稳定，社区内可多选节点并带入对话，返回全图时高亮会跟随视野稳定后再淡出 |
 | 🪶 | **全局边线调参** | 工作台全局图谱边线会自动分主次，可打开语义强调和聚焦点亮，让关键关系更容易看清 |
 | 🎨 | **工作台 Paper 视觉** | 工作台沿用暖纸配色，按钮、消息、侧栏和图谱控件保持统一，长标题不会撑开页面 |
 | 💬 | **工作台对话自动跟随** | 发送和流式回复时自动停在最新内容，用户上翻时暂停，并用向下箭头一键回到底部 |
@@ -138,7 +138,7 @@ bash install.sh --platform claude --with-optional-adapters
 - **Sigma 图谱主路线** — 全局视角和社区阅读都以 Sigma/Graphology 承接；DOM/SVG 只保留为回退、对照和异常兜底，不再作为社区阅读主路径扩展
 - **统一社区抽屉** — 普通社区和"未分组"使用同一套概览、固定动作、可展开核心节点和对话入口；"进入社区"放在顶部，未分组默认推荐探索潜在关系
 - **全局边线调参** — 工作台全局图谱边线自动分主次，调参面板支持语义强调和聚焦点亮；社区图谱保留原有边线和图例
-- **社区近景地图** — 进入社区后沿用 Sigma 主图，只显示当前社区内部节点和关系；节点位置、身份色、边层级和标签预算保持连续，搜索、类型筛选和 Shift 多选只影响当前社区，返回全图时保留来源社区高亮
+- **社区近景地图** — 进入社区后沿用 Sigma 主图，只显示当前社区内部节点和关系；节点位置、身份色、边层级和标签预算保持连续，搜索、类型筛选和 Shift 多选只影响当前社区，返回全图时社区高亮会跟随视野稳定后再淡出
 - **图谱视野稳定** — 点击社区摘要或重复点击同一位置时，图谱保持原视角，不会被右侧抽屉挤动
 - **工作台 Paper 视觉** — Paper v2 暖纸配色覆盖工作台默认主题、新对话按钮、消息气泡、侧栏和图谱控件，长标题和长消息保持在页面内部
 - **查询结果持久化** — 有价值的综合回答可保存回知识库，越用越完整

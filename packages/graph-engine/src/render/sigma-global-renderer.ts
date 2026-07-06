@@ -41,6 +41,7 @@ import type {
   SigmaGlobalGraphologyRuntime,
   SigmaGlobalRenderer,
   SigmaGlobalRendererCreateOptions,
+  SigmaGlobalRendererResetViewOptions,
   SigmaGlobalRendererRuntime,
   SigmaGlobalRendererRuntimeBoundary,
   SigmaGlobalRendererUpdateOptions,
@@ -68,8 +69,10 @@ import {
   readCameraState,
   restoreCameraState,
   SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS,
+  startSigmaGlobalViewTransition,
   sigmaGlobalCameraState,
-  type SigmaCommunitySpotlightCameraResult
+  type SigmaCommunitySpotlightCameraResult,
+  type SigmaGlobalViewTransition
 } from "./sigma-global-camera";
 import {
   bindSigmaWheelZoomController,
@@ -190,10 +193,17 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   let eventBindings: Array<{ event: string; listener: (payload?: unknown) => void }> = [];
   let cameraEventBindings: Array<{ event: "updated"; listener: (state?: SigmaGlobalCameraState) => void }> = [];
   let sigmaRootClickFallbackListener: ((event: MouseEvent) => void) | null = null;
+  let sigmaRootCameraTakeoverListeners: {
+    down: (event: MouseEvent) => void;
+    move: (event: MouseEvent) => void;
+    up: () => void;
+  } | null = null;
   let suppressSigmaRootClickFallback = false;
   let suppressSigmaRootClickFallbackToken = 0;
   let recentRootClickAdditive = false;
   let recentRootClickAdditiveToken = 0;
+  let activeStagePanTakeover = false;
+  let expectStagePanTakeoverCameraUpdate = false;
   let resizeObserver: ResizeObserver | null = null;
   let resizeAnimationFrame: number | null = null;
   let lastObservedRootSize: RendererViewportSize | null = null;
@@ -206,6 +216,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
   let overlayAnimationFrameOwner = 0;
   let scheduledOverlayAnimationFrameOwner: number | null = null;
   let deferredSpotlightCameraFrame: number | null = null;
+  let activeViewTransition: SigmaGlobalViewTransition | null = null;
+  let cancelledViewTransitionGuard: SigmaGlobalViewTransition | null = null;
   syncSigmaRootMetadata();
 
   try {
@@ -238,6 +250,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     });
     bindSigmaEvents();
     bindSigmaRootClickFallback();
+    bindSigmaRootCameraTakeover();
     bindSigmaResizeObserver();
     overlayDomController.rebuild();
   } catch (error) {
@@ -260,11 +273,18 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     isDragging() {
       return Boolean(activeNodeDrag);
     },
-    resetView() {
+    resetView(resetOptions?: SigmaGlobalRendererResetViewOptions) {
       assertActive();
       cameraSpotlightKey = null;
-      sigma.getCamera?.().setState?.(sigmaGlobalCameraState(sigma, adapterData, currentViewportSize));
-      suppressOverlayAnimationFastPathUntilSettled();
+      runSigmaViewTransition({
+        target: sigmaGlobalCameraState(sigma, adapterData, currentViewportSize),
+        animate: true,
+        durationMs: SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS,
+        easing: "quadraticInOut",
+        onComplete: resetOptions?.onComplete,
+        onCancel: resetOptions?.onCancel,
+        onCleanup: resetOptions?.onCleanup
+      });
     },
     zoomIn() {
       assertActive();
@@ -276,6 +296,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     },
     update(updateOptions) {
       assertActive();
+      cancelActiveViewTransition(readCameraState(sigma) ?? undefined);
       const cameraState = readCameraState(sigma);
       const previousCameraSpotlightKey = cameraSpotlightKey;
       let spotlightCameraPreviousKey = previousCameraSpotlightKey;
@@ -343,6 +364,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     },
     destroy() {
       if (destroyed) return;
+      cancelActiveViewTransition();
+      disposeCancelledViewTransitionGuard();
       cancelNodeDrag();
       clearSuppressedNodeClick();
       destroyed = true;
@@ -353,6 +376,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       overlayDomController = null;
       unbindSigmaEvents();
       unbindSigmaRootClickFallback();
+      unbindSigmaRootCameraTakeover();
       cancelScheduledResizeRefresh();
       cancelOverlayAnimationSettleCheck();
       cancelDeferredSpotlightCameraUpdate();
@@ -393,7 +417,16 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     };
     const requestCameraFrame = (): void => requestOverlayAnimationFrame(overlayAnimationFrameOwner);
     const nodeDown = (payload?: unknown): void => beginNodeDrag(sigmaNodeIdFromPayload(payload), sigmaScreenPointFromPayload(payload), payload);
-    const nodeMove = (payload?: unknown): void => moveNodeDrag(sigmaScreenPointFromPayload(payload), payload);
+    const stageDown = (): void => beginStagePanTakeover();
+    const nodeMove = (payload?: unknown): void => {
+      if (activeViewTransition?.isActive() && sigmaPrimaryButtonIsDown(payload)) beginStagePanTakeover();
+      trackStagePanTakeoverMove();
+      moveNodeDrag(sigmaScreenPointFromPayload(payload), payload);
+    };
+    const stageUp = (payload?: unknown): void => {
+      endStagePanTakeover();
+      commitNodeDrag(sigmaScreenPointFromPayload(payload), payload);
+    };
     const nodeUp = (payload?: unknown): void => commitNodeDrag(sigmaScreenPointFromPayload(payload), payload);
     const nodeEnter = (payload?: unknown): void => handleNodeHover(sigmaNodeIdFromPayload(payload));
     const nodeLeave = (): void => handleNodeHover(null);
@@ -419,10 +452,11 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       { event: "clickNode", listener: nodeClick },
       { event: "clickStage", listener: stageClick },
       { event: "clickEdge", listener: edgeClick },
+      { event: "downStage", listener: stageDown },
       { event: "downNode", listener: nodeDown },
       { event: "moveBody", listener: nodeMove },
       { event: "upNode", listener: nodeUp },
-      { event: "upStage", listener: nodeUp },
+      { event: "upStage", listener: stageUp },
       { event: "enterNode", listener: nodeEnter },
       { event: "leaveNode", listener: nodeLeave },
       { event: "enterEdge", listener: edgeEnter },
@@ -434,7 +468,13 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     }
     const camera = sigma.getCamera?.();
     if (camera?.on) {
-      const listener = (): void => requestOverlayAnimationFrame(overlayAnimationFrameOwner);
+      const listener = (state?: SigmaGlobalCameraState): void => {
+        if (expectStagePanTakeoverCameraUpdate && cancelledViewTransitionGuard?.isGuardingStaleAnimation()) {
+          expectStagePanTakeoverCameraUpdate = false;
+          cancelledViewTransitionGuard.takeover(state ?? readCameraState(sigma) ?? {});
+        }
+        requestOverlayAnimationFrame(overlayAnimationFrameOwner);
+      };
       camera.on("updated", listener);
       cameraEventBindings = [{ event: "updated", listener }];
     }
@@ -472,6 +512,34 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     if (!sigmaRootClickFallbackListener) return;
     sigmaRoot.removeEventListener?.("click", sigmaRootClickFallbackListener, true);
     sigmaRootClickFallbackListener = null;
+  }
+
+  function bindSigmaRootCameraTakeover(): void {
+    const ownerDocument = sigmaRoot.ownerDocument;
+    const down = (event: MouseEvent): void => {
+      if (destroyed || event.defaultPrevented) return;
+      if (typeof event.button === "number" && event.button !== 0) return;
+      beginStagePanTakeover();
+    };
+    const move = (event: MouseEvent): void => {
+      if (destroyed || !activeStagePanTakeover) return;
+      if (typeof event.buttons === "number" && (event.buttons & 1) !== 1) return;
+      trackStagePanTakeoverMove();
+    };
+    const up = (): void => endStagePanTakeover();
+    sigmaRoot.addEventListener?.("mousedown", down, true);
+    ownerDocument.addEventListener?.("mousemove", move, true);
+    ownerDocument.addEventListener?.("mouseup", up, true);
+    sigmaRootCameraTakeoverListeners = { down, move, up };
+  }
+
+  function unbindSigmaRootCameraTakeover(): void {
+    if (!sigmaRootCameraTakeoverListeners) return;
+    const ownerDocument = sigmaRoot.ownerDocument;
+    sigmaRoot.removeEventListener?.("mousedown", sigmaRootCameraTakeoverListeners.down, true);
+    ownerDocument.removeEventListener?.("mousemove", sigmaRootCameraTakeoverListeners.move, true);
+    ownerDocument.removeEventListener?.("mouseup", sigmaRootCameraTakeoverListeners.up, true);
+    sigmaRootCameraTakeoverListeners = null;
   }
 
   function sigmaAdditiveFromPayloadOrRecentRootClick(payload?: unknown): boolean {
@@ -619,6 +687,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       if (activeNodeDrag || suppressOverlayAnimationFastPathUntilCameraSettles || !animated) {
         overlayDomController?.reposition();
         if (!animated) {
+          completeActiveViewTransitionIfSettled(animated);
+          releaseCancelledViewTransitionGuardIfSettled(animated);
           projectCameraAnimationUntilMs = 0;
           projectCameraAnimationSawSigmaAnimated = false;
           projectCameraAnimationFastPathFrames = 0;
@@ -668,9 +738,74 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     scheduledOverlayAnimationFrameOwner = null;
   }
 
+  function runSigmaViewTransition(transitionOptions: {
+    target: Partial<SigmaGlobalCameraState>;
+    animate: boolean;
+    durationMs: number;
+    easing: string;
+    onComplete?: () => void;
+    onCancel?: () => void;
+    onCleanup?: () => void;
+  }): void {
+    cancelActiveViewTransition();
+    disposeCancelledViewTransitionGuard();
+    const result = startSigmaGlobalViewTransition(sigma, {
+      target: transitionOptions.target,
+      animate: transitionOptions.animate,
+      reducedMotion: prefersReducedMotion(sigmaRoot.ownerDocument.defaultView),
+      durationMs: transitionOptions.durationMs,
+      easing: transitionOptions.easing,
+      onComplete: transitionOptions.onComplete,
+      onCancel: transitionOptions.onCancel,
+      onCleanup: transitionOptions.onCleanup,
+      onAnimationError: (error) => options.onFatalError?.(error)
+    });
+    if (result.movement === "animated" && result.transition) {
+      activeViewTransition = result.transition;
+      startProjectCameraFrameTracking(transitionOptions.durationMs, SIGMA_CAMERA_MINIMUM_FAST_PATH_FRAMES);
+      return;
+    }
+    activeViewTransition = null;
+    if (result.movement === "immediate") {
+      overlayDomController?.reposition();
+    }
+  }
+
+  function completeActiveViewTransitionIfSettled(animated: boolean): void {
+    if (animated || !activeViewTransition?.isActive()) return;
+    activeViewTransition.complete();
+    activeViewTransition = null;
+  }
+
+  function cancelActiveViewTransition(takeoverState?: Partial<SigmaGlobalCameraState>): void {
+    const transition = activeViewTransition;
+    if (!transition) return;
+    activeViewTransition = null;
+    if (transition.isActive()) {
+      transition.cancel(takeoverState);
+    }
+    if (transition.isGuardingStaleAnimation()) {
+      disposeCancelledViewTransitionGuard();
+      cancelledViewTransitionGuard = transition;
+      return;
+    }
+    transition.dispose();
+  }
+
+  function disposeCancelledViewTransitionGuard(): void {
+    cancelledViewTransitionGuard?.dispose();
+    cancelledViewTransitionGuard = null;
+  }
+
+  function releaseCancelledViewTransitionGuardIfSettled(animated: boolean): void {
+    if (animated || !cancelledViewTransitionGuard) return;
+    disposeCancelledViewTransitionGuard();
+  }
+
   function applySpotlightCameraResult(result: SigmaCommunitySpotlightCameraResult): void {
     cameraSpotlightKey = result.communityId ? sigmaSpotlightCameraKey(adapterData) : null;
     if (result.movement === "animated") {
+      disposeCancelledViewTransitionGuard();
       startProjectCameraFrameTracking(
         SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS,
         SIGMA_CAMERA_MINIMUM_FAST_PATH_FRAMES
@@ -735,6 +870,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       ratio: nextRatio
     };
     if (animated && camera?.animate && !prefersReducedMotion(sigmaRoot.ownerDocument.defaultView)) {
+      cancelActiveViewTransition();
       const animation = camera.animate(nextState, { duration: SIGMA_BUTTON_ZOOM_DURATION_MS, easing: "quadraticOut" });
       if (animation && typeof (animation as Promise<unknown>).catch === "function") {
         void (animation as Promise<unknown>).catch((error) => options.onFatalError?.(error));
@@ -742,11 +878,40 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       startOverlayCameraFrameTracking();
       return;
     }
-    // 滚轮/触控板始终即时 setState，不排队动画（设计 §5）。即使按钮或社区聚焦动画
-    // 仍在进行，滚轮也直接覆盖相机；Sigma camera 没有公开的取消动画接口，接受聚焦
-    // 动画末期（约 380ms）与滚轮的轻微拉锯，换取触控板高频输入的连续手感。
+    // 滚轮/触控板始终即时 setState，不排队动画（设计 §5）。如果共享过渡仍在进行，
+    // 先取消并用新状态接管，避免旧 animate 末尾把镜头拉回旧目标。
     suppressOverlayAnimationFastPathUntilSettled();
+    if (activeViewTransition?.isActive()) {
+      cancelActiveViewTransition(nextState);
+      return;
+    }
     camera?.setState?.(nextState);
+  }
+
+  function beginStagePanTakeover(): void {
+    if (!activeViewTransition?.isActive()) {
+      endStagePanTakeover();
+      return;
+    }
+    activeStagePanTakeover = true;
+    expectStagePanTakeoverCameraUpdate = false;
+    suppressOverlayAnimationFastPathUntilSettled();
+    cancelActiveViewTransition(readCameraState(sigma) ?? undefined);
+  }
+
+  function trackStagePanTakeoverMove(): void {
+    if (!activeStagePanTakeover || !cancelledViewTransitionGuard?.isGuardingStaleAnimation()) return;
+    expectStagePanTakeoverCameraUpdate = true;
+  }
+
+  function endStagePanTakeover(): void {
+    activeStagePanTakeover = false;
+    expectStagePanTakeoverCameraUpdate = false;
+  }
+
+  function sigmaPrimaryButtonIsDown(payload: unknown): boolean {
+    const event = (payload as { event?: { original?: { buttons?: unknown } } } | null)?.event?.original;
+    return typeof event?.buttons === "number" && (event.buttons & 1) === 1;
   }
 
   function bindSigmaResizeObserver(): void {
@@ -775,6 +940,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       resizeAnimationFrame = null;
       try {
         if (destroyed) return;
+        cancelActiveViewTransition(readCameraState(sigma) ?? undefined);
         suppressOverlayAnimationFastPathUntilSettled();
         projector = createSigmaGlobalHitProjector({
           adapterData,
@@ -823,6 +989,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     const eventGeneration = generation;
     const target = projector.targetFromSigmaHit(input);
     if (destroyed || eventGeneration !== generation) return;
+    cancelActiveViewTransition(readCameraState(sigma) ?? undefined);
     lastHitTarget = target;
     syncSigmaRootLastHitMetadata(target);
     options.onHitTarget?.(target, { additive: Boolean(input.additive) });
@@ -852,6 +1019,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     preventSigmaDefault(payload);
     cancelNodeDrag();
     handleNodeHover(null);
+    cancelActiveViewTransition(readCameraState(sigma) ?? undefined);
     suppressOverlayAnimationFastPathUntilSettled();
     const startPoint = sigmaNodeWorldPoint(nodeId);
     const pointerWorldPoint = sigmaScreenPointToWorldPoint(sigma, screenPoint, rendererCoordinateOptions());
