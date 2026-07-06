@@ -297,6 +297,170 @@ describe("graph route state continuity", () => {
     );
   });
 
+  it("keeps global community highlight until reset transition completes and then returns to ordinary global state", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return trackRenderer(sigmaRenderers, "sigma-global");
+        },
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.select({ kind: "community", id: "c1" });
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+
+    assert.deepEqual(state.selection, { kind: "community", id: "c1" });
+    assert.equal(manager.sourceCommunityId, "c1");
+    const resetCall = sigmaRenderers[0].calls.find((call) => call[0] === "resetView");
+    assert.ok(resetCall, "global highlight reset should call renderer resetView");
+
+    const resetCallbacks = resetCall[1] as { onComplete: () => void; onCancel: () => void };
+    resetCallbacks.onComplete();
+
+    assert.equal(state.selection, null);
+    assert.equal(manager.sourceCommunityId, null);
+  });
+
+  it("keeps global community selection when reset transition is cancelled by a newer intent", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return trackRenderer(sigmaRenderers, "sigma-global");
+        },
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.select({ kind: "community", id: "c1" });
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+
+    const resetCall = sigmaRenderers[0].calls.find((call) => call[0] === "resetView");
+    assert.ok(resetCall, "global highlight reset should expose transition callbacks");
+    const resetCallbacks = resetCall[1] as { onCancel?: () => void };
+    resetCallbacks.onCancel?.();
+
+    assert.deepEqual(state.selection, { kind: "community", id: "c1" });
+    assert.equal(manager.sourceCommunityId, "c1");
+  });
+
+  it("keeps public resetView community highlight until the global reset transition completes", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: () => trackRenderer(sigmaRenderers, "sigma-global"),
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.select({ kind: "community", id: "c1" });
+    manager.resetView();
+
+    assert.deepEqual(state.selection, { kind: "community", id: "c1" });
+    assert.equal(manager.sourceCommunityId, "c1");
+    const resetCall = sigmaRenderers[0].calls.find((call) => call[0] === "resetView");
+    assert.ok(resetCall, "public reset should call renderer resetView");
+
+    const resetCallbacks = resetCall[1] as { onComplete: () => void };
+    resetCallbacks.onComplete();
+
+    assert.equal(state.selection, null);
+    assert.equal(manager.sourceCommunityId, null);
+  });
+
+  it("keeps returned source community context separate from selection after community reading returns global", () => {
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return trackRenderer(sigmaRenderers, "sigma-global");
+        },
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c1");
+    manager.select({ kind: "node", id: "a" });
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+
+    assert.equal(state.focus, null);
+    assert.equal(state.selection, null);
+    assert.equal(manager.sourceCommunityId, "c1");
+    assert.deepEqual(sigmaRenderers[0].calls.filter((call) => call[0] === "resetView"), [["resetView"]]);
+  });
+
   it("clears stale temporary display state when refreshed data removes the object", () => {
     const container = { dataset: {} as Record<string, string | undefined> };
     const state: GraphFacadeState = {
@@ -519,8 +683,8 @@ function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {
     clearTemporaryObjectDisplay() {
       calls.push(["clearTemporaryObjectDisplay"]);
     },
-    resetView() {
-      calls.push(["resetView"]);
+    resetView(options?: unknown) {
+      calls.push(options === undefined ? ["resetView"] : ["resetView", options]);
     },
     select(selection: SelectionInput) {
       calls.push(["select", selection]);

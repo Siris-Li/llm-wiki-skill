@@ -8,6 +8,7 @@ import {
   moveSigmaCamera,
   readCameraState,
   restoreCameraState,
+  startSigmaGlobalViewTransition,
   sigmaCommunitySpotlightCameraState,
   sigmaCommunitySpotlightCenter,
   sigmaGlobalCameraState,
@@ -134,6 +135,103 @@ describe("Sigma global camera helpers", () => {
 
     assert.deepEqual(result, { movement: "skipped", skipReason: "animate-error" });
     assert.deepEqual(observed, [error]);
+  });
+
+  it("starts animated view transitions with an explicit completion cleanup", () => {
+    const sigma = transitionSigmaLike({ x: 0, y: 0, angle: 0, ratio: 1 });
+    const events: string[] = [];
+
+    const result = startSigmaGlobalViewTransition(sigma, {
+      target: { x: 10, y: 20, ratio: 0.75 },
+      animate: true,
+      reducedMotion: false,
+      durationMs: 260,
+      easing: "quadraticInOut",
+      onComplete: () => events.push("complete"),
+      onCancel: () => events.push("cancel"),
+      onCleanup: () => events.push("cleanup")
+    });
+
+    assert.equal(result.movement, "animated");
+    assert.equal(result.transition?.isActive(), true);
+    assert.deepEqual(sigma.animateCalls, [
+      {
+        state: { x: 10, y: 20, ratio: 0.75 },
+        options: { duration: 260, easing: "quadraticInOut" }
+      }
+    ]);
+
+    result.transition?.complete();
+
+    assert.equal(result.transition?.isActive(), false);
+    assert.deepEqual(events, ["complete", "cleanup"]);
+    result.transition?.cancel({ x: 4 });
+    assert.deepEqual(events, ["complete", "cleanup"]);
+  });
+
+  it("lands view transitions immediately when animation is disabled or reduced", () => {
+    const noAnimation = transitionSigmaLike({ x: 0, y: 0, angle: 0, ratio: 1 });
+    const noAnimationEvents: string[] = [];
+
+    assert.deepEqual(
+      startSigmaGlobalViewTransition(noAnimation, {
+        target: { x: 2, y: 3, ratio: 1.4 },
+        animate: false,
+        reducedMotion: false,
+        onComplete: () => noAnimationEvents.push("complete"),
+        onCleanup: () => noAnimationEvents.push("cleanup")
+      }),
+      { movement: "immediate", transition: null }
+    );
+    assert.deepEqual(noAnimation.setStateCalls, [{ x: 2, y: 3, ratio: 1.4 }]);
+    assert.deepEqual(noAnimationEvents, ["complete", "cleanup"]);
+
+    const reduced = transitionSigmaLike({ x: 0, y: 0, angle: 0, ratio: 1 });
+
+    assert.deepEqual(
+      startSigmaGlobalViewTransition(reduced, {
+        target: { x: 5 },
+        animate: true,
+        reducedMotion: true
+      }),
+      { movement: "immediate", transition: null }
+    );
+    assert.equal(reduced.animateCalls.length, 0);
+    assert.deepEqual(reduced.setStateCalls, [{ x: 5 }]);
+  });
+
+  it("reports unavailable cameras without running transition cleanup", () => {
+    const events: string[] = [];
+
+    assert.deepEqual(
+      startSigmaGlobalViewTransition({}, {
+        target: { x: 10 },
+        animate: true,
+        reducedMotion: false,
+        onCleanup: () => events.push("cleanup")
+      }),
+      { movement: "skipped", skipReason: "camera-unavailable", transition: null }
+    );
+    assert.deepEqual(events, []);
+  });
+
+  it("lets a user takeover keep old Sigma animations from reclaiming the camera", () => {
+    const sigma = transitionSigmaLike({ x: 0, y: 0, angle: 0, ratio: 1 });
+    const events: string[] = [];
+    const result = startSigmaGlobalViewTransition(sigma, {
+      target: { x: 10, y: 20, ratio: 0.75 },
+      animate: true,
+      reducedMotion: false,
+      onCancel: () => events.push("cancel"),
+      onCleanup: () => events.push("cleanup")
+    });
+
+    result.transition?.cancel({ x: 3, y: 4, ratio: 1.2 });
+    sigma.forceAnimatedState({ x: 10, y: 20, ratio: 0.75 });
+
+    assert.deepEqual(events, ["cancel", "cleanup"]);
+    assert.deepEqual(sigma.getCamera?.().getState?.(), { x: 3, y: 4, angle: 0, ratio: 1.2 });
+    assert.deepEqual(sigma.setStateCalls.at(-1), { x: 3, y: 4, ratio: 1.2 });
   });
 
   it("falls back to raw graph points when Sigma projection is unavailable or invalid", () => {
@@ -310,6 +408,46 @@ function sigmaLike(
             }
           : undefined
       };
+    }
+  };
+  return output;
+}
+
+function transitionSigmaLike(
+  state: SigmaGlobalCameraState
+): SigmaGlobalSigmaLike & {
+  setStateCalls: Array<Partial<SigmaGlobalCameraState>>;
+  animateCalls: Array<{ state: Partial<SigmaGlobalCameraState>; options?: { duration?: number; easing?: string } }>;
+  forceAnimatedState: (next: Partial<SigmaGlobalCameraState>) => void;
+} {
+  let current = { ...state };
+  const listeners = new Set<(state?: SigmaGlobalCameraState) => void>();
+  const output = {
+    setStateCalls: [] as Array<Partial<SigmaGlobalCameraState>>,
+    animateCalls: [] as Array<{ state: Partial<SigmaGlobalCameraState>; options?: { duration?: number; easing?: string } }>,
+    getCamera() {
+      return {
+        getState: () => ({ ...current }),
+        setState: (next: Partial<SigmaGlobalCameraState>) => {
+          output.setStateCalls.push({ ...next });
+          current = { ...current, ...next };
+          for (const listener of listeners) listener({ ...current });
+        },
+        animate: (next: Partial<SigmaGlobalCameraState>, options?: { duration?: number; easing?: string }) => {
+          output.animateCalls.push({ state: { ...next }, options: options ? { ...options } : undefined });
+        },
+        isAnimated: () => true,
+        on: (event: "updated", listener: (state?: SigmaGlobalCameraState) => void) => {
+          if (event === "updated") listeners.add(listener);
+        },
+        off: (event: "updated", listener: (state?: SigmaGlobalCameraState) => void) => {
+          if (event === "updated") listeners.delete(listener);
+        }
+      };
+    },
+    forceAnimatedState(next: Partial<SigmaGlobalCameraState>) {
+      current = { ...current, ...next };
+      for (const listener of listeners) listener({ ...current });
     }
   };
   return output;
