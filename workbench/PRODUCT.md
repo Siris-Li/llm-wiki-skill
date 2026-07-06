@@ -1,8 +1,8 @@
-# llm-wiki-agent 产品文档
+# llm-wiki 工作台产品文档
 
-> 本文档是项目的**思路锚点**。当你（作者）或任何 AI 协作者思路断裂时，先读这份文档恢复上下文，再继续动手。
+> 本文档是项目的**当前事实锚点**。当你（作者）或任何 AI 协作者思路断裂时，先按 `workbench/AGENTS.md` / `workbench/CLAUDE.md` 的冷启动表和 git 记录恢复上下文，再读本文档的相关章节。
 >
-> **维护原则**：决策或功能定义变化时，**先改文档，再改代码**。文档与实现冲突时以文档为准。
+> **维护原则**：决策或功能定义变化时，**先改文档，再改代码**。文档与实现、ADR 或词表冲突时，先说明冲突点，再决定改哪一份。
 
 ---
 
@@ -10,8 +10,22 @@
 
 - 作者是 0 代码基础的产品设计者。开发由 AI 协作完成。
 - 文档不写代码细节，只写**意图、约定、决策理由**。
-- 每个章节相对独立，可以单独读。
-- 章节末尾若有 ❗ 标记，表示"动手前一定要看这里"。
+- 这份文档现在只保留当前产品事实、边界和关键决策；旧阶段路线见 [product-roadmap.md](docs/archive/product-roadmap.md)，历史提交和验收记录见 [product-history.md](docs/archive/product-history.md)。
+- 快速恢复上下文时，优先读：产品定位、数据边界、ADR、当前状态。
+- 不要在本文末尾继续追加流水账；旧路线、阶段提交表和旧 changelog 进归档。
+- 历史旧名是 `llm-wiki-agent`；当前产品名统一称 `llm-wiki 工作台`。磁盘上的 `~/.llm-wiki-agent/` 是保留的应用数据目录名，不代表产品名。
+
+### 0.1 内容放哪里
+
+| 内容类型 | 放哪里 | 不放哪里 |
+|---|---|---|
+| 稳定产品事实、用户边界、当前路线 | 本文件 | 归档、临时 plan |
+| 长期决策和取舍原因 | [docs/adr/](../docs/adr/) | 本文件正文长篇展开 |
+| 术语和能力边界词表 | `CONTEXT.md` / 区域 `CONTEXT.md` | ADR、历史归档 |
+| 运行时、接口和 SDK 接入细节 | [pi-agent-runtime-notes.md](docs/pi-agent-runtime-notes.md) | 本文件热路径 |
+| 当前实现计划、阶段设计、验收步骤 | `workbench/docs/` 下独立设计或计划文档 | 本文件、ADR |
+| 已完成阶段记录、提交表、旧 changelog | `workbench/docs/archive/` | 本文件末尾 |
+| 功能改动后的发布记录 | 根目录 `CHANGELOG.md` | `workbench/PRODUCT.md` |
 
 ---
 
@@ -23,19 +37,19 @@
 
 ### 1.2 核心场景
 
-用户打开 llm-wiki-agent，看到自己的若干知识库列表，选一个进入。在对话框里和 agent 对话：
+用户打开 llm-wiki 工作台，看到自己的若干知识库列表，选一个进入。在对话框里和 agent 对话：
 
 - agent 知道当前在哪个知识库里，可以基于该库内容回答问题
 - 输入 `@` 弹出页面列表，引用具体 wiki 页面进 prompt
 - 输入 `/` 弹出命令列表，调用工具（搜索、消化新素材、生成 HTML/PPT/Doc）
-- 对话结束后一键"结晶"为新的 wiki 页面，写回知识库
+- 对话结束后一键"对话结晶"为新的 wiki 页面，写回知识库
 - 产出物（HTML/PPT/Doc）在右抽屉直接预览，一键下载或分享
 
-整个工具运行在本地，所有知识库数据是本地 markdown 文件，零云依赖。
+整个工具运行在本地，所有知识库数据是本地 markdown 文件；应用本身不依赖自家云服务，模型调用按用户配置的提供商执行，信任边界见 §6.8。
 
 ### 1.3 与 llm-wiki-skill 的关系
 
-| 维度 | llm-wiki-skill（旧） | llm-wiki-agent（新） |
+| 维度 | Skill 形态 | 工作台形态 |
 |---|---|---|
 | 形态 | Anthropic Skill | 独立 agent + web UI（未来 Tauri 桌面应用）|
 | 宿主 | Claude Code / Codex / OpenClaw / Hermes | 自有 runtime（基于 pi-agent）|
@@ -67,16 +81,18 @@
 
 ### 2.2 桌面应用而非托管
 
-托管 = 替用户烧 API 额度 = 必须先想清楚商业模式。本项目不走这条路。最终形态是 Tauri 打包的桌面应用。
+托管 = 替用户烧 API 额度 = 必须先想清楚商业模式。本项目不走这条路。Tauri 打包是未来可能的分发形态，但已推迟到工作台有真实外部用户后再重新评估。
 
 ### 2.3 Skill 即插即用
 
 不重造轮子。任何符合 Anthropic Skill 标准的能力，丢到 skills 目录就生效：
 
 - llm-wiki-skill（自家，知识库主线）
-- [anthropics/skills](https://github.com/anthropics/skills)（17+ 个官方 Skill：docx / pdf / pptx / xlsx / doc-coauthoring / web-artifacts-builder / frontend-design / canvas-design / brand-guidelines / theme-factory / mcp-builder / claude-api / algorithmic-art / webapp-testing / skill-creator / internal-comms / slack-gif-creator）
+- [anthropics/skills](https://github.com/anthropics/skills)（例如 docx / pdf / pptx / xlsx / web artifacts 等）
 - [pi-skills](https://github.com/badlogic/pi-skills)（web search、browser automation、transcription 等）
 - 未来任何社区 Skill
+
+非本仓库随附的第三方 Skill 视为**受信任本地代码**。在没有权限沙箱前，未知来源 Skill 不默认启用；用户显式安装并启用后，才允许它进入会话能力集合。启用后的 Skill 可能接触当前知识库上下文、读写文件或访问网络，不能把“即插即用”理解成“无风险自动加载”。
 
 ### 2.4 对话中心
 
@@ -128,347 +144,74 @@
 | 层 | 选型 | 简要理由 |
 |---|---|---|
 | 前端框架 | **React + Vite** | AI 协作样本量最大；新手坑最少；Tauri 零迁移 |
-| UI 组件库 | 暂定 [shadcn/ui](https://ui.shadcn.com/) | 不是黑盒、可读、复制粘贴风格、深色主题原生 |
+| UI 组件库 | 暂定 [shadcn/ui](https://ui.shadcn.com/) | 不是黑盒、可读、复制粘贴风格；视觉主题以 ADR-24 的 Paper 暖纸方向为准 |
 | 后端框架 | **Hono** | 轻量、TS 友好、文档清晰 |
 | Agent runtime | **@earendil-works/pi-coding-agent** SDK | 原生 Skill 支持；事件流；多 provider |
 | 通信 | **SSE + HTTP POST** | agent→UI 单向流，SSE 足够；WebSocket 过度 |
 | 数据 | 本地 markdown + JSON | 无服务器；Obsidian 兼容 |
 | 桌面打包（未来） | **Tauri** | 用系统 webview + Rust 后端；二进制和内存占用通常显著低于 Electron（5-30 MB vs 100+ MB） |
 | 包管理 | npm（统一）| 不混用 pnpm/bun，避免新手版本混乱 |
-| Node 版本管理 | **mise** 或 nvm | mise 是多语言版本管理（含 Node）；锁版本至少 `>=22.19.0`（pi-coding-agent 0.75.x 的最低要求） |
+| Node 版本管理 | **mise** 或 nvm | mise 是多语言版本管理（含 Node）；锁版本至少 `>=22.19.0`（pi-coding-agent 当前依赖要求） |
 | Markdown 渲染（阶段二+）| **react-markdown** ^9 + **remark-gfm** ^4 | 生态最稳、类型完备、GFM 表格/任务列表/自动链接；shadcn 生态常用 |
 | 命令/补全菜单（阶段二+）| **cmdk** ^1 | shadcn `<Command>` 底层；键盘导航与 a11y 完备；同时承载 `/` 命令菜单和 `@` 引用菜单 |
 
 ### 3.3 关键流程：一次对话发生了什么
 
-> 下列路径（`/api/refs` 等）为**建议命名**，最终以实现为准。
+1. 用户在对话框输入文本，可能用 `@` 引用 wiki 页面，或用 `/` 调用命令。
+2. 前端把用户意图发给本地后端。
+3. 后端用 pi-agent session 执行对话，并把当前知识库等应用状态注入给 agent。
+4. 后端把 agent 事件流推回前端，前端渲染文本、工具状态、引用和产出预览。
+5. 用户可选择把有价值的对话沉淀为新的 wiki 页面。
 
-```
-1. 用户在对话框输入文本（可能含 @页面 或 /命令）
-2. 前端检测到 @ → 调 /api/refs 拿当前库页面列表 → 弹出菜单 → 用户选中
-3. 前端检测到 / → 调 /api/commands 拿已加载命令 → 弹出菜单 → 用户选中
-4. 前端 POST /api/prompt，body 是展开后的完整文本
-5. 后端调用 session.prompt(text)
-6. session 通过 subscribe 推 agent 事件
-7. 后端把事件 SSE 推给前端 /api/events
-8. 前端按事件类型渲染（文本流、工具调用、引用预览…）
-9. 用户可选触发 /sediment 把本次对话沉淀为 wiki 页面
-```
+❗ **关键点**：当前知识库路径、应用状态这类工作台上下文仍通过 pi-agent 的 **Extension** 注入到 session state 里，具体见 ADR-7。问答类知识库检索有一个明确例外：后端会按 ADR-19 检索最小必要片段，并作为隐藏上下文进入 `/api/prompt`；这些片段会随本轮消息发给当前配置的模型提供商，信任边界见 §6.8。
 
-❗ **关键点**：当前知识库的"上下文"不是通过 prompt 字符串拼接传递，而是通过 pi-agent 的 **Extension** 注入到 session state 里。这是干净做法。具体见 ADR-7。
+接口命名、事件订阅和 SDK 接入细节见 [pi-agent-runtime-notes.md](docs/pi-agent-runtime-notes.md)。
 
 ### 3.4 pi-agent 的使用方式
 
 **结论：pi-agent 作为 npm 依赖引入，不 clone 源码，不做 fork**。
 
-具体含义：
+工作台后端负责把 pi SDK 包装成本地 HTTP/SSE 接口，并提供自己的 Extension 注入当前知识库等应用状态。agent runtime、Skill 加载、事件流、模型管理和会话持久化仍由 npm 依赖提供。
 
-```
-llm-wiki-agent/                       ← 你的仓库
-├── package.json                      ← 这里声明 "@earendil-works/pi-coding-agent": "^x.y.z"
-├── node_modules/
-│   └── @earendil-works/
-│       └── pi-coding-agent/          ← pi 源码自动安装在这里，只读，不改
-├── server/                           ← 你写的后端
-│   ├── index.ts                      ← Hono 起服务
-│   ├── agent.ts                      ← import { createAgentSession } from '@earendil-works/pi-coding-agent'
-│   └── extensions/                   ← 你写的 Extension
-└── web/                              ← 你写的前端
-```
-
-你"写"的代码：
-
-1. 后端把 pi SDK 包装成 HTTP/SSE 接口
-2. 一个或多个 Extension（注入"当前知识库"等应用状态）
-3. 前端 UI
-
-你"用"但不写的代码（全在 npm 包里）：
-
-- agent runtime、Skill 加载、事件流、模型管理、会话持久化
-
-升级 pi：改 `package.json` 里的版本号，`npm install` 重跑。
-
-**Extension 注入方式**：pi-coding-agent CLI 会自动发现 `~/.pi/agent/extensions/*.ts` 下的全局 extension。**我们是 SDK 用户，不依赖那个机制**——而是把 extension 代码放在自己仓库的 `server/extensions/` 下，通过 SDK 暴露的 `bindExtensions()` 或自定义 `ResourceLoader` 显式注入 session。这样 extension 跟着我们项目走，不污染用户的 `~/.pi/`。
+升级 pi：改 `workbench/server/package.json` 里的版本号，`npm install` 重跑。当前实际版本以 `workbench/server/package.json` 和 lockfile 为准。
 
 ❗ 永远**不要**直接修改 `node_modules/` 里的 pi 源码。万一极端情况需要 patch（99% 用不到），用 `patch-package` 做局部补丁，保持升级路径干净。
 
-❗ pi-coding-agent 0.75.x 要求 **Node `>=22.19.0`**。用 mise/nvm 锁定到合适版本，避免系统 Node 太旧。
+❗ pi-coding-agent 当前依赖要求 **Node `>=22.19.0`**。用 mise/nvm 锁定到合适版本，避免系统 Node 太旧。
 
 ---
 
 ## 4. 功能阶段路线
 
-每个阶段：**目标 → 范围 → 不包含 → 验收**。验收不过不进下一阶段。
+本节只保留当前路线判断。旧阶段的目标、范围、验收标准和图谱候选池已移到 [product-roadmap.md](docs/archive/product-roadmap.md)。
 
-### 阶段一：主干打通（最小可用） ✅ 已完成 2026-05-26
+### 4.1 当前基线
 
-**目标**：验证"前端 ↔ 后端 ↔ pi-agent ↔ Skill ↔ 文件系统"全链路。
-
-**范围**：
-- 一行命令拉起本地服务（`npm run dev` 启动后端 + 前端）
-- 浏览器打开 `localhost:xxxx`，看到知识库列表
-  - 自动扫描 `~/llm-wiki/` 下含 `.wiki-schema.md` 的子目录
-  - 支持手动"添加现有库"指向任意路径（如 `~/Documents/AI学习知识库`）
-  - 注册过的库存在 `~/.llm-wiki-agent/config.json`
-- 点击一个知识库进入对话界面
-- 顶部状态条显示当前知识库名
-- 同库内支持多个并行对话，侧栏列出，"+ 新对话"按钮在顶部
-- 切库自动保存当前对话，打开目标库最近活跃的对话
-- 对话框可输入，流式接收 agent 回复
-- agent 通过 Extension 知道当前知识库路径
-- 对话历史持久化（pi-agent SDK 原生功能）
-
-**不包含**：`@` 补全、`/` 命令、图谱、产出能力、消化新素材、新建知识库 UI。
-
-**验收标准**：
-1. 在 "AI学习知识库" 里问"这个库里有哪些主题"，agent 调用 `read` 工具读 `index.md`，给出准确回答
-2. 切到另一个库再问，对话上下文完全切换
-3. 同一库内开两个对话，互不污染
-4. 关闭浏览器再打开，自动选中最近对话，历史完整
-
-**完成情况** ✅ 2026-05-26（最终 commit `dd021bc`）
-
-- 8 个 step commit + 2 个 review 修补 commit，详见 §10 进度追踪
-- 范围全部交付；4 项验收标准实测全通（验收 1 实测中 agent 用 `list_knowledge_base_pages` Extension 工具回答，效果等价于读 `index.md`，更精准）
-- **接受的妥协（不阻塞阶段二）**：
-  - §5.2 顶部 "⚙ 设置" 按钮仅占位（disabled + tooltip）—— 完整设置面板在阶段二
-  - §5.1 侧栏底部"图谱入口"未实现 —— 作者要重新构思图谱设计，推迟到阶段四
-  - 默认模型不强制 Sonnet，沿用 pi-agent 用户设置（见 TBD-2）
-- **启动 & 运行速查**（compact 后从这里恢复上下文）：
-
-| 维度 | 值 |
-|---|---|
-| 一行启动 | `npm run dev`（从仓库根；用 `concurrently` 同时起前后端）|
-| 后端端口 | `8787`（`server/src/index.ts`，Hono）|
-| 前端端口 | `5180`（`web/vite.config.ts`，`strictPort: true`，冲突直接报错而非漂移）|
-| 启动耗时 | ~2-5s（pi ResourceLoader + `bootstrapFromConfig` 自动恢复）|
-| 默认模型 | 由 `~/.pi/agent/settings.json` 决定（不由本项目强制；作者当前为 `zai/glm-5.1`）|
-| 自动恢复 | `selectKb` 写 `~/.llm-wiki-agent/config.json` 的 `lastUsedKbPath`，server 启动 `await bootstrapFromConfig()` |
-| 知识库 | 默认根 `~/llm-wiki/` + 外部登记（`config.externalKnowledgeBases[]`）|
-| 会话目录 | `~/.llm-wiki-agent/sessions/<sha256-of-kb-path>/*.jsonl`（pi `SessionManager` 管理）|
-| Extension 工具 | `current_knowledge_base()` / `list_knowledge_base_pages()`（仅这俩，阶段二补 `@`/`/`/`/sediment` 等）|
-| 已知 endpoints | 13 个，列表见 `server/src/index.ts` 顶部注释 |
-| Node 版本要求 | `>=22.19.0`（pi-coding-agent 0.75.x 硬要求，仓库根 `.mise.toml` / `.nvmrc` 锁定）|
-
-### 阶段二：核心循环（@、/、结晶、消化）✅ 已完成 2026-05-27
-
-**目标**：让"对话 → 沉淀"形成闭环。
-
-**范围**：
-- `@` 补全菜单：弹出当前库的页面/实体/主题列表，选中后插入 wiki 链接
-- `/` 命令菜单：列出所有已加载 Skill 命令 + 内置命令
-- 内置命令 `/sediment`：把当前对话或选中片段沉淀为 `wiki/synthesis/sessions/` 下的页面
-- 内置命令 `/new-wiki`：app 内新建知识库（输入名字 + 研究方向 → 调用 llm-wiki-skill 的 init 流程 → 在 `~/llm-wiki/` 下生成完整目录）
-- 引用预览：对话里出现的 wiki 链接可点击，右抽屉打开该页面
-- 消化新素材：把链接或文件路径丢给 agent → 触发 llm-wiki-skill 的消化流程
-- 设置面板 UI（三层认证 + 偏好）：
-  - 登录方式区：检测 pi CLI auth.json 状态 / 填 API key（写入 pi 的 auth.json）/ 显示环境变量状态
-  - 默认模型、UI 偏好、知识库根目录、外部库管理（添加/移除）
-
-**验收标准**：完整跑通——
-1. 在 app 内点"+ 新建知识库"，输入名字和方向 → 自动创建 → 出现在列表里
-2. 丢一篇文章链接 → agent 消化进库 → 在对话里基于这篇讨论 → 一键结晶为新页面 → 在 `wiki/synthesis/sessions/` 目录里能看到新文件
-3. 在 UI 里填一个 Anthropic API key → 测试连接成功 → key 出现在 `~/.pi/agent/auth.json`，未泄露到 `~/.llm-wiki-agent/`
-
-### 阶段三：产出能力（产品亮点）✅ 已完成 2026-05-27
-
-**目标**：把"内容产出"做成视觉冲击力强的功能，作为产品宣传点和小白吸引力来源。
-
-**范围**：
-- 挂载 anthropics/skills 中的产出类 Skill（docx / pdf / pptx / xlsx / web-artifacts-builder 等）
-- 挂载或自建 HTML 产出 Skill（生成单文件分享 HTML）
-- 对话中可要求 "把这次讨论做成 PPT" / "导出为 docx" / "生成分享 HTML"
-- 右抽屉支持预览：
-  - HTML 直接 iframe 展示
-  - PPT 用浏览器内 PPTX 渲染库（如 PPTXjs 或类似方案，**具体库阶段三选型时再定**）
-  - docx 显示元数据 + 下载按钮（不强求浏览器内渲染）
-- 一键导出到本地下载目录
-
-**验收标准**：一次对话能产出 HTML、PPT、docx 三种格式，且 UI 内可直接预览或下载。
-
-### 阶段 3.5：导航 UX 重构 + 多模型子代理批量消化 ✅ 已完成 2026-05-27
-
-**背景**：阶段 1-3 完成后作者实际使用 app 发现两类痛点——
-1. **导航 UX 反直觉**：侧栏强行把 KB 分成默认/外部两类（与"KB = 项目"心智冲突）、对话挂在侧栏中间看不出从属、"添加现有库"靠手输绝对路径常常失败、拖入非 wiki 目录直接报错
-2. **批量消化效率低**：阶段二的消化是"一次喂一篇"；TBD-2"多模型路由"也一直挂着没有承载场景——批量消化正好是
-
-**目标**：
-1. **导航统一**：侧栏一栏到底、KB 可展开对话子树、拖拽优先添加路径、非 wiki 目录提供"一键初始化 + 批量消化"路径
-2. **子代理批量消化**：基于 pi SDK 的 `createAgentSession` + 多模型注册落地"消化角色 → cheap / 聊天角色 → main"双角色路由；用一个 30 行的并发控制函数调度 N 个子代理并行处理 N 个文件，通过 SSE 推送进度
-
-**范围**（7 step）：
-- 侧栏重构：统一 KB 列表 + 折叠对话子树（去 default/external 分隔）
-- 拖拽 + 输入框双通道：HTML5 drag 先探测能否拿到真实路径，输入框兜底 + inspect 端点判定是不是 wiki
-- 非 wiki 目录初始化引导：弹窗提示 + 就地初始化 `.wiki-schema.md` + `index.md`
-- 多模型双角色：`config.json` 新增 `modelRoles: { main, digest }` + 设置面板选择
-- 后端子代理批量消化框架：30 行 `mapWithConcurrencyLimit` + `SessionManager.inMemory()` + 共享 `authStorage`/`modelRegistry`
-- 批量消化 UI + SSE 进度推送：浮窗实时显示每个子代理的"排队/进行中/完成/失败"
-- 总验收 + UX 体感打磨
-
-**不包含**：图谱（阶段四）、Tauri 打包（阶段五）、媒体创作 / 浏览器扩展（阶段后规划）、子代理嵌套 / 工作树隔离（omp 那一套）
-
-**验收标准**（5 条）：
-1. **侧栏统一**：KB 列表一栏到底无 default/external 分隔；点当前 KB 名可展开/收起对话子树，点未选中 KB 会切换并展开；外部 KB 用文字 badge 而非分区
-2. **拖拽添加**：从 Finder 拖文件夹到 dialog 拖拽区；若浏览器暴露真实 `file://`，路径自动填入输入框；若不暴露，UI 明确提示用户粘贴路径（不立即提交，给用户最后修改机会）
-3. **非 wiki 兜底**：拖入无 `.wiki-schema.md` 的目录，弹"是否初始化并批量消化"对话框；选"是"→ 后台跑 init + 子代理并行消化
-4. **多模型双角色**：设置面板新增"模型分配"区，main / digest 两个角色各自的 provider+model；digest 写入 `config.json` 后对新批量消化立即生效，main 写入后当前主对话立即重载并使用该模型
-5. **并发消化**：批量消化 10 个 `.md` 文件能看到 ≥3 个子代理同时跑（默认并发=3），SSE 实时推送状态，全部完成后右抽屉刷新出新增的 wiki 页面
-
-**完成情况**：
-- 侧栏已统一为一栏 KB 列表，当前 KB 可点击展开/收起对话子树，外部库用 badge 标记
-- 添加现有库支持拖拽探测、路径输入、目录检查；非 wiki 目录可就地初始化并可接着批量消化
-- 设置面板新增 main / digest 角色选择；digest 角色用于批量消化，main 角色用于主对话并在切换后立即刷新生效
-- 批量消化使用 pi SDK 原生 in-memory 子会话，并发档位为 1 / 3 / 5，通过 SSE 推送进度
-- **新增依赖**：无
-
-### 阶段四：monorepo 合并 + 图谱活地图 ✅ 已完成 2026-06-12
-
-**背景**：两条线汇合——(1) 战略上"一个产品、两扇门"已定，ADR-16 的合并需要启动时机；(2) 图谱引擎是两端共享的第一块代码，共享代码出现即合并时机成熟的信号。原"图谱集成"目标升级为"图谱活地图"：图谱后面站着 agent，这是所有竞品图谱（只能看不能问）给不了的。
-
-**目标**：
-1. **monorepo 合并（工程部分）**：本仓库 `git subtree` 整体搬入主仓库 `workbench/`，引擎落 `packages/graph-engine/`。不发版、不改 README、不对外宣布（品牌动作留给后续阶段）
-2. **图谱活地图**：共享引擎双宿主（工作台 React / Skill 离线 HTML），工作台获得活模拟 + 钉扎 + 选区提问 + 生长动画；Skill 离线 HTML 最后一步切换引擎产物，老用户白拿升级
-
-**实施结果**：阶段四已在主仓库 `stage-4` 分支完成，8 个 Step 全部落地。总验收的自动化检查已通过；视觉一致性、深色观感和拖动手感按设计文档要求保留截图/参数证据，交由验收人做最终主观判断。
-
-**范围**（8 Step）：
-- Step 0：monorepo 搬家 + workspace 根 + 全链路冒烟
-- Step 1：引擎包骨架 + helpers 纯函数 TS 化 + 测试迁移（"新骨架、旧器官"的 A 级资产）
-- Step 2：工作台图谱视图静态复现（安全网基线）+ 山水/墨夜主题 token
-- Step 3：活模拟 + 钉扎（松手即钉/双击解钉）+ 持久化（`.wiki-graph-layout.json`，只存钉的、路径为 key）。2026-06-19 修订：双击解钉不再作为新主路径，固定/取消固定改为明确按钮或菜单动作
-- Step 4：选区系统（结构化四式，砍自由套索）+ 对话联动（选区 = 批量 `@`）
-- Step 5：文件监听 + 全量重算 + diff 生长动画（diff 队列，图谱可见时消费）
-- Step 6：`build-graph-html.sh` 切换引擎产物，旧 graph-wash 模板退役
-- Step 7：总验收 + 墨夜主题打磨
-
-**不包含**：仓库改名 / 对外发布、Tauri 打包（推迟到工作台有真实外部用户后）、跨库图谱、自由套索、增量图计算、主题商店（完整"明确不做清单"见设计文档 §8）。
-
-**验收标准**（7 条，细则见设计文档 §6）：
-1. 主仓库根一行 `npm run dev` 起工作台，Skill 主线测试全绿，两边互不破坏
-2. 工作台图谱与旧版离线 HTML 视觉一致（静态基线截图存档）
-3. 钉扎：拖动让位流畅、松手即钉、重启还原、Obsidian 旁路修改不破坏
-4. 选区四式可用，动作随选区性质变化；"两簇为何没联系 → agent 建链 → 重算后颜色真变"全闭环
-5. 批量消化后打开图谱补播生长动画；Obsidian 手改 ~5s 内自动反映
-6. 离线 HTML 新产物双击可用、钉位生效、无提问按钮（capabilities 注入生效）
-7. 工作台浅/深切换图谱跟随山水/墨夜
-
-### 阶段 4.5：图谱可用性收尾 ✅ 已合入 2026-06-14
-
-**背景**：阶段四交付后作者实测暴露五类问题（画布无缩放平移、点击语义被选区提问独占致阅读路径消失、Shift 多选不可发现、无搜索/图例、节点默认卡片过胖）+ 阶段四验收对离线 HTML 功能减配的裁决（补搜索与社区聚焦；学习系统三件套不做，待真实使用后按工作台语境重新设计）。与阶段 3.5 同型：真实使用驱动的收尾阶段。
-
-**范围**（优先级序）：
-- P0 画布导航：指针中心滚轮缩放 / 空白拖拽平移 / 双击回全图 / 小地图联动（引擎层，两端同享）
-- P0 点击语义重构："点击即阅读，选区即升级"——单击 = 右抽屉阅读态，选区悬浮窗取消，抽屉一容器两状态；动作映射表补"单节点"行并修复 unlinked 误触发（修订 stage-4 D6）。2026-06-19 修订：全局单击改为轻量摘要优先，完整阅读必须通过明确动作进入社区阅读
-- P1 图谱搜索（Cmd+F，两端）；社区聚焦列表兼图例（两端）
-- P1 Shift 多选失效排查 + 可发现性提示
-- P2 节点默认态瘦身 + hover 预览卡（一行标题 + 类型色条；类型/权重/摘要移入悬停——预览卡显示正文首段摘要，配套补偿瘦身）
-- 抽屉阅读态瘦身定稿：去学习队列/学习路径/札记笔记/置信度列表/邻居列表，摘要迁移至 hover 预览卡；保留收纳"查看原文"；原则——**抽屉负责内容，图谱负责关系，派生信息不重复**
-
-**明确不做**：学习系统三件套、抽屉历史栈、缩放惯性、hover 摘要 tooltip、移动端触控全套。
-
-### 阶段 4.6：图谱演进第一批（看清关系 + 层层聚焦 + 控制工具条）✅ 已完成 2026-06-14
-
-**背景**：4.5 收尾后推进「图谱演进候选池」。spark 脑暴把候选池按"就绪度"（而非"高价值低成本"）重排，锁定方向 = **日常可用性**（让在用的人更顺手），美观 / 惊艳 demo 后移。详见 [docs/graph-evolution-1-design.md](docs/graph-evolution-1-design.md)。
-
-**当前状态**：已落地并通过总验收。工作台与离线 HTML 同享顶部工具条、社区聚焦、类型筛选、关系边图例；关系边按关系类型着色、按置信度虚实；离线 HTML 不提供提问入口。
-
-**范围**：
-- G1-1 关系类型上边（数据管线补齐关系类型 + 置信度；颜色 = 关系类型、矛盾避 ENTITY 红；虚实 = 置信度；全局低权重、聚焦才完整呈现）
-- G1-2 递进聚焦（点社区进聚焦视图 → 点节点高亮 + 阅读）+ 类型筛选
-- G1-3 顶部控制工具条取代左上角常驻浮层
-- G1-4 默认收起 + 半透明
-- G1-5 双宿主分工（离线 HTML 同享，无 onAsk 提问）
-
-**明确不做**：路径查找 + 讲解、lint 上图、导出美图 / 工作台实时美观、时间筛选（缺 mtime）、图谱增强检索（移交 ADR-19）、远期池（嵌入布局 / LLM 推断边 / AI 摘要）。
-
-**实施**：L 级 phased plan 已完成（P0 基线+完整边契约+web test 入口 → P1 工具条 → P2 聚焦 → P3 关系边 → P4 验收），分支 `feat/graph-evolution-1`，Codex `/goal` 执行（plan/progress 本地不入库，沿用 planning-docs local-only 惯例）。
-
-**与既有决策的关系**：修订 ADR-21 / D4.5-6（社区交互：选中高亮 → 进入聚焦视图；左上浮层 → 顶部工具条）；关系边可视化记录为 ADR-23。
-
-### 阶段 4.7：图谱交互地基重构 ✅ 已完成 2026-06-16
-
-**背景**：4.6 后作者连续实测发现，图谱交互问题不是单个 bug：鼠标在社区或节点上滚轮缩放不一致、拖节点不跟手、节点被社区色块困住、悬停说明漂移。这些现象共同指向同一个产品问题：图谱必须像一张有相机的地图，而不是每个交互各算各的。
-
-**当前状态**：已完成核心交互地基并通过工作台与离线 HTML 双宿主验证。现在滚轮缩放在空白、节点、社区色块和边上保持一致；拖动节点不会跳走，也不会误打开阅读抽屉；节点可以离开社区色块；悬停说明跟随节点；社区色块是视觉提示，不是拖动围栏。
-
-**范围**：
-- 统一图谱交互规则：缩放、平移、拖拽、点击、悬停、社区选择都按同一张地图心智工作。
-- 社区色块改为软区域：节点可以被拖出色块，色块可以有限响应，但不会无限放大，也不会改变真实社区归属。
-- 两个入口同享结果：工作台图谱和 Skill 离线 HTML 保持同一套行为。
-
-**明确不做**：空间索引、Canvas/WebGL 重写、密度策略重做、小地图拖拽导航。这些只有在真实大库或产品使用证明需要时再启动；本阶段不把它们当作默认方向。
-
-**与既有决策的关系**：强化 ADR-21 的“位置层/结构层分权”和 ADR-22 的“画布导航是地基能力”。本阶段不改变抽屉归属、不改变知识库结构、不改变社区和连线的真实来源。
-
-### 阶段 4.8：图谱演进——全局社区高亮（spotlight）✅ 已落地
-
-**背景**：4.7 把全局图统一成“一张有相机的地图”后，点社区需要地图本身给出“我正在看这个社区”的反馈，而不是只依赖右抽屉解释选择。
-
-**当前状态**：已落地。全局 Sigma 点社区会停留在全局路线并进入社区高亮态，右抽屉继续负责摘要与动作；点击「进入社区」后仍留在 Sigma 主路线，转入社区阅读近景，只显示当前社区节点和内部关系。
-
-**范围**：
-- 全局 Sigma 点社区进入临时“社区高亮态”：当前社区强调、其他社区弱化但仍可见；停在全局、不进入社区视图。
-- 回全图按层分行为：Sigma 社区阅读→回全局并保留来源社区高亮但不自动开抽屉；全局高亮态→退高亮 + 清选择关抽屉 + 回构图；普通全局→重置视角，保留筛选/Pin/搜索。
-- 点空白处退出高亮（与回全图在高亮态等价，有意冗余）。
-- 相机轻量构图动画（平移 + 受限缩放）；动画期间社区云团、节点命中框和标签共用轻量 overlay transform，稳定后精确校准，避免每帧重算全部社区云团。
-- 叠加优先级：筛选 > 搜索命中 > 选中 > Pin > 高亮。
-
-**明确不做**：全局 hover 完整方案、节点详情卡片重做、社区内部布局重排、大图聚合、#70 标签长度兜底。2026-07-04 修订：社区阅读视图已进入 Sigma 主路线，DOM/SVG 社区视图只作为回退或对照，不再作为主路径。
-
-**与既有决策的关系**：增强 ADR-21 第 5 条 / ADR-22 的“点社区先摘要、再按钮进入”两步边界；在 ADR-22 第 4 条“画布导航是地基能力”之上给回全图叠加“高亮态分层”。高亮态仍复用 Sigma 全局现有 `selection`（社区）→`selected` 视觉链路；真正进入社区阅读时才使用 `focusCommunity()` / 顶层 `state.focus`，且不写知识库——遵守 ADR-21 第 4 条位置/结构分权与“浏览状态留本机”。
-
-### 阶段五：桌面应用打包（Tauri）
-
-**目标**：跨平台桌面应用安装包。
-
-**范围**：
-- Tauri 项目初始化
-- 后端嵌入 Tauri sidecar 进程
-- macOS / Windows / Linux 三平台构建
-- 安装包自动化产出（CI 可选）
-- 安装后开箱即用，无需用户配 Node 环境（API key 仍由用户填）
-
-**验收标准**：双击 .dmg / .msi / .AppImage 安装即可使用。
-
-### 阶段后规划（暂不锁定，记录想法）
-
-- 浏览器扩展：当前页面一键消化进库
-- 多模型路由：按任务类型自动切（消化用便宜模型、深度对话用强模型），与 pi-agent provider 体系打通
-- 全局快捷键 / 系统托盘
-- 主题与自定义样式
-- 多端同步（如果未来真有需求）
-
-#### 图谱演进候选池（2026-06-13 全景分析沉淀；首批已落地为「阶段 4.6」，见上文 §阶段 4.6）
-
-> 来源：阶段 4.5 设计期间的行业全景讨论。统领判断——行业两条尸检教训：**全局图是营销图、局部图才是工具**（Roam 弱化图谱、TheBrain 靠局部视图活了 20 年）；**只能看不能动的图谱是玩具**（Obsidian 图谱日活极低的根因）。llm-wiki 已踩对第二条的解法（图谱可问，全行业独一份），第一条靠下面的"局部图"接住。
-
-**推荐切片（按就绪度推进；首批 4.6 已完成日常可用性主线）**：
-
-| 项 | 一句话 | 为什么值得 |
+| 阶段 | 状态 | 当前结论 |
 |---|---|---|
-| 局部图模式 | ✅ 首批已落地：点社区进入聚焦视图，只显示该社区节点；点节点高亮并阅读 | 接住教训一：大库日常视图应是局部图；与"+邻居"选区天然衔接 |
-| 路径查找 + agent 讲解 | 选两节点高亮最短路，**agent 沿路径讲故事** | 独有赛道杀手级演示：Neo4j 只能画路径，我们能讲 |
-| lint 健康上图 | 孤岛/断链/上帝节点图上标注 + 一键让 agent 修 | stage-4 终局愿景一直没排期；lint 能力现成只差可视化 |
-| 关系类型上边 | ✅ 首批已落地（颜色维待数据）：按关系词汇表给边颜色 + 按置信度给边虚实，"矛盾"边避开 ENTITY 红。**置信度虚实维已真实生效；关系类型颜色维当前几乎全默认"依赖"=单色，待消化管线产出 `relation` 注释（见远期池）** | 关系词汇表与置信度体系已有；4.6 补齐契约与上色管道 |
-| 类型/时间过滤器 | ✅ 类型已落地；⏸ 时间筛选二期（缺 mtime） | 轻量；Obsidian 式语法属于过度设计 |
-| 导出美图 | 当前视角一键导出带主题样式的 PNG/SVG | 数字山水是最强传播资产，用户发图 = 免费获客，成本极低 |
-| 图谱增强检索（后端暗改） | ↪ 已移交 ADR-19 检索线，不占图谱候选池决策位 | GraphRAG 核心思路：图谱不只给人看，是 agent 的检索结构；半天级工作量 |
+| 阶段一：主干打通 | ✅ 已完成 2026-05-26 | 前端、后端、agent、Skill 和文件系统的主链路已跑通 |
+| 阶段二：核心循环 | ✅ 已完成 2026-05-27 | @、/、对话结晶、消化、新建知识库和设置面板已形成闭环 |
+| 阶段三：产出能力 | ✅ 已完成 2026-05-27 | HTML、PDF、Word、PPT、Excel 等产出入口已接入右抽屉 |
+| 阶段 3.5：导航与批量消化 | ✅ 已完成 2026-05-27 | 侧栏、拖拽添加、多模型角色和子代理批量消化已落地 |
+| 阶段四：monorepo + 图谱活地图 | ✅ 已完成 2026-06-12 | Skill、工作台和共享图谱引擎已合并到同一仓库 |
+| 阶段 4.5-4.8：图谱可用性与社区高亮 | ✅ 已完成 | 图谱主路径收敛到 Sigma，DOM/SVG 只保留为回退或对照 |
+| 阶段五：桌面应用打包 | ⏸ 暂停 | 等工作台有真实外部用户后再重新评估 Tauri 打包 |
 
-**远期池（依赖消化管线升级，同一批做）**：
-- LLM 推断边：消化时让模型判断该页与库内哪些页相关，带置信度入图（EXTRACTED/INFERRED 体系现成承接；同名竞品与 GraphRAG 的两阶段建边）
-- AI 真摘要：消化时为每页生成一两句摘要写入页面元数据，hover 预览卡与社区摘要自动升级
-- 社区摘要 hover：悬停团块显示这一簇的一句话摘要（GraphRAG 分层社区摘要思路）
-- 嵌入布局（第二布局，不替代力导向）：页面 embedding 降维投影，"位置即语义"；与力导向的差异本身是洞察——**语义很近却没连线 = 待建链盲区**，将来可成独有功能
-- 消化时提取关系类型注释（`relation_type`）：4.6 已铺好边数据契约与上色管道，但现有 wiki 页面只有 `<!-- confidence -->` 注释、无 `<!-- relation: 矛盾 -->` 注释，故 **G1-1 颜色维当前几乎全默认"依赖"= 单色**（置信度虚实维已真实生效）。消化时让模型判定关系类型并写入注释，即可点亮颜色维（与 LLM 推断边 / AI 真摘要同属管线升级，同一批做）
+### 4.2 下一步触发条件
 
-**明确不做 / 已修订**：
-- ❌ 3D 图谱（行业著名伪需求，旋转酷炫三分钟，阅读效率负提升）
-- ❌ 白板化 / 手动布局全图（Heptabase 路线；钉扎已是其轻量正解）
-- ⚠️ 旧判断“❌ WebGL 渲染重写”已被 2026-06-19 大图谱性能方案修订，并在 2026-07-04 继续推进：全局大图与社区阅读主线都走 Sigma/Graphology；DOM/SVG 只服务回退、对照、离线细节和小图异常兜底。
+| 方向 | 何时启动 | 当前处理 |
+|---|---|---|
+| Tauri 桌面打包 | 有真实外部用户需要安装包 | 先不投入，避免提前承担打包复杂度 |
+| 图谱数据管线升级 | 真实库里出现“关系类型单色、摘要不足、隐藏关联难发现”等问题 | 与 LLM 推断边、AI 摘要、关系类型注释一起设计 |
+| 浏览器扩展 | 用户频繁从网页收集材料，复制链接成为明显摩擦 | 先保留想法，不进入当前主线 |
+| 导出美图 | 用户开始分享图谱截图或需要传播素材 | 作为低风险传播增强候选 |
+| 多端同步 | 本地目录迁移不能满足真实备份或多设备需求 | 继续保持本地优先，不提前引入云同步 |
 
-**竞品技术参考存档**：渲染梯子 DOM(<500)→Canvas(<5k)→WebGL(50k+，Obsidian 用 Pixi)；嵌入布局参考 Nomic Atlas；检索架构参考 Microsoft GraphRAG（社区检测 + 分层摘要，与 llm-wiki 的社区/digest 理念同构）；局部视图参考 TheBrain plex；语义相似边参考 Connected Papers。
+### 4.3 归档入口
 
----
+- 旧阶段路线、范围、验收标准和图谱候选池：[product-roadmap.md](docs/archive/product-roadmap.md)
+- 阶段提交表、验收实况和旧 changelog：[product-history.md](docs/archive/product-history.md)
+- 长期决策原因：[docs/adr/](../docs/adr/)
 
 ## 5. UI 设计原则
 
@@ -610,10 +353,12 @@ llm-wiki-agent/                       ← 你的仓库
 | 类型 | 位置 | 谁管 |
 |---|---|---|
 | 知识库数据 | `~/llm-wiki/<name>/` 或外部路径 | 用户 + agent |
-| 应用数据 | `~/.llm-wiki-agent/` | llm-wiki-agent |
+| 应用数据 | `~/.llm-wiki-agent/` | llm-wiki 工作台 |
 | 模型凭证 | `~/.pi/agent/auth.json` | pi-agent SDK |
 
 ❗ `.gitignore` 排除 `~/.llm-wiki-agent/`。**永远不要**把 API key 写进任何源代码或仓库文件。详见 ADR-13。
+
+`sessions/` 和 `logs/` 也是用户内容边界的一部分：它们可能包含用户提问、模型回复、引用页面片段或检索元信息。默认日志只记录诊断所需元数据，不记录完整 prompt、完整页面正文、API key 或认证状态；只有用户明确打开调试采集时，才允许更详细内容进入日志。删除对话或移除知识库登记时，必须考虑这些目录里是否还有对应副本。
 
 ### 6.4 Obsidian / 第三方工具共存规则
 
@@ -660,350 +405,71 @@ llm-wiki-agent/                       ← 你的仓库
 | **后端服务未起** | 前端 UI 显示明显的"后端服务未连接"状态，不渲染对话区（避免误以为是 agent 卡死） |
 | **知识库目录被外部删除** | 列表里标灰，点击给出"目录已失效，是否从列表移除"提示，不崩溃 |
 
+### 6.8 运行时信任边界
+
+| 边界 | 约束 |
+|---|---|
+| 本地后端 API | 后端默认只绑定 loopback；HTTP、SSE 和所有会改文件或触发模型的端点只接受工作台 / Tauri 可信来源，不对局域网或任意网页开放 |
+| 模型提供商 | “本地优先”不等于模型调用不出网。发送消息时，用户 prompt、选中的引用、后端检索片段、工具输出和生成产物可能被发给当前配置的模型提供商；实现必须只发送完成任务所需的最小上下文 |
+| 会话和日志 | `~/.llm-wiki-agent/sessions/` 与 `logs/` 视为敏感用户内容存储，不默认记录完整 prompt、页面正文、API key 或 auth 状态 |
+| 第三方 Skill | 非随仓库提供的 Skill 视为受信任本地代码，必须由用户显式启用；未知来源 Skill 不得自动获得当前知识库上下文 |
+
 ---
 
 ## 7. 关键决策记录（ADR）
 
-> 决策一旦写下，未来要推翻必须明确说明"什么变化了"。
-
-### ADR-1：选 pi-agent 而非 Vercel AI SDK / Mastra
-
-- Vercel AI SDK 强项是云部署，本项目不部署
-- Mastra 偏企业向 dashboard，对单人本地工具偏重
-- pi-agent **原生支持 Anthropic Skill 标准**，可零适配复用 llm-wiki-skill 和社区 Skill 生态
-- pi-agent SDK 和 RPC 模式都明确支持嵌入到 web / 桌面 UI
-
-### ADR-2：对话中心而非图谱中心
-
-- 用户已有 Codex / Claude Desktop 的对话心智，零学习成本
-- `@` / `/` 是 Skill 和工具集成的天然入口
-- 图谱适合"探索"，不适合作为日常工作主屏；作辅助面板更合适
-
-### ADR-3：SSE 而非 WebSocket
-
-- agent → UI 是**单向**事件流
-- SSE 是 HTTP 标准，浏览器和 webview 原生支持，断线自动重连
-- WebSocket 需管理双向状态机，本场景过度
-
-### ADR-4：先 web 再 Tauri 打包
-
-- web 是验证产品逻辑最快的形态
-- Tauri 本质是 webview 容器，前端可直接装现成
-- 一开始做桌面会让"前端开发"和"打包调试"两个复杂度叠加，0 代码起步必死
-
-### ADR-5：不用 MCP
-
-- MCP 是跨进程 RPC，每个能力一个独立 server，本地场景过重
-- Skill 是 markdown + scripts，进程内执行，简单一个量级
-- pi-agent 的 Skill 加载机制已足够
-- 未来如果某个能力**必须**用 MCP（比如调云端服务），再单独接入
-
-### ADR-6：完全进化为 agent，不维护双通道
-
-- 单人项目维护两个发行通道是开发者陷阱
-- pi-agent 能直接复用 Skill 内容，"完全进化"代价比想象的小
-- Skill 仓库进入维护模式，老用户照常使用
-
-### ADR-7：知识库上下文用 Extension 注入，不拼 prompt
-
-- 拼 prompt 难以维护、容易污染、对模型不友好
-- pi-agent Extension 可以注册自定义 tool 并持有应用状态
-- 让 agent 通过 tool 调用获取"当前在哪个库"、"库的元数据"，行为更可控
-- 切库时 Extension 状态变化即可，不需要重建 session
-
-### ADR-8：React + Vite 而非 Next.js
-
-- Next.js 的 SSR / Edge / 部署优化在 Tauri 里全废
-- Vite 纯 SPA 路线打包简单，Tauri 一行命令吃下
-- React 生态对新手最友好
-
-### ADR-9：UI 用 shadcn/ui
-
-- 组件是复制到本仓库的源代码，不是黑盒 npm 包，0 代码用户也能改
-- 原生 Tailwind + 深色主题，符合工具感视觉风格
-- 社区主流，AI 协作样本量大
-
-### ADR-10：pi-agent 作为 npm 依赖，不 fork、不 clone 源码
-
-- npm 依赖是现代 JS 项目用第三方库的标准方式，"不造轮子"正解
-- fork 会导致上游更新无法 merge，维护噩梦
-- submodule 对新手是地狱级体验，没有任何收益
-- 极端情况需要 patch 时用 `patch-package`，保持升级路径干净
-
-### ADR-11：知识库采用混合存储策略（默认根 + 外部登记）
-
-- 用户的知识天然分类，不该被强制塞到一个固定位置
-- 默认根 `~/llm-wiki/` 给新用户零配置上手
-- 外部库登记给已有库的用户（如 Obsidian vault 用户）零迁移成本
-- 不选 `~/Documents/` 因为 macOS 的 iCloud Drive 会撕坏文件锁
-
-### ADR-12：会话绑定知识库，同库支持多并行对话
-
-- 会话绑定库：防止跨库上下文污染（投资笔记不该混进 AI 研究）
-- 同库多对话：符合 Claude Desktop / ChatGPT 的心智，用户切换思路不用清空历史
-- 切库自动保存 + 自动选中目标库最近对话：零摩擦
-- 全程自动保存，无确认弹窗
-
-### ADR-13：模型认证完全复用 pi-agent 的 auth 体系（三层 fallback）
-
-**不**在 llm-wiki-agent 自己维护 API key 存储。所有凭证最终落到 pi-agent 的 `~/.pi/agent/auth.json`，由 pi-agent SDK 统一读取与刷新。
-
-**三层 fallback（按推荐顺序）**：
-
-1. **复用 pi CLI 登录态**（推荐）
-   - 用户在终端跑 `pi login`，选择 Claude Pro/Max / ChatGPT Plus / GitHub Copilot OAuth，或填 Anthropic / OpenAI 等 API key
-   - 凭证由 pi CLI 写入 `~/.pi/agent/auth.json`（权限 0600）
-   - 我们的 app 通过 `AuthStorage.create()` 自动读取
-   - **UX 等价于 open-design 的"复用本地 CLI"**：登录一次，到处可用
-2. **UI 内填 API key**
-   - 设置面板里直接填 Anthropic / OpenAI 等 key
-   - app 写入 **同一个** `~/.pi/agent/auth.json`，不是我们自己的 config 文件
-   - 测试连接按钮验证有效
-3. **环境变量**
-   - 用户在 shell 里 `export ANTHROPIC_API_KEY=...`
-   - pi-agent SDK 自动检测
-   - 设置面板只读显示当前环境变量状态
-
-**关键约束**：
-- llm-wiki-agent 的 `config.json` **不存任何 key**，只存 UI 偏好、外部库登记、默认模型等元数据
-- 想用 Claude Pro/Max 订阅的用户**零成本**接入（这是 BYOK API key 路线给不了的礼物）
-- macOS Keychain / 1Password 等高级用法通过 auth.json 的 `!shell command` 语法支持，不需要我们额外做
-
-### ADR-13b：不抄 open-design 的"多 CLI 子进程"模式
-
-open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个）来实现"复用本地 CLI"，因为它要兼容多家协议。
-
-我们只用 pi-agent SDK，已经覆盖所有主流 provider（Anthropic / OpenAI / Google / DeepSeek / Bedrock / Azure / xAI / OpenRouter ...）。不需要再做 CLI 检测和子进程管理。
-
-未来如果某用户极度想用某 CLI 驱动 llm-wiki，可作为可选适配层加进来，但**不进阶段一-五主线**。
-
-### ADR-14：app 内一键新建知识库
-
-- 用户不应该被迫开终端才能创建新库
-- 内置 `/new-wiki` 命令调用 llm-wiki-skill 的 init 流程
-- agent 自己跑自己的 Skill，闭环
-
-### ADR-15：Obsidian 共存（agent 忽略非 markdown 与第三方元数据）
-
-- 大量用户用 Obsidian 浏览同一份知识库
-- agent 不碰 `.obsidian/`、`*.canvas`、`*.base`、`.DS_Store` 等
-- 用户用 Obsidian 编辑 / 画 Canvas / 做 Base 不受影响
-
-### ADR-16：长期与 llm-wiki 仓库合并（agent 是 Skill 的升级版）
-
-**背景**：作者的 llm-wiki-skill 是 1.7k 星的成熟项目，纯提示词系统形态，没有 agent 循环 / 子 agent 分工 / 多步工具链。本项目（llm-wiki-agent）是把 Skill 升级为 agent 形态的实验。
-
-**决策**：agent 形态成熟后，本仓库代码并入 `llm-wiki` 主仓库，作为 Skill 的 agent 升级版同时存在（保留 Skill 给纯 CLI 用户）。**当前仓库是临时仓库**。
-
-**对架构的指导（"C 混合"归属原则）**：
-
-1. **能力归属原则**："Skill 已有的功能调 Skill，agent 工作台新能力用 Extension"。这条原则今天和合并后都成立——今天的"spawn 外部脚本"合并后变成"同仓库内调用"，调用关系不变
-2. **拒绝重复造轮子**：llm-wiki-skill 已实现的消化能力（X / 微信 / 小红书 / 知乎 / YouTube / PDF / 本地文件）一律调 Skill，不在 agent 端重写
-3. **拒绝塞 agent 特有命令进 Skill**：对话结晶、UI 元能力（列页面 / 读单页）、auth 管理这些"agent 工作台才有"的概念，用 Extension 实现，不污染 Skill 的"纯提示词系统"特质
-4. **代码组织模块化**：agent 端目录结构保持清晰，未来可 lift-and-shift 直接挪进 `llm-wiki/agent/` 子目录
-5. **不为合并提前优化**：今天该用 npm workspaces + 独立仓库就用，合并是未来的事，今天保持工程简单
-
-**阶段 3.5 的明确例外**：批量本地文件消化为了验证"便宜模型 + 并行子代理"路线，允许子代理不调用完整 llm-wiki Skill，而是只读单个文件并输出 wiki markdown，主进程负责写盘。这个例外只覆盖阶段 3.5 的 `.md/.txt/.pdf` 批量入库场景，不推翻"Skill 已有能力优先调 Skill"的长期原则。
-
-**未来扩展位**：媒体创作（阶段三）/ 子 agent 分工 / 多模型路由都依赖 agent 形态，是 Skill 给不了的。这些是 agent 形态存在的根本理由。
-
-**与既有 ADR 的关系**：
-- 强化 **ADR-7**（知识库上下文用 Extension 注入，不拼 prompt）
-- 强化 **ADR-13b**（不抄 open-design 的多 CLI 子进程模式，因为我们最终是同仓库 agent）
-- 兼容 **ADR-10**（pi-agent 作 npm 依赖）和 **ADR-14**（app 内一键新建知识库）
-
-### ADR-17：阶段二新增前端依赖（react-markdown + cmdk）
-
-**背景**：阶段二引入 markdown 渲染（右抽屉显示 wiki 页面）+ 命令补全菜单（`/` 和 `@`）。两个能力都需要新依赖。
-
-**决策**（已在 `web/package.json` 落地）：
-
-| 依赖 | 版本 | 用途 |
-|---|---|---|
-| `react-markdown` | ^9 | assistant 消息 + 右抽屉的 markdown 渲染 |
-| `remark-gfm` | ^4 | GFM 支持：表格、任务列表、自动链接 |
-| `cmdk` | ^1 | `/` 命令菜单 + `@` 引用菜单底层（即 shadcn `<Command>` 基础） |
-
-**拒绝项**：
-- marked / markdown-it：生态/类型/插件不如 react-markdown 稳
-- Radix Popover 自写：键盘导航与 a11y 都要重写，工作量大
-
-**与 ADR-9（shadcn/ui）的关系**：cmdk 即 shadcn 官方 Command 底层；react-markdown 在 shadcn 生态里是社区主流选型。两者都与现有 UI 体系自然契合，无破坏性。
-
-**长期**：阶段三引入产出类 Skill（docx / pdf / pptx）+ open-design 设计 Skill 时，UI 端会需要更多依赖（PPT 渲染、文件预览等）。届时再补 ADR-18+。
-
-### ADR-18：阶段 3.5 多模型双角色 + 轻量子代理框架
-
-**背景**：阶段 1-3 完成后两个痛点同时浮现——TBD-2（多模型路由）一直没有承载场景；阶段二的"一次喂一篇"消化模式拦住了批量进库的用户。两件事在阶段 3.5 合并解决：批量消化天然需要"便宜模型 + 并行"，正好把多模型路由落地。
-
-**决策**：
-
-1. **双角色而非 N 角色**：只引入 `main`（聊天）+ `digest`（消化）两个角色。拒绝项："per-task 模型路由"（消化/沉淀/产出/对话各自一个）太复杂、用户配不动；"只有一个 default model"则无法承载阶段 3.5 的核心需求
-2. **角色配置存项目 config.json 不写 pi settings.json**：跨工具污染坏处大于好处；`~/.llm-wiki-agent/config.json` 是我们自己的偏好文件
-3. **main 角色接管主对话**：设置里的 main 角色用于主对话创建和切换；保存 main 后重载当前活跃对话，让右上角模型显示与设置保持一致。digest 角色强制走子代理，保证"消化用便宜模型"的承诺
-4. **子代理用 pi SDK 原生 API 而非自建框架**：`createAgentSession({ model, authStorage, modelRegistry, sessionManager: inMemory(), tools: ["read"] })` 已经够用。拒绝项：抄 omp 的 `executor.ts` / `index.ts` 那 3000 行（工作树隔离 / 嵌套子代理 / worker IPC 我们都不需要）；自建独立子代理 runtime 重复造轮子
-5. **并发控制自写 30 行**：拒绝引入 p-limit / async-pool 等并发库（一个 while 循环就能做）；拒绝 `Promise.all` 一把开（N 个文件 = N 个并发模型请求会 429）
-6. **子代理不挂业务 extension**：阶段 3.5 的批量本地文件消化是 ADR-16 的明确例外，消化是裸 prompt + 只读工具的简单任务，挂 KB / synthesis / artifacts extension 反而让 cheap 模型困惑
-7. **写盘归主进程**：子代理只输出 wiki markdown 文本，主进程负责写到 `wiki/synthesis/sessions/`。让 cheap 模型决定文件路径风险大；主进程已知正确路径无需让 cheap 模型决策
-8. **SSE 沿用 ADR-3 路线**：批量消化接口直接返回 `text/event-stream`，不为此开 WebSocket，也不做轮询
-9. **拖拽优先于输入，但不假设浏览器一定暴露绝对路径**：阶段 3.5 先实测 macOS Finder 拖拽时 `DataTransfer` 是否提供 `file://`；若提供则自动填路径，若不提供则用输入框作为明确兜底。输入框不是降级体验，而是 web 沙箱下必须保留的可靠通道
-
-**与既有 ADR 的关系**：
-- 解决 **TBD-2**（多模型路由）：选项 B 落地——通过角色映射而非任务路由
-- 兼容 **ADR-3**（SSE）：批量消化进度沿用 SSE
-- 兼容 **ADR-7**（Extension 注入上下文）：子代理不需要 KB 上下文，直接 prompt 传入；主对话保持现有 extension 注入路径
-- 兼容 **ADR-16**（Skill 优先）：本阶段对子代理批量本地文件消化做一次受控例外，不扩展到 Skill 已覆盖的完整素材消化流程
-- 兼容 **ADR-10**（pi-agent 作 npm 依赖）：完全用 SDK 原生 API，不 fork 不 patch
-- 强化 **ADR-12**（会话绑定知识库）：子代理是临时 inMemory session，不污染 KB 的对话历史
-- 强化 **ADR-13**（凭证落 `~/.pi/agent/auth.json`）：modelRoles 只存 `{provider, modelId}`，不存任何 key
-
-**何时重新评估**：
-- main 角色切换后如果出现历史会话恢复异常 → 回退为仅对新会话生效
-- 用户反馈"批量消化输出格式漂移" → 引入 schema 校验 + 重试
-- 用户反馈"并发 3 还是太慢" → 提供更高档位 + 自适应降级（429 自动退避）
-
-### ADR-19：主对话引入“系统检索 + 上下文注入”
-
-**背景**：阶段 3.5 批量消化后，用户进入当前知识库直接问“这些文章总结一下”，弱模型可能不会主动调用 `list_knowledge_base_pages` / `read`，而是反问用户提供文章内容。ADR-7 的“靠 Extension 工具让 agent 自觉获取上下文”在问答检索场景下不够稳定。
-
-**决策**：
-
-1. 主对话 `/api/prompt` 路径破例采用“后端检索 + 拼隐藏上下文”模式。
-2. ADR-7 的“应用状态用 Extension 注入”原则仍然成立；本破例只覆盖“问答类知识库检索”，不改变 `current_knowledge_base` 等状态工具。
-3. 同一份检索能力同时暴露为 `query_knowledge_base` 工具，保留 Extension 路径供强模型主动调用。
-4. 每个 user turn 独立判断并检索，不跨轮复用旧结果。
-5. 检索失败时降级为普通对话，同时通过 SSE 轻提示并写入 retrieval 日志，不中断用户输入。
-6. **阶段 4.6 补充**：图谱增强检索不属于可见图谱交互，不占图谱候选池决策位；后续若做，归本 ADR 的检索质量演进线。
-
-**与既有 ADR 的关系**：
-- 破例 **ADR-7**：仅限主对话问答检索。
-- 兼容 **ADR-3**：新增轻量 SSE 事件。
-- 兼容 **ADR-16**：检索是 agent 工作台元能力，落在 server 端。
-- 兼容 **ADR-18**：不影响 digest 子代理批量消化路径。
-
-**何时重新评估**：
-- 主流模型工具调用稳定性显著提升 → 考虑改回纯工具路径
-- 用户大量反馈“参考页面被编造” → 强化 prompt 约束 + 引入后置校验
-- KB 规模超过 100 篇且本地文本检索变慢 → 引入向量检索
-
-### ADR-20：阶段四启动 monorepo 合并（丙方案）
-
-**背景**：ADR-16 定了"agent 成熟后并入主仓库"，但没定时机。阶段四的图谱引擎是两端（工作台 / Skill 离线 HTML）共享的第一块代码——共享代码出现的那一刻，分居两仓库开始产生真实摩擦（跨仓库依赖、双份维护），即合并时机成熟的信号。另两个事实强化此决策：主仓库（1.8k+ star）自 2026-05-13 停更，单人双仓库 = 注意力分裂已被证实；`llm-wiki-agent` 名字与 SamurAIGPT 同名竞品（2.9k star、活跃）撞车，不可作为独立品牌发布。
-
-**决策**：
-1. **丙方案**：本仓库 `git subtree add --prefix=workbench`（保留全历史）整体搬入主仓库；引擎落 `packages/graph-engine/`；主仓库根建 workspace package.json
-2. **只做工程合并，不做品牌动作**：不发版、不改主仓库 README、不 archive 旧仓库——改名（`llm-wiki-skill` → `llm-wiki`）、双形态叙事、对外发布留给后续品牌阶段
-3. **终局形态"一个产品、两扇门"**：产品 = 知识库文件格式 + 中文素材管线 + 方法论；Skill 与工作台是同一份知识库的两个访问端。Skill 永不砍（获客漏斗 + 格式中立性证明）；工作台是长期重心（批量消化 / 多模型 / 产物 / 活图谱等 agent 形态独有能力的家）
-4. **Tauri 打包（原阶段五）推迟**：打包是分发优化，先用 `git clone + npm run dev` 验证工作台的真实外部需求
-5. ❗ 主仓库测试是 CommonJS，monorepo 根 package.json **不设** `"type": "module"`，ESM 声明留在 workbench 子包内
-
-**拒绝项**：双仓库长期并行（注意力分裂）；agent 另立品牌（撞名 + star 池分裂 + 格式话语权分裂）；引擎放 agent 仓库做完再搬（二次搬运纯损耗）。
-
-**与既有 ADR 的关系**：落地 ADR-16（合并愿景 → 启动执行）；ADR-16 的"能力归属原则"继续生效（Skill 已有能力调 Skill，agent 元能力走 Extension）；ADR-10（pi-agent npm 依赖）不受影响。
-
-### ADR-21：图谱引擎与活地图（一个引擎、两个宿主）
-
-**背景**：原阶段四"图谱集成"若做成 iframe 嵌 HTML，得到的是一个不能联动的孤岛。竞品图谱（Obsidian / Logseq）公认"好看不好用"，根因是图谱后面没有人——只能看不能问。llm-wiki 工作台的图谱后面站着 agent，这是整个设计的支点。另：Skill 仓库 PR #44/#45 证明在静态布局上嫁接手动拖动必然失败（死布局无让位、指纹机制致重算后全部作废、localStorage 与知识库分离）。
-
-**决策**：
-1. **一个引擎、两个宿主**：`@llm-wiki/graph-engine`（TS，双产物 ESM/IIFE）；宿主差异用 capabilities 能力注入表达，引擎核心零分叉
-2. **新骨架、旧器官**：现有 graph-wash ~2300 行按 A（纯函数直接搬）/ B（画法拆开搬）/ C（样式抽主题 token）/ D（新写）四级处理；A 级 1:1 翻译禁止顺手优化；M1"静态复现旧版"为重构安全网
-3. **活模拟 + 钉扎**：d3-force（单模块）；预计算起点 + 低温入睡的混合布局；拖动低温让位、松手即钉；钉扎存知识库根 `.wiki-graph-layout.json`（只存钉的、库内相对路径为 key、模型坐标）。原则：**对知识的主观组织进库文件，浏览状态留本机**。2026-06-19 修订：双击解钉不再作为主路径，固定/取消固定改为明确按钮或菜单动作。
-4. **位置层/结构层分权**：拖动只改位置，颜色/社区/连线永远由真实 wikilink 决定；想改结构 → 通过选区提问让 agent 建链写回 wiki。图谱永不撒谎
-5. **选区 = 批量 `@`**：结构化四式选择（点节点/点社区/+邻居/Shift 多选），砍自由套索（空间邻近无语义保证）；选区面板结构事实先行、动作随性质变；动作本质是已有工作流（digest/comparisons/lint/crystallize）的空间入口；沿用 `/api/prompt` 文本通道不加新参数。2026-06-19 修订：点社区不再直接进入社区聚焦，先显示社区摘要，再由明确按钮进入社区。2026-06-26 增补：全局图点社区在“显示社区摘要”的同时，进入临时“全局社区高亮态”（复用 Sigma 全局现有 selection→社区 selected 视觉链路、补节点弱化与相机动画，不新增平行状态），当前社区强调、其他社区弱化但仍可见；真正进入社区仍由抽屉按钮负责。2026-07-04 修订：抽屉按钮进入社区后继续使用 Sigma 主路线，并通过 `focusCommunity`/顶层 focus 只呈现该社区内部结构。见阶段 4.8。
-6. **重算链监听文件系统而非"消化"**：变化源五个以上，只盯消化会让地图说谎；fs 监听 + 防抖 ~5s + 自家批量挂起；全量重算（子进程跑 build-graph-data.sh，不重写不做增量）+ 新旧 diff；diff 即动画剧本
-7. **生长动画 diff 队列**：图谱可见时消费（不可见时徽标 + 打开补播）；语义锚点发芽、错峰、≤3s、可跳过、尊重 prefers-reduced-motion
-8. **图谱绑当前知识库**：与 ADR-12 会话绑库同构，切库 = 换地图；跨库图谱不做
-9. **主题一对**：浅「数字山水」+ 深「墨夜」跟随工作台主题；不做主题商店——视觉签名的价值在"所有人记得住"，不在"多数人喜欢"
-10. **顶部工具条替代左上浮层**：阶段 4.6 后，社区列表、类型筛选、边图例、回全图等整图操作统一进入顶部工具条；工具条默认收起、半透明、浏览状态留本机。单节点操作仍留在右抽屉。
-
-**与既有 ADR 的关系**：强化 ADR-2（对话中心：图谱是第二主屏，对话仍是第一）；沿用 ADR-3（SSE 推 `graph_updated`）；遵守 ADR-16 能力归属（数据管线调 Skill 脚本；选区/钉扎等工作台元能力走 server + 引擎）；兼容 ADR-19（选区注入与检索注入同属"后端拼上下文"路线）。
-
-**何时重新评估**：
-- Sigma 在特定设备不可用或社区阅读出现兼容问题 → 允许回退到 DOM/SVG 社区视图；正常工作台主路径继续走 Sigma/Graphology
-- `fs.watch` recursive 在 macOS 实测不可靠 → 引入 chokidar
-- 选区注入大社区上下文超限 → 清单截断 + 提示 agent 分批读
-
----
-
-### ADR-22：图谱交互模型——点击即阅读，选区即升级
-
-> 2026-06-19 修订：该 ADR 的“点击即阅读”已升级为“全局轻量摘要优先”。全局节点单击先打开轻量摘要；“打开详情 / 阅读”是明确动作，会进入所属社区并选中节点。社区色块/图例单击同样先显示社区摘要，再由按钮进入社区聚焦。2026-07-04 修订：社区聚焦主路径改为 Sigma 社区阅读，DOM/SVG 只作为回退或对照。
-
-**背景**：阶段四把"点击节点"的默认响应做成了选区提问悬浮窗，作者实测确认这违背用户心智——点一个节点最常见的意图是"看它是什么"（阅读），不是"对它执行操作"（提问）；且 stage-4 D6 动作映射表缺"单节点"行，单节点内部链接恒为 0 被误判进"无链接多选"剧本，产生废话统计与错位动作。
-
-**决策**：
-1. **单击 = 阅读**：右抽屉阅读态（标题 + 元信息行 + 双动作 + 正文），无悬浮窗；选区是阅读的升级态（Shift 多选 / 点社区 / +邻居），同一抽屉切换状态
-2. **抽屉瘦身原则**：抽屉负责内容，图谱负责关系，凡从正文派生的信息（摘要、置信度列表、邻居列表）不重复展示；学习系统三件套不做（待真实使用后按工作台语境重新设计）
-3. **动作映射表必须覆盖全部选区类型**（含单节点与孤岛单节点），统计卡仅 ≥2 节点显示
-4. **画布导航是图谱的地基能力**（缩放/平移/回全图/小地图联动），引擎层实现两端同享。2026-06-26 增补：回全图按当前层级分行为：社区阅读→回到全局；全局高亮态→退高亮并清空选择/关抽屉/回构图；普通全局→重置视角且保留筛选/Pin/搜索（见阶段 4.8）。2026-07-04 修订：从 Sigma 社区阅读返回全图时保留来源社区高亮，但不自动打开社区摘要抽屉。
-
-**与既有 ADR 的关系**：修订 ADR-21 第 5 条的选区面板形态（悬浮窗 → 抽屉态）；强化 ADR-2（对话中心，图谱阅读复用工作台抽屉基建）；沿用 stage-4 D9 原则（视口/图例折叠等浏览状态留本机）。
-
----
-
-### ADR-23：关系边可视化采用“关系类型控制颜色、置信度控制虚实”
-
-**背景**：阶段 4.6 要把关系词汇表真正画上图。执行前核验发现，旧边字段 `type` 实际承载的是 `EXTRACTED / INFERRED / AMBIGUOUS` 置信度，不是“实现 / 依赖 / 对比 / 矛盾 / 衍生”等关系类型。若直接拿旧 `type` 上色，会把两种语义混在一起。
-
-**决策**：
-1. **边数据契约分两维**：保留旧 `type=confidence` 兼容入口，同时显式输出 `confidence` 与 `relation_type`。数据管线可读取同一行 `<!-- relation: ... -->` / `<!-- relation_type: ... -->` 注释；旧链接默认 `relation_type=依赖`、`confidence=EXTRACTED`。
-2. **颜色只表达关系类型**：矛盾用避开 ENTITY 红的品红系，对比用琥珀，顺承关系（实现 / 依赖 / 衍生）用主题中性色。
-3. **虚实只表达置信度**：原文关系为实线，推断关系为虚线，待确认为弱虚线 / 点划，不再借颜色表达置信度。
-4. **全局克制、局部完整**：全局图边保持低权重，避免大库变噪；进入社区阅读后，只显示当前社区内部关系，并按社区阅读需要呈现边层级与关系信息。
-5. **两个宿主同享**：工作台与离线 HTML 都使用同一引擎渲染边、边图例和 hover 关系提示；离线 HTML 仍不注入提问能力。
-
-**与既有 ADR 的关系**：强化 ADR-21 的“一个引擎、两个宿主”；延续 ADR-22 的“抽屉负责内容，图谱负责关系”；不改变 ADR-19 的检索演进线。
-
-### ADR-24：Paper 暖纸视觉方向与外观偏好
-
-**背景**：工作台已经从最初的深色工具壳进入长期使用阶段。用户在对话、消化、导出和图谱之间反复切换，界面需要更像一张可读的工作纸面，而不是临时调试台。Paper v2 原型已通过多轮设计确认，方向不再重新讨论。
-
-**决策**：
-1. **默认浅色暖纸**：默认主题从深色改为浅色暖纸，夜灯主题保留为一键切换。
-2. **统一顶栏**：跨视图共享的搜索、模型、新对话、主题和外观操作进入顶栏；对话区和图谱区不再各自维护重复状态条。
-3. **外观偏好本机持久化**：纸张、强调色、气泡、手写点缀、密度和主题走 localStorage，不写后端，不进知识库目录。
-4. **单一 CSS 类系统**：沿用并演进现有 `.msg-*` / `.chat-*` / `.tool-*` / `.drawer-*` 等类，不引入并行 `.pw-*` 类层。
-5. **强调色用预设属性**：强调色通过 `data-accent` 预设驱动 CSS 变量，避免行内样式和外观状态双主漂移。
-6. **图谱画布内部后置**：本次只统一图谱 Tab 外壳、工具条和图例；Sigma 画布内部配色另起任务。
-
-**与既有 ADR 的关系**：修订 §5.2 / §5.4 的旧深色工具感方向；兼容 ADR-2（对话中心）、ADR-9（shadcn/ui）、ADR-21（图谱引擎与宿主分权）。
-
-### ADR-25：前端交互测试与 Paper 视觉回归栈
-
-**背景**：现有前端测试以 `node:test` 和 `renderToStaticMarkup` 为主，只能证明静态输出，无法证明按钮点击、键盘快捷键、localStorage 外观偏好、抽屉拖拽和顶栏模型切换真的可用。Paper UI 迁移是高交互改动，继续只靠静态测试会漏掉真实用户路径。
-
-**决策**：
-1. **引入 DOM 交互测试**：前端 dev 依赖加入 `jsdom` 与 `@testing-library/react`，并提供统一 test setup，覆盖点击、键盘、localStorage 和 document dataset。
-2. **引入 Playwright 视觉回归脚本**：为 Paper 主题组合、长对话、抽屉和响应式视口提供可重复截图入口。Playwright 只作为前端开发 / 验收依赖，不引入新 UI 框架。
-3. **阶段验收真实运行**：每个阶段继续保留 typecheck / build / test；最终阶段必须运行 lint、浏览器主流程和 Paper 视觉截图脚本。
-4. **性能样本进入验收**：长对话、搜索大列表、纸张纹理和字体兜底必须有固定样本，避免视觉迁移只验证空页面。
-
-**与既有 ADR 的关系**：延续 ADR-8（React + Vite）、ADR-9（shadcn/ui）和 §5.5 的真实事件流原则；不改变后端、Skill 或图谱引擎测试策略。
-
-### ADR-26：Sigma 主路线与 DOM/SVG 回退
-
-**背景**：全局图从 DOM/SVG 迁到 Sigma 后，社区阅读曾暂时保留 DOM/SVG 聚焦图。但 2026-07-04 的社区近景方案已验证：进入社区可以继续留在 Sigma 主路线，只通过 `focusCommunity`/顶层 focus 收缩到当前社区内部结构。这样用户从全局摘要进入社区时，不再经历两套渲染之间的视觉和交互断层，DOM/SVG 也不再需要承担默认社区阅读。
-
-**决策**：
-
-1. **Sigma 是图谱主路线**：全局总览、社区 spotlight、社区阅读近景都优先走 Sigma/Graphology。全局服务「整个库长什么样、我在哪、整体结构怎样」；社区阅读服务「这一簇内部到底是什么关系」。
-2. **社区阅读是 Sigma 的 focused state**：点击全局社区仍先打开摘要抽屉；只有点击「进入社区」才进入社区阅读。进入后只显示当前社区节点和内部边，关闭摘要抽屉，不默认展示社区简介入口；社区居中，节点相对位置、Pin、标签预算和社区身份色延续全局。
-3. **返回全图保留来源上下文**：从社区阅读点击「回全图」回到全局 Sigma，并保留来源社区高亮，帮助用户知道刚才从哪里回来；但不自动打开社区摘要抽屉。点击空白、显式重置、切换社区或数据刷新可清掉来源高亮。
-4. **抽屉仍是理解与动作入口**：凡是「对一组页面做事」（总结/找缺口/生成主题页/探索关系/对话）走抽屉，与渲染路线无关；「未分组」没有稳定社区身份，不提供「进入社区」。
-5. **DOM/SVG 只做回退或对照**：Sigma 不可用、兼容性异常、小图异常兜底、离线细节对照时可以使用 DOM/SVG；正常工作台社区阅读不再把 DOM/SVG 作为主路径。新增第三套图谱需先证明它解决的是 Sigma 主路线和 DOM/SVG 回退都解决不了的问题。
-
-2026-07-05 收口补充：#97-#102 已把进入社区、节点阅读、搜索筛选、拖动重置、真实体验验收和社区多选补齐到 Sigma 主路径。#103 起，DOM/SVG 社区视图不再作为新能力承接面，只保留兼容回退、对照和后续删除评估依据。
-
-**与既有 ADR 的关系**：修订 ADR-21（一个引擎两宿主、选区=批量@）、ADR-22（图谱负责关系、抽屉负责内容）、ADR-23（全局克制、局部完整）里关于社区阅读默认路线的旧分工；保留“两步进入”心智，只把第二步的主渲染路线从 DOM/SVG 改为 Sigma focused state。
-
-**何时重新评估**：如果 Sigma 社区阅读在中小社区无法稳定表达内部关系，或真实设备上出现无法接受的兼容/性能问题，先启用 DOM/SVG 回退；只有当回退也无法覆盖时，再评估新的渲染路线。
+决策正文已拆到 [docs/adr/](../docs/adr/)。本节只保留索引，避免主产品文档再次变成历史账本。
+
+旧工作台决策保留原编号；其中 ADR-13b 是历史特殊编号，继续作为 ADR-13 的补充记录。
+
+### 7.1 工作台决策
+
+| 编号 | 决策 |
+|---|---|
+| ADR-1 | [选 pi-agent 而非 Vercel AI SDK / Mastra](../docs/adr/0001-select-pi-agent-not-vercel-ai-sdk-or-mastra.md) |
+| ADR-2 | [对话中心而非图谱中心](../docs/adr/0002-conversation-center-not-graph-center.md) |
+| ADR-3 | [SSE 而非 WebSocket](../docs/adr/0003-sse-not-websocket.md) |
+| ADR-4 | [先 web 再 Tauri 打包](../docs/adr/0004-web-first-tauri-later.md) |
+| ADR-5 | [不用 MCP](../docs/adr/0005-no-mcp.md) |
+| ADR-6 | [完全进化为 agent，不维护双通道（已被 ADR-20/27 收窄）](../docs/adr/0006-evolve-to-agent-no-dual-channel.md) |
+| ADR-7 | [知识库上下文用 Extension 注入，不拼 prompt](../docs/adr/0007-kb-context-via-extension-not-prompt.md) |
+| ADR-8 | [React + Vite 而非 Next.js](../docs/adr/0008-react-vite-not-nextjs.md) |
+| ADR-9 | [UI 用 shadcn/ui（组件选型仍有效；视觉理由已由 ADR-24 修订）](../docs/adr/0009-shadcn-ui.md) |
+| ADR-10 | [pi-agent 作为 npm 依赖，不 fork、不 clone 源码](../docs/adr/0010-pi-agent-npm-dependency-no-fork.md) |
+| ADR-11 | [知识库采用混合存储策略（默认根 + 外部登记）](../docs/adr/0011-hybrid-knowledge-base-storage.md) |
+| ADR-12 | [会话绑定知识库，同库支持多并行对话](../docs/adr/0012-sessions-bound-to-knowledge-base.md) |
+| ADR-13 | [模型认证完全复用 pi-agent 的 auth 体系（三层 fallback）](../docs/adr/0013-pi-agent-auth-system.md) |
+| ADR-13b | [不抄 open-design 的"多 CLI 子进程"模式](../docs/adr/0013b-no-open-design-cli-subprocesses.md) |
+| ADR-14 | [app 内一键新建知识库](../docs/adr/0014-in-app-create-knowledge-base.md) |
+| ADR-15 | [Obsidian 共存（agent 忽略非 markdown 与第三方元数据）](../docs/adr/0015-obsidian-coexistence.md) |
+| ADR-16 | [长期与 llm-wiki 仓库合并（仓库布局已由 ADR-20 落地）](../docs/adr/0016-merge-with-llm-wiki-repo.md) |
+| ADR-17 | [阶段二新增前端依赖（react-markdown + cmdk）](../docs/adr/0017-stage-2-frontend-dependencies.md) |
+| ADR-18 | [阶段 3.5 多模型双角色 + 轻量子代理框架](../docs/adr/0018-stage-3-5-model-roles-and-subagents.md) |
+| ADR-19 | [主对话引入“系统检索 + 上下文注入”](../docs/adr/0019-system-retrieval-context-injection.md) |
+| ADR-20 | [阶段四启动 monorepo 合并（丙方案，已落地；入口叙事看 ADR-27）](../docs/adr/0020-monorepo-merge.md) |
+| ADR-21 | [图谱引擎与活地图（一个引擎、两个宿主）](../docs/adr/0021-graph-engine-living-map.md) |
+| ADR-22 | [图谱交互模型——轻量摘要优先，明确动作进入阅读](../docs/adr/0022-graph-interaction-click-read-selection-upgrade.md) |
+| ADR-23 | [关系边可视化采用“关系类型控制颜色、置信度控制虚实”](../docs/adr/0023-relation-type-color-confidence-stroke.md) |
+| ADR-24 | [Paper 暖纸视觉方向与外观偏好](../docs/adr/0024-paper-visual-direction.md) |
+| ADR-25 | [前端交互测试与 Paper 视觉回归栈](../docs/adr/0025-frontend-interaction-and-visual-regression.md) |
+| ADR-26 | [Sigma 主路线与 DOM/SVG 回退](../docs/adr/0026-sigma-primary-dom-svg-fallback.md) |
+
+### 7.2 跨区域决策
+
+| 编号 | 决策 |
+|---|---|
+| ADR-27 | [一个产品，两种入口](../docs/adr/0027-one-product-two-entry-points.md) |
+| ADR-28 | [Skill 与工作台的能力边界](../docs/adr/0028-skill-and-workbench-capability-boundary.md) |
+| ADR-29 | [图谱是 wiki 结构的视图](../docs/adr/0029-graph-is-a-view-of-wiki-structure.md) |
+| ADR-30 | [本地优先与数据边界](../docs/adr/0030-local-first-data-boundaries.md) |
+| ADR-31 | [根目录保持 CommonJS 兼容](../docs/adr/0031-monorepo-root-keeps-commonjs-compatibility.md) |
+| ADR-32 | [一个图谱引擎，两个宿主（repo-wide 摘要，细节以 ADR-21 为准）](../docs/adr/0032-one-graph-engine-two-hosts.md) |
 
 ## 8. 给 0 代码作者的盲区与协作规则
 
 ### 8.1 环境陷阱
 
-- macOS 默认 Node 版本可能旧。**统一用 [mise](https://mise.jdx.dev/) 或 nvm 管理 Node 版本**，锁到 **`>=22.19.0`**（pi-coding-agent 0.75.x 的硬要求）。否则 `npm install` 就直接报错
+- macOS 默认 Node 版本可能旧。**统一用 [mise](https://mise.jdx.dev/) 或 nvm 管理 Node 版本**，锁到 **`>=22.19.0`**（pi-coding-agent 当前依赖要求）。否则 `npm install` 就直接报错
 - 不要全局 `npm install -g`。每个项目用 `package.json` 锁版本
 - API key **完全不进我们的仓库**，也不进 `~/.llm-wiki-agent/`。统一由 pi-agent SDK 管理，落到 `~/.pi/agent/auth.json`（权限 0600）。详见 ADR-13
 
@@ -1016,11 +482,11 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
 
 ### 8.3 协作规则（AI 必须遵守）
 
-- **不要自由发挥**。每次动手前先说"打算改哪些文件、为什么这么改、对其他部分有什么影响"，作者确认后再动
+- **不要自由发挥**。每次动手前先说"打算改哪些文件、为什么这么改、对其他部分有什么影响"；普通实现默认继续推进，不反复等确认
 - **任何要新增依赖**（npm package、Skill、配置项），先问"这是 PRODUCT.md 里规划过的吗"
 - **任何要修改 PRODUCT.md 之外的决策**，先说明"这与 PRODUCT.md 第 X.Y 节冲突，建议修改文档为 Z"，等作者拍板
-- **作者思路断了的时候**，先读 PRODUCT.md，不要急着问"我们做到哪里了"——日志和 git 记录是事实，文档是意图，两个对照看
-- **绝不主动跳阶段**。阶段二验收不过，不允许动阶段三的代码
+- **作者思路断了的时候**，先按入口冷启动表读当前状态，再对照 git log / git diff；不要急着问"我们做到哪里了"
+- **绝不主动跳阶段**。当前阶段验收不过，不动下一阶段的代码
 
 ### 8.4 心态陷阱
 
@@ -1033,346 +499,20 @@ open-design 通过启动 CLI 子进程（Claude Code / Codex / Cursor 等 16 个
 
 ## 9. 待决事项
 
-记录尚未拍板但要在未来某阶段决定的事。决定后移到 ADR。
+这里只记录真正还没拍板、且会影响后续产品方向或用户数据安全的事。已经完成或已写入 ADR 的事项不再保留在这里。
 
 | 编号 | 事项 | 现状 | 何时定 |
 |---|---|---|---|
-| ~~TBD-1~~ | ~~项目正式名~~ | **已定：`llm-wiki-agent`**。桌面应用显示名留到阶段五前再定 | ✅ |
-| TBD-2 | 默认模型 | **阶段 3.5 已落地**：双角色 `modelRoles.{main, digest}` 写入 `~/.llm-wiki-agent/config.json`；main 角色用于主对话，digest 角色用于批量消化。详见 ADR-18 | ✅ |
-| ~~TBD-3~~ | ~~多库会话隔离~~ | **已定：会话绑定知识库，同库支持多并行对话**（见 ADR-12） | ✅ |
-| TBD-4 | 危险操作确认 | 删除 / 覆盖类是否弹窗 | 阶段二 |
-| ~~TBD-5~~ | ~~API key 配置 UI~~ | **已定：三层 fallback（pi CLI 登录 / UI 填 key / env var），统一存 `~/.pi/agent/auth.json`**（见 ADR-13） | ✅ |
-| TBD-6 | 知识库导入导出 | 是否需要打包导出格式 | 阶段四后 |
-| ~~TBD-7~~ | ~~知识库根目录~~ | **已定：默认 `~/llm-wiki/` + 外部目录登记**（见 ADR-11） | ✅ |
-| TBD-8 | HTML 产出 Skill | 用现成的还是自建 | 阶段三 |
+| TBD-1 | 桌面应用显示名 | 产品名已收敛到 llm-wiki；若进入 Tauri 分发，需要确认面向用户展示的应用名 | Tauri 重新启动前 |
+| TBD-2 | 危险操作确认 | 删除、覆盖、就地初始化、批量改写等操作需要统一确认策略，避免误伤用户知识库 | 下一次改危险操作前 |
+| TBD-3 | 知识库导入导出 | 是否需要单独的打包导出格式，还是继续保持普通本地目录可迁移 | 有真实迁移/备份需求时 |
 
 ---
 
-## 10. 进度追踪
+## 10. 当前状态与历史归档
 
-### 阶段一：主干打通 ✅ 已完成 2026-05-26
+当前基线已到阶段 4.8：全局社区高亮已落地，社区阅读主路径走 Sigma；DOM/SVG 只保留为回退或对照。阶段五 Tauri 打包已推迟到工作台有真实外部用户后再重新评估。
 
-| # | 任务 | Commit |
-|---|---|---|
-| 1 | 仓库骨架：`package.json` / `.gitignore` / `README.md` / `LICENSE` / `tsconfig.json` | `81ddb29` |
-| 2 | 后端骨架：Node + Hono，最小 `/api/echo` | `5ffd2c0` |
-| 3 | 前端骨架：Vite + React + shadcn/ui + SSE echo 排练 | `3662b60` |
-| 4 | 接入 pi-coding-agent SDK，实现真 agent 对话 | `c4e0dad` |
-| 5 | 第一个 Extension：注入 `currentKnowledgeBase` 上下文 | `ebe054b` |
-| 6 | 知识库扫描接口：扫 `~/llm-wiki/` + 读 `config.json` 外部库 | `daebc62` |
-| 7 | 前端知识库选择 UI + 三栏布局雏形 | `49dc00e` |
-| 8 | 同库多对话 + 切换 + 持久化（阶段一完结） | `75e176b` |
-| – | review 修补：一行 `npm run dev` / auto-restore / 默认深色 / 顶部状态条占位 | `f835433` |
-| – | TBD-2 删 Sonnet 表述 + 光标真闪烁 | `dd021bc` |
+旧阶段路线、范围和验收标准已移到 [product-roadmap.md](docs/archive/product-roadmap.md)。详细提交表、验收实况和旧 changelog 已移到 [product-history.md](docs/archive/product-history.md)。主文档以后只保留当前产品事实、边界和关键决策，不再追加流水账。
 
-阶段一完成情况详见 §4 阶段一末尾的"完成情况"小节。
-
-### 阶段二：核心循环（@、/、结晶、消化）✅ 已完成 2026-05-27
-
-**最终 PR**：[#1 feat: complete stage 2 core loop](https://github.com/sdyckjq-lab/llm-wiki-agent/pull/1)（base: main, head: stage-2）
-
-**8 step commit + 5 fix commit + 1 doc 修订 commit**：
-
-| # | 任务 | Commit |
-|---|---|---|
-| 1 | `/sediment` Extension：结晶对话到 `wiki/synthesis/sessions/` | `fe54d47` |
-| 2 | `/new-wiki` Extension：spawn `init-wiki.sh` 新建库 | `5ab13dc` |
-| 3 | `/api/refs`：候选页面列表（递归 fingerprint 缓存） | `b0802b8` |
-| 4 | `/api/commands`：内置 + Skill 命令合并（TBD-1 方案 B） | `202bf4d` |
-| 5 | 设置面板：API key 三层认证 + 测试连接（TBD-2 方案 B） | `3654791` |
-| 6 | `/` 命令补全 UI（cmdk） | `b6dffc0` |
-| 7 | `@` 补全 + 右抽屉 + markdown 渲染（react-markdown） | `7801d2c` |
-| 8 | 消化新素材 chip | `7a46f4b` |
-| – | fix: 设置面板可关闭 | `c045b9e` |
-| – | fix: `/api/commands` 包含 Claude skill | `791d73a` |
-| – | fix: agent resource loader 加载 Claude skill 目录 | `f990229` |
-| – | fix: 新建库 UI 端点 + refs cache fingerprint 升级 + Sidebar 加按钮 | `a088b97` |
-| – | fix: 右抽屉支持 Esc 关闭 | `2686b51` |
-| – | docs(stage-2): 闭合验收 issue #2/#3/#4 + 标 TBD-3 已解决 | `208ad4d` |
-
-**阶段二完成情况** ✅ 2026-05-27（合并 PR #1 后）
-- 范围 7 项全部交付（@、/、/sediment、/new-wiki、链接预览、消化、设置面板）
-- 验收 3 条全过：建库 / 消化→讨论→结晶 闭环 / API key 落 `~/.pi/agent/auth.json`
-- 关键架构决策：**D9 能力归属原则**（消化等知识库本职 → Skill；对话结晶等 agent 元能力 → Extension）落地，对应 ADR-16 长期合并愿景
-- **超出原设计的增强**：
-  - `POST /api/knowledge-bases/new` + `NewWikiDialog`（UI 直接建库，不必先与 agent 对话）
-  - `pages.ts` cache 升级 mtime → 递归 fingerprint（修了"嵌套新建后 refs 看不到"的潜在 bug）
-  - `wiki-init.ts::findInitScript()` 兼容 init-wiki.sh 在 skill 根目录或 `scripts/` 两种位置
-- **接受的妥协**（不阻塞阶段三）：
-  - 设置面板只做认证 Tab（默认模型 / 根目录 / 外部库管理推迟）
-  - Anthropic 测试连接未跑（缺 key），但代码路径同 DeepSeek 一致
-- **新增依赖**：见 §3.2 + ADR-17
-
-### 阶段三：产出能力（产品亮点）✅ 已完成 2026-05-27
-
-**最终分支**：`stage-3`（base: main, head: `1f1f591`）
-
-**8 step commit + 1 fix commit**：
-
-| # | 任务 | Commit |
-|---|---|---|
-| 1 | vendor 4 个 anthropics Skills + 收紧命令源标签 | `6d2e218` |
-| 2 | 产物 manifest 存储 + CRUD API | `f19687c` |
-| 3 | 导出按钮 + prompt 模板（3 通道触发） | `bf6b878` |
-| 4 | 产物右抽屉多 Tab 切换 | `bc70b2c` |
-| 5 | HtmlRenderer：iframe sandbox 预览 | `862265a` |
-| 6 | DownloadOnlyRenderer：元数据卡片 + 下载 | `38006a7` |
-| 7 | 全局 Skill 可见性开关（settings toggle） | `1016601` |
-| 8 | 产物工作流 UX 打磨 | `91a9761` |
-| – | fix: 修复导出工作流 review 问题 | `1f1f591` |
-
-**阶段三完成情况** ✅ 2026-05-27（审查通过，合并到 main）
-- 范围全部交付：5 个导出按钮（PDF/Word/PPT/Excel/HTML）+ 4 个 vendored Skills + 2 个 Extension 工具 + 6 个新 API + 1 个新 SSE event
-- 关键架构决策：**E13（D9 落地）**——产出操作走 Skill，`prepare_artifact` / `finalize_artifact` 作为 agent 元能力 Extension；HTML 导出不依赖 Skill，由 agent 内置能力直接生成
-- 新增 4 个端点：`GET /api/artifacts`、`GET /api/artifacts/:id`、`GET /api/artifacts/:id/files/:filename`、`POST /api/config` + `GET /api/config` 扩展 `showUserGlobalSkills`
-- 安全验证通过：path traversal 防护、iframe sandbox（无 `allow-same-origin`）、UIID 验证、文件名净化
-- **接受的妥协**（不阻塞阶段四）：
-  - PPTX 在浏览器内无预览（DownloadOnlyRenderer），设计文档原定的 PPTXjs 方案未落地
-  - HTML 导出不依赖外部 Skill，由 agent 内置 fs 能力直接生成（TBD-5 方案）
-- **新增依赖**：无（0 个新 npm package）
-
-### 阶段 3.5：导航 UX 重构 + 多模型子代理批量消化 ✅ 已完成 2026-05-27
-
-**当前状态**：已合并到 `main` 并推送；阶段性分支已清理
-
-**7 step 概览**：
-
-| # | 任务 | 状态 |
-|---|---|---|
-| 1 | 侧栏重构：统一 KB 列表 + 折叠对话子树 | ✅ |
-| 2 | 拖拽 + 输入框路径填充（含 inspect 端点） | ✅ |
-| 3 | 非 wiki 目录初始化引导 | ✅ |
-| 4 | 多模型双角色（main / digest） | ✅ |
-| 5 | 后端子代理批量消化框架 | ✅ |
-| 6 | 批量消化 UI + SSE 进度推送 | ✅ |
-| 7 | 总验收 + UX 体感打磨 | ✅ |
-
-**关键风险**：
-- TBD-3.5-1：子代理 session 共享 `authStorage` / `modelRegistry` 的资源生命周期未实测（codex 起手第一件事写 60 行验证）
-- TBD-3.5-2：`init-wiki.sh` 就地初始化会写入固定文件，必须先做冲突检测与备份（Step 3 起手看源码确认文件列表）
-- TBD-3.5-3：main 角色已接管主对话；设置切换后重载当前活跃对话
-
-**验收实况**：
-- `npm run --silent typecheck` 通过
-- `node --import tsx --test server/src/digest/concurrency.test.ts` 通过
-- 本地接口实测通过：目录 inspect、初始化冲突 409、就地初始化成功、模型列表、模型角色保存、批量消化参数校验
-- 单文件批量消化真实跑通，SSE 返回 start / file_start / file_complete / done，并写入 `wiki/synthesis/sessions/`
-- 验收后补强：批量消化改为逐文件失败隔离，进度面板显示每个文件状态、生成字数和结果入口；外部目录批量消化改用 inspect 扫描凭据，不再信任前端传任意 sourceRoot；初始化后批量消化可临时选择 digest 模型
-- 收尾补强：当前知识库自动检索已落地；批量消化后直接提问会先检索当前知识库，普通寒暄和导出指令不会误触发检索
-- UI 视觉迁移补强：基于本地原型 `index.html` 统一工作台视觉，补齐浅色 / 深色主题切换；保持原有侧栏、对话、引用、命令、产物抽屉、设置、批量消化流程不变，不新增依赖
-- 预览布局补强：侧栏可折叠为 52px 窄图标栏，右抽屉支持拖动调宽和双击恢复默认宽度；折叠状态与抽屉宽度保存在本机；移动端继续使用全屏抽屉
-- 设置面板补强：设置弹窗限制最大高度，标题区保留在顶部，设置内容在弹窗内部滚动；底部 Skill 加载区在较矮屏幕下也可达
-
-### 阶段四：monorepo 合并 + 图谱活地图 ✅ 已完成 2026-06-12
-
-**当前状态**：已在主仓库 `stage-4` 分支完成。8 个 Step 均有提交或人工验收证据，最终自动化检查全绿；视觉一致性、拖动手感、墨夜观感保留为验收人主观判断项。
-
-**8 Step 概览**：
-
-| # | 任务 | 状态 |
-|---|---|---|
-| 0 | monorepo 搬家（subtree + workspace 根 + 冒烟） | ✅ |
-| 1 | 引擎包骨架 + helpers TS 化 + 测试迁移 | ✅ |
-| 2 | 工作台图谱视图静态复现（安全网基线）+ 主题 token | ✅ |
-| 3 | 活模拟 + 钉扎 + 持久化 | ✅ |
-| 4 | 选区系统 + 对话联动 | ✅ |
-| 5 | 文件监听 + 重算链 + 生长动画 | ✅ |
-| 6 | Skill 离线 HTML 切换引擎产物 | ✅ |
-| 7 | 总验收 + 墨夜打磨 | ✅ |
-
-**关键风险处理结果**（详见设计文档 §7）：根 package.json 未设置 type:module；手绘路径采用帧缓存；macOS Node 22 原生 `fs.watch` recursive 实测可用，未引入 chokidar；subtree 与提交前隐私路径检查均通过。
-
-**设计来源**：2026-06-12 四轮设计对话（战略定位 → 选区 → 钉扎持久化 → 生长事件链 → 引擎抽取），关键结论沉淀为 ADR-20 / ADR-21。
-
-### 阶段 4.5：图谱可用性收尾 ✅ 已合入 2026-06-14
-
-**当前状态**：已合入。决策记录见 ADR-22。
-
-**设计来源**：作者实测五问题（缩放缺失 / 点击语义错位 / Shift 不可发现 / 无搜索图例 / 节点过胖）+ 阶段四验收的离线功能减配裁决。两处上游盲区已在设计中修正：stage-4 plan 漏列画布导航 WU；stage-4 D6 映射表缺单节点行。
-
-### 阶段 4.6：图谱演进第一批 ✅ 已完成 2026-06-14
-
-**当前状态**：已完成并通过总验收。关系类型和置信度已分字段，渲染用关系类型控制颜色、置信度控制虚实；社区聚焦、类型筛选、顶部工具条、边图例、双宿主分工均已落地。决策记录见 ADR-23，ADR-21 已同步 4.6 对社区交互和工具条的修订。
-
-### 阶段 4.7：图谱交互地基重构 ✅ 已完成 2026-06-16
-
-**当前状态**：已完成核心交互地基。滚轮缩放、拖拽、点击、悬停、社区色块、小地图边界在工作台与离线 HTML 中保持同一套行为；社区色块是视觉提示，不是拖动围栏。
-
-**后续触发门**：空间索引、Canvas/WebGL、密度策略重做、小地图拖拽导航都不属于本阶段；只有真实使用或性能证据证明需要时再启动。
-
-### 阶段 4.8：图谱演进——全局社区高亮（spotlight）✅ 已落地
-
-**当前状态**：已落地。点社区先在全局高亮并打开摘要；点击「进入社区」后进入 Sigma 社区阅读，只显示当前社区内部结构。#75 已补齐动画期间 overlay 轻量跟随和结束后精确校准。
-
-### 阶段五：未开始（Tauri 打包已决策推迟，见 ADR-20）
-
-### 协作约定（持续生效）
-
-每一步动手前 AI 都要先说计划，作者确认后再动。每完成一步：
-
-- AI 列改动清单（文件、依赖、决策）
-- 作者确认理解
-- AI 创建 git commit（commit message 含本步范围 + 实测验收要点）
-- 进入下一步
-
----
-
-## 附录 A：术语表
-
-| 术语 | 解释 |
-|---|---|
-| **Skill** | Anthropic 提出的能力包格式：一个目录 + 一份 SKILL.md。详见 [agentskills.io](https://agentskills.io/) |
-| **pi-agent** | TypeScript agent runtime，原生支持 Skill 标准。`@earendil-works/pi-coding-agent` |
-| **SSE** | Server-Sent Events，服务器单向推送事件给浏览器的 HTTP 标准 |
-| **Extension** | pi-agent 的扩展机制：TS 模块，能注册自定义 tool / 命令 / 拦截事件 / 持有状态 |
-| **Tauri** | 用系统 webview + Rust 后端打包跨平台桌面应用的框架，二进制和内存占用通常显著低于 Electron |
-| **Hono** | 轻量 TypeScript web 框架，跑 Node / Bun / Deno / Cloudflare 都行 |
-| **shadcn/ui** | 组件库，但代码是直接复制到你仓库的（不是 npm 黑盒），方便修改 |
-| **结晶 / 沉淀** | 把对话内容固化为 wiki 页面的动作（继承自 llm-wiki-skill 术语） |
-
----
-
-## 附录 B：参考链接
-
-- pi-agent 仓库：https://github.com/earendil-works/pi
-- pi-agent Skill 文档：`packages/coding-agent/docs/skills.md`
-- pi-agent SDK 文档：`packages/coding-agent/docs/sdk.md`
-- pi-agent Extension 文档：`packages/coding-agent/docs/extensions.md`
-- llm-wiki-skill 仓库：https://github.com/sdyckjq-lab/llm-wiki-skill
-- Anthropic Skill 标准：https://agentskills.io/specification
-- Anthropic 官方 Skills：https://github.com/anthropics/skills
-- pi-skills：https://github.com/badlogic/pi-skills
-- Tauri 文档：https://tauri.app/
-- shadcn/ui：https://ui.shadcn.com/
-
----
-
-> 本文档第一版完成于 2026-05-26。后续更新请在文末追加 changelog。
-
-## Changelog
-
-- **2026-06-27 v22（全局 Sigma 缩放手感修复 #73）**：修掉全局图谱触控板/滚轮缩放的"按档位卡顿"
-  - 根因：wheel 路径在相机动画进行中时改走 `animate({duration:1})`，被 Sigma 的 rAF 重入切成离散跳变，违背设计 §5"滚轮直接更新相机、不排队动画"
-  - 修复：wheel 无条件走 `camera.setState`（即时）；`handleSigmaWheelZoom` 补 `destroyed` 守卫；同步更新测试断言与盲区注释
-  - 验证：单元 460 pass；浏览器生产回归 33 records / 3 shapes PASS；实机确认手感改善
-  - 已知局限：合成 wheel 事件测不准真实触控板"积压"，手感以实机为准（测试已加注释）
-  - 分支 `codex/fix-global-graph-zoom-controls`，9 个 commit（`05be23d`..`9c897cf`）
-  - 后续债务：sigma-global-renderer.ts 又涨到 1566 行，拆分已立项 #77（承接 #64）
-- **2026-06-20 v21（Paper UI 立项与文档对齐）**：确认工作台默认外观迁移为 Paper 暖纸
-  - §5.2 顶部状态条改为统一顶栏：知识库静态展示，搜索、模型、新对话、主题、外观和设置集中在全局操作区
-  - §5.4 视觉风格改为默认浅色暖纸、夜灯可切、Plus Jakarta Sans / Caveat / JetBrains Mono 字体组合
-  - §7 新增 **ADR-24**（Paper 暖纸视觉方向与外观偏好）与 **ADR-25**（前端交互测试与 Paper 视觉回归栈）
-  - 明确图谱画布内部 Paper 化和真实跨库 / 全文搜索后端后置
-- **2026-06-16 v20（阶段 4.7 图谱交互地基完成）**：补记图谱交互地基重构
-  - §4 新增阶段 4.7：记录缩放、拖拽、点击、悬停、社区色块、小地图边界统一为同一张地图心智
-  - 明确社区色块是视觉提示，不是拖动围栏；节点可离开色块，社区归属仍由真实链接决定
-  - 明确空间索引、Canvas/WebGL、密度策略重做、小地图拖拽导航均需真实使用或性能证据触发，不属于本阶段
-  - §10 新增阶段 4.7 状态，方便后续恢复上下文
-- **2026-06-14 v19（阶段 4.6 实施完成）**：图谱演进第一批完成并同步文档
-  - §4 / §10 阶段 4.6 状态改为已完成，记录工具条、社区聚焦、类型筛选、关系边图例、双宿主分工的验收结果
-  - §4 图谱演进候选池标注首批已落地项；图谱增强检索明确移交 ADR-19 检索线
-  - §7 ADR-19 增补检索线归属说明，ADR-21 增补社区聚焦与顶部工具条修订，新增 **ADR-23**（关系边可视化：关系类型控制颜色、置信度控制虚实）
-- **2026-06-14 v18（阶段 4.6 立项 + plan 审查加固）**：图谱演进第一批进入执行准备
-  - §4 新增/修正"阶段 4.6：图谱演进第一批"：G1-1 改为先补齐关系类型 + 置信度边契约，再用关系类型控制颜色、置信度控制虚实；G1-2/G1-3/G1-4/G1-5 保持日常可用性方向
-  - §10 新增阶段 4.6 状态；阶段 4.5 状态同步为已合入，避免后续执行误判基线
-  - 图谱演进候选池修正"关系类型上边"的现状描述：关系词汇表与置信度体系已有，但当前边 `type` 不是关系类型
-- **2026-06-15 v18（对话工具状态体验）**：补记 `omp` 风格动态工具状态已落地
-  - §5.4 增加工作台对话区工具状态原则：当前 assistant 回复只保留一个动态工具条，完成后折叠为分组摘要，停止时保留取消状态
-  - §5.5 更新等待状态表述：不做空白思考动画，改用动态工具状态和流式文本
-- **2026-06-13 v17（图谱演进候选池）**：行业全景分析沉淀进"阶段后规划"
-  - §4 阶段后规划新增"图谱演进候选池"：统领判断（两条行业尸检教训）+ 推荐切片 7 项（局部图/路径讲解/lint 上图/关系类型上边/过滤器/导出美图/图谱增强检索）+ 远期池 4 项（绑定消化管线升级批次）+ 明确不做 3 项（3D/白板化/WebGL 重写）+ 竞品技术参考存档
-  - 定位：4.5 之后再排期，防止思考成果丢失；4.5 范围不受影响
-- **2026-06-13 v16（阶段 4.5 设计完成）**：图谱可用性收尾设计定稿
-  - §4 新增"阶段 4.5：图谱可用性收尾"小节（P0 画布导航 + P0 点击语义重构 + P1 搜索/图例/Shift + P2 节点瘦身 + 抽屉瘦身定稿）
-  - §7 新增 **ADR-22**（图谱交互模型："点击即阅读，选区即升级"；抽屉负责内容、图谱负责关系、派生信息不重复；动作映射表必须全覆盖；画布导航为地基能力）——修订 ADR-21 第 5 条选区面板形态
-  - §10 新增阶段 4.5 小节
-  - 上游盲区修正记录：stage-4 plan 漏列画布导航；stage-4 D6 映射表缺单节点行
-- **2026-06-12 v15（阶段四实施完成）**：阶段四 8 Step 完成并回填进度
-  - §4 / §10 阶段四状态改为完成；记录总验收自动化检查通过，主观视觉/手感项交由验收人判断
-  - §10 阶段四 8 Step 全部打勾；补记 fs.watch、根 package 类型、路径隐私检查等关键风险处理结果
-- **2026-06-12 v14（阶段四设计完成）**：monorepo 合并 + 图谱活地图设计定稿
-  - §4 阶段四整节改写："图谱集成" → "monorepo 合并 + 图谱活地图"（8 Step + 7 条验收）
-  - §7 新增 **ADR-20**（阶段四启动 monorepo 合并丙方案：subtree 进 `workbench/`、引擎落 `packages/graph-engine/`、只做工程合并不做品牌动作、Tauri 推迟）与 **ADR-21**（图谱引擎与活地图：一个引擎两个宿主、新骨架旧器官、活模拟+钉扎、位置/结构分权、选区=批量@、文件监听重算链、diff 生长动画、山水/墨夜双主题）
-  - §1.3 补"阶段四起合并启动"段落（一个产品、两扇门）
-  - §10 阶段四小节：设计完成状态 + 8 Step 占位 + 4 项关键风险；阶段五标注 Tauri 推迟
-  - 阶段四设计细则已归档为本地资料
-- **2026-05-28 v13（设置面板滚动修复）**：补记设置弹窗高度与内部滚动修复
-  - 设置面板限制最大高度，避免底部设置被屏幕遮住
-  - 设置内容区改为内部滚动，标题和关闭按钮保留在顶部
-  - 设置面板滚动修复的设计与验证记录已归档为本地资料
-- **2026-05-28 v12（阶段 3.5 预览布局收尾）**：补记可拖动预览区与侧栏折叠
-  - 右抽屉支持拖动左边缘调整预览宽度，双击恢复默认宽度；宽度保存在本机
-  - 左侧栏支持折叠为 52px 窄图标栏，保留核心入口并提供悬停提示；折叠状态保存在本机
-  - 小屏幕下保持原有全屏抽屉方式，不启用拖动
-  - 可调预览布局的设计与验证记录已归档为本地资料
-- **2026-05-28 v11（阶段 3.5 UI 收尾）**：补记原计划外的 UI 原型迁移
-  - 基于本地原型 `index.html` 统一工作台视觉，覆盖侧栏、顶部状态条、对话区、输入区、`@` / `/` 菜单、右抽屉、设置和批量消化面板
-  - 增加浅色 / 深色主题切换，默认深色，用户选择保存在本机
-  - 保持阶段 3.5 既有产品范围，不新增 npm 依赖；本次属于收尾视觉补强，不改变知识库和 agent 行为
-- **2026-05-28 v10（阶段 3.5 收尾）**：阶段 3.5 收尾补强完成，准备合并推送
-  - 新增当前知识库自动检索：主对话提问时后端先检索当前 KB 并注入上下文，避免批量消化后模型反问用户提供文章
-  - `query_knowledge_base` 工具与 `/api/prompt` 共用同一套检索逻辑，ADR-19 已写入 §7
-  - 检索失败降级为普通对话并写 retrieval 日志；寒暄、`/` 命令、导出产物指令不会误触发检索
-  - 验证覆盖：检索单测、并发单测、类型检查、真实接口总结/寒暄/导出三条路径
-- **2026-05-27 v9（阶段 3.5 完成）**：阶段 3.5 实施完成并本地验证
-  - 侧栏统一、拖拽/输入路径检查、非 wiki 目录初始化、多模型角色、批量消化子代理、SSE 进度浮窗均已落地
-  - 保持零新增 npm 依赖；main 角色已接管主对话，digest 角色用于批量消化
-- **2026-05-27 v8（阶段 3.5 设计完成）**：阶段 3.5 设计完成，待 codex 实施
-  - §4 新增"阶段 3.5：导航 UX 重构 + 多模型子代理批量消化"小节，列出背景、7 step 范围、5 条验收标准、设计文档指引
-  - §7 新增 **ADR-18：阶段 3.5 多模型双角色 + 轻量子代理框架**（9 条核心决策 + 与既有 ADR 关系 + 重新评估触发条件）
-  - §9 TBD-2 状态更新："阶段三再做"→"阶段 3.5 落地中"
-  - §10 新增"阶段 3.5"小节：当前分支 `stage-3.5`、设计文档链接、7 step 占位、3 个关键风险
-  - 阶段 3.5 设计细则已归档为本地资料
-- **2026-05-26 v7（阶段一完成标记）**：阶段一全部 step + review 修补完成，作者确认 MVP 可用
-  - §4 阶段一标题加 `✅ 已完成 2026-05-26`
-  - §4 阶段一末尾新增"完成情况"小节：含最终 commit、验收实况、接受的妥协、**启动 & 运行速查表**（compact 后从这里恢复上下文）
-  - §10 重命名 "下一步行动" → "进度追踪"：阶段一 8 step + 2 review commit 全部 ✅ + commit hash 表；阶段二预占骨架（7 项待办）；阶段三/四/五标 "未开始"
-  - 协作约定移到 §10 末尾，作为持续生效条款
-- **2026-05-26 v6**：
-  - TBD-2 表述改：删"阶段一固定 Claude Sonnet"，改为"沿用 pi-agent 默认设置"。实际作者通过 pi-agent 的 provider 体系接入了其他 provider（如 zai/glm-5.1），llm-wiki-agent 本不该假设固定 Sonnet
-  - §阶段后规划"多模型路由"措辞更通用，不锁死 Anthropic
-  - 微调：ChatPanel 流式光标 `animate-pulse` → 自定义 `animate-cursor-blink`（1s steps 真闪烁，原 pulse 在 ▍ 粗块上视觉太弱）
-- **2026-05-26 v5（阶段一完结 review 修补）**：实际 review 阶段一代码对照文档，发现并修复 3 项硬 gap、4 项偏差对齐
-  - 修 Gap 1：根 `package.json` 加 `npm run dev` 一行起两个服务（用 `concurrently`，符合 §4 阶段一范围第 1 条）
-  - 修 Gap 2：`AppConfig` 加 `lastUsedKbPath`；`selectKb/selectConversation/createNewConversation` 写入；`agent.bootstrapFromConfig()` 启动时 await 恢复（符合 §5.1.1）
-  - 修 Gap 3：`web/index.html` `<html class="dark">`（符合 §5.4 "默认深色"）
-  - §5.2 顶部状态条占位：ChatPanel header 加 `🤖 模型` 显示（disabled，从后端返回的 `active.model` 拿真实 provider/id）+ `⚙ 设置` 占位按钮，tooltip 标注"阶段二/三补"
-  - §5.5 严禁项对齐：删除 "等待 agent 响应…" 文字提示；streaming 时最后一个 assistant 气泡显示 `▍` 光标
-  - §5.4 等宽字体：`index.css` 加 `--font-mono` (JetBrains Mono / SF Mono stack) 给 `code/pre/kbd/samp` 元素
-  - 后端 `/api/knowledge-base` GET/POST、`/api/conversations` POST、`/api/conversations/new` POST 全部在 `active` 上返回 `model: { provider, id } | null`
-  - **明确推迟到阶段二/三**：§5.1 侧栏底部"图谱入口"延迟（阶段四，作者要重新构思）；"设置入口"占位放在 ChatPanel header（阶段二补完整面板）
-- **2026-05-26 v4 (review pass)**：基于源码/文档验证，修复 5 项事实错误 + 4 项精确化 + 3 项软化/标注
-  - 修：§3.1 架构图知识库路径 `~/wikis/` → `~/llm-wiki/`，并补充 `~/.pi/agent/auth.json`
-  - 修：§6.2 知识库目录补 `wiki/comparisons/`、`wiki/overview.md`、`.wiki-tmp/`、`.gitignore`（依据 `scripts/init-wiki.sh` 实际行为）
-  - 修：§8.1 删除"API key 走 config.json"过期描述，改为引用 ADR-13
-  - 修：§9 TBD-5 已定描述同步到 ADR-13 现状
-  - 加：Node 版本要求 `>=22.19.0`（pi-coding-agent 0.75.x 硬要求，写入 §3.2、§3.4、§8.1）
-  - 加：§3.4 补充 Extension 注入方式（SDK 用 `bindExtensions` / `ResourceLoader`，不依赖 CLI 全局发现）
-  - 加：§6.4 Obsidian 忽略列表补 `.wiki-tmp/` 和 dev 类目录
-  - 加：§2.3 anthropics/skills 列出 17+ 个实际 Skill，不止"四件套"
-  - 软：§3.2 "Tauri 比 Electron 轻 10×" → "二进制和内存通常显著低于 Electron（5-30 MB vs 100+ MB）"
-  - 软：§3.2 mise 描述更准确为"多语言版本管理（含 Node）"
-  - 标：§3.3 流程中的 `/api/*` 路径标注为"建议命名，最终以实现为准"
-  - 标：§阶段三 PPTX 渲染库删除错误链接，明确"阶段三选型"
-- **2026-05-26 v1**：第一版完成，确立产品定位、5 阶段路线、9 条 ADR、协作规则。
-- **2026-05-26 v2**：
-  - 新增 3.4 节《pi-agent 的使用方式》，明确"npm 依赖，不 clone 不 fork"
-  - 新增 5.1.1 节《会话与切换行为》，定义并行对话与切库自动保存
-  - 重写 6.1 节《知识库存储策略》，从单一目录改为"默认 `~/llm-wiki/` + 外部登记"混合策略
-  - 新增 6.4 节《Obsidian 共存规则》，明确 agent 不碰的文件类型
-  - 新增 6.6 节《中文路径与 UTF-8 铁律》
-  - 新增 ADR-10 ~ ADR-15 六条决策
-  - TBD-1 / TBD-3 / TBD-5 / TBD-7 关闭并归档到 ADR
-  - TBD-2 改为阶段三才决定（阶段一固定 Sonnet）
-  - 阶段一范围补充：知识库扫描含外部库登记、多并行对话支持
-  - 阶段二范围补充：内置 `/new-wiki` 命令、设置面板 UI
-- **2026-05-26 v3**：
-  - 新增 6.7 节《边界场景行为约定》：单实例、无网络/无 key、崩溃恢复、后端未起、目录失效
-  - **重写 ADR-13**：模型认证完全复用 pi-agent 的 `~/.pi/agent/auth.json`，三层 fallback（pi CLI 登录 / UI 填 key / env var）；`config.json` 不再存任何凭证
-  - 新增 ADR-13b：明确不抄 open-design 的多 CLI 子进程模式
-  - 重写 6.3 应用数据目录，澄清"应用数据 / 知识库数据 / 模型凭证"三类彻底分离
-  - 阶段二范围细化：设置面板 UI 改为"三层认证 + 偏好"，验收标准更新
-- **2026-05-27 v9（阶段三完成标记）**：阶段三全部 8 step + 1 fix commit 完成，审查通过合并到 main
-  - §4 阶段三标题加 `✅ 已完成 2026-05-27`
-  - §10 阶段三标记已完成，补充 9 commit 表 + 完成情况（范围、决策、妥协）
-  - CLAUDE.md 更新"项目当前阶段"：阶段二 → 阶段三
+继续恢复上下文时：先读本文件的产品定位、数据边界和 ADR；需要追旧路线或旧账时再读归档。

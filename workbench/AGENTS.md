@@ -1,4 +1,4 @@
-# llm-wiki-agent Codex 协作规则
+# llm-wiki 工作台 Codex 协作规则
 
 ## 第一原则
 
@@ -8,9 +8,17 @@
 
 ## 必读文档
 
-动手前先读 [PRODUCT.md](PRODUCT.md)。它是项目的意图、边界、路线和决策来源。
+先用下面的冷启动表选最小必读集，不要默认读历史归档。
 
-文档、代码、约定互相冲突时，以 `PRODUCT.md` 为准。若需要改变产品决策，先说明冲突点和建议改法，等作者确认后再改文档和代码。
+| 任务类型 | 必读 | 需要时再读 |
+|---|---|---|
+| 工作台日常代码/体验改动 | [PRODUCT.md](PRODUCT.md) 的定位、数据边界、当前状态 | [CONTEXT.md](CONTEXT.md)、相关 ADR |
+| 术语、产品边界、能力归属、ADR 改动 | [../CONTEXT-MAP.md](../CONTEXT-MAP.md) 指向的相关词表、[PRODUCT.md](PRODUCT.md) 第 7 节 | [../docs/adr/README.md](../docs/adr/README.md)、相关 ADR 正文；Skill / 工作台边界优先看 ADR-28 |
+| 图谱语义或图谱交互 | [../packages/graph-engine/CONTEXT.md](../packages/graph-engine/CONTEXT.md)、[PRODUCT.md](PRODUCT.md) 图谱相关章节 | ADR-21、ADR-22、ADR-23、ADR-26、ADR-32 |
+| 查旧阶段原计划、范围或验收标准 | [docs/archive/product-roadmap.md](docs/archive/product-roadmap.md) | 必要时再看相关阶段设计 |
+| 查实际完成记录、提交表或变更经过 | [docs/archive/product-history.md](docs/archive/product-history.md) | 必要时对照 git log |
+
+当前行动先以 `PRODUCT.md` 判断；如果 `PRODUCT.md`、ADR、词表或代码事实互相冲突，先说明冲突点和建议改法，等作者确认后再改文档或代码。
 
 ## Codex 工作方式
 
@@ -55,13 +63,13 @@
 
 ## 项目当前阶段
 
-详细进度、阶段验收、commit 表以 `PRODUCT.md` 第 10 节为准（这里只放快速概览，不再自存详细状态，避免两处不同步）。
+当前状态以 `PRODUCT.md` 第 4 节为准；旧阶段路线见 `workbench/docs/archive/product-roadmap.md`，验收实况和旧 changelog 见 `workbench/docs/archive/product-history.md`。这里只放快速概览，避免两处不同步。
 
-当前基线已到阶段 4.7（图谱交互地基重构完成）。详细进度、阶段验收、commit 表以 PRODUCT.md §10 为准；不要在本文件重复维护完整状态。
+当前基线已到阶段 4.8（全局社区高亮已落地，社区阅读主路径走 Sigma）。详细历史不要在本文件重复维护。
 
-❗ 开发主场在**主仓库 monorepo**（本目录是其 `workbench/` 子目录）：图谱引擎在 `packages/graph-engine/`，`npm run dev` 从 monorepo 根执行。原独立 llm-wiki-agent 仓库已只读归档（处置留品牌阶段，见 ADR-20）。
+❗ 开发主场在**主仓库 monorepo**（本目录是其 `workbench/` 子目录）：图谱引擎在 `packages/graph-engine/`，`npm run dev` 从 monorepo 根执行。原独立工作台仓库（旧名 llm-wiki-agent）已进入只读过渡状态（不 archive，处置留品牌阶段，见 ADR-20）。
 
-阶段一 / 二 / 三 / 3.5 / 四 / 4.5 / 4.6 / 4.7 均已完成（详见 PRODUCT.md §10）。
+阶段一 / 二 / 三 / 3.5 / 四 / 4.5 / 4.6 / 4.7 / 4.8 均已完成（详见 PRODUCT.md §4 和归档）。
 
 ## 关键路径速查
 
@@ -91,10 +99,12 @@ Node 版本要求：`>=22.19.0`。
 
 先读：
 
-1. `PRODUCT.md`
-2. 当前阶段设计文档
-3. git log / git diff
-4. 相关代码和测试
+1. `PRODUCT.md` 当前状态、数据边界和相关决策索引
+2. git log / git diff
+3. 相关代码和测试
+4. 当前任务直接相关的 `CONTEXT.md` 或 ADR
+
+只有需要追旧路线、验收细节或历史提交原因时，再读 `workbench/docs/archive/product-roadmap.md` / `workbench/docs/archive/product-history.md`。
 
 日志和 git 是事实，文档是意图。对照后再继续。
 

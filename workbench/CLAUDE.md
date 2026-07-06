@@ -1,4 +1,4 @@
-# llm-wiki-agent 项目规则
+# llm-wiki 工作台项目规则
 
 ## 第一原则
 
@@ -6,33 +6,46 @@
 
 ## 必读文档
 
-**[PRODUCT.md](PRODUCT.md)** —— 产品定位、架构、阶段路线、ADR、协作规则。任何动手前先读这份文档，具体阶段和 ADR 数量以文档正文为准。
+先用下面的冷启动表选最小必读集，不要默认读历史归档。
 
-文档与代码 / 约定冲突时，**以 PRODUCT.md 为准**。
+| 任务类型 | 必读 | 需要时再读 |
+|---|---|---|
+| 工作台日常代码/体验改动 | [PRODUCT.md](PRODUCT.md) 的定位、数据边界、当前状态 | [CONTEXT.md](CONTEXT.md)、相关 ADR |
+| 术语、产品边界、能力归属、ADR 改动 | [../CONTEXT-MAP.md](../CONTEXT-MAP.md) 指向的相关词表、[PRODUCT.md](PRODUCT.md) 第 7 节 | [../docs/adr/README.md](../docs/adr/README.md)、相关 ADR 正文；Skill / 工作台边界优先看 ADR-28 |
+| 图谱语义或图谱交互 | [../packages/graph-engine/CONTEXT.md](../packages/graph-engine/CONTEXT.md)、[PRODUCT.md](PRODUCT.md) 图谱相关章节 | ADR-21、ADR-22、ADR-23、ADR-26、ADR-32 |
+| 查旧阶段原计划、范围或验收标准 | [docs/archive/product-roadmap.md](docs/archive/product-roadmap.md) | 必要时再看相关阶段设计 |
+| 查实际完成记录、提交表或变更经过 | [docs/archive/product-history.md](docs/archive/product-history.md) | 必要时对照 git log |
+
+当前行动先以 `PRODUCT.md` 判断；如果 `PRODUCT.md`、ADR、词表或代码事实互相冲突，先说明冲突点和建议改法，等作者确认后再改文档或代码。
 
 ## AI 协作规则（强约束）
 
-1. **不要自由发挥**。每次动手前先说"打算改哪些文件、为什么这么改、对其他部分有什么影响"，作者确认后再动。
+1. **不要自由发挥**。每次动手前先说"打算改哪些文件、为什么这么改、对其他部分有什么影响"；普通实现默认继续推进，不反复等确认。
 2. **新增依赖**（npm package、Skill、配置项）前，先问"这是 PRODUCT.md 里规划过的吗"。规划外的依赖不要先装。
 3. **修改 PRODUCT.md 之外的决策**，先说"这与 PRODUCT.md §X.Y 冲突，建议改文档为 Z"，等作者拍板。
-4. **作者思路断了时**，先读 PRODUCT.md，不要急着问"做到哪里了"——日志 / git 是事实，文档是意图，对照看。
+4. **作者思路断了时**，先按上面的冷启动表读当前状态，再对照 git log / git diff；不要急着问"做到哪里了"。
 5. **绝不主动跳阶段**。阶段 N 验收不过，不允许动阶段 N+1 的代码。
 6. **求真不猜**。pi-agent / Skill / 外部库的事实，能查源码就查源码，能查文档就查文档，不要凭训练数据印象答。
 
 ## 项目当前阶段
 
-详细进度、阶段验收、commit 表以 PRODUCT.md §10 为准。当前基线已到阶段 4.7（图谱交互地基重构完成）；`feat/paper-ui` 是在该基线上的 Paper UI 外观迁移专项。
+当前状态以 PRODUCT.md §4 为准；旧阶段路线见 `workbench/docs/archive/product-roadmap.md`，验收实况和 commit 表见 `workbench/docs/archive/product-history.md`。当前基线已到阶段 4.8（全局社区高亮已落地，社区阅读主路径走 Sigma）。
 
-❗ 开发主场已在**主仓库 monorepo**（本目录是其 `workbench/` 子目录）：引擎在 `packages/graph-engine/`，`npm run dev` 从 monorepo 根执行。原独立 llm-wiki-agent 仓库已进入只读过渡状态（不 archive，处置留品牌阶段，见 ADR-20）。
+❗ 开发主场已在**主仓库 monorepo**（本目录是其 `workbench/` 子目录）：引擎在 `packages/graph-engine/`，`npm run dev` 从 monorepo 根执行。原独立工作台仓库（旧名 llm-wiki-agent）已进入只读过渡状态（不 archive，处置留品牌阶段，见 ADR-20）。
 
-阶段一 / 二 / 三 / 四及阶段 3.5 / 4.5 / 4.6 / 4.7 已完成（详见 PRODUCT.md §10）：
+阶段一 / 二 / 三 / 3.5 / 四 / 4.5 / 4.6 / 4.7 / 4.8 均已完成（详见 PRODUCT.md §4 和归档）。
 
-- 阶段一 ✅ 2026-05-26（主干打通）
-- 阶段二 ✅ 2026-05-27（@、/、结晶、消化）
-- 阶段三 ✅ 2026-05-27（5 个导出按钮 + 4 个 vendored anthropics Skills + 产物右抽屉 + HTML iframe + 下载渲染器 + Skill 可见性开关）
-- 阶段 3.5 ✅ 2026-05-27 至 2026-05-28（导航、多模型、批量消化、当前知识库检索、工作台视觉、可调预览、设置面板滚动修复）
-- 阶段四 ✅ 2026-06-12（monorepo 合并 + 共享图谱引擎 + 活地图：钉扎/选区/生长动画 + 离线 HTML 切引擎产物）
-- 阶段 4.5 / 4.6 / 4.7 ✅ 2026-06-14 至 2026-06-16（图谱可用性、图谱演进第一批、图谱交互地基）
+## 验证要求
+
+向作者汇报前，尽一切可能实际验证结果。
+
+- 写代码后至少运行相关检查；能跑全量就跑全量。
+- Web 界面改动要启动应用，打开页面，看渲染，点关键流程。
+- 脚本或接口改动要用代表性输入跑一遍，检查输出。
+- 有明显边界情况时，至少模拟一个边界情况。
+- 发现问题就修，再重新验证。
+
+不要把未经验证的初稿交给作者。只有确认正常，或确实遇到需要作者介入的障碍，才汇报。
 
 ## 关键路径速查
 
@@ -50,6 +63,6 @@
 
 ## Node 版本
 
-`>=22.19.0`（pi-coding-agent 0.75.x 的硬要求）。
+`>=22.19.0`（pi-coding-agent 当前依赖要求）。
 
 仓库根用 `.mise.toml` / `.nvmrc` 锁定。
