@@ -16,6 +16,7 @@ import type {
 } from "./types";
 import { createGraphRenderer } from "./render";
 import { createSigmaGlobalFacadeRenderer } from "./graph-routes/sigma-global-route";
+import { SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS } from "./render/sigma-global-camera";
 export { selectionInputForSigmaHit, sigmaCommunityReadingHitActionForSigmaHit, sigmaGlobalHitActionForSigmaHit } from "./graph-routes/sigma-global-route";
 import { resolveSelectionForCapabilities } from "./select";
 import { graphNodeTypeLabel, wikiPathForGraphNode } from "./graph-node";
@@ -84,7 +85,7 @@ export interface GraphFacadeRenderer {
   setTypeFilters(filters: NonNullable<GraphEngineOptions["typeFilters"]>): void;
   showTemporaryObject(object: GraphSummaryObjectRef): void;
   clearTemporaryObjectDisplay(): void;
-  resetView(options?: { onComplete?: () => void; onCancel?: () => void; onCleanup?: () => void }): void;
+  resetView(options?: { onComplete?: () => void; onCancel?: () => void; onCleanup?: () => void; durationMs?: number }): void;
   select(selection: SelectionInput): void;
   previewNode(id: string | null): void;
   clearSelection(): void;
@@ -545,7 +546,12 @@ export function createGraphFacadeRouteManager(
                 options.callbacks?.onViewReset?.();
               }
             }
-          : undefined);
+          // 社区阅读回全图（#121）：复用 #118 共享过渡基座，但用比进入更短的退出时长，
+          // 让退出比进入社区更克制。来源社区高亮在前面的社区阅读分支里已保留
+          //（state.sourceCommunityId 未清），这里只决定镜头节奏。
+          : wasCommunityReading
+            ? { durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS }
+            : undefined);
       }
       return { shouldNotifyViewReset: !shouldDelayGlobalCommunityClear };
     }

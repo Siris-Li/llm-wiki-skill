@@ -234,7 +234,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       options = { ...options, temporaryObject: null };
       updateSigmaRenderer();
     },
-    resetView(resetOptions?: { onComplete?: () => void; onCancel?: () => void; onCleanup?: () => void }) {
+    resetView(resetOptions?: { onComplete?: () => void; onCancel?: () => void; onCleanup?: () => void; durationMs?: number }) {
       const wasCommunityReading = options.focus?.kind === "community";
       const shouldDelayGlobalCommunityClear = !wasCommunityReading && options.selection?.kind === "community";
       clearSigmaTransientHoverState();

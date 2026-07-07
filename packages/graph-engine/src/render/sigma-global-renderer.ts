@@ -279,7 +279,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       runSigmaViewTransition({
         target: sigmaGlobalCameraState(sigma, adapterData, currentViewportSize),
         animate: true,
-        durationMs: SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS,
+        durationMs: resetOptions?.durationMs ?? SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS,
         easing: "quadraticInOut",
         onComplete: resetOptions?.onComplete,
         onCancel: resetOptions?.onCancel,
