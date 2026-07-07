@@ -131,7 +131,7 @@ Each platform has its own setup guide:
 - **Claude Companion Upgrade Command** — `/llm-wiki-upgrade` included after installation
 - **Material Deletion** — Cascade-delete with automatic cleanup of associated pages, broken links, and cache
 - **Sigma Graph Main Route** — Both the global map and community reading now run on Sigma/Graphology; DOM/SVG remains only as fallback, comparison, and abnormal-case safety net
-- **Community Close-up Map** — Entering a community keeps only that community's nodes and internal relationships visible while preserving node positions, community color, edge tiers, local search/filter, Shift multi-select, and return highlights
+- **Community Close-up Map** — Entering a community is one continuous transition: the summary drawer exits, the canvas expands smoothly, and the camera continues from the global community close-up into the community reading close-up, landing on the Sigma community reading route without reopening the summary (under reduced motion the drawer just closes, with no large camera push); inside, only that community's nodes and internal relationships stay visible while preserving node positions, community color, edge tiers, local search/filter, Shift multi-select, and return highlights
 - **Query Persistence** — Save valuable comprehensive answers back to the knowledge base
 - **Batch Digestion** — Give a folder path, process all files at once
 - **Knowledge Base Health Check** — Scripts detect orphan pages, broken links, index consistency; plus AI-level contradiction and cross-reference checks
