@@ -101,6 +101,12 @@ export interface SigmaGlobalRendererResetViewOptions {
   onComplete?: () => void;
   onCancel?: () => void;
   onCleanup?: () => void;
+  /**
+   * 相机过渡时长（毫秒）。省略时用默认 spotlight 时长
+   *（SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS）。#121 社区阅读回全图传退出
+   * 专用短时长 SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS，让退出比进入更克制。
+   */
+  durationMs?: number;
 }
 
 export interface SigmaGlobalRenderer {

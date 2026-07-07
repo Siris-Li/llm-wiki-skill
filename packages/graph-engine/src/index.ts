@@ -10,6 +10,7 @@ export * from "./themes";
 export * from "./diff";
 export * from "./anim";
 export * from "./architecture";
+export * from "./graph-transition-timings";
 export {
   createGraphFacade,
   createGraphOfflineCapabilities,

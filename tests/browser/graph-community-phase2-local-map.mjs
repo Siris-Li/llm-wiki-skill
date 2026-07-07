@@ -77,7 +77,8 @@ async function runFlow(viewport, label) {
 
   // 5. Return to global keeps the source community highlighted until a real
   // clear/replace action removes it.
-  await clickReturnGlobal(page);
+  const returnTransition = await clickReturnGlobal(page);
+  assert.equal(returnTransition.transitionActive, true, "returning global should run a visible view transition instead of hard cutting");
   await waitForSigmaGlobalUnfocused(page);
   await waitForSelectedCommunity(page, "t1");
   const returned = await sigmaSnapshot(page);
@@ -107,7 +108,7 @@ async function runFlow(viewport, label) {
   assert.deepEqual(afterReplace.selectedLabels, ["t2"], "selecting another community should replace the old source community label highlight");
 
   await page.close();
-  return { viewport: `${viewport.width}x${viewport.height}`, selectedBeforeEnter, localMap, returned, afterBlankClear, afterReplace };
+  return { viewport: `${viewport.width}x${viewport.height}`, selectedBeforeEnter, localMap, returnTransition, returned, afterBlankClear, afterReplace };
 }
 
 async function waitForSigmaGlobal(page) {
@@ -270,7 +271,9 @@ async function clickReturnGlobal(page) {
   // Try the toolbar first. On narrow viewports the drawer can cover it, so fall
   // back to the graph's blank double-click return gesture without closing the
   // drawer (closing would clear the source context before we can assert it).
+  let transitionActive = waitForReturnTransitionActive(page);
   await page.getByRole("button", { name: "回全图" }).click({ force: true }).catch(() => undefined);
+  let transitionActiveSeen = await transitionActive;
   const returned = await page.waitForFunction(() => {
     const root = document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']");
     return root?.getAttribute("data-community-focus-id") === ""
@@ -278,8 +281,20 @@ async function clickReturnGlobal(page) {
   }, undefined, { timeout: 1200 })
     .then(() => true)
     .catch(() => false);
-  if (returned) return;
+  if (returned) return { transitionActive: transitionActiveSeen };
+  transitionActive = waitForReturnTransitionActive(page);
   await dispatchGraphBlankDoubleClick(page);
+  transitionActiveSeen = await transitionActive;
+  return { transitionActive: transitionActiveSeen };
+}
+
+async function waitForReturnTransitionActive(page) {
+  return page.waitForFunction(() => {
+    return document.querySelector(".sigma-global-renderer[data-renderer='sigma-global']")
+      ?.getAttribute("data-view-transition") === "active";
+  }, undefined, { timeout: 1000 })
+    .then(() => true)
+    .catch(() => false);
 }
 
 async function dispatchGraphBlankDoubleClick(page) {

@@ -683,6 +683,96 @@ describe("graph route state continuity", () => {
     // 选区增长期间不应再触发任何相机方法。
     assert.deepEqual(cameraMethods(sigmaRenderers.at(-1)?.calls.slice(baseline) ?? []), []);
   });
+
+  it("returns from community reading to global with a short transition, preserving global filters and pins", () => {
+    // #121：社区阅读回全图复用 #118 共享过渡基座，但用比进入更短的退出时长；
+    // 同时保护来源社区高亮、全局筛选和钉扎，不被退出动作清掉。
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const pinned: PinMap = { "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" } };
+    const globalFilters: GraphTypeFilters = { topic: true, source: false };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: pinned,
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: globalFilters,
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return trackRenderer(sigmaRenderers, "sigma-global");
+        },
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c1");
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+
+    // 路线连续性：focus 清空、来源社区保留、selection 不被错误扩展。
+    assert.deepEqual(state.focus, null);
+    assert.equal(manager.sourceCommunityId, "c1");
+    assert.equal(state.selection, null);
+
+    // 状态保护：全局筛选 + 钉扎位置不被退出动作清掉。
+    assert.deepEqual(state.typeFilters, globalFilters);
+    assert.deepEqual(state.pins, pinned);
+
+    // 退出过渡：复用共享基座（resetView）。具体 Sigma 短时长在路线边界测试中验证。
+    const resetCalls = sigmaRenderers[0].calls.filter((call) => call[0] === "resetView");
+    assert.ok(resetCalls.length > 0, "return-to-global should call renderer resetView");
+  });
+
+  it("clears temporary display state when returning from community reading to global", () => {
+    // #121：退出社区阅读时，临时展示对象属于社区本地阅读状态。外层 facade 清掉后，
+    // Sigma 路由也不能通过 visibility sync 把旧对象重新发布回来。
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: { kind: "node", nodeId: "a" }
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return trackRenderer(sigmaRenderers, "sigma-global");
+        },
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c1");
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+
+    assert.equal(state.focus, null);
+    assert.equal(state.temporaryObject, null);
+    assert.equal(manager.sourceCommunityId, "c1");
+    assert.deepEqual(sigmaRenderers[0].calls.filter((call) => call[0] === "resetView").at(-1), ["resetView"]);
+  });
 });
 
 function createFakeRenderer(): GraphFacadeRenderer & { calls: unknown[][] } {

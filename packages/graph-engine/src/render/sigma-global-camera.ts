@@ -27,6 +27,7 @@ export interface SigmaCommunitySpotlightCameraResult extends SigmaGlobalCameraMo
 }
 
 export const SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS = 380;
+export { SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS } from "../graph-transition-timings";
 
 export interface SigmaGlobalViewTransition {
   isActive(): boolean;

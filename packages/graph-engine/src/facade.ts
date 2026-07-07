@@ -530,7 +530,6 @@ export function createGraphFacadeRouteManager(
     if (wasCommunityReading && state.selection) {
       state.selection = null;
       state.temporaryObject = null;
-      options.callbacks?.onSelectionClearRequested?.();
     } else if (!shouldDelayGlobalCommunityClear) {
       clearCommunitySelectionForGlobalReset();
     }

@@ -17,6 +17,7 @@ import {
   sigmaGlobalRendererRuntimeBoundary,
   type SigmaGlobalRendererRuntime
 } from "../render/sigma-global-renderer";
+import { SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS } from "../graph-transition-timings";
 import {
   createCommunityLegend,
   createGraphToolbar,
@@ -240,7 +241,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       clearSigmaTransientHoverState();
       if (wasCommunityReading) clearCommunityTypeFilterScope();
       options = wasCommunityReading
-        ? applyScopedSearch({ ...options, focus: null, searchQuery: "", searchResultIds: [] }, "")
+        ? applyScopedSearch({ ...options, focus: null, searchQuery: "", searchResultIds: [], temporaryObject: null }, "")
         : { ...options, focus: null };
       syncVisibilityState();
       mountSigmaControls();
@@ -263,7 +264,9 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
         return;
       }
       updateSigmaSelection(null);
-      renderer?.resetView(resetOptions);
+      renderer?.resetView(wasCommunityReading
+        ? { ...resetOptions, durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS }
+        : resetOptions);
     },
     select(selection) {
       updateSigmaSelection(selection);
