@@ -41,8 +41,41 @@ describe("RightDrawer community enter exit", () => {
 
 		assert.equal(completed, 0, "exit must not complete synchronously on mount");
 		await waitFor(() => assert.equal(completed, 1));
-		// 不重复触发。
-		await waitFor(() => assert.equal(completed, 1));
+		// 不重复触发：推进远超 duration 后仍只一次。
+		await new Promise((resolve) => setTimeout(resolve, 40));
+		assert.equal(completed, 1, "onExitComplete must fire at most once");
+	});
+
+	it("cancels the exit timer when unmounted before the duration elapses", async () => {
+		let completed = 0;
+		const { unmount } = render(
+			<RightDrawer
+				{...baseProps()}
+				drawer={communityDrawer()}
+				exiting
+				exitDurationMs={30}
+				onExitComplete={() => { completed += 1; }}
+			/>,
+		);
+		unmount();
+		await new Promise((resolve) => setTimeout(resolve, 80));
+		assert.equal(completed, 0, "timer must be cleared on unmount so onExitComplete never fires");
+	});
+
+	it("keeps fullscreen open and skips the exiting marker when fullscreen and exiting combine", () => {
+		const html = renderToStaticMarkup(
+			React.createElement(RightDrawer, {
+				...baseProps(),
+				drawer: communityDrawer(),
+				fullscreen: true,
+				exiting: true,
+				exitDurationMs: 320,
+				onExitComplete: noop,
+			}),
+		);
+		assert.match(html, /drawer-panel-open/);
+		assert.match(html, /drawer-panel-fullscreen/);
+		assert.doesNotMatch(html, /data-drawer-exiting/);
 	});
 
 	it("completes immediately when the exit duration is zero (reduced motion)", async () => {

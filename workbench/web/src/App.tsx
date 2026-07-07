@@ -602,6 +602,17 @@ function App() {
 		stageDrawerExit(null);
 	}, [stageDrawerExit]);
 
+	// 退场被打断兜底（#120 review）：Escape / 知识库切换 / 异步 graphData 刷新等会让
+	// drawer 引用变化，exiting 翻 false，RightDrawer 的退场定时器被清，onExitComplete
+	// 不再触发。此时必须清空 drawerExit/Ref，否则两个守卫会被永久短路——后续所有
+	// clearSelection 被吞、drawerAfterGraphDataRefresh 永久跳过。drawer === drawerExit
+	// 是引用守卫：正常退场期间两者同引用，effect 不动；只有打断（引用变化）才触发清理。
+	useEffect(() => {
+		if (drawerExit && drawer !== drawerExit) {
+			stageDrawerExit(null);
+		}
+	}, [drawer, drawerExit, stageDrawerExit]);
+
 	const handleAddExternal = async (path: string) => {
 		const { info } = await registerExternalKnowledgeBase(path);
 		await refreshAll();
