@@ -78,6 +78,10 @@ import {
 	graphSelectionCommandForSummaryCommand,
 	type GraphSelectionCommand,
 } from "@/lib/graph-summary-actions";
+import {
+	COMMUNITY_ENTER_EXIT_DURATION_MS,
+	planCommunityEnterExit,
+} from "@/lib/graph-community-enter";
 import { WIKI_LINK_SEEN_EVENT } from "@/lib/wiki-links";
 import {
 	applyAppearance,
@@ -170,6 +174,15 @@ function App() {
 	const [drawer, setDrawer] = useState<DrawerState>(() => closedDrawer());
 	const [artifacts, setArtifacts] = useState<ArtifactManifest[]>([]);
 	const [drawerFullscreen, setDrawerFullscreen] = useState(false);
+	// 进入社区退场轨道（#120）：exit 期间保留社区摘要挂载做退场，结束后落回 closed。
+	const [drawerExit, setDrawerExit] = useState<DrawerState | null>(null);
+	// 同步快照到 ref：applyCommunityEnter 的 clearSelection 会异步回流为 selection clear，
+	// 那条 clear 不应关掉正在退场的抽屉——退场轨道自己管理关闭。
+	const drawerExitRef = useRef<DrawerState | null>(null);
+	const stageDrawerExit = useCallback((snapshot: DrawerState | null) => {
+		drawerExitRef.current = snapshot;
+		setDrawerExit(snapshot);
+	}, []);
 	const [batchJob, setBatchJob] = useState<BatchDigestJob | null>(null);
 	const [pendingGraphPrompt, setPendingGraphPrompt] = useState<{
 		id: string;
@@ -417,7 +430,12 @@ function App() {
 
 	const handleGraphSelectionChange = useCallback((selection: Selection | null) => {
 		if (!selection) {
-			setDrawer((current) => shouldCloseDrawerAfterGraphSelectionClear(current) ? closedDrawer() : current);
+			setDrawer((current) => {
+				// 退场轨道进行时，clearSelection 是 applyCommunityEnter 的副作用，
+				// 抽屉关闭由退场轨道接管，这里不要硬切。
+				if (drawerExitRef.current != null) return current;
+				return shouldCloseDrawerAfterGraphSelectionClear(current) ? closedDrawer() : current;
+			});
 			return;
 		}
 		if (drawer.mode === "graph-reader" && selection.nodeIds.length === 1 && drawer.payload.node.id === selection.nodeIds[0]) {
@@ -579,6 +597,11 @@ function App() {
 		});
 	}, []);
 
+	const handleDrawerExitComplete = useCallback(() => {
+		setDrawer(closedDrawer());
+		stageDrawerExit(null);
+	}, [stageDrawerExit]);
+
 	const handleAddExternal = async (path: string) => {
 		const { info } = await registerExternalKnowledgeBase(path);
 		await refreshAll();
@@ -656,8 +679,21 @@ function App() {
 			return;
 		}
 		if (command.kind === "enter-community") {
-			setDrawer(closedDrawer());
-			setSelectionCommand({ id: command.communityId, type: "enter-community" });
+			// 进入社区是一段连续过渡：社区摘要退场、画布平滑扩展，镜头复用 #118 的
+			// Sigma 视图过渡基座继续推进到社区阅读近景。这里只编排工作台侧——下发的
+			// enter-community 命令触发 GraphPanel.applyCommunityEnter（clearSelection /
+			// setSourceCommunityContext / focusCommunity），相机过渡由 spotlight camera
+			// 承担，不另写接管逻辑。减少动态效果下跳过退场，抽屉直接落回 closed。
+			setDrawer((current) => {
+				const plan = planCommunityEnterExit({
+					communityId: command.communityId,
+					drawer: current,
+					reducedMotion: prefersReducedMotion(),
+				});
+				setSelectionCommand(plan.selectionCommand);
+				stageDrawerExit(plan.exit ? plan.exit.drawer : null);
+				return plan.exit ? current : closedDrawer();
+			});
 			return;
 		}
 		if (command.kind === "select-neighbors") {
@@ -727,6 +763,9 @@ function App() {
 		const effectiveState = visibilityWithTemporaryObject(graphVisibilityState, nextTemporaryObject);
 		setDrawer((current) => {
 			if (!isGraphInteractionDrawer(current)) return current;
+			// 退场轨道进行时，进入社区会带新一轮 visibility state；这里不要重建抽屉对象，
+			// 否则 drawer 引用变化会让 drawer === drawerExit 失败、退场中断。
+			if (drawerExitRef.current != null) return current;
 			if (graphReaderStaleAfterRefresh(current, graphData, effectiveState)) clearStaleGraphReaderFocus();
 			return drawerAfterGraphDataRefresh(current, graphData, {
 				pins: graphPins,
@@ -1082,6 +1121,9 @@ function App() {
 						onGraphCommunityAsk={handleGraphCommunityAsk}
 						onResize={setDrawerWidth}
 						onToggleFullscreen={() => setDrawerFullscreen((value) => !value)}
+						exiting={drawerExit != null && drawer === drawerExit}
+						onExitComplete={handleDrawerExitComplete}
+						exitDurationMs={COMMUNITY_ENTER_EXIT_DURATION_MS}
 						onClose={handleCloseDrawer}
 					/>
 				</div>
@@ -1145,6 +1187,11 @@ function isGraphInteractionDrawer(drawer: DrawerState): boolean {
 		|| drawer.mode === "graph-loading"
 		|| drawer.mode === "graph-empty"
 		|| drawer.mode === "graph-error";
+}
+
+function prefersReducedMotion(): boolean {
+	if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+	return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 export default App;

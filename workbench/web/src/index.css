@@ -2838,6 +2838,27 @@
     height: 100vh;
   }
 
+  /* 进入社区退场轨道（#120）：抽屉保留挂载、宽度过渡到 0，画布靠 .shell-main
+     flex:1 平滑扩展；内容淡化退场，而不是瞬间消失。复用 #118 的相机过渡基座
+     在同一时段推进到社区阅读近景。 */
+  .drawer-panel[data-drawer-exiting="true"] {
+    width: 0;
+    min-width: 0;
+    transition: width 320ms ease, min-width 320ms ease;
+  }
+
+  .drawer-panel[data-drawer-exiting="true"] .drawer-content {
+    opacity: 0;
+    transition: opacity 240ms ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drawer-panel[data-drawer-exiting="true"],
+    .drawer-panel[data-drawer-exiting="true"] .drawer-content {
+      transition: none;
+    }
+  }
+
   .drawer-resize-handle {
     position: absolute;
     top: 0;

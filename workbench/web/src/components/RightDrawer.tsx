@@ -42,6 +42,15 @@ interface Props {
 	onResize: (width: number) => void;
 	onToggleFullscreen: () => void;
 	onClose: (reason: "button" | "escape") => void;
+	/**
+	 * 进入社区退场轨道：exiting 期间抽屉保留挂载但移除宽度 class，画布靠
+	 * `.shell-main { flex: 1 }` 平滑扩展，CSS 宽度过渡承担视觉连续。退场时长
+	 * 到点后调 onExitComplete，App 才把 drawer 落回 closed——退场而非瞬间消失。
+	 * 减少动态效果下 exitDurationMs 传 0，立即完成，跳过这段过渡。
+	 */
+	exiting?: boolean;
+	onExitComplete?: () => void;
+	exitDurationMs?: number;
 }
 
 const KIND_ICON: Record<ArtifactManifest["kind"], string> = {
@@ -72,14 +81,26 @@ export function RightDrawer({
 	onResize,
 	onToggleFullscreen,
 	onClose,
+	exiting = false,
+	onExitComplete,
+	exitDurationMs = 0,
 }: Props) {
 	const dragStart = useRef<{ x: number; width: number } | null>(null);
+	const onExitCompleteRef = useRef(onExitComplete);
+	onExitCompleteRef.current = onExitComplete;
 
 	useEffect(() => {
 		return () => {
 			document.body.classList.remove("drawer-resizing");
 		};
 	}, []);
+
+	useEffect(() => {
+		if (!exiting) return;
+		const duration = Math.max(0, exitDurationMs);
+		const timer = window.setTimeout(() => onExitCompleteRef.current?.(), duration);
+		return () => window.clearTimeout(timer);
+	}, [exiting, exitDurationMs]);
 
 	useEffect(() => {
 		if (drawer.mode === "closed") return;
@@ -107,11 +128,15 @@ export function RightDrawer({
 		? drawer.artifacts.find((item) => item.id === drawer.activeArtifactId) ?? null
 		: null;
 	const title = drawerTitle(drawer, activeArtifact);
+	// 全屏抽屉优先：进入社区退场只作用于并排抽屉，不撕扯全屏阅读面板。
+	const keepOpenWidth = fullscreen || !exiting;
+	const showExitingMarker = exiting && !fullscreen;
 	return (
 		<React.Fragment>
 		<aside
-			className={cn("drawer-panel drawer-panel-open", fullscreen && "drawer-panel-fullscreen")}
+			className={cn("drawer-panel", keepOpenWidth && "drawer-panel-open", fullscreen && "drawer-panel-fullscreen")}
 			data-drawer-open="true"
+			data-drawer-exiting={showExitingMarker ? "true" : undefined}
 			style={{ "--drawer-width": `${width}px` } as CSSProperties}
 		>
 			{!fullscreen && (
