@@ -85,6 +85,9 @@ export interface GraphFacadeRenderer {
   showTemporaryObject(object: GraphSummaryObjectRef): void;
   clearTemporaryObjectDisplay(): void;
   resetView(options?: { onComplete?: () => void; onCancel?: () => void; onCleanup?: () => void }): void;
+  // #122：可选；只有 Sigma 全局路由实现。其它路由（DOM/SVG 兜底、超限提示）没有节点
+  // 让位能力，调用方按 undefined 跳过。
+  accommodateNodeDrawer?(nodeId: string, options?: { durationMs?: number }): void;
   select(selection: SelectionInput): void;
   previewNode(id: string | null): void;
   clearSelection(): void;
@@ -156,7 +159,7 @@ export interface GraphFacadeRouteRendererFactories {
 }
 
 export interface GraphFacadeRendererCallbacks {
-  onNodeOpen?: (nodeId: string) => void;
+  onNodeOpen?: (nodeId: string, origin?: GraphOpenPagePayload["origin"]) => void;
   onSelectionInput?: (selection: SelectionInput) => void;
   onPinsChanged?: (pins: NonNullable<GraphEngineOptions["pins"]>) => void;
   onSelectionClearRequested?: () => void;
@@ -206,7 +209,9 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
   };
   const rendererCallbacks: GraphFacadeRendererCallbacks = {
     onNodeOpen: capabilities?.onOpenPage
-      ? (nodeId) => capabilities.onOpenPage?.(openPagePayloadForNode(facadeState.data, nodeId))
+      ? (nodeId, origin) => {
+          capabilities.onOpenPage?.(openPagePayloadForNode(facadeState.data, nodeId, origin));
+        }
       : undefined,
     onSelectionInput: shouldResolveSelection(capabilities)
       ? (input) => {
@@ -407,6 +412,13 @@ export function createGraphFacadeRouteManager(
       // fallback state. The normal workbench "进入社区" path stays on Sigma.
       switchRoute("dom-svg-community", () => factories.createDomSvgCommunity(factoryInput()));
       currentRenderer().focusCommunity(id);
+    },
+    accommodateNodeDrawer(nodeId: string, options?: { durationMs?: number }) {
+      assertActive();
+      // 只有 Sigma 社区阅读路由有节点让位能力；其它路由（兜底/超限）静默跳过。
+      if (routeId === "sigma-global" && !sigmaKnownUnavailable) {
+        currentRenderer().accommodateNodeDrawer?.(nodeId, options);
+      }
     },
     setTypeFilters(filters) {
       assertActive();
@@ -1043,6 +1055,11 @@ export function createGraphFacadeFromRenderer(
       return resolveForHostCapabilities({ kind: "community", id });
     },
 
+    accommodateNodeForDrawer(nodeId: string, options?: { durationMs?: number }): void {
+      assertActive();
+      renderer.accommodateNodeDrawer?.(nodeId, options);
+    },
+
     get sourceCommunityId(): string | null {
       return facadeState.sourceCommunityId ?? null;
     },
@@ -1232,11 +1249,16 @@ function shouldResolveSelection(capabilities: GraphEngineOptions["capabilities"]
   return Boolean(capabilities?.onSelectionChange || capabilities?.onAsk);
 }
 
-function openPagePayloadForNode(data: GraphData, id: string): GraphOpenPagePayload {
+function openPagePayloadForNode(
+  data: GraphData,
+  id: string,
+  origin?: GraphOpenPagePayload["origin"]
+): GraphOpenPagePayload {
   const node = data.nodes.find((item) => item.id === id);
   if (!node) {
     return {
       path: id,
+      ...(origin ? { origin } : {}),
       node: {
         id,
         title: id,
@@ -1253,6 +1275,7 @@ function openPagePayloadForNode(data: GraphData, id: string): GraphOpenPagePaylo
   const sourcePath = wikiPathForGraphNode(node);
   return {
     path: sourcePath,
+    ...(origin ? { origin } : {}),
     node: {
       id: node.id,
       title: node.label || node.id,

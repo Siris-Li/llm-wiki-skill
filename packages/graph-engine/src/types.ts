@@ -497,6 +497,7 @@ export interface GraphOpenPageNode {
 export interface GraphOpenPagePayload {
   path: WikiPath;
   node: GraphOpenPageNode;
+  origin?: "community-node-click" | "community-search-result";
 }
 
 export interface GraphEngineCapabilities {
@@ -530,6 +531,9 @@ export interface GraphEngine {
   setAggregationMarkers(markers: GraphAggregationMarker[]): void;
   focusNode(path: WikiPath): void;
   focusCommunity(id: CommunityId): Selection;
+  // #122：社区阅读单击节点打开右侧详情抽屉时，把镜头让位到剩余画布的舒适位置。
+  // 宽屏并排抽屉生效；窄屏覆盖抽屉/非社区阅读/reduced motion 由实现短路。
+  accommodateNodeForDrawer(nodeId: string, options?: { durationMs?: number }): void;
   // Phase 2: the community the user entered from. Kept separate from selection so
   // returning to the global Sigma view can keep that community highlighted without
   // marking every community node as selected/core.

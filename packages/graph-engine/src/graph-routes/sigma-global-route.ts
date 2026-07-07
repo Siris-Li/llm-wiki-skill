@@ -268,6 +268,9 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
         ? { ...resetOptions, durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS }
         : resetOptions);
     },
+    accommodateNodeDrawer(nodeId: string, options?: { durationMs?: number }) {
+      renderer?.accommodateNodeDrawer(nodeId, options);
+    },
     select(selection) {
       updateSigmaSelection(selection);
     },
@@ -379,7 +382,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
         hoverEdgeId = null;
         syncSigmaEdgeHoverPreview();
         selectOnSigma(action.selection);
-        input.options.callbacks.onNodeOpen?.(action.nodeId);
+        input.options.callbacks.onNodeOpen?.(action.nodeId, "community-node-click");
         return;
       }
       if (action.kind === "edge-preview") {
@@ -619,7 +622,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     }
     searchFocusedNodeId = state.matchIds.includes(id) ? id : null;
     selectOnSigma({ kind: "node", id });
-    if (options.focus?.kind === "community") input.options.callbacks.onNodeOpen?.(id);
+    if (options.focus?.kind === "community") input.options.callbacks.onNodeOpen?.(id, "community-search-result");
     if (searchStatus) updateSearchStatus(searchStatus);
     updateSearchResultsList();
   }

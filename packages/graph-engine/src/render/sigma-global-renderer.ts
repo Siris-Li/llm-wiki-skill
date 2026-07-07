@@ -65,6 +65,7 @@ import {
 } from "./sigma-hit-projector";
 import {
   maybeAnimateSigmaCommunitySpotlightCamera,
+  maybeAnimateSigmaNodeDrawerCamera,
   prefersReducedMotion,
   readCameraState,
   restoreCameraState,
@@ -285,6 +286,41 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
         onCancel: resetOptions?.onCancel,
         onCleanup: resetOptions?.onCleanup
       });
+    },
+    accommodateNodeDrawer(nodeId: string, drawerOptions?: { durationMs?: number }) {
+      assertActive();
+      try {
+        const durationMs = drawerOptions?.durationMs ?? SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS;
+        cancelActiveViewTransition();
+        disposeCancelledViewTransitionGuard();
+        const result = maybeAnimateSigmaNodeDrawerCamera(
+          sigma,
+          sigmaRoot,
+          adapterData,
+          nodeId,
+          {
+            viewportSize: currentViewportSize,
+            durationMs,
+            onCleanup: () => {
+              sigmaRoot.dataset.viewTransition = "";
+            }
+          },
+          options.onFatalError
+        );
+        if (result.movement === "animated" && result.transition) {
+          activeViewTransition = result.transition;
+          sigmaRoot.dataset.viewTransition = "active";
+          startProjectCameraFrameTracking(durationMs, SIGMA_CAMERA_MINIMUM_FAST_PATH_FRAMES);
+          return;
+        }
+        activeViewTransition = null;
+        sigmaRoot.dataset.viewTransition = "";
+        if (result.movement === "immediate") {
+          overlayDomController?.reposition();
+        }
+      } catch (error) {
+        options.onFatalError?.(error);
+      }
     },
     zoomIn() {
       assertActive();
