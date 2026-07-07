@@ -14,6 +14,10 @@ import {
   sigmaSettingsForTheme
 } from "../src/render/sigma-global-renderer";
 import {
+  SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS,
+  SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS
+} from "../src/render/sigma-global-camera";
+import {
   buildSigmaGlobalGraphologyGraph,
   sigmaGlobalEdgeStyle
 } from "../src/render/sigma-graphology-model";
@@ -2259,6 +2263,48 @@ describe("Sigma global renderer production boundary", () => {
     assert.notDeepEqual(sigma.camera.setStateCalls.at(-1), { x: 0.5, y: 0.5, angle: 0, ratio: 1 });
     sigma.camera.finishAnimation();
     assert.deepEqual(sigma.camera.getState(), { x: 0.5, y: 0.5, angle: 0, ratio: 1 });
+
+    renderer.destroy();
+  });
+
+  it("uses the resetView durationMs for the return-to-global camera animate", () => {
+    // #121：社区阅读回全图用比进入更短的退出时长。resetView 把 durationMs 透传到
+    // camera.animate，使退出比 spotlight 进入（380ms）更克制。
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.resetView({ durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS });
+
+    assert.equal(sigma.camera.animateCalls.at(-1)?.options?.duration, SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS);
+    assert.ok(
+      SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS < SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS,
+      "exit transition must be shorter than the enter spotlight transition"
+    );
+
+    renderer.destroy();
+  });
+
+  it("lands the return-to-global transition instantly under reduced motion at the global composition target", () => {
+    // #121：减少动态效果下取消大幅镜头移动，直接落到正确的全局构图状态。
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer({ matchMedia: () => ({ matches: true }) as MediaQueryList }),
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
+      theme: "shan-shui",
+      runtime
+    });
+    const sigma = runtime.instances[0];
+
+    renderer.resetView({ durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS });
+
+    assert.equal(sigma.camera.animateCalls.length, 0, "reduced motion must not animate the camera");
+    assert.deepEqual(sigma.camera.setStateCalls.at(-1), { x: 0.5, y: 0.5, angle: 0, ratio: 1 });
 
     renderer.destroy();
   });

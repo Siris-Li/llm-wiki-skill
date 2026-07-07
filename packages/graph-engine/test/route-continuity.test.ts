@@ -15,6 +15,10 @@ import {
   type GraphFacadeRouteRendererFactoryInput,
   type GraphFacadeState
 } from "../src/facade";
+import {
+  SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS,
+  SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS
+} from "../src/render/sigma-global-camera";
 
 const DATA: GraphData = {
   meta: {
@@ -458,7 +462,7 @@ describe("graph route state continuity", () => {
     assert.equal(state.focus, null);
     assert.equal(state.selection, null);
     assert.equal(manager.sourceCommunityId, "c1");
-    assert.deepEqual(sigmaRenderers[0].calls.filter((call) => call[0] === "resetView"), [["resetView"]]);
+    assert.deepEqual(sigmaRenderers[0].calls.filter((call) => call[0] === "resetView"), [["resetView", { durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS }]]);
   });
 
   it("clears stale temporary display state when refreshed data removes the object", () => {
@@ -682,6 +686,61 @@ describe("graph route state continuity", () => {
       calls.filter((call) => call[0] === "resetView" || call[0] === "focusNode" || call[0] === "focusCommunity");
     // 选区增长期间不应再触发任何相机方法。
     assert.deepEqual(cameraMethods(sigmaRenderers.at(-1)?.calls.slice(baseline) ?? []), []);
+  });
+
+  it("returns from community reading to global with a short transition, preserving global filters and pins", () => {
+    // #121：社区阅读回全图复用 #118 共享过渡基座，但用比进入更短的退出时长；
+    // 同时保护来源社区高亮、全局筛选和钉扎，不被退出动作清掉。
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const pinned: PinMap = { "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" } };
+    const globalFilters: GraphTypeFilters = { topic: true, source: false };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: pinned,
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: globalFilters,
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return trackRenderer(sigmaRenderers, "sigma-global");
+        },
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c1");
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+
+    // 路线连续性：focus 清空、来源社区保留、selection 不被错误扩展。
+    assert.deepEqual(state.focus, null);
+    assert.equal(manager.sourceCommunityId, "c1");
+    assert.equal(state.selection, null);
+
+    // 状态保护：全局筛选 + 钉扎位置不被退出动作清掉。
+    assert.deepEqual(state.typeFilters, globalFilters);
+    assert.deepEqual(state.pins, pinned);
+
+    // 退出过渡：复用共享基座（resetView），但用专用短时长，比进入 spotlight 更克制。
+    const resetCalls = sigmaRenderers[0].calls.filter((call) => call[0] === "resetView");
+    assert.ok(resetCalls.length > 0, "return-to-global should call renderer resetView");
+    assert.deepEqual(resetCalls.at(-1)![1], { durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS });
+    assert.ok(
+      SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS < SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS,
+      "exit transition must be shorter than the enter spotlight transition"
+    );
   });
 });
 
