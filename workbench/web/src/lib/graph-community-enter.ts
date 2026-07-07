@@ -19,6 +19,10 @@ export function applyCommunityEnter(engine: GraphEngine, communityId: string): S
  * 「布局/抽屉/镜头过渡」250–450ms 区间内：这段时间里社区摘要抽屉退场、
  * 画布随宽度过渡平滑扩展，镜头复用 #118 的 Sigma 视图过渡基座继续推进
  * 到社区阅读近景。退出社区（#121）不属于本票，故这里只服务进入路径。
+ *
+ * RightDrawer 用它做退场 setTimeout（到点卸载抽屉）。index.css 里
+ * `.drawer-panel[data-drawer-exiting]` 的 width 过渡时长（280ms）须 ≤ 此值，
+ * 否则卸载时宽度还没收完。改这里记得同步 CSS。
  */
 export const COMMUNITY_ENTER_EXIT_DURATION_MS = 320;
 

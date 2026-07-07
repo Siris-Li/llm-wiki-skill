@@ -82,6 +82,7 @@ import {
 	COMMUNITY_ENTER_EXIT_DURATION_MS,
 	planCommunityEnterExit,
 } from "@/lib/graph-community-enter";
+import { useDrawerExitRail } from "@/lib/use-drawer-exit-rail";
 import { WIKI_LINK_SEEN_EVENT } from "@/lib/wiki-links";
 import {
 	applyAppearance,
@@ -175,14 +176,10 @@ function App() {
 	const [artifacts, setArtifacts] = useState<ArtifactManifest[]>([]);
 	const [drawerFullscreen, setDrawerFullscreen] = useState(false);
 	// 进入社区退场轨道（#120）：exit 期间保留社区摘要挂载做退场，结束后落回 closed。
-	const [drawerExit, setDrawerExit] = useState<DrawerState | null>(null);
-	// 同步快照到 ref：applyCommunityEnter 的 clearSelection 会异步回流为 selection clear，
-	// 那条 clear 不应关掉正在退场的抽屉——退场轨道自己管理关闭。
-	const drawerExitRef = useRef<DrawerState | null>(null);
-	const stageDrawerExit = useCallback((snapshot: DrawerState | null) => {
-		drawerExitRef.current = snapshot;
-		setDrawerExit(snapshot);
-	}, []);
+	// drawerExit.exitRef 暴露给两条 setDrawer 守卫——updater 在 render 期运行，读 ref
+	// 才能和 stage 的写入在同一渲染通道对齐（applyCommunityEnter 的 clearSelection 会
+	// 异步回流为 selection clear，那条 clear 不应关掉正在退场的抽屉）。
+	const drawerExit = useDrawerExitRail(drawer, setDrawer);
 	const [batchJob, setBatchJob] = useState<BatchDigestJob | null>(null);
 	const [pendingGraphPrompt, setPendingGraphPrompt] = useState<{
 		id: string;
@@ -433,7 +430,7 @@ function App() {
 			setDrawer((current) => {
 				// 退场轨道进行时，clearSelection 是 applyCommunityEnter 的副作用，
 				// 抽屉关闭由退场轨道接管，这里不要硬切。
-				if (drawerExitRef.current != null) return current;
+				if (drawerExit.exitRef.current != null) return current;
 				return shouldCloseDrawerAfterGraphSelectionClear(current) ? closedDrawer() : current;
 			});
 			return;
@@ -597,21 +594,7 @@ function App() {
 		});
 	}, []);
 
-	const handleDrawerExitComplete = useCallback(() => {
-		setDrawer(closedDrawer());
-		stageDrawerExit(null);
-	}, [stageDrawerExit]);
-
-	// 退场被打断兜底（#120 review）：Escape / 知识库切换 / 异步 graphData 刷新等会让
-	// drawer 引用变化，exiting 翻 false，RightDrawer 的退场定时器被清，onExitComplete
-	// 不再触发。此时必须清空 drawerExit/Ref，否则两个守卫会被永久短路——后续所有
-	// clearSelection 被吞、drawerAfterGraphDataRefresh 永久跳过。drawer === drawerExit
-	// 是引用守卫：正常退场期间两者同引用，effect 不动；只有打断（引用变化）才触发清理。
-	useEffect(() => {
-		if (drawerExit && drawer !== drawerExit) {
-			stageDrawerExit(null);
-		}
-	}, [drawer, drawerExit, stageDrawerExit]);
+	const handleDrawerExitComplete = drawerExit.complete;
 
 	const handleAddExternal = async (path: string) => {
 		const { info } = await registerExternalKnowledgeBase(path);
@@ -695,16 +678,16 @@ function App() {
 			// enter-community 命令触发 GraphPanel.applyCommunityEnter（clearSelection /
 			// setSourceCommunityContext / focusCommunity），相机过渡由 spotlight camera
 			// 承担，不另写接管逻辑。减少动态效果下跳过退场，抽屉直接落回 closed。
-			setDrawer((current) => {
-				const plan = planCommunityEnterExit({
-					communityId: command.communityId,
-					drawer: current,
-					reducedMotion: prefersReducedMotion(),
-				});
-				setSelectionCommand(plan.selectionCommand);
-				stageDrawerExit(plan.exit ? plan.exit.drawer : null);
-				return plan.exit ? current : closedDrawer();
+			// 副作用写在 setDrawer updater 外：updater 必须纯（React 19 StrictMode 会
+			// 双调用 updater），drawer 从闭包读取（callback 已依赖 drawer，始终最新）。
+			const plan = planCommunityEnterExit({
+				communityId: command.communityId,
+				drawer,
+				reducedMotion: prefersReducedMotion(),
 			});
+			setSelectionCommand(plan.selectionCommand);
+			drawerExit.stage(plan.exit ? plan.exit.drawer : null);
+			setDrawer(plan.exit ? drawer : closedDrawer());
 			return;
 		}
 		if (command.kind === "select-neighbors") {
@@ -765,7 +748,7 @@ function App() {
 				return sameGraphDrawerTarget(current, next) ? current : next;
 			});
 		}
-	}, [graphData, graphPins, graphVisibilityState, handleOpenGraphPage]);
+	}, [drawer, graphData, graphPins, graphVisibilityState, handleOpenGraphPage]);
 
 	useEffect(() => {
 		const nextTemporaryObject = temporaryObjectAfterGraphDataRefresh(graphData, graphTemporaryObjectRef.current);
@@ -776,7 +759,7 @@ function App() {
 			if (!isGraphInteractionDrawer(current)) return current;
 			// 退场轨道进行时，进入社区会带新一轮 visibility state；这里不要重建抽屉对象，
 			// 否则 drawer 引用变化会让 drawer === drawerExit 失败、退场中断。
-			if (drawerExitRef.current != null) return current;
+			if (drawerExit.exitRef.current != null) return current;
 			if (graphReaderStaleAfterRefresh(current, graphData, effectiveState)) clearStaleGraphReaderFocus();
 			return drawerAfterGraphDataRefresh(current, graphData, {
 				pins: graphPins,
@@ -1132,7 +1115,7 @@ function App() {
 						onGraphCommunityAsk={handleGraphCommunityAsk}
 						onResize={setDrawerWidth}
 						onToggleFullscreen={() => setDrawerFullscreen((value) => !value)}
-						exiting={drawerExit != null && drawer === drawerExit}
+						exiting={drawerExit.isExiting}
 						onExitComplete={handleDrawerExitComplete}
 						exitDurationMs={COMMUNITY_ENTER_EXIT_DURATION_MS}
 						onClose={handleCloseDrawer}

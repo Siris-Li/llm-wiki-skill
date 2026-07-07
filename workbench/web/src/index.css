@@ -2840,13 +2840,16 @@
 
   /* 进入社区退场轨道（#120）：抽屉保留挂载、宽度过渡到 0，画布靠 .shell-main
      flex:1 平滑扩展；内容淡化退场，而不是瞬间消失。复用 #118 的相机过渡基座
-     在同一时段推进到社区阅读近景。 */
+     在同一时段推进到社区阅读近景。width 280ms / opacity 240ms：内容先于面板
+     收完，避免空面板尾部。width 时长须 ≤ COMMUNITY_ENTER_EXIT_DURATION_MS
+     （workbench/web/src/lib/graph-community-enter.ts，RightDrawer 的卸载定时器）。 */
   .drawer-panel[data-drawer-exiting="true"] {
     width: 0;
     min-width: 0;
-    transition: width 320ms ease, min-width 320ms ease;
+    transition: width 280ms ease, min-width 280ms ease;
   }
 
+  .drawer-panel[data-drawer-exiting="true"] .drawer-header,
   .drawer-panel[data-drawer-exiting="true"] .drawer-content {
     opacity: 0;
     transition: opacity 240ms ease;
