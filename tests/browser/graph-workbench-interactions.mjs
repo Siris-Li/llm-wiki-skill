@@ -11,6 +11,7 @@ const artifactDir = process.env.GRAPH_WORKBENCH_ARTIFACT_DIR || "";
 const executablePath = process.env.GRAPH_WORKBENCH_CHROME_EXECUTABLE || "";
 const GLOBAL_NODE_IDS = ["A", "B", "C", "D", "E", "F", "G"];
 const T1_NODE_IDS = ["A", "B", "D", "E", "F", "G"];
+const COMMUNITY_NODE_IDS = { t1: T1_NODE_IDS };
 
 assert.notEqual(workbenchUrl, "", "GRAPH_WORKBENCH_URL must point at the workbench dev server");
 
@@ -151,6 +152,10 @@ async function sigmaGlobalSnapshot(page) {
       .map((node) => node.getAttribute("data-node-id") || "")
       .filter(Boolean)
       .sort();
+    const selectedNodeIds = [...document.querySelectorAll(".sigma-global-node-hit-target[data-selected='true']")]
+      .map((node) => node.getAttribute("data-node-id") || "")
+      .filter(Boolean)
+      .sort();
     const regionIds = regions.map((region) => region.getAttribute("data-community-id") || "").filter(Boolean).sort();
     const labelIds = labels.map((label) => label.getAttribute("data-community-id") || "").filter(Boolean).sort();
     return {
@@ -167,8 +172,11 @@ async function sigmaGlobalSnapshot(page) {
           height: round(rect.height)
         };
       })() : null,
+      communityFocusId: sigma?.getAttribute("data-community-focus-id") || "",
+      sourceCommunityId: sigma?.getAttribute("data-source-community-id") || "",
       nodeHitTargetCount: document.querySelectorAll(".sigma-global-node-hit-target").length,
       nodeHitTargetIds: nodeIds,
+      selectedNodeHitTargetIds: selectedNodeIds,
       sigmaRouteCount: document.querySelectorAll(".sigma-global-route[data-route='sigma-global']").length,
       sigmaRendererCount: document.querySelectorAll(".sigma-global-renderer[data-renderer='sigma-global']").length,
       edgeCount: document.querySelectorAll("canvas").length,
@@ -354,13 +362,23 @@ async function runRouteCycleAccumulationCheck(page, communityId, cycles) {
     assert.equal(returned.oldDomGlobalNodeCount, 0, `cycle ${index + 1}: should not accumulate old DOM global nodes`);
     assert.equal(returned.communityButtonCount, 0, `cycle ${index + 1}: should not reintroduce circular community controls`);
     assert.equal(returned.aggregationButtonCount, 0, `cycle ${index + 1}: should not show aggregation controls`);
-    assert.deepEqual(returned.nodeHitTargetIds, baseline.nodeHitTargetIds, `cycle ${index + 1}: node hit targets should match the baseline set`);
+    assert.equal(returned.communityFocusId, "", `cycle ${index + 1}: community focus should be clear after return`);
+    assert.equal(returned.sourceCommunityId, communityId, `cycle ${index + 1}: source community should remain after return`);
+    assert.deepEqual(returned.selectedNodeHitTargetIds, [], `cycle ${index + 1}: source community should not expand into selected nodes`);
+    assert.deepEqual(returned.nodeHitTargetIds, sourceContextNodeHitTargetIds(baseline, communityId), `cycle ${index + 1}: node hit targets should be the pinned baseline plus source-community context`);
     assert.deepEqual(returned.communityRegionIds, baseline.communityRegionIds, `cycle ${index + 1}: community regions should match the baseline set`);
     assert.deepEqual(returned.communityLabelIds, baseline.communityLabelIds, `cycle ${index + 1}: community labels should match the baseline set`);
     snapshots.push({ summary: summary.route, focused, returned });
   }
 
   return { cycles, baseline, snapshots };
+}
+
+function sourceContextNodeHitTargetIds(baseline, communityId) {
+  return [...new Set([
+    ...baseline.nodeHitTargetIds,
+    ...(COMMUNITY_NODE_IDS[communityId] || [])
+  ])].sort();
 }
 
 async function openCommunitySummaryFromRegion(page, communityId) {

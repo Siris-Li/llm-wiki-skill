@@ -15,10 +15,6 @@ import {
   type GraphFacadeRouteRendererFactoryInput,
   type GraphFacadeState
 } from "../src/facade";
-import {
-  SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS,
-  SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS
-} from "../src/render/sigma-global-camera";
 
 const DATA: GraphData = {
   meta: {
@@ -462,7 +458,7 @@ describe("graph route state continuity", () => {
     assert.equal(state.focus, null);
     assert.equal(state.selection, null);
     assert.equal(manager.sourceCommunityId, "c1");
-    assert.deepEqual(sigmaRenderers[0].calls.filter((call) => call[0] === "resetView"), [["resetView", { durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS }]]);
+    assert.deepEqual(sigmaRenderers[0].calls.filter((call) => call[0] === "resetView"), [["resetView"]]);
   });
 
   it("clears stale temporary display state when refreshed data removes the object", () => {
@@ -733,14 +729,49 @@ describe("graph route state continuity", () => {
     assert.deepEqual(state.typeFilters, globalFilters);
     assert.deepEqual(state.pins, pinned);
 
-    // 退出过渡：复用共享基座（resetView），但用专用短时长，比进入 spotlight 更克制。
+    // 退出过渡：复用共享基座（resetView）。具体 Sigma 短时长在路线边界测试中验证。
     const resetCalls = sigmaRenderers[0].calls.filter((call) => call[0] === "resetView");
     assert.ok(resetCalls.length > 0, "return-to-global should call renderer resetView");
-    assert.deepEqual(resetCalls.at(-1)![1], { durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS });
-    assert.ok(
-      SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS < SIGMA_COMMUNITY_SPOTLIGHT_CAMERA_ANIMATION_MS,
-      "exit transition must be shorter than the enter spotlight transition"
-    );
+  });
+
+  it("clears temporary display state when returning from community reading to global", () => {
+    // #121：退出社区阅读时，临时展示对象属于社区本地阅读状态。外层 facade 清掉后，
+    // Sigma 路由也不能通过 visibility sync 把旧对象重新发布回来。
+    const container = { dataset: {} as Record<string, string | undefined> };
+    const state: GraphFacadeState = {
+      data: DATA,
+      pins: {},
+      theme: "shan-shui",
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: { kind: "node", nodeId: "a" }
+    };
+    const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
+    const sigmaRenderers: Array<GraphFacadeRenderer & { calls: unknown[][] }> = [];
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaInputs.push(input);
+          return trackRenderer(sigmaRenderers, "sigma-global");
+        },
+        createDomSvgCommunity: () => createFakeRenderer(),
+        createDomSvgSmallFallback: () => createFakeRenderer(),
+        createOverLimitNotice: () => createFakeRenderer()
+      }
+    });
+
+    manager.focusCommunity("c1");
+    sigmaInputs[0].options.callbacks.onGlobalResetRequested?.();
+
+    assert.equal(state.focus, null);
+    assert.equal(state.temporaryObject, null);
+    assert.equal(manager.sourceCommunityId, "c1");
+    assert.deepEqual(sigmaRenderers[0].calls.filter((call) => call[0] === "resetView").at(-1), ["resetView"]);
   });
 });
 

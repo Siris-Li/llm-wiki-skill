@@ -11,6 +11,9 @@ import type {
 	GraphCommunitySummaryPayload,
 	GraphEngine,
 } from "@llm-wiki/graph-engine";
+import {
+	SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS,
+} from "@llm-wiki/graph-engine";
 
 describe("applyCommunityEnter", () => {
 	it("clears the old selection and records source community context before entering Sigma community reading", () => {
@@ -52,6 +55,13 @@ describe("planCommunityEnterExit", () => {
 		assert.ok(
 			plan.exit != null && plan.exit.durationMs >= 250 && plan.exit.durationMs <= 450,
 			`exit duration ${plan.exit?.durationMs} should stay in the 250–450ms layout band`,
+		);
+	});
+
+	it("keeps the community return-to-global transition shorter than enter-community", () => {
+		assert.ok(
+			SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS < COMMUNITY_ENTER_EXIT_DURATION_MS,
+			"return-to-global should stay shorter than enter-community",
 		);
 	});
 

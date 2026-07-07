@@ -756,15 +756,20 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       easing: transitionOptions.easing,
       onComplete: transitionOptions.onComplete,
       onCancel: transitionOptions.onCancel,
-      onCleanup: transitionOptions.onCleanup,
+      onCleanup: () => {
+        sigmaRoot.dataset.viewTransition = "";
+        transitionOptions.onCleanup?.();
+      },
       onAnimationError: (error) => options.onFatalError?.(error)
     });
     if (result.movement === "animated" && result.transition) {
       activeViewTransition = result.transition;
+      sigmaRoot.dataset.viewTransition = "active";
       startProjectCameraFrameTracking(transitionOptions.durationMs, SIGMA_CAMERA_MINIMUM_FAST_PATH_FRAMES);
       return;
     }
     activeViewTransition = null;
+    sigmaRoot.dataset.viewTransition = "";
     if (result.movement === "immediate") {
       overlayDomController?.reposition();
     }

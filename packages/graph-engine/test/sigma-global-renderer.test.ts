@@ -2325,6 +2325,7 @@ describe("Sigma global renderer production boundary", () => {
       onCancel: () => events.push("cancel"),
       onCleanup: () => events.push("cleanup")
     });
+    assert.equal(renderer.root.dataset.viewTransition, "active");
     sigma.camera.advanceAnimation(0.5);
     sigma.emit("afterRender");
 
@@ -2335,6 +2336,7 @@ describe("Sigma global renderer production boundary", () => {
     sigma.emit("afterRender");
 
     assert.deepEqual(events, ["complete", "cleanup"]);
+    assert.equal(renderer.root.dataset.viewTransition, "");
     assert.equal(renderer.overlayRoot.style.transform, "");
     assert.equal(renderer.overlayRoot.style.willChange, "");
 
@@ -2373,6 +2375,82 @@ describe("Sigma global renderer production boundary", () => {
     sigma.camera.finishAnimation();
 
     assert.deepEqual(sigma.camera.getState(), takeoverState);
+    assert.deepEqual(events, ["cancel", "cleanup"]);
+
+    renderer.destroy();
+  });
+
+  it("cancels resetView when a node click takes over and does not reclaim the camera", () => {
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const hits: unknown[] = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target) => hits.push(target)
+    });
+    const sigma = runtime.instances[0];
+    const events: string[] = [];
+
+    renderer.resetView({
+      durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS,
+      onComplete: () => events.push("complete"),
+      onCancel: () => events.push("cancel"),
+      onCleanup: () => events.push("cleanup")
+    });
+    sigma.camera.advanceAnimation(0.5);
+    sigma.emit("afterRender");
+
+    sigma.emit("clickNode", { node: "beta-ordinary" });
+    const clickState = sigma.camera.getState();
+
+    assert.deepEqual(hits.at(-1), { kind: "node", id: "beta-ordinary" });
+    assert.deepEqual(events, ["cancel", "cleanup"]);
+
+    sigma.camera.finishAnimation();
+    sigma.emit("afterRender");
+
+    assert.deepEqual(sigma.camera.getState(), clickState);
+    assert.deepEqual(events, ["cancel", "cleanup"]);
+
+    renderer.destroy();
+  });
+
+  it("cancels resetView when a community click takes over and does not reclaim the camera", () => {
+    const runtime = fakeRuntime({ worldScale: 200 });
+    const hits: unknown[] = [];
+    const renderer = createSigmaGlobalRenderer({
+      container: fakeContainer(),
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime,
+      onHitTarget: (target) => hits.push(target)
+    });
+    const sigma = runtime.instances[0];
+    const events: string[] = [];
+
+    sigma.camera.setState({ x: 1.2, y: 0.8, ratio: 1.6 });
+    renderer.resetView({
+      durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS,
+      onComplete: () => events.push("complete"),
+      onCancel: () => events.push("cancel"),
+      onCleanup: () => events.push("cleanup")
+    });
+    sigma.camera.advanceAnimation(0.5);
+    sigma.emit("afterRender");
+
+    sigmaCommunityCloudShape(renderer, "adapter-community")?.dispatchEvent(new Event("click"));
+    const clickState = sigma.camera.getState();
+
+    assert.deepEqual(hits.at(-1), { kind: "community-wash", id: "adapter-community" });
+    assert.deepEqual(events, ["cancel", "cleanup"]);
+    assert.equal(renderer.root.dataset.viewTransition, "");
+
+    sigma.camera.finishAnimation();
+    sigma.emit("afterRender");
+
+    assert.deepEqual(sigma.camera.getState(), clickState);
     assert.deepEqual(events, ["cancel", "cleanup"]);
 
     renderer.destroy();

@@ -22,7 +22,6 @@ import {
   type GraphFacadeRouteRendererFactoryInput,
   type GraphFacadeState
 } from "../src/facade";
-import { SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS } from "../src/render/sigma-global-camera";
 
 const DATA: GraphData = {
   meta: {
@@ -458,7 +457,7 @@ describe("GraphFacade", () => {
     assert.deepEqual(state.searchResultIds, []);
     assert.deepEqual(state.typeFilters, { topic: true, source: false });
     assert.deepEqual(Object.keys(state.pins), ["wiki/b.md"]);
-    assert.deepEqual(renderers[0].calls.slice(-2), [["focusCommunity", "c1"], ["resetView", { durationMs: SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS }]]);
+    assert.deepEqual(renderers[0].calls.slice(-2), [["focusCommunity", "c1"], ["resetView"]]);
     assert.deepEqual(renderers.map((renderer) => renderer.calls.find((call) => call[0] === "destroy")?.[0]).filter(Boolean), []);
   });
 

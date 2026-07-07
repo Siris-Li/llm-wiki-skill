@@ -10,6 +10,7 @@ import type {
 } from "../src/render/sigma-global-types";
 import { createGraphRenderer } from "../src/render";
 import { createSigmaGlobalFacadeRenderer } from "../src/graph-routes/sigma-global-route";
+import { SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS } from "../src/render/sigma-global-camera";
 import {
   createGraphFacadeRouteManager,
   type GraphFacadeRenderer,
@@ -566,6 +567,7 @@ describe("graph renderer lifecycle", () => {
   it("routes the community toolbar return through Sigma global without rendering DOM full graph", () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");
+    const clearRequests: number[] = [];
     const viewResets: number[] = [];
     const sigmaInputs: GraphFacadeRouteRendererFactoryInput[] = [];
     const state = {
@@ -583,6 +585,7 @@ describe("graph renderer lifecycle", () => {
     const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
       state,
       callbacks: {
+        onSelectionClearRequested: () => clearRequests.push(1),
         onViewReset: () => viewResets.push(1)
       },
       factories: {
@@ -634,6 +637,7 @@ describe("graph renderer lifecycle", () => {
     assert.deepEqual(state.typeFilters, { entity: true, source: true });
     assert.equal(manager.sourceCommunityId, "community-a");
     assert.equal(sigmaInputs.length, 1);
+    assert.deepEqual(clearRequests, []);
     assert.deepEqual(viewResets, [1]);
 
     manager.destroy();
@@ -1177,6 +1181,73 @@ describe("graph renderer lifecycle", () => {
 
     assert.equal(edgePreview.dataset.state, "closed");
     assert.equal(edgePreview.dataset.edgeId, "");
+
+    renderer.destroy();
+  });
+
+  it("uses the short Sigma return duration when leaving community reading", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const runtime = fakeSigmaRouteRuntime();
+    const renderer = createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      sigmaRuntime: runtime,
+      options: {
+        data: relationFocusGraphData(),
+        pins: {},
+        theme: "shan-shui",
+        focus: { kind: "community", id: "community-a" },
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: null,
+        sourceCommunityId: "community-a",
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {}
+      }
+    });
+
+    await Promise.resolve();
+    renderer.resetView();
+
+    assert.equal(
+      runtime.instances[0]?.getCamera().animateCalls.at(-1)?.options?.duration,
+      SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS
+    );
+
+    renderer.destroy();
+  });
+
+  it("clears temporary display state when the Sigma route leaves community reading", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const visibilityStates: GraphVisibilityState[] = [];
+    const renderer = createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      sigmaRuntime: fakeSigmaRouteRuntime(),
+      options: {
+        data: relationFocusGraphData(),
+        pins: {},
+        theme: "shan-shui",
+        focus: { kind: "community", id: "community-a" },
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: null,
+        sourceCommunityId: "community-a",
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: { kind: "node", nodeId: "a" },
+        callbacks: {
+          onVisibilityStateChange: (state) => visibilityStates.push(state)
+        }
+      }
+    });
+
+    await Promise.resolve();
+    renderer.resetView();
+
+    assert.equal(visibilityStates.at(-1)?.temporaryObject, null);
 
     renderer.destroy();
   });
@@ -2011,6 +2082,10 @@ class FakeRouteSigma implements SigmaGlobalSigmaLike {
 class FakeRouteCamera {
   private state = { x: 0, y: 0, angle: 0, ratio: 1 };
   private readonly listeners = new Set<() => void>();
+  readonly animateCalls: Array<{
+    state: Partial<{ x: number; y: number; angle: number; ratio: number }>;
+    options?: { duration?: number; easing?: string };
+  }> = [];
 
   getState(): { x: number; y: number; angle: number; ratio: number } {
     return this.state;
@@ -2033,7 +2108,11 @@ class FakeRouteCamera {
     if (event === "updated") this.listeners.delete(listener);
   }
 
-  animate(state: Partial<{ x: number; y: number; angle: number; ratio: number }>): void {
+  animate(
+    state: Partial<{ x: number; y: number; angle: number; ratio: number }>,
+    options?: { duration?: number; easing?: string }
+  ): void {
+    this.animateCalls.push({ state: { ...state }, options: options ? { ...options } : undefined });
     this.setState(state);
   }
 }
