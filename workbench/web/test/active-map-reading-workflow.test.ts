@@ -10,6 +10,7 @@ import {
 	graphCommunitySummaryDrawer,
 	graphNodeSummaryDrawer,
 	graphReaderDrawer,
+	graphSelectionDrawer,
 	wikiDrawer,
 } from "../src/lib/drawer-state";
 import type { ArtifactManifest } from "../src/lib/api";
@@ -300,6 +301,120 @@ describe("active map reading workflow", () => {
 		assert.equal(nodeEscape.drawer, returnableNode);
 		assert.deepEqual(nodeEscape.selectionCommand, { id: "c1", type: "select-community-summary" });
 	});
+
+	it("hands selection questions to the conversation entry and clears the graph interaction", () => {
+		const drawer = graphSelectionDrawer(manualMultiSelection(), "Alpha/Beta", "只看这两页的差异");
+		const plan = workflowPlan(
+			{ type: "graph-selection-ask", actionId: null, newConversation: false },
+			{ drawer },
+		);
+
+		assert.equal(plan.drawer.mode, "closed");
+		assert.deepEqual(plan.selectionCommand, { id: "clear-graph-selection-after-ask-id", type: "clear" });
+		assert.equal(plan.conversationHandoff?.newConversation, false);
+		assert.match(plan.conversationHandoff?.message ?? "", /补充要求：只看这两页的差异/);
+		assert.match(plan.conversationHandoff?.displayText ?? "", /只看这两页的差异/);
+	});
+
+	it("hands community questions to a new conversation using the existing recommended action rule", () => {
+		const drawer = graphCommunitySummaryDrawer(communitySummaryPayloadFixture(), "");
+		const plan = workflowPlan(
+			{ type: "graph-community-ask", actionId: null, newConversation: true },
+			{ drawer },
+		);
+
+		assert.equal(plan.drawer.mode, "closed");
+		assert.deepEqual(plan.selectionCommand, { id: "clear-graph-community-after-ask-id", type: "clear" });
+		assert.equal(plan.conversationHandoff?.newConversation, true);
+		assert.match(plan.conversationHandoff?.displayText ?? "", /总结这一簇/);
+		assert.match(plan.conversationHandoff?.message ?? "", /动作：总结这一簇/);
+	});
+
+	it("hands node reader questions back to the conversation without changing send rules", () => {
+		const drawer = graphReaderDrawer(graphReaderPayloadFixture(), { content: "Alpha body" });
+		const plan = workflowPlan({ type: "graph-reader-action", actionId: "quote_page" }, { drawer });
+
+		assert.equal(plan.drawer.mode, "closed");
+		assert.deepEqual(plan.selectionCommand, { id: "clear-graph-reader-after-ask-id", type: "clear" });
+		assert.equal(plan.conversationHandoff?.newConversation, false);
+		assert.match(plan.conversationHandoff?.displayText ?? "", /在对话中引用/);
+		assert.match(plan.conversationHandoff?.message ?? "", /\[\[wiki\/a\.md\]\]/);
+	});
+
+	it("keeps node reading after refresh when the current node still exists", () => {
+		const drawer = graphReaderDrawer(graphReaderPayloadFixture(), { content: "Alpha body" });
+		const plan = workflowPlan(
+			{ type: "graph-data-change" },
+			{ drawer, visibility: { ...emptyVisibility(), focusCommunityId: "c1" } },
+		);
+
+		assert.equal(plan.drawer.mode, "graph-reader");
+		assert.equal(plan.drawer.mode === "graph-reader" ? plan.drawer.content : null, "Alpha body");
+		assert.equal(plan.clearGraphFocusPath, undefined);
+		assert.equal(plan.selectionCommand, undefined);
+	});
+
+	it("safely closes node reading after refresh when the node disappears", () => {
+		const drawer = graphReaderDrawer(graphReaderPayloadFixture(), { content: "Alpha body" });
+		const plan = workflowPlan(
+			{ type: "graph-data-change" },
+			{
+				data: graphDataWithoutNodeA(),
+				drawer,
+				visibility: { ...emptyVisibility(), focusCommunityId: "c1" },
+			},
+		);
+
+		assert.equal(plan.drawer.mode, "closed");
+		assert.equal(plan.clearGraphFocusPath, true);
+		assert.equal(plan.selectionCommand?.type, "clear-selection");
+	});
+
+	it("clears graph focus after refresh when the reading node leaves the focused community", () => {
+		const drawer = graphReaderDrawer(graphReaderPayloadFixture(), { content: "Alpha body" });
+		const plan = workflowPlan(
+			{ type: "graph-data-change" },
+			{
+				data: graphDataWithNodeAOutsideFocusedCommunity(),
+				drawer,
+				visibility: { ...emptyVisibility(), focusCommunityId: "c1" },
+			},
+		);
+
+		assert.equal(plan.drawer.mode, "closed");
+		assert.equal(plan.clearGraphFocusPath, true);
+		assert.equal(plan.selectionCommand?.type, "clear-selection");
+	});
+
+	it("keeps the existing hidden reader hint when filters or search hide the reading node", () => {
+		const drawer = graphReaderDrawer(graphReaderPayloadFixture(), { content: "Alpha body" });
+		const plan = workflowPlan(
+			{ type: "graph-visibility-change" },
+			{ drawer, visibility: { ...emptyVisibility(), hiddenReadingNodeId: "a" } },
+		);
+
+		assert.equal(plan.drawer.mode, "graph-reader");
+		assert.equal(plan.drawer.mode === "graph-reader" ? plan.drawer.filteredHidden : null, true);
+	});
+
+	it("keeps, downgrades, or clears temporary display objects after graph refresh", () => {
+		const kept = workflowPlan(
+			{ type: "graph-data-change" },
+			{ temporaryObject: { kind: "node", nodeId: "a" } },
+		);
+		const downgraded = workflowPlan(
+			{ type: "graph-data-change" },
+			{ temporaryObject: { kind: "aggregation", aggregationId: "agg", nodeIds: ["a", "missing"], communityId: "c1" } },
+		);
+		const cleared = workflowPlan(
+			{ type: "graph-data-change" },
+			{ data: graphDataWithoutNodeA(), temporaryObject: { kind: "node", nodeId: "a" } },
+		);
+
+		assert.deepEqual(kept.temporaryObject, { kind: "node", nodeId: "a" });
+		assert.deepEqual(downgraded.temporaryObject, { kind: "aggregation", aggregationId: "agg", nodeIds: ["a"], communityId: "c1" });
+		assert.equal(cleared.temporaryObject, null);
+	});
 });
 
 const emptyPins: PinMap = {};
@@ -394,6 +509,31 @@ function graphFixture(): GraphData {
 				global: { enabled: true, node_ids: ["a", "b"], degraded: false },
 			},
 			communities: [{ id: "c1", label: "Community", node_count: 2, color_index: 0, members: ["a", "b"] }],
+		},
+	};
+}
+
+function graphDataWithoutNodeA(): GraphData {
+	const data = graphFixture();
+	return {
+		...data,
+		nodes: data.nodes.filter((node) => node.id !== "a"),
+	};
+}
+
+function graphDataWithNodeAOutsideFocusedCommunity(): GraphData {
+	const data = graphFixture();
+	return {
+		...data,
+		nodes: data.nodes.map((node) => (
+			node.id === "a" ? { ...node, community: "c2" } : node
+		)),
+		learning: {
+			...data.learning,
+			communities: [
+				...(data.learning?.communities ?? []),
+				{ id: "c2", label: "Other", node_count: 1, color_index: 1, members: ["a"] },
+			],
 		},
 	};
 }

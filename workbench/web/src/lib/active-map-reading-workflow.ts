@@ -1,11 +1,12 @@
-import type {
-	GraphData,
-	GraphOpenPagePayload,
-	GraphSummaryCommand,
-	GraphSummaryObjectRef,
-	GraphVisibilityState,
-	PinMap,
-	Selection,
+import {
+	resolveSelection,
+	type GraphData,
+	type GraphOpenPagePayload,
+	type GraphSummaryCommand,
+	type GraphSummaryObjectRef,
+	type GraphVisibilityState,
+	type PinMap,
+	type Selection,
 } from "@llm-wiki/graph-engine";
 
 import { closedDrawer, type DrawerState } from "./drawer-state";
@@ -17,9 +18,16 @@ import {
 	graphReaderFilteredHidden,
 	graphReaderStaleAfterRefresh,
 	sameGraphDrawerTarget,
+	temporaryObjectAfterGraphDataRefresh,
 	visibilityWithTemporaryObject,
 } from "./graph-data-refresh";
 import { planCommunityEnterExit } from "./graph-community-enter";
+import {
+	graphCommunityDrawerViewModel,
+	graphGroupDrawerPromptAction,
+	graphSelectionGroupDrawerViewModel,
+} from "./graph-group-drawer";
+import { buildSelectionPromptPayload } from "./graph-selection";
 import {
 	drawerForGraphSelection,
 	drawerForGraphSummaryNode,
@@ -32,9 +40,11 @@ import {
 export type ActiveMapReadingWorkflowEvent =
 	| { type: "graph-selection-change"; selection: Selection | null }
 	| { type: "graph-visibility-change" }
-	| { type: "graph-data-change"; temporaryObject: GraphSummaryObjectRef | null }
+	| { type: "graph-data-change"; temporaryObject?: GraphSummaryObjectRef | null }
 	| { type: "graph-view-reset" }
 	| { type: "graph-reader-action"; actionId: GraphReaderActionId }
+	| { type: "graph-selection-ask"; actionId: string | null; newConversation: boolean }
+	| { type: "graph-community-ask"; actionId: string | null; newConversation: boolean }
 	| { type: "graph-summary-command"; command: GraphSummaryCommand; reducedMotion?: boolean }
 	| { type: "graph-summary-node-select"; nodeId: string }
 	| { type: "graph-summary-node-preview"; nodeId: string | null }
@@ -55,6 +65,11 @@ export interface ActiveMapReadingWorkflowInput {
 export interface ActiveMapReadingWorkflowPlan {
 	drawer: DrawerState;
 	selectionCommand?: GraphSelectionCommand;
+	conversationHandoff?: {
+		message: string;
+		displayText: string;
+		newConversation: boolean;
+	};
 	pageReadRequest?: {
 		payload: GraphOpenPagePayload;
 		syncGraphFocus: boolean;
@@ -72,13 +87,22 @@ export function planActiveMapReadingWorkflow(input: ActiveMapReadingWorkflowInpu
 		return planGraphVisibilityChange(input);
 	}
 	if (input.event.type === "graph-data-change") {
-		return planGraphDataChange(input, input.event.temporaryObject);
+		return planGraphDataChange(
+			input,
+			"temporaryObject" in input.event ? input.event.temporaryObject ?? null : input.temporaryObject ?? null,
+		);
 	}
 	if (input.event.type === "graph-view-reset") {
 		return planGraphViewReset(input);
 	}
 	if (input.event.type === "graph-reader-action") {
 		return planGraphReaderAction(input, input.event.actionId);
+	}
+	if (input.event.type === "graph-selection-ask") {
+		return planGraphSelectionAsk(input, input.event.actionId, input.event.newConversation);
+	}
+	if (input.event.type === "graph-community-ask") {
+		return planGraphCommunityAsk(input, input.event.actionId, input.event.newConversation);
 	}
 	if (input.event.type === "graph-summary-command") {
 		return planGraphSummaryCommand(input, input.event.command, input.event.reducedMotion ?? false);
@@ -134,47 +158,71 @@ function planGraphSelectionChange(
 }
 
 function planGraphVisibilityChange(input: ActiveMapReadingWorkflowInput): ActiveMapReadingWorkflowPlan {
-	if (input.drawerExitProtected) return unchangedPlan(input.drawer);
+	const temporaryObject = temporaryObjectAfterGraphDataRefresh(input.data, input.visibility?.temporaryObject ?? null);
+	const visibility = visibilityWithTemporaryObject(input.visibility, temporaryObject);
+	if (input.drawerExitProtected) return {
+		...unchangedPlan(input.drawer),
+		temporaryObject,
+	};
 
 	if (input.drawer.mode === "graph-node-summary") {
 		if (
-			input.visibility?.temporaryObject?.kind === "node"
-			&& input.visibility.temporaryObject.nodeId === input.drawer.payload.nodeId
+			visibility?.temporaryObject?.kind === "node"
+			&& visibility.temporaryObject.nodeId === input.drawer.payload.nodeId
 			&& input.drawer.payload.commands.some((command) => command.kind === "clear-temporary-object-display")
 		) {
-			return unchangedPlan(input.drawer);
+			return {
+				...unchangedPlan(input.drawer),
+				temporaryObject,
+			};
 		}
 		const next = drawerForGraphNodeVisibility(input.data, input.drawer.payload.nodeId, input.drawer, {
 			pins: input.pins,
-			visibility: input.visibility,
+			visibility,
 		});
-		return unchangedPlan(sameGraphDrawerTarget(input.drawer, next) ? input.drawer : next);
+		return {
+			...unchangedPlan(sameGraphDrawerTarget(input.drawer, next) ? input.drawer : next),
+			temporaryObject,
+		};
 	}
 
 	if (input.drawer.mode === "graph-excluded-object" && input.drawer.payload.object.kind === "node") {
 		const next = drawerForGraphNodeVisibility(input.data, input.drawer.payload.object.nodeId, input.drawer, {
 			pins: input.pins,
-			visibility: input.visibility,
+			visibility,
 		});
-		return unchangedPlan(sameGraphDrawerTarget(input.drawer, next) ? input.drawer : next);
+		return {
+			...unchangedPlan(sameGraphDrawerTarget(input.drawer, next) ? input.drawer : next),
+			temporaryObject,
+		};
 	}
 
 	if (input.drawer.mode === "graph-reader") {
-		const filteredHidden = graphReaderFilteredHidden(input.drawer.payload.node.id, input.visibility);
-		return unchangedPlan(input.drawer.filteredHidden === filteredHidden ? input.drawer : {
-			...input.drawer,
-			filteredHidden,
-		});
+		const filteredHidden = graphReaderFilteredHidden(input.drawer.payload.node.id, visibility);
+		return {
+			...unchangedPlan(input.drawer.filteredHidden === filteredHidden ? input.drawer : {
+				...input.drawer,
+				filteredHidden,
+			}),
+			temporaryObject,
+		};
 	}
 
-	return unchangedPlan(input.drawer);
+	return {
+		...unchangedPlan(input.drawer),
+		temporaryObject,
+	};
 }
 
 function planGraphDataChange(
 	input: ActiveMapReadingWorkflowInput,
-	temporaryObject: GraphSummaryObjectRef | null,
+	currentTemporaryObject: GraphSummaryObjectRef | null,
 ): ActiveMapReadingWorkflowPlan {
-	if (input.drawerExitProtected) return unchangedPlan(input.drawer);
+	const temporaryObject = temporaryObjectAfterGraphDataRefresh(input.data, currentTemporaryObject);
+	if (input.drawerExitProtected) return {
+		...unchangedPlan(input.drawer),
+		temporaryObject,
+	};
 	const effectiveVisibility = visibilityWithTemporaryObject(input.visibility, temporaryObject);
 	const readerStale = graphReaderStaleAfterRefresh(input.drawer, input.data, effectiveVisibility);
 	const next = drawerAfterGraphDataRefresh(input.drawer, input.data, {
@@ -184,6 +232,7 @@ function planGraphDataChange(
 	});
 	return {
 		drawer: sameGraphDrawerTarget(input.drawer, next) ? input.drawer : next,
+		temporaryObject,
 		...(readerStale
 			? {
 				clearGraphFocusPath: true,
@@ -218,7 +267,68 @@ function planGraphReaderAction(
 			},
 		};
 	}
-	return unchangedPlan(input.drawer);
+	if (!input.data || input.drawer.mode !== "graph-reader") return unchangedPlan(input.drawer);
+	const selection = resolveSelection(input.data, { kind: "node", id: input.drawer.payload.node.id });
+	const action = selection.actions?.find((item) => item.id === actionId) ?? null;
+	const payload = buildSelectionPromptPayload(input.data, selection, action, "");
+	return {
+		...unchangedPlan(closedDrawer()),
+		selectionCommand: {
+			id: commandId(input, "clear-graph-reader-after-ask"),
+			type: "clear",
+		},
+		conversationHandoff: {
+			message: payload.expandedText,
+			displayText: payload.displayText,
+			newConversation: false,
+		},
+	};
+}
+
+function planGraphSelectionAsk(
+	input: ActiveMapReadingWorkflowInput,
+	actionId: string | null,
+	newConversation: boolean,
+): ActiveMapReadingWorkflowPlan {
+	if (!input.data || input.drawer.mode !== "graph-selection") return unchangedPlan(input.drawer);
+	const recommendedActionId = graphSelectionGroupDrawerViewModel(input.drawer.title, input.drawer.selection).recommendedActionId;
+	const action = graphGroupDrawerPromptAction(actionId, recommendedActionId, input.drawer.freeText, newConversation);
+	const payload = buildSelectionPromptPayload(input.data, input.drawer.selection, action, input.drawer.freeText);
+	return graphAskPlan(input, payload.expandedText, payload.displayText, newConversation, "clear-graph-selection-after-ask");
+}
+
+function planGraphCommunityAsk(
+	input: ActiveMapReadingWorkflowInput,
+	actionId: string | null,
+	newConversation: boolean,
+): ActiveMapReadingWorkflowPlan {
+	if (!input.data || input.drawer.mode !== "graph-community-summary") return unchangedPlan(input.drawer);
+	const selection = resolveSelection(input.data, { kind: "community", id: input.drawer.payload.communityId });
+	const recommendedActionId = graphCommunityDrawerViewModel(input.drawer.payload).recommendedActionId;
+	const action = graphGroupDrawerPromptAction(actionId, recommendedActionId, input.drawer.freeText, newConversation);
+	const payload = buildSelectionPromptPayload(input.data, selection, action, input.drawer.freeText);
+	return graphAskPlan(input, payload.expandedText, payload.displayText, newConversation, "clear-graph-community-after-ask");
+}
+
+function graphAskPlan(
+	input: ActiveMapReadingWorkflowInput,
+	message: string,
+	displayText: string,
+	newConversation: boolean,
+	commandPrefix: string,
+): ActiveMapReadingWorkflowPlan {
+	return {
+		...unchangedPlan(closedDrawer()),
+		selectionCommand: {
+			id: commandId(input, commandPrefix),
+			type: "clear",
+		},
+		conversationHandoff: {
+			message,
+			displayText,
+			newConversation,
+		},
+	};
 }
 
 function planGraphSummaryCommand(

@@ -1,6 +1,5 @@
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import {
-	resolveSelection,
 	type GraphData,
 	type GraphDiff,
 	type GraphOpenPagePayload,
@@ -54,19 +53,8 @@ import {
 	wikiDrawer,
 } from "@/lib/drawer-state";
 import type { GraphReaderActionId } from "@/lib/graph-reader";
-import { buildSelectionPromptPayload } from "@/lib/graph-selection";
-import {
-	drawerAfterGraphDataRefresh,
-	graphReaderFilteredHidden,
-	temporaryObjectAfterGraphDataRefresh,
-	visibilityWithTemporaryObject,
-} from "@/lib/graph-data-refresh";
+import { graphReaderFilteredHidden } from "@/lib/graph-data-refresh";
 import { planActiveMapReadingWorkflow } from "@/lib/active-map-reading-workflow";
-import {
-	graphCommunityDrawerViewModel,
-	graphGroupDrawerPromptAction,
-	graphSelectionGroupDrawerViewModel,
-} from "@/lib/graph-group-drawer";
 import {
 	type GraphSelectionCommand,
 } from "@/lib/graph-summary-actions";
@@ -197,10 +185,22 @@ function App() {
 	});
 	const mainViewRef = useRef(mainView);
 	const graphTemporaryObjectRef = useRef<GraphSummaryObjectRef | null>(null);
+	const drawerRef = useRef(drawer);
 	const activeConversationId = active?.conversation.id ?? null;
 	const createGraphCommandId = useCallback((prefix: string) => (
 		`${prefix}-${Math.random().toString(36).slice(2, 10)}`
 	), []);
+	const setDrawerWithRef = useCallback((next: DrawerState) => {
+		drawerRef.current = next;
+		setDrawer(next);
+	}, [setDrawer]);
+	const updateDrawerWithRef = useCallback((updater: (current: DrawerState) => DrawerState) => {
+		setDrawer((current) => {
+			const next = updater(current);
+			drawerRef.current = next;
+			return next;
+		});
+	}, [setDrawer]);
 
 	const applyActiveMapReadingPlan = useCallback((plan: ActiveMapReadingWorkflowPlan) => {
 		if ("temporaryObject" in plan) {
@@ -210,8 +210,12 @@ function App() {
 		if (plan.clearGraphFocusPath) setGraphFocusPath(null);
 		if (plan.selectionCommand) setSelectionCommand(plan.selectionCommand);
 		if ("drawerExit" in plan) stageDrawerExit(plan.drawerExit ? plan.drawerExit.drawer : null);
-		setDrawer(plan.drawer);
-	}, [setDrawer, stageDrawerExit]);
+		setDrawerWithRef(plan.drawer);
+	}, [setDrawerWithRef, stageDrawerExit]);
+
+	useEffect(() => {
+		drawerRef.current = drawer;
+	}, [drawer]);
 
 	useEffect(() => {
 		applyAppearance(appearance);
@@ -318,14 +322,14 @@ function App() {
 				setConversations([]);
 				setArtifacts([]);
 				setGraphBuildError(null);
-				setDrawer(closedDrawer());
+				setDrawerWithRef(closedDrawer());
 			}
 		} catch (err) {
 			setSidebarError(err instanceof Error ? err.message : String(err));
 		} finally {
 			setLoading(false);
 		}
-	}, [refreshConversations, setDrawer]);
+	}, [refreshConversations, setDrawerWithRef]);
 
 	useEffect(() => {
 		refreshAll();
@@ -338,7 +342,7 @@ function App() {
 			.then((items) => {
 				if (cancelled) return;
 				setArtifacts(items);
-				setDrawer((current) => {
+				updateDrawerWithRef((current) => {
 					if (current.mode !== "artifacts") return current;
 					const activeArtifactId = current.activeArtifactId && items.some((item) => item.id === current.activeArtifactId)
 						? current.activeArtifactId
@@ -352,7 +356,7 @@ function App() {
 		return () => {
 			cancelled = true;
 		};
-	}, [activeConversationId, setDrawer]);
+	}, [activeConversationId, updateDrawerWithRef]);
 
 	const applyActive = (ctx: ActiveContext) => {
 		setActive(ctx);
@@ -360,7 +364,7 @@ function App() {
 		setChatKey((k) => k + 1);
 		setChatStatus(DEFAULT_CHAT_STATUS);
 		setGraphStatus(DEFAULT_GRAPH_STATUS);
-		setDrawer(closedDrawer());
+		setDrawerWithRef(closedDrawer());
 		setArtifacts([]);
 		setPendingGraphDiff(null);
 		setGraphBuildError(null);
@@ -413,7 +417,10 @@ function App() {
 		}
 	};
 
-	const handleAskSelection = async (input: { message: string; displayText: string; newConversation: boolean }) => {
+	const handleGraphConversationHandoff = async (
+		input: NonNullable<ActiveMapReadingWorkflowPlan["conversationHandoff"]> | undefined,
+	) => {
+		if (!input) return;
 		if (!active) return;
 		setSidebarError(null);
 		try {
@@ -434,62 +441,67 @@ function App() {
 	};
 
 	const handleGraphSelectionChange = useCallback((selection: Selection | null) => {
-		setDrawer((current) => planActiveMapReadingWorkflow({
-			event: { type: "graph-selection-change", selection },
-			data: graphData,
-			drawer: current,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			drawerExitProtected: isDrawerExitProtected(current),
-		}).drawer);
-	}, [graphData, graphPins, graphVisibilityState, isDrawerExitProtected, setDrawer]);
+		setDrawer((current) => {
+			const plan = planActiveMapReadingWorkflow({
+				event: { type: "graph-selection-change", selection },
+				data: graphData,
+				drawer: current,
+				pins: graphPins,
+				visibility: graphVisibilityState,
+				temporaryObject: graphTemporaryObjectRef.current,
+				drawerExitProtected: isDrawerExitProtected(current),
+				createCommandId: createGraphCommandId,
+			});
+			drawerRef.current = plan.drawer;
+			return plan.drawer;
+		});
+	}, [createGraphCommandId, graphData, graphPins, graphVisibilityState, isDrawerExitProtected, setDrawer]);
 
 	const handleGraphVisibilityChange = useCallback((state: GraphVisibilityState | null) => {
 		setGraphVisibilityState(state);
-		const nextTemporaryObject = temporaryObjectAfterGraphDataRefresh(graphData, state?.temporaryObject ?? null);
-		graphTemporaryObjectRef.current = nextTemporaryObject;
-		setGraphTemporaryObject(nextTemporaryObject);
-		const effectiveState = visibilityWithTemporaryObject(state, nextTemporaryObject);
-		setDrawer((current) => planActiveMapReadingWorkflow({
+		const temporaryObjectPlan = planActiveMapReadingWorkflow({
 			event: { type: "graph-visibility-change" },
 			data: graphData,
-			drawer: current,
+			drawer: drawerRef.current,
 			pins: graphPins,
-			visibility: effectiveState,
-			temporaryObject: nextTemporaryObject,
-			drawerExitProtected: isDrawerExitProtected(current),
+			visibility: state,
+			temporaryObject: graphTemporaryObjectRef.current,
+			drawerExitProtected: isDrawerExitProtected(drawerRef.current),
 			createCommandId: createGraphCommandId,
-		}).drawer);
+		});
+		if ("temporaryObject" in temporaryObjectPlan) {
+			graphTemporaryObjectRef.current = temporaryObjectPlan.temporaryObject ?? null;
+			setGraphTemporaryObject(temporaryObjectPlan.temporaryObject ?? null);
+		}
+		setDrawer((current) => {
+			const plan = planActiveMapReadingWorkflow({
+				event: { type: "graph-visibility-change" },
+				data: graphData,
+				drawer: current,
+				pins: graphPins,
+				visibility: state,
+				temporaryObject: graphTemporaryObjectRef.current,
+				drawerExitProtected: isDrawerExitProtected(current),
+				createCommandId: createGraphCommandId,
+			});
+			drawerRef.current = plan.drawer;
+			return plan.drawer;
+		});
 	}, [createGraphCommandId, graphData, graphPins, isDrawerExitProtected, setDrawer]);
 
 	const handleGraphDataChange = useCallback((nextData: GraphData | null) => {
 		setGraphData(nextData);
-		const nextTemporaryObject = temporaryObjectAfterGraphDataRefresh(nextData, graphTemporaryObjectRef.current);
-		graphTemporaryObjectRef.current = nextTemporaryObject;
-		setGraphTemporaryObject(nextTemporaryObject);
-		const sideEffectPlan = planActiveMapReadingWorkflow({
-			event: { type: "graph-data-change", temporaryObject: nextTemporaryObject },
+		applyActiveMapReadingPlan(planActiveMapReadingWorkflow({
+			event: { type: "graph-data-change" },
 			data: nextData,
-			drawer,
+			drawer: drawerRef.current,
 			pins: graphPins,
 			visibility: graphVisibilityState,
-			temporaryObject: nextTemporaryObject,
-			drawerExitProtected: isDrawerExitProtected(drawer),
+			temporaryObject: graphTemporaryObjectRef.current,
+			drawerExitProtected: isDrawerExitProtected(drawerRef.current),
 			createCommandId: createGraphCommandId,
-		});
-		if (sideEffectPlan.clearGraphFocusPath) setGraphFocusPath(null);
-		if (sideEffectPlan.selectionCommand) setSelectionCommand(sideEffectPlan.selectionCommand);
-		setDrawer((current) => planActiveMapReadingWorkflow({
-			event: { type: "graph-data-change", temporaryObject: nextTemporaryObject },
-			data: nextData,
-			drawer: current,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: nextTemporaryObject,
-			drawerExitProtected: isDrawerExitProtected(current),
-			createCommandId: createGraphCommandId,
-		}).drawer);
-	}, [createGraphCommandId, drawer, graphPins, graphVisibilityState, isDrawerExitProtected, setDrawer]);
+		}));
+	}, [applyActiveMapReadingPlan, createGraphCommandId, graphPins, graphVisibilityState, isDrawerExitProtected]);
 
 	const handleGraphViewReset = useCallback(() => {
 		applyActiveMapReadingPlan(planActiveMapReadingWorkflow({
@@ -505,48 +517,49 @@ function App() {
 	}, [applyActiveMapReadingPlan, createGraphCommandId, drawer, graphData, graphPins, graphVisibilityState, isDrawerExitProtected]);
 
 	const handleGraphSelectionTextChange = useCallback((value: string) => {
-		setDrawer((current) => (
+		updateDrawerWithRef((current) => (
 			current.mode === "graph-selection"
 				? graphSelectionDrawer(current.selection, current.title, value)
 				: current
 		));
-	}, [setDrawer]);
+	}, [updateDrawerWithRef]);
 
 	const handleGraphSelectionAsk = (actionId: string | null, newConversation: boolean) => {
-		if (!graphData || drawer.mode !== "graph-selection") return;
-		const recommendedActionId = graphSelectionGroupDrawerViewModel(drawer.title, drawer.selection).recommendedActionId;
-		const action = graphGroupDrawerPromptAction(actionId, recommendedActionId, drawer.freeText, newConversation);
-		const payload = buildSelectionPromptPayload(graphData, drawer.selection, action, drawer.freeText);
-		void handleAskSelection({
-			message: payload.expandedText,
-			displayText: payload.displayText,
-			newConversation,
+		const plan = planActiveMapReadingWorkflow({
+			event: { type: "graph-selection-ask", actionId, newConversation },
+			data: graphData,
+			drawer: drawerRef.current,
+			pins: graphPins,
+			visibility: graphVisibilityState,
+			temporaryObject: graphTemporaryObjectRef.current,
+			drawerExitProtected: isDrawerExitProtected(drawerRef.current),
+			createCommandId: createGraphCommandId,
 		});
-		setDrawer(closedDrawer());
-		setSelectionCommand({ id: Math.random().toString(36).slice(2, 10), type: "clear" });
+		applyActiveMapReadingPlan(plan);
+		void handleGraphConversationHandoff(plan.conversationHandoff);
 	};
 
 	const handleGraphCommunityTextChange = useCallback((value: string) => {
-		setDrawer((current) => (
+		updateDrawerWithRef((current) => (
 			current.mode === "graph-community-summary"
 				? graphCommunitySummaryDrawer(current.payload, value)
 				: current
 		));
-	}, [setDrawer]);
+	}, [updateDrawerWithRef]);
 
 	const handleGraphCommunityAsk = (actionId: string | null, newConversation: boolean) => {
-		if (!graphData || drawer.mode !== "graph-community-summary") return;
-		const selection = resolveSelection(graphData, { kind: "community", id: drawer.payload.communityId });
-		const recommendedActionId = graphCommunityDrawerViewModel(drawer.payload).recommendedActionId;
-		const action = graphGroupDrawerPromptAction(actionId, recommendedActionId, drawer.freeText, newConversation);
-		const payload = buildSelectionPromptPayload(graphData, selection, action, drawer.freeText);
-		void handleAskSelection({
-			message: payload.expandedText,
-			displayText: payload.displayText,
-			newConversation,
+		const plan = planActiveMapReadingWorkflow({
+			event: { type: "graph-community-ask", actionId, newConversation },
+			data: graphData,
+			drawer: drawerRef.current,
+			pins: graphPins,
+			visibility: graphVisibilityState,
+			temporaryObject: graphTemporaryObjectRef.current,
+			drawerExitProtected: isDrawerExitProtected(drawerRef.current),
+			createCommandId: createGraphCommandId,
 		});
-		setDrawer(closedDrawer());
-		setSelectionCommand({ id: Math.random().toString(36).slice(2, 10), type: "clear" });
+		applyActiveMapReadingPlan(plan);
+		void handleGraphConversationHandoff(plan.conversationHandoff);
 	};
 
 	const handleGraphReaderAction = (actionId: GraphReaderActionId) => {
@@ -561,21 +574,8 @@ function App() {
 			drawerExitProtected: isDrawerExitProtected(drawer),
 			createCommandId: createGraphCommandId,
 		});
-		if (plan.selectionCommand) {
-			applyActiveMapReadingPlan(plan);
-			return;
-		}
-		if (!graphData) return;
-		const selection = resolveSelection(graphData, { kind: "node", id: drawer.payload.node.id });
-		const action = selection.actions?.find((item) => item.id === actionId) ?? null;
-		const payload = buildSelectionPromptPayload(graphData, selection, action, "");
-		void handleAskSelection({
-			message: payload.expandedText,
-			displayText: payload.displayText,
-			newConversation: false,
-		});
-		setDrawer(closedDrawer());
-		setSelectionCommand({ id: Math.random().toString(36).slice(2, 10), type: "clear" });
+		applyActiveMapReadingPlan(plan);
+		void handleGraphConversationHandoff(plan.conversationHandoff);
 	};
 
 	const handleCloseDrawer = useCallback((reason: "button" | "escape") => {
@@ -606,12 +606,12 @@ function App() {
 		if (!active) return;
 		const normalizedPagePath = toRelativePagePath(pagePath, active.kb.path) ?? pagePath;
 		if (normalizedPagePath.startsWith("wiki/")) setGraphFocusPath(normalizedPagePath);
-		setDrawer(wikiDrawer(normalizedPagePath, { loading: true }));
+		setDrawerWithRef(wikiDrawer(normalizedPagePath, { loading: true }));
 		try {
 			const content = await readPage(active.kb.path, normalizedPagePath);
-			setDrawer(wikiDrawer(normalizedPagePath, { content }));
+			setDrawerWithRef(wikiDrawer(normalizedPagePath, { content }));
 		} catch (err) {
-			setDrawer(wikiDrawer(normalizedPagePath, { error: err instanceof Error ? err.message : String(err) }));
+			setDrawerWithRef(wikiDrawer(normalizedPagePath, { error: err instanceof Error ? err.message : String(err) }));
 		}
 	};
 
@@ -631,24 +631,24 @@ function App() {
 			},
 		};
 		if (syncGraphFocus && normalizedPagePath.startsWith("wiki/")) setGraphFocusPath(normalizedPagePath);
-		setDrawer(graphReaderDrawer(normalizedPayload, { loading: true }, {
+		setDrawerWithRef(graphReaderDrawer(normalizedPayload, { loading: true }, {
 			filteredHidden: graphReaderFilteredHidden(normalizedPayload.node.id, graphVisibilityState),
 		}));
 		try {
 			const content = await readPage(active.kb.path, normalizedPagePath);
-			setDrawer((current) => (
+			updateDrawerWithRef((current) => (
 				current.mode === "graph-reader" && shouldApplyGraphReaderResult(current, normalizedPayload)
 					? graphReaderDrawer(normalizedPayload, { content }, { filteredHidden: current.filteredHidden })
 					: current
 			));
 		} catch (err) {
-			setDrawer((current) => (
+			updateDrawerWithRef((current) => (
 				current.mode === "graph-reader" && shouldApplyGraphReaderResult(current, normalizedPayload)
 					? graphReaderDrawer(normalizedPayload, { error: err instanceof Error ? err.message : String(err) }, { filteredHidden: current.filteredHidden })
 				: current
 			));
 		}
-	}, [active, graphVisibilityState, setDrawer]);
+	}, [active, graphVisibilityState, setDrawerWithRef, updateDrawerWithRef]);
 
 	const handleGraphSummaryCommand = useCallback((command: GraphSummaryCommand) => {
 		const plan = planActiveMapReadingWorkflow({
@@ -679,21 +679,26 @@ function App() {
 	]);
 
 	useEffect(() => {
-		const nextTemporaryObject = temporaryObjectAfterGraphDataRefresh(graphData, graphTemporaryObjectRef.current);
-		graphTemporaryObjectRef.current = nextTemporaryObject;
-		setGraphTemporaryObject(nextTemporaryObject);
-		setDrawer((current) => {
-			if (!isGraphInteractionDrawer(current)) return current;
-			// 退场轨道进行时，进入社区会带新一轮 visibility state；这里不要重建抽屉对象，
-			// 否则 drawer 引用变化会让 drawer === drawerExit 失败、退场中断。
-			if (isDrawerExitProtected(current)) return current;
-			return drawerAfterGraphDataRefresh(current, graphData, {
-				pins: graphPins,
-				visibility: graphVisibilityState,
-				temporaryObject: nextTemporaryObject,
-			});
+		const current = drawerRef.current;
+		const plan = planActiveMapReadingWorkflow({
+			event: { type: "graph-data-change" },
+			data: graphData,
+			drawer: current,
+			pins: graphPins,
+			visibility: graphVisibilityState,
+			temporaryObject: graphTemporaryObjectRef.current,
+			drawerExitProtected: isDrawerExitProtected(current),
+			createCommandId: createGraphCommandId,
 		});
-	}, [graphData, graphPins, graphVisibilityState, isDrawerExitProtected, setDrawer]);
+		if (isGraphInteractionDrawer(current)) {
+			applyActiveMapReadingPlan(plan);
+			return;
+		}
+		if ("temporaryObject" in plan) {
+			graphTemporaryObjectRef.current = plan.temporaryObject ?? null;
+			setGraphTemporaryObject(plan.temporaryObject ?? null);
+		}
+	}, [applyActiveMapReadingPlan, createGraphCommandId, graphData, graphPins, graphVisibilityState, isDrawerExitProtected]);
 
 	const handleGraphSummaryNodeSelect = useCallback((nodeId: string) => {
 		applyActiveMapReadingPlan(planActiveMapReadingWorkflow({
@@ -741,13 +746,13 @@ function App() {
 	const refreshArtifacts = async (conversationId: string, focusId?: string) => {
 		const items = await listArtifacts(conversationId);
 		setArtifacts(items);
-		setDrawer(artifactDrawer(items, focusId ?? items.at(-1)?.id ?? null));
+		setDrawerWithRef(artifactDrawer(items, focusId ?? items.at(-1)?.id ?? null));
 	};
 
 	const handleOpenArtifacts = () => {
 		if (artifacts.length === 0) return;
 		const current = drawer.mode === "artifacts" ? drawer.activeArtifactId : null;
-		setDrawer(artifactDrawer(
+		setDrawerWithRef(artifactDrawer(
 			artifacts,
 			current && artifacts.some((item) => item.id === current) ? current : artifacts.at(-1)?.id ?? null,
 		));
@@ -878,12 +883,12 @@ function App() {
 		if (!batchJob) return;
 		const rel = toRelativePagePath(outputPath, batchJob.kbPath);
 		if (!rel) return;
-		setDrawer(wikiDrawer(rel, { loading: true }));
+		setDrawerWithRef(wikiDrawer(rel, { loading: true }));
 		try {
 			const content = await readPage(batchJob.kbPath, rel);
-			setDrawer(wikiDrawer(rel, { content }));
+			setDrawerWithRef(wikiDrawer(rel, { content }));
 		} catch (err) {
-			setDrawer(wikiDrawer(rel, { error: err instanceof Error ? err.message : String(err) }));
+			setDrawerWithRef(wikiDrawer(rel, { error: err instanceof Error ? err.message : String(err) }));
 		}
 	};
 
@@ -1050,7 +1055,7 @@ function App() {
 						fullscreen={drawerFullscreen}
 						width={drawerWidth}
 						defaultWidth={DEFAULT_DRAWER_WIDTH}
-						onSelectArtifact={(id) => setDrawer(artifactDrawer(artifacts, id))}
+						onSelectArtifact={(id) => setDrawerWithRef(artifactDrawer(artifacts, id))}
 						onOpenPage={handleOpenPage}
 						onWikiLinkSeen={handleWikiLinkSeen}
 						onGraphReaderAction={handleGraphReaderAction}
