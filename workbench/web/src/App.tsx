@@ -55,7 +55,7 @@ import {
 } from "@/lib/drawer-state";
 import type { GraphReaderActionId } from "@/lib/graph-reader";
 import { buildSelectionPromptPayload } from "@/lib/graph-selection";
-import { graphCloseCommandForDrawer, shouldCloseDrawerAfterGraphSelectionClear } from "@/lib/graph-drawer-close";
+import { graphCloseCommandForDrawer } from "@/lib/graph-drawer-close";
 import {
 	drawerAfterGraphDataRefresh,
 	drawerForGraphNodeVisibility,
@@ -65,13 +65,13 @@ import {
 	temporaryObjectAfterGraphDataRefresh,
 	visibilityWithTemporaryObject,
 } from "@/lib/graph-data-refresh";
+import { planActiveMapReadingWorkflow } from "@/lib/active-map-reading-workflow";
 import {
 	graphCommunityDrawerViewModel,
 	graphGroupDrawerPromptAction,
 	graphSelectionGroupDrawerViewModel,
 } from "@/lib/graph-group-drawer";
 import {
-	drawerForGraphSelection,
 	drawerForGraphSummaryNode,
 	graphOpenPagePayloadForCommand,
 	graphSelectionCommandForOpenDetail,
@@ -429,24 +429,15 @@ function App() {
 	};
 
 	const handleGraphSelectionChange = useCallback((selection: Selection | null) => {
-		if (!selection) {
-			setDrawer((current) => {
-				// 退场轨道进行时，clearSelection 是 applyCommunityEnter 的副作用，
-				// 抽屉关闭由退场轨道接管，这里不要硬切。
-				if (isDrawerExitProtected(current)) return current;
-				return shouldCloseDrawerAfterGraphSelectionClear(current) ? closedDrawer() : current;
-			});
-			return;
-		}
-		if (drawer.mode === "graph-reader" && selection.nodeIds.length === 1 && drawer.payload.node.id === selection.nodeIds[0]) {
-			return;
-		}
-		setDrawer((current) => drawerForGraphSelection(graphData, selection, current, {
+		setDrawer((current) => planActiveMapReadingWorkflow({
+			event: { type: "graph-selection-change", selection },
+			data: graphData,
+			drawer: current,
 			pins: graphPins,
-			selection: selection.input,
-			searchResultIds: graphVisibilityState?.searchResultIds ?? [],
-		}));
-	}, [drawer, graphData, graphPins, graphVisibilityState, isDrawerExitProtected, setDrawer]);
+			visibility: graphVisibilityState,
+			drawerExitProtected: isDrawerExitProtected(current),
+		}).drawer);
+	}, [graphData, graphPins, graphVisibilityState, isDrawerExitProtected, setDrawer]);
 
 	const handleGraphVisibilityChange = useCallback((state: GraphVisibilityState | null) => {
 		setGraphVisibilityState(state);
