@@ -160,9 +160,176 @@ describe("active map reading workflow", () => {
 
 		assert.equal(plan.drawer, drawer);
 	});
+
+	it("plans community reading entry with the same drawer snapshot for exit", () => {
+		const drawer = graphCommunitySummaryDrawer(communitySummaryPayloadFixture());
+		const plan = workflowPlan(
+			{ type: "graph-summary-command", command: { kind: "enter-community", communityId: "c1", label: "进入社区" }, reducedMotion: false },
+			{ drawer },
+		);
+
+		assert.deepEqual(plan.selectionCommand, { id: "c1", type: "enter-community" });
+		assert.equal(plan.drawer, drawer);
+		assert.equal(plan.drawerExit?.drawer, drawer);
+		assert.equal(typeof plan.drawerExit?.durationMs, "number");
+	});
+
+	it("skips the staged community exit under reduced motion", () => {
+		const drawer = graphCommunitySummaryDrawer(communitySummaryPayloadFixture());
+		const plan = workflowPlan(
+			{ type: "graph-summary-command", command: { kind: "enter-community", communityId: "c1", label: "进入社区" }, reducedMotion: true },
+			{ drawer },
+		);
+
+		assert.deepEqual(plan.selectionCommand, { id: "c1", type: "enter-community" });
+		assert.equal(plan.drawer.mode, "closed");
+		assert.equal(plan.drawerExit, null);
+	});
+
+	it("does not let visibility or graph refresh interrupt a protected community exit", () => {
+		const drawer = graphCommunitySummaryDrawer(communitySummaryPayloadFixture());
+		const visibilityPlan = workflowPlan(
+			{ type: "graph-visibility-change" },
+			{ drawer, drawerExitProtected: true, visibility: { ...emptyVisibility(), focusCommunityId: "c1" } },
+		);
+		const refreshPlan = workflowPlan(
+			{ type: "graph-data-change", temporaryObject: null },
+			{ drawer, drawerExitProtected: true },
+		);
+
+		assert.equal(visibilityPlan.drawer, drawer);
+		assert.equal(refreshPlan.drawer, drawer);
+	});
+
+	it("opens node reading from a community summary without desynchronizing graph focus", () => {
+		const plan = workflowPlan({
+			type: "graph-summary-command",
+			command: { kind: "open-detail-read", nodeId: "a", path: "wiki/a.md", label: "打开详情" },
+		});
+
+		assert.equal(plan.pageReadRequest?.payload.node.id, "a");
+		assert.equal(plan.pageReadRequest?.syncGraphFocus, false);
+		assert.deepEqual(plan.selectionCommand, {
+			commandId: "open-detail-a-id",
+			id: "c1",
+			nodeId: "a",
+			type: "enter-community-node",
+		});
+	});
+
+	it("enters a node's community and selects that same node from the node summary", () => {
+		const plan = workflowPlan({
+			type: "graph-summary-command",
+			command: { kind: "enter-node-community", communityId: "c1", nodeId: "a", path: "wiki/a.md", label: "进入所属社区" },
+		});
+
+		assert.equal(plan.pageReadRequest?.payload.node.id, "a");
+		assert.equal(plan.pageReadRequest?.syncGraphFocus, false);
+		assert.deepEqual(plan.selectionCommand, { id: "c1", nodeId: "a", type: "enter-community-node" });
+	});
+
+	it("keeps the graph reader related-pages action as a neighbor selection command", () => {
+		const drawer = graphReaderDrawer(graphReaderPayloadFixture(), { content: "Alpha" });
+		const plan = workflowPlan({ type: "graph-reader-action", actionId: "find_related_pages" }, { drawer });
+
+		assert.deepEqual(plan.selectionCommand, { id: "a", type: "neighbors" });
+		assert.equal(plan.drawer, drawer);
+	});
+
+	it("returns from a node summary to its original community context", () => {
+		const drawer = graphNodeSummaryDrawer(nodeSummaryFixture(), { returnCommunityId: "c1" });
+		const plan = workflowPlan({ type: "graph-summary-return-community", communityId: "c1" }, { drawer });
+
+		assert.deepEqual(plan.selectionCommand, { id: "c1", type: "select-community-summary" });
+		assert.equal(plan.drawer, drawer);
+	});
+
+	it("turns graph view reset during node reading back into a node summary", () => {
+		const drawer = graphReaderDrawer(graphReaderPayloadFixture(), { content: "Alpha" });
+		const plan = workflowPlan({ type: "graph-view-reset" }, { drawer });
+
+		assert.equal(plan.clearGraphFocusPath, true);
+		assert.equal(plan.drawer.mode, "graph-node-summary");
+		assert.equal(plan.drawer.mode === "graph-node-summary" ? plan.drawer.payload.nodeId : null, "a");
+	});
+
+	it("keeps preview, pin, show-temporary, and clear-temporary commands as graph commands", () => {
+		const preview = workflowPlan({ type: "graph-summary-node-preview", nodeId: "a" });
+		const pin = workflowPlan({
+			type: "graph-summary-command",
+			command: { kind: "set-fixed-position", nodeId: "a", mode: "fix", label: "固定位置" },
+		});
+		const temporary = workflowPlan({
+			type: "graph-summary-command",
+			command: { kind: "show-this-object", object: { kind: "node", nodeId: "b" }, label: "显示节点" },
+		});
+		const clearTemporary = workflowPlan(
+			{ type: "graph-summary-command", command: { kind: "clear-temporary-object-display", label: "清理临时对象" } },
+			{ drawer: graphNodeSummaryDrawer(nodeSummaryFixture()) },
+		);
+
+		assert.deepEqual(preview.selectionCommand, { id: "preview-a-id", nodeId: "a", type: "preview-node" });
+		assert.deepEqual(pin.selectionCommand, { id: "fix-a-id", nodeId: "a", mode: "fix", type: "set-fixed-position" });
+		assert.deepEqual(temporary.temporaryObject, { kind: "node", nodeId: "b" });
+		assert.deepEqual(temporary.selectionCommand, {
+			id: "show-temporary-object-id",
+			object: { kind: "node", nodeId: "b" },
+			type: "show-temporary-object",
+		});
+		assert.equal(temporary.drawer.mode, "graph-node-summary");
+		assert.deepEqual(clearTemporary.temporaryObject, null);
+		assert.deepEqual(clearTemporary.selectionCommand, {
+			id: "clear-temporary-object-display-id",
+			type: "clear-temporary-object-display",
+		});
+	});
+
+	it("preserves the close button and Escape differences for graph drawers", () => {
+		const reader = graphReaderDrawer(graphReaderPayloadFixture(), { content: "Alpha" });
+		const readerButton = workflowPlan({ type: "graph-drawer-close", reason: "button" }, { drawer: reader });
+		const readerEscape = workflowPlan({ type: "graph-drawer-close", reason: "escape" }, { drawer: reader });
+		const returnableNode = graphNodeSummaryDrawer(nodeSummaryFixture(), { returnCommunityId: "c1" });
+		const nodeEscape = workflowPlan({ type: "graph-drawer-close", reason: "escape" }, { drawer: returnableNode });
+
+		assert.equal(readerButton.drawer.mode, "closed");
+		assert.equal(readerButton.selectionCommand, undefined);
+		assert.equal(readerButton.clearGraphFocusPath, undefined);
+		assert.equal(readerEscape.drawer.mode, "closed");
+		assert.equal(readerEscape.selectionCommand?.type, "clear");
+		assert.equal(readerEscape.clearGraphFocusPath, true);
+		assert.equal(nodeEscape.drawer, returnableNode);
+		assert.deepEqual(nodeEscape.selectionCommand, { id: "c1", type: "select-community-summary" });
+	});
 });
 
 const emptyPins: PinMap = {};
+
+function workflowPlan(
+	event: Parameters<typeof planActiveMapReadingWorkflow>[0]["event"],
+	overrides: Partial<Parameters<typeof planActiveMapReadingWorkflow>[0]> = {},
+) {
+	return planActiveMapReadingWorkflow({
+		event,
+		data: graphFixture(),
+		drawer: closedDrawer(),
+		pins: emptyPins,
+		visibility: null,
+		drawerExitProtected: false,
+		createCommandId: (prefix) => `${prefix}-id`,
+		...overrides,
+	});
+}
+
+function emptyVisibility() {
+	return {
+		searchQuery: "",
+		searchResultIds: [],
+		typeFilters: {},
+		temporaryObject: null,
+		focusCommunityId: null,
+		hiddenReadingNodeId: null,
+	};
+}
 
 function nodeSelection(nodeId = "a"): Selection {
 	return {
