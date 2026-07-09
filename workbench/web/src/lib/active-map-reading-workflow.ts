@@ -1,12 +1,11 @@
-import {
-	resolveSelection,
-	type GraphData,
-	type GraphOpenPagePayload,
-	type GraphSummaryCommand,
-	type GraphSummaryObjectRef,
-	type GraphVisibilityState,
-	type PinMap,
-	type Selection,
+import type {
+	GraphData,
+	GraphOpenPagePayload,
+	GraphSummaryCommand,
+	GraphSummaryObjectRef,
+	GraphVisibilityState,
+	PinMap,
+	Selection,
 } from "@llm-wiki/graph-engine";
 
 import { closedDrawer, type DrawerState } from "./drawer-state";
@@ -27,7 +26,7 @@ import {
 	graphGroupDrawerPromptAction,
 	graphSelectionGroupDrawerViewModel,
 } from "./graph-group-drawer";
-import { buildSelectionPromptPayload } from "./graph-selection";
+import { buildSelectionPromptPayload, resolveGraphPromptSelection } from "./graph-selection";
 import {
 	drawerForGraphSelection,
 	drawerForGraphSummaryNode,
@@ -231,7 +230,7 @@ function planGraphDataChange(
 		temporaryObject,
 	});
 	return {
-		drawer: sameGraphDrawerTarget(input.drawer, next) ? input.drawer : next,
+		drawer: next,
 		temporaryObject,
 		...(readerStale
 			? {
@@ -268,7 +267,7 @@ function planGraphReaderAction(
 		};
 	}
 	if (!input.data || input.drawer.mode !== "graph-reader") return unchangedPlan(input.drawer);
-	const selection = resolveSelection(input.data, { kind: "node", id: input.drawer.payload.node.id });
+	const selection = resolveGraphPromptSelection(input.data, { kind: "node", id: input.drawer.payload.node.id });
 	const action = selection.actions?.find((item) => item.id === actionId) ?? null;
 	const payload = buildSelectionPromptPayload(input.data, selection, action, "");
 	return {
@@ -303,7 +302,7 @@ function planGraphCommunityAsk(
 	newConversation: boolean,
 ): ActiveMapReadingWorkflowPlan {
 	if (!input.data || input.drawer.mode !== "graph-community-summary") return unchangedPlan(input.drawer);
-	const selection = resolveSelection(input.data, { kind: "community", id: input.drawer.payload.communityId });
+	const selection = resolveGraphPromptSelection(input.data, { kind: "community", id: input.drawer.payload.communityId });
 	const recommendedActionId = graphCommunityDrawerViewModel(input.drawer.payload).recommendedActionId;
 	const action = graphGroupDrawerPromptAction(actionId, recommendedActionId, input.drawer.freeText, newConversation);
 	const payload = buildSelectionPromptPayload(input.data, selection, action, input.drawer.freeText);

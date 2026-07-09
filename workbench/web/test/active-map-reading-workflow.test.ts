@@ -1,13 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import type { GraphData, GraphOpenPagePayload, PinMap, Selection } from "@llm-wiki/graph-engine";
+import type { GraphData, GraphExcludedObjectPayload, GraphOpenPagePayload, PinMap, Selection } from "@llm-wiki/graph-engine";
 
 import { planActiveMapReadingWorkflow } from "../src/lib/active-map-reading-workflow";
 import {
 	artifactDrawer,
 	closedDrawer,
 	graphCommunitySummaryDrawer,
+	graphExcludedObjectDrawer,
 	graphNodeSummaryDrawer,
 	graphReaderDrawer,
 	graphSelectionDrawer,
@@ -245,6 +246,28 @@ describe("active map reading workflow", () => {
 		assert.equal(plan.drawer, drawer);
 	});
 
+	it("opens a community core node as a node summary without entering full reading", () => {
+		const drawer = graphCommunitySummaryDrawer(communitySummaryPayloadFixture());
+		const plan = workflowPlan({ type: "graph-summary-node-select", nodeId: "b" }, { drawer });
+
+		assert.equal(plan.drawer.mode, "graph-node-summary");
+		assert.equal(plan.drawer.mode === "graph-node-summary" ? plan.drawer.payload.nodeId : null, "b");
+		assert.equal(plan.drawer.mode === "graph-node-summary" ? plan.drawer.returnCommunityId : null, "c1");
+		assert.equal(plan.selectionCommand, undefined);
+		assert.equal(plan.pageReadRequest, undefined);
+	});
+
+	it("keeps node summary related-pages as a neighbor selection command", () => {
+		const drawer = graphNodeSummaryDrawer(nodeSummaryFixture());
+		const plan = workflowPlan(
+			{ type: "graph-summary-command", command: { kind: "select-neighbors", nodeId: "a", label: "找相关页面" } },
+			{ drawer },
+		);
+
+		assert.deepEqual(plan.selectionCommand, { id: "a", type: "neighbors" });
+		assert.equal(plan.drawer, drawer);
+	});
+
 	it("turns graph view reset during node reading back into a node summary", () => {
 		const drawer = graphReaderDrawer(graphReaderPayloadFixture(), { content: "Alpha" });
 		const plan = workflowPlan({ type: "graph-view-reset" }, { drawer });
@@ -280,6 +303,47 @@ describe("active map reading workflow", () => {
 		assert.equal(temporary.drawer.mode, "graph-node-summary");
 		assert.deepEqual(clearTemporary.temporaryObject, null);
 		assert.deepEqual(clearTemporary.selectionCommand, {
+			id: "clear-temporary-object-display-id",
+			type: "clear-temporary-object-display",
+		});
+	});
+
+	it("keeps temporary hidden-object display coherent through workflow visibility events", () => {
+		const temporaryObject = { kind: "node" as const, nodeId: "external" };
+		const data = graphDataWithExternalNode();
+		const visibility = communityFocusedVisibility();
+		const hidden = graphExcludedObjectDrawer(excludedExternalNodeFixture());
+		const shown = workflowPlan(
+			{ type: "graph-summary-command", command: { kind: "show-this-object", object: temporaryObject, label: "显示这个对象" } },
+			{ data, drawer: hidden, visibility },
+		);
+
+		assert.equal(shown.drawer.mode, "graph-node-summary");
+		assert.deepEqual(shown.temporaryObject, temporaryObject);
+		assert.deepEqual(shown.selectionCommand, {
+			id: "show-temporary-object-id",
+			object: temporaryObject,
+			type: "show-temporary-object",
+		});
+
+		const visible = workflowPlan(
+			{ type: "graph-visibility-change" },
+			{ data, drawer: shown.drawer, visibility: { ...visibility, temporaryObject } },
+		);
+		assert.equal(visible.drawer, shown.drawer);
+		assert.deepEqual(visible.temporaryObject, temporaryObject);
+
+		const cleared = workflowPlan(
+			{ type: "graph-summary-command", command: { kind: "clear-temporary-object-display", label: "清理临时对象" } },
+			{ data, drawer: shown.drawer, visibility: { ...visibility, temporaryObject } },
+		);
+		assert.equal(cleared.drawer.mode, "graph-excluded-object");
+		assert.deepEqual(
+			cleared.drawer.mode === "graph-excluded-object" ? cleared.drawer.payload.object : null,
+			temporaryObject,
+		);
+		assert.equal(cleared.temporaryObject, null);
+		assert.deepEqual(cleared.selectionCommand, {
 			id: "clear-temporary-object-display-id",
 			type: "clear-temporary-object-display",
 		});
@@ -352,6 +416,18 @@ describe("active map reading workflow", () => {
 		assert.equal(plan.drawer.mode === "graph-reader" ? plan.drawer.content : null, "Alpha body");
 		assert.equal(plan.clearGraphFocusPath, undefined);
 		assert.equal(plan.selectionCommand, undefined);
+	});
+
+	it("refreshes the current node summary payload when graph data changes", () => {
+		const drawer = graphNodeSummaryDrawer(nodeSummaryFixture());
+		const plan = workflowPlan(
+			{ type: "graph-data-change" },
+			{ drawer, data: graphDataWithUpdatedNodeALabel() },
+		);
+
+		assert.equal(plan.drawer.mode, "graph-node-summary");
+		assert.notEqual(plan.drawer, drawer);
+		assert.equal(plan.drawer.mode === "graph-node-summary" ? plan.drawer.payload.label : null, "Alpha updated");
 	});
 
 	it("safely closes node reading after refresh when the node disappears", () => {
@@ -446,6 +522,10 @@ function emptyVisibility() {
 	};
 }
 
+function communityFocusedVisibility() {
+	return { ...emptyVisibility(), focusCommunityId: "c1" };
+}
+
 function nodeSelection(nodeId = "a"): Selection {
 	return {
 		id: `node:${nodeId}`,
@@ -521,6 +601,34 @@ function graphDataWithoutNodeA(): GraphData {
 	};
 }
 
+function graphDataWithUpdatedNodeALabel(): GraphData {
+	const data = graphFixture();
+	return {
+		...data,
+		nodes: data.nodes.map((node) => (
+			node.id === "a" ? { ...node, label: "Alpha updated" } : node
+		)),
+	};
+}
+
+function graphDataWithExternalNode(): GraphData {
+	const data = graphFixture();
+	return {
+		...data,
+		nodes: [
+			...data.nodes,
+			{ id: "external", label: "External", type: "entity", community: "c2", source_path: "wiki/external.md" },
+		],
+		learning: {
+			...data.learning,
+			communities: [
+				...(data.learning?.communities ?? []),
+				{ id: "c2", label: "External community", node_count: 1, color_index: 1, members: ["external"] },
+			],
+		},
+	};
+}
+
 function graphDataWithNodeAOutsideFocusedCommunity(): GraphData {
 	const data = graphFixture();
 	return {
@@ -535,6 +643,28 @@ function graphDataWithNodeAOutsideFocusedCommunity(): GraphData {
 				{ id: "c2", label: "Other", node_count: 1, color_index: 1, members: ["a"] },
 			],
 		},
+	};
+}
+
+function excludedExternalNodeFixture(): GraphExcludedObjectPayload {
+	return {
+		kind: "excluded-object",
+		object: { kind: "node", nodeId: "external" },
+		reason: "community-scope",
+		selection: {
+			input: { kind: "node", id: "external" },
+			selectionId: "node:external",
+			selectedNodeIds: ["external"],
+			selectedCommunityIds: ["c2"],
+			containsCurrentObject: true,
+		},
+		searchResultIds: [],
+		pinHints: [],
+		aggregationMarkers: [],
+		commands: [
+			{ kind: "show-this-object", object: { kind: "node", nodeId: "external" }, label: "显示这个对象" },
+			{ kind: "clear-temporary-object-display", label: "清除临时显示" },
+		],
 	};
 }
 

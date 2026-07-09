@@ -1,4 +1,5 @@
 import {
+	resolveSelection,
 	UNGROUPED_COMMUNITY_ID,
 	UNGROUPED_COMMUNITY_LABEL,
 	wikiPathForGraphNode,
@@ -68,6 +69,13 @@ export function buildSelectionPromptPayload(
 		expandedText,
 		displayText: `@[选区:${title} · ${selection.facts.pageCount}页] ${action ? action.label : freeText.trim() || "自由提问"}`
 	};
+}
+
+export function resolveGraphPromptSelection(
+	data: GraphData,
+	input: { kind: "node"; id: string } | { kind: "community"; id: string },
+): Selection {
+	return resolveSelection(data, input);
 }
 
 export function selectionTitle(data: GraphData, selection: Selection): string {
