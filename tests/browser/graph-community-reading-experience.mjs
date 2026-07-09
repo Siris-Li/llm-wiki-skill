@@ -606,7 +606,7 @@ async function shiftSelectCommunityNodes(page, community, nodeIds) {
   try {
     for (let index = 0; index < nodeIds.length; index += 1) {
       const nodeId = nodeIds[index];
-      const point = await nodeClickPoint(page, nodeId);
+      const point = await stableNodeClickPoint(page, nodeId);
       clickSteps.push({
         nodeId,
         point,
@@ -682,22 +682,13 @@ async function shiftSelectCommunityNodes(page, community, nodeIds) {
 }
 
 async function nodeClickPoint(page, nodeId) {
-  return page.locator(`.sigma-global-node-hit-target[data-node-id="${cssString(nodeId)}"]`).evaluate((node, nodeId) => {
-    const rect = node.getBoundingClientRect();
-    const candidates = [
-      [0.5, 0.5],
-      [0.35, 0.5],
-      [0.65, 0.5],
-      [0.5, 0.35],
-      [0.5, 0.65]
-    ];
-    for (const [rx, ry] of candidates) {
-      const x = rect.left + rect.width * rx;
-      const y = rect.top + rect.height * ry;
-      const hit = document.elementFromPoint(x, y);
-      const hitNodeId = hit?.closest?.(".sigma-global-node-hit-target")?.getAttribute("data-node-id") || "";
-      if (hitNodeId === nodeId) return { x, y, rect: rectOf(rect), hitNodeId };
-    }
+	return page.locator(`.sigma-global-node-hit-target[data-node-id="${cssString(nodeId)}"]`).evaluate((node, nodeId) => {
+		const rect = node.getBoundingClientRect();
+		for (const { x, y } of nodeClickCandidates(rect)) {
+			const hit = document.elementFromPoint(x, y);
+			const hitNodeId = hit?.closest?.(".sigma-global-node-hit-target")?.getAttribute("data-node-id") || "";
+			if (hitNodeId === nodeId) return { x, y, rect: rectOf(rect), hitNodeId };
+		}
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
     const hit = document.elementFromPoint(centerX, centerY);
@@ -716,10 +707,60 @@ async function nodeClickPoint(page, nodeId) {
         width: Math.round(value.width * 1000) / 1000,
         height: Math.round(value.height * 1000) / 1000,
         right: Math.round(value.right * 1000) / 1000,
-        bottom: Math.round(value.bottom * 1000) / 1000
-      };
+				bottom: Math.round(value.bottom * 1000) / 1000
+			};
+		}
+
+		function nodeClickCandidates(value) {
+			const dotOffset = Math.min(value.width, value.height) / 2;
+			return [
+				{ x: value.left + dotOffset, y: value.top + value.height / 2 },
+				{ x: value.right - dotOffset, y: value.top + value.height / 2 },
+				{ x: value.left + value.width * 0.5, y: value.top + value.height * 0.5 },
+				{ x: value.left + value.width * 0.35, y: value.top + value.height * 0.5 },
+				{ x: value.left + value.width * 0.65, y: value.top + value.height * 0.5 },
+				{ x: value.left + value.width * 0.5, y: value.top + value.height * 0.35 },
+				{ x: value.left + value.width * 0.5, y: value.top + value.height * 0.65 },
+			];
+		}
+	}, nodeId);
+}
+
+async function stableNodeClickPoint(page, nodeId) {
+  await page.waitForFunction(async (nodeId) => {
+    const target = document.querySelector(`.sigma-global-node-hit-target[data-node-id="${CSS.escape(nodeId)}"]`);
+    if (!(target instanceof HTMLElement)) return false;
+    const point = clickablePoint(target, nodeId);
+    if (!point) return false;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const nextPoint = clickablePoint(target, nodeId);
+    if (!nextPoint) return false;
+    return Math.abs(point.x - nextPoint.x) < 1 && Math.abs(point.y - nextPoint.y) < 1;
+
+    function clickablePoint(node, id) {
+      const rect = node.getBoundingClientRect();
+      for (const { x, y } of nodeClickCandidates(rect)) {
+        const hit = document.elementFromPoint(x, y);
+        const hitNodeId = hit?.closest?.(".sigma-global-node-hit-target")?.getAttribute("data-node-id") || "";
+        if (hitNodeId === id) return { x, y };
+      }
+      return null;
     }
-  }, nodeId);
+
+    function nodeClickCandidates(rect) {
+      const dotOffset = Math.min(rect.width, rect.height) / 2;
+      return [
+        { x: rect.left + dotOffset, y: rect.top + rect.height / 2 },
+        { x: rect.right - dotOffset, y: rect.top + rect.height / 2 },
+        { x: rect.left + rect.width * 0.5, y: rect.top + rect.height * 0.5 },
+        { x: rect.left + rect.width * 0.35, y: rect.top + rect.height * 0.5 },
+        { x: rect.left + rect.width * 0.65, y: rect.top + rect.height * 0.5 },
+        { x: rect.left + rect.width * 0.5, y: rect.top + rect.height * 0.35 },
+        { x: rect.left + rect.width * 0.5, y: rect.top + rect.height * 0.65 }
+      ];
+    }
+  }, nodeId, { timeout: 5_000 });
+  return nodeClickPoint(page, nodeId);
 }
 
 async function waitForExactSelectedNodes(page, expectedNodeIds, label, point) {

@@ -26,10 +26,11 @@ const browser = await chromium.launch(executablePath ? { executablePath } : {});
 try {
   const normal = await runLayoutOnlyChecks(browser, { width: 1366, height: 768 }, "light", "normal-laptop");
   const desktop = await runFullVisualAcceptanceChecks(browser, { width: 1440, height: 960 }, "dark");
+  const conversationHandoff = await runGraphConversationHandoffCheck(browser);
   const large = await runLayoutOnlyChecks(browser, { width: 1920, height: 1080 }, "light", "large-display");
   const narrow = await runNarrowChecks(browser);
   const reducedMotion = await runReducedMotionChecks(browser);
-  const evidence = { normal, desktop, large, narrow, reducedMotion };
+  const evidence = { normal, desktop, conversationHandoff, large, narrow, reducedMotion };
   if (artifactDir) {
     await fs.mkdir(artifactDir, { recursive: true });
     await fs.writeFile(path.join(artifactDir, "issue-138-graph-visual-acceptance.json"), `${JSON.stringify(evidence, null, 2)}\n`);
@@ -241,6 +242,144 @@ async function runReducedMotionChecks(browser) {
   return { viewport: "1366x768", initial, before, beforeVisual, summary: summary.summary, community, after, afterVisual };
 }
 
+async function runGraphConversationHandoffCheck(browser) {
+  const community = await runCommunityConversationHandoffCheck(browser);
+  const selection = await runSelectionConversationHandoffCheck(browser);
+  const reader = await runReaderConversationHandoffCheck(browser);
+  return { community, selection, reader };
+}
+
+async function runCommunityConversationHandoffCheck(browser) {
+  const page = await openConversationHandoffPage(browser, "community");
+  const newConversationRequests = [];
+  const promptRequests = [];
+  await captureConversationRequests(page, { newConversationRequests, promptRequests });
+
+  const summary = await openCommunitySummaryFromRegion(page, "t1");
+  await page.locator('[data-testid="graph-community-summary"] button[data-group-drawer="new-conversation"]').click();
+  await waitForCapturedRequest(promptRequests, "graph prompt handoff");
+  const handoff = await assertConversationHandoffUi(page, /总结这一簇/);
+  assert.equal(newConversationRequests.length, 1, "graph handoff should create exactly one new conversation");
+  assert.match(newConversationRequests[0].kbPath ?? "", /phase-6-workbench/, "new conversation should target the active knowledge base");
+  assert.equal(promptRequests.length, 1, "graph handoff should send exactly one prompt");
+  assert.match(promptRequests[0].message ?? "", /动作：总结这一簇/, "graph handoff should pass the community action into ChatPanel");
+  assert.match(promptRequests[0].message ?? "", /wiki\/entities\/A\.md/, "graph handoff should include selected wiki pages in the prompt payload");
+  await page.close();
+  return { summary: summary.summary, newConversationRequests, promptRequests, handoff };
+}
+
+async function runSelectionConversationHandoffCheck(browser) {
+  const page = await openConversationHandoffPage(browser, "selection");
+  const newConversationRequests = [];
+  const promptRequests = [];
+  await captureConversationRequests(page, { newConversationRequests, promptRequests });
+
+  await openTwoNodeSelectionDrawer(page);
+  await page.locator('[data-testid="graph-selection-drawer"] textarea').fill("只比较这两个节点");
+  await page.locator('[data-testid="graph-selection-drawer"] button[data-group-drawer="send"]').click();
+  await waitForCapturedRequest(promptRequests, "graph selection prompt handoff");
+  const handoff = await assertConversationHandoffUi(page, /只比较这两个节点/);
+  assert.equal(newConversationRequests.length, 0, "selection send should use the current conversation");
+  assert.equal(promptRequests.length, 1, "selection send should send exactly one prompt");
+  assert.match(promptRequests[0].message ?? "", /补充要求：只比较这两个节点/, "selection send should include typed free text");
+  assert.match(promptRequests[0].message ?? "", /wiki\/entities\/A\.md/, "selection send should include first selected page");
+  assert.match(promptRequests[0].message ?? "", /wiki\/entities\/B\.md/, "selection send should include second selected page");
+  await page.close();
+  return { newConversationRequests, promptRequests, handoff };
+}
+
+async function runReaderConversationHandoffCheck(browser) {
+  const page = await openConversationHandoffPage(browser, "reader");
+  const newConversationRequests = [];
+  const promptRequests = [];
+  await captureConversationRequests(page, { newConversationRequests, promptRequests });
+
+  await openGraphReaderForNode(page, "A");
+  await page.locator(".graph-reader-action", { hasText: "在对话中引用" }).click();
+  await waitForCapturedRequest(promptRequests, "graph reader prompt handoff");
+  const handoff = await assertConversationHandoffUi(page, /在对话中引用/);
+  assert.equal(newConversationRequests.length, 0, "reader quote should use the current conversation");
+  assert.equal(promptRequests.length, 1, "reader quote should send exactly one prompt");
+  assert.match(promptRequests[0].message ?? "", /动作：在对话中引用/, "reader quote should include the clicked reader action");
+  assert.match(promptRequests[0].message ?? "", /wiki\/entities\/A\.md/, "reader quote should include the opened page");
+  await page.close();
+  return { newConversationRequests, promptRequests, handoff };
+}
+
+async function openConversationHandoffPage(browser, label) {
+  return openWorkbenchGraphPage(browser, { width: 1366, height: 768 }, "light", {
+    query: `?graphTest=conversation-handoff-${label}`
+  });
+}
+
+async function captureConversationRequests(page, captures) {
+  await page.route("**/api/conversations/new", async (route) => {
+    const body = route.request().postData() || "{}";
+    captures.newConversationRequests.push(parseJsonBody(body));
+    await route.continue();
+  });
+  await page.route("**/api/prompt", async (route) => {
+    const body = route.request().postData() || "{}";
+    captures.promptRequests.push(parseJsonBody(body));
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream; charset=utf-8",
+      body: "event: done\ndata: {}\n\n"
+    });
+  });
+}
+
+async function openTwoNodeSelectionDrawer(page) {
+  await clickSigmaNode(page, "A");
+  await page.waitForSelector('[data-testid="graph-node-summary"]');
+  await page.keyboard.down("Shift");
+  try {
+    const point = await stableSigmaNodeClickPoint(page, [], "B");
+    await page.mouse.click(point.x, point.y);
+  } finally {
+    await page.keyboard.up("Shift");
+  }
+  await page.waitForSelector('[data-testid="graph-selection-drawer"]');
+}
+
+async function openGraphReaderForNode(page, nodeId) {
+  await clickSigmaNode(page, nodeId);
+  await page.waitForSelector('[data-testid="graph-node-summary"]');
+  await page.locator('[data-testid="graph-node-summary"] button', { hasText: "打开详情" }).click();
+  await page.waitForSelector(".graph-reader-drawer");
+}
+
+async function assertConversationHandoffUi(page, expectedBubbleText) {
+  await page.waitForFunction(() => {
+    const activeTab = [...document.querySelectorAll('[role="tab"]')]
+      .find((tab) => tab.getAttribute("aria-selected") === "true");
+    const chatHost = document.querySelector(".chat-host");
+    return activeTab?.textContent?.includes("对话")
+      && chatHost instanceof HTMLElement
+      && !chatHost.classList.contains("chat-host-hidden");
+  });
+  await page.waitForSelector('[aria-label="用户气泡"]');
+
+  const handoff = await page.evaluate(() => {
+    const activeTab = [...document.querySelectorAll('[role="tab"]')]
+      .find((tab) => tab.getAttribute("aria-selected") === "true");
+    const userBubbles = [...document.querySelectorAll('[aria-label="用户气泡"]')];
+    return {
+      activeTab: activeTab?.textContent?.trim() || "",
+      mainViewStorage: window.localStorage.getItem("llm-wiki-agent-main-view") || "",
+      chatHidden: document.querySelector(".chat-host")?.classList.contains("chat-host-hidden") ?? true,
+      graphMounted: Boolean(document.querySelector(".graph-host")),
+      latestUserBubble: userBubbles.at(-1)?.textContent || ""
+    };
+  });
+  assert.equal(handoff.activeTab, "对话", "graph handoff should switch the main view back to chat");
+  assert.equal(handoff.mainViewStorage, "chat", "graph handoff should persist the chat main view");
+  assert.equal(handoff.chatHidden, false, "graph handoff should reveal ChatPanel");
+  assert.equal(handoff.graphMounted, false, "graph handoff should unmount GraphPanel after returning to chat");
+  assert.match(handoff.latestUserBubble, expectedBubbleText, "pending graph prompt should appear as the visible chat user message");
+  return handoff;
+}
+
 async function openWorkbenchGraphPage(browser, viewport, theme, options = {}) {
   const page = await browser.newPage({ viewport });
   if (options.reducedMotion) await page.emulateMedia({ reducedMotion: "reduce" });
@@ -290,6 +429,28 @@ async function openWorkbenchGraphPage(browser, viewport, theme, options = {}) {
       && document.querySelector(".sigma-global-renderer")?.dataset.theme === expectedGraphTheme;
   }, expectedGraphTheme);
   return page;
+}
+
+function parseJsonBody(body) {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return { raw: body };
+  }
+}
+
+async function waitForCapturedRequest(requests, label) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (requests.length > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new assert.AssertionError({
+    message: `${label} request was not captured`,
+    actual: requests.length,
+    expected: "> 0",
+    operator: "strictEqual"
+  });
 }
 
 async function assertGraphLayout(page, label) {
