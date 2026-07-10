@@ -334,13 +334,11 @@ export function getConfiguredModel(ref: ModelRef): Model<any> | undefined {
 }
 
 /**
- * 选择/进入一个知识库：dispose 老 session，加载/新建该库下的活跃对话。
+ * 选择/进入一个知识库：先完整创建新 session，成功后才替换并 dispose 老 session。
  *   - 该 KB 有对话：opens most recent
  *   - 该 KB 无对话：creates a new one
  */
 export async function selectKb(kbPath: string): Promise<ActiveContext> {
-	await disposeActive();
-	const kb = await setCurrentKnowledgeBase(kbPath);
 	const dir = await ensureKbSessionDir(kbPath);
 	const loader = await getResourceLoader();
 
@@ -366,7 +364,22 @@ export async function selectKb(kbPath: string): Promise<ActiveContext> {
 	});
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 
+	let kb: ActiveContext["kb"];
+	try {
+		kb = await setCurrentKnowledgeBase(kbPath);
+	} catch (err) {
+		session.dispose();
+		throw err;
+	}
+	const previous = active;
 	active = { kb, session, conversationId: session.sessionId, isNew };
+	if (previous) {
+		try {
+			previous.session.dispose();
+		} catch {
+			// noop
+		}
+	}
 	await rememberLastUsedKb(kbPath);
 	console.log(
 		`[agent] selectKb ${kb.name} → conversation ${active.conversationId.slice(0, 8)} (${isNew ? "new" : "resumed"})`,
