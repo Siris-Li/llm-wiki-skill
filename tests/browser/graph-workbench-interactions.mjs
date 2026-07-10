@@ -2011,7 +2011,7 @@ async function reloadPinDiagnostics(page, nodeId) {
     const currentGraphLayoutUrl = async () => {
       const response = await fetch("/api/knowledge-base");
       const payload = await response.json();
-      const kbPath = payload?.active?.kb?.path || "";
+      const kbPath = payload?.data?.active?.kb?.path || "";
       return kbPath ? `/api/graph/layout?kb=${encodeURIComponent(kbPath)}` : "/api/graph/layout";
     };
     const target = document.querySelector(`.sigma-global-node-hit-target[data-node-id="${CSS.escape(nodeId)}"]`);
@@ -2046,7 +2046,7 @@ async function waitForPersistedGraphPin(page, pinKey) {
       const currentGraphLayoutUrl = async () => {
         const response = await fetch("/api/knowledge-base");
         const payload = await response.json();
-        const kbPath = payload?.active?.kb?.path || "";
+        const kbPath = payload?.data?.active?.kb?.path || "";
         return kbPath ? `/api/graph/layout?kb=${encodeURIComponent(kbPath)}` : "/api/graph/layout";
       };
       const layoutUrl = await currentGraphLayoutUrl();
@@ -2060,7 +2060,7 @@ async function waitForPersistedGraphPin(page, pinKey) {
       const currentGraphLayoutUrl = async () => {
         const response = await fetch("/api/knowledge-base");
         const payload = await response.json();
-        const kbPath = payload?.active?.kb?.path || "";
+        const kbPath = payload?.data?.active?.kb?.path || "";
         return kbPath ? `/api/graph/layout?kb=${encodeURIComponent(kbPath)}` : "/api/graph/layout";
       };
       const layoutUrl = await currentGraphLayoutUrl();

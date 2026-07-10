@@ -98,8 +98,10 @@ test("health 与设置/模型/auth status 是 migrated-json endpoint", () => {
 
 test("isMigratedJsonPath 接受 migrated-json、拒绝 legacy path", () => {
 	assert.equal(isMigratedJsonPath("/api/health"), true);
-	// legacy endpoint 必须返回 false —— 这是"新 client 不误处理 legacy"的数据层防线
-	assert.equal(isMigratedJsonPath("/api/knowledge-bases"), false);
+	assert.equal(isMigratedJsonPath("/api/knowledge-bases"), true);
+	assert.equal(isMigratedJsonPath("/api/knowledge-base"), true);
+	// 尚未迁移的 endpoint 必须返回 false —— 这是"新 client 不误处理 legacy"的数据层防线
+	assert.equal(isMigratedJsonPath("/api/graph"), false);
 	assert.equal(isMigratedJsonPath("/api/prompt"), false); // sse，不是 migrated-json
 	assert.equal(
 		isMigratedJsonPath("/api/artifacts/x/files/y.md"),
@@ -113,6 +115,49 @@ test("config / models / auth status 已迁移为 migrated-json，并保持安全
 		{ method: "POST", path: "/api/config", safety: "state-changing" },
 		{ method: "GET", path: "/api/models", safety: "read-only" },
 		{ method: "GET", path: "/api/auth/status", safety: "read-only" },
+	] as const;
+	for (const item of cases) {
+		const entry = findEndpoint(item.method, item.path);
+		assert.equal(entry?.kind, "migrated-json", `${item.method} ${item.path}`);
+		assert.equal(entry?.safety, item.safety, `${item.method} ${item.path}`);
+		assert.equal(isMigratedJsonPath(item.path), true, item.path);
+		assert.equal(
+			requiresCapabilityToken(item.method, item.path),
+			item.safety === "state-changing",
+			`${item.method} ${item.path}`,
+		);
+	}
+});
+
+test("knowledge bases 与 active context 路由已迁移并保持安全分类", () => {
+	const cases = [
+		{ method: "GET", path: "/api/knowledge-bases", safety: "read-only" },
+		{
+			method: "POST",
+			path: "/api/knowledge-bases/external",
+			safety: "state-changing",
+		},
+		{
+			method: "POST",
+			path: "/api/knowledge-bases/inspect",
+			safety: "read-only",
+		},
+		{
+			method: "DELETE",
+			path: "/api/knowledge-bases/external",
+			safety: "state-changing",
+		},
+		{ method: "GET", path: "/api/knowledge-base", safety: "read-only" },
+		{
+			method: "POST",
+			path: "/api/knowledge-base",
+			safety: "state-changing",
+		},
+		{
+			method: "DELETE",
+			path: "/api/knowledge-base",
+			safety: "state-changing",
+		},
 	] as const;
 	for (const item of cases) {
 		const entry = findEndpoint(item.method, item.path);

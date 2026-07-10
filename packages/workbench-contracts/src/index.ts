@@ -15,4 +15,5 @@ export * from "./json.js";
 export * from "./health.js";
 export * from "./config.js";
 export * from "./auth.js";
+export * from "./knowledge-bases.js";
 export * from "./endpoints.js";

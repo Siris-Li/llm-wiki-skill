@@ -8,29 +8,35 @@ import { parseSSE, type SSEMessage } from "./sse";
 import { getConfig as getConfigMigrated, setConfig as setConfigMigrated, fetchAvailableModels as fetchAvailableModelsMigrated } from "./api/config";
 import { getAuthStatus as getAuthStatusMigrated } from "./api/auth";
 import {
+	clearActiveContext as clearActiveContextMigrated,
+	getActiveContext as getActiveContextMigrated,
+	inspectKnowledgeBasePath as inspectKnowledgeBasePathMigrated,
+	listKnowledgeBases as listKnowledgeBasesMigrated,
+	registerExternalKnowledgeBase as registerExternalKnowledgeBaseMigrated,
+	selectKnowledgeBase as selectKnowledgeBaseMigrated,
+	unregisterExternalKnowledgeBase as unregisterExternalKnowledgeBaseMigrated,
+} from "./api/knowledge-bases";
+import {
+	type ActiveContext,
 	type AppConfig,
 	type AuthStatusData,
 	type AvailableModelInfo,
+	type InspectKnowledgeBasePathData,
+	type KnowledgeBaseInfo,
 	type ModelRef,
 } from "@llm-wiki/workbench-contracts";
 import type { GraphData, GraphDiff, GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
 
-export type { AppConfig, AvailableModelInfo, ModelRef } from "@llm-wiki/workbench-contracts";
+export type {
+	ActiveContext,
+	AppConfig,
+	AvailableModelInfo,
+	KnowledgeBaseInfo,
+	ModelRef,
+	UIMessage,
+} from "@llm-wiki/workbench-contracts";
 
 // ============= 类型 =============
-
-export interface KnowledgeBaseInfo {
-	path: string;
-	name: string;
-	origin: "default" | "external";
-	valid: boolean;
-	reason?: string;
-}
-
-export interface CurrentKnowledgeBase {
-	path: string;
-	name: string;
-}
 
 export interface ConversationInfo {
 	id: string;
@@ -39,29 +45,7 @@ export interface ConversationInfo {
 	modifiedAt: number;
 }
 
-export interface UIMessage {
-	id: string;
-	role: "user" | "assistant";
-	content: string;
-	tools: { name: string; status: "done" }[];
-}
-
-export interface ModelInfo {
-	provider: string;
-	id: string;
-}
-
 export type AuthStatus = AuthStatusData;
-
-export interface ActiveContext {
-	kb: CurrentKnowledgeBase;
-	conversation: {
-		id: string;
-		isNew?: boolean;
-		messages: UIMessage[];
-	};
-	model: ModelInfo | null;
-}
 
 export interface CommandItem {
 	slug: string;
@@ -100,19 +84,10 @@ export interface ArtifactManifest {
 
 export type ExportKind = "pdf" | "docx" | "pptx" | "xlsx" | "html";
 
-export interface InspectPathResult {
-	exists: boolean;
-	isDirectory: boolean;
-	hasWikiSchema: boolean;
-	resolvedPath?: string;
-	ingestibleFiles?: {
-		scanId: string;
-		count: number;
-		samples: string[];
-		paths: string[];
-		truncated: boolean;
-	};
-}
+export type InspectPathResult = InspectKnowledgeBasePathData;
+export type ModelInfo = ActiveContext["model"] extends infer Model
+	? Exclude<Model, null>
+	: never;
 
 export type BatchDigestEvent =
 	| { type: "start"; total: number; concurrency: number; outputDir: string }
@@ -224,75 +199,35 @@ export type ToolStatusContractEvent =
 	| AssistantErrorEvent;
 
 // ============= API =============
-// health 已迁移到统一契约路径 ./api/health（createApp + workbench-contracts）。
-// 其余函数仍是 legacy，等待按 issue 逐个迁移到 ./api/<domain>。
+// health、config/auth 和 knowledge-bases/active context 已迁移到 ./api/<domain>。
+// 其余函数仍是 legacy，等待按 issue 逐个迁移。
 
-export async function listKnowledgeBases(): Promise<KnowledgeBaseInfo[]> {
-	const res = await fetch("/api/knowledge-bases");
-	if (!res.ok) throw new Error(`HTTP ${res.status}`);
-	const json = (await res.json()) as { ok: boolean; items?: KnowledgeBaseInfo[]; error?: string };
-	if (!json.ok) throw new Error(json.error ?? "未知错误");
-	return json.items ?? [];
+export function listKnowledgeBases(): Promise<KnowledgeBaseInfo[]> {
+	return listKnowledgeBasesMigrated();
 }
 
-export async function getActiveContext(): Promise<ActiveContext | null> {
-	const res = await fetch("/api/knowledge-base");
-	if (!res.ok) throw new Error(`HTTP ${res.status}`);
-	const json = (await res.json()) as { ok: boolean; active: ActiveContext | null };
-	return json.active;
+export function getActiveContext(): Promise<ActiveContext | null> {
+	return getActiveContextMigrated();
 }
 
-export async function selectKnowledgeBase(path: string): Promise<ActiveContext> {
-	const res = await fetch("/api/knowledge-base", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ path }),
-	});
-	const json = (await res.json()) as {
-		ok: boolean;
-		active?: ActiveContext;
-		error?: string;
-	};
-	if (!res.ok || !json.ok || !json.active) {
-		throw new Error(json.error ?? `HTTP ${res.status}`);
-	}
-	return json.active;
+export function selectKnowledgeBase(path: string): Promise<ActiveContext> {
+	return selectKnowledgeBaseMigrated(path);
 }
 
-export async function clearActiveContext(): Promise<void> {
-	await fetch("/api/knowledge-base", { method: "DELETE" });
+export function clearActiveContext(): Promise<void> {
+	return clearActiveContextMigrated();
 }
 
-export async function registerExternalKnowledgeBase(path: string): Promise<{
-	registered: boolean;
-	info: KnowledgeBaseInfo;
-}> {
-	const res = await fetch("/api/knowledge-bases/external", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ path }),
-	});
-	const json = (await res.json()) as {
-		ok: boolean;
-		registered?: boolean;
-		info?: KnowledgeBaseInfo;
-		error?: string;
-	};
-	if (!res.ok || !json.ok || !json.info) {
-		throw new Error(json.error ?? `HTTP ${res.status}`);
-	}
-	return { registered: json.registered ?? false, info: json.info };
+export function registerExternalKnowledgeBase(
+	path: string,
+): Promise<{ registered: boolean; info: KnowledgeBaseInfo }> {
+	return registerExternalKnowledgeBaseMigrated(path);
 }
 
-export async function inspectKnowledgeBasePath(path: string): Promise<InspectPathResult> {
-	const res = await fetch("/api/knowledge-bases/inspect", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ path }),
-	});
-	const json = (await res.json()) as { ok: boolean; result?: InspectPathResult; error?: string };
-	if (!res.ok || !json.ok || !json.result) throw new Error(json.error ?? `HTTP ${res.status}`);
-	return json.result;
+export function inspectKnowledgeBasePath(
+	path: string,
+): Promise<InspectPathResult> {
+	return inspectKnowledgeBasePathMigrated(path);
 }
 
 export async function chooseDirectory(): Promise<string | null> {
@@ -346,15 +281,10 @@ export async function createKnowledgeBase(name: string, purpose: string): Promis
 	return json.info;
 }
 
-export async function unregisterExternalKnowledgeBase(path: string): Promise<{ removed: boolean }> {
-	const res = await fetch("/api/knowledge-bases/external", {
-		method: "DELETE",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ path }),
-	});
-	const json = (await res.json()) as { ok: boolean; removed?: boolean; error?: string };
-	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-	return { removed: json.removed ?? false };
+export function unregisterExternalKnowledgeBase(
+	path: string,
+): Promise<{ removed: boolean }> {
+	return unregisterExternalKnowledgeBaseMigrated(path);
 }
 
 // ============= 对话 =============

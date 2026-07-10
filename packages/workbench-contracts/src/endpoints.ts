@@ -141,28 +141,28 @@ export const ENDPOINT_REGISTRY = [
 	{
 		method: "GET",
 		path: "/api/knowledge-bases",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "read-only",
 		description: "列出知识库",
 	},
 	{
 		method: "POST",
 		path: "/api/knowledge-bases/external",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "登记外部库，写应用数据",
 	},
 	{
 		method: "POST",
 		path: "/api/knowledge-bases/inspect",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "read-only",
 		description: "读取路径信息",
 	},
 	{
 		method: "DELETE",
 		path: "/api/knowledge-bases/external",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "取消登记，写应用数据",
 	},
@@ -183,21 +183,21 @@ export const ENDPOINT_REGISTRY = [
 	{
 		method: "GET",
 		path: "/api/knowledge-base",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "read-only",
 		description: "当前活跃上下文",
 	},
 	{
 		method: "POST",
 		path: "/api/knowledge-base",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "选择知识库，改 active context",
 	},
 	{
 		method: "DELETE",
 		path: "/api/knowledge-base",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "清空 active context",
 	},
@@ -437,6 +437,6 @@ export function requiresCapabilityToken(method: string, path: string): boolean {
 // "Unused '@ts-expect-error' directive" → 强制更新本护栏。这样"新 client 误
 // 处理 legacy endpoint"在编译期即可被发现。
 //
-// @ts-expect-error /api/knowledge-bases 是 legacy，MigratedJsonPath 必须拒绝
-const _legacyPathRejectedByClient: MigratedJsonPath = "/api/knowledge-bases";
+// @ts-expect-error /api/graph 是 legacy，MigratedJsonPath 必须拒绝
+const _legacyPathRejectedByClient: MigratedJsonPath = "/api/graph";
 void _legacyPathRejectedByClient;

@@ -502,7 +502,7 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 	if (pathname === "/api/knowledge-bases") {
 		await json({
 			ok: true,
-			items: [
+			data: [
 				{ path: visualKbPath, name: "AI 学习知识库", origin: "default", valid: true },
 				{ path: "/visual/design", name: "设计灵感库", origin: "external", valid: true },
 			],
@@ -510,7 +510,7 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		return;
 	}
 	if (pathname === "/api/knowledge-base") {
-		await json({ ok: true, active: visualActiveContext() });
+		await json({ ok: true, data: { active: visualActiveContext() } });
 		return;
 	}
 	if (pathname === "/api/conversations") {

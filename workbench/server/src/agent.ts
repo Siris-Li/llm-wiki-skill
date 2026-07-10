@@ -37,7 +37,10 @@ import { ensureKbSessionDir, listConversations } from "./conversations.js";
 import { scanAndRebuildArtifactIndex } from "./artifacts.js";
 import { createArtifactsExtension } from "./extensions/artifacts.js";
 import knowledgeBaseExtension from "./extensions/knowledge-base.js";
-import { setCurrentKnowledgeBase } from "./extensions/knowledge-base.js";
+import {
+	clearCurrentKnowledgeBase,
+	setCurrentKnowledgeBase,
+} from "./extensions/knowledge-base.js";
 import { createNewWikiExtension } from "./extensions/new-wiki.js";
 import { createSynthesisExtension } from "./extensions/synthesis.js";
 
@@ -436,6 +439,7 @@ export async function createNewConversation(kbPath: string): Promise<ActiveConte
  */
 export async function clearActive(): Promise<void> {
 	await disposeActive();
+	clearCurrentKnowledgeBase();
 }
 
 /**

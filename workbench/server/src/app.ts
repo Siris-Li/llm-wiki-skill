@@ -10,6 +10,7 @@ import { HttpContractError } from "./http/request.js";
 import { createAuthRoutes, defaultAuthRouteService, type AuthRouteService } from "./routes/auth.js";
 import { createConfigRoutes, createModelRoutes, defaultConfigRouteService, type ConfigRouteService } from "./routes/config.js";
 import { createHealthRoutes } from "./routes/health.js";
+import { createKnowledgeBaseRoutes, defaultKnowledgeBaseRouteService, type KnowledgeBaseRouteService } from "./routes/knowledge-bases.js";
 
 export type WorkbenchAppMode = "test" | "dev" | "desktop";
 
@@ -34,6 +35,8 @@ export interface WorkbenchAppDeps {
 	configService?: ConfigRouteService;
 	/** 认证状态 route 依赖；测试可注入 fake，真实启动用默认实现。 */
 	authService?: AuthRouteService;
+	/** 知识库 / active context route 依赖；route 测试必须注入 fake。 */
+	knowledgeBaseService?: KnowledgeBaseRouteService;
 }
 
 /**
@@ -75,6 +78,12 @@ export function createApp(deps: WorkbenchAppDeps = {}): Hono {
 	app.route("/api/config", createConfigRoutes(deps.configService ?? defaultConfigRouteService));
 	app.route("/api/models", createModelRoutes(deps.configService ?? defaultConfigRouteService));
 	app.route("/api/auth", createAuthRoutes(deps.authService ?? defaultAuthRouteService));
+	app.route(
+		"/api",
+		createKnowledgeBaseRoutes(
+			deps.knowledgeBaseService ?? defaultKnowledgeBaseRouteService,
+		),
+	);
 
 	return app;
 }
