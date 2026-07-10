@@ -118,7 +118,7 @@ describe("TopBar", () => {
 			if (url === "/api/config" && method === "GET") {
 				return json({
 					ok: true,
-					config: {
+					data: {
 						version: 1,
 						externalKnowledgeBases: [],
 						modelRoles: { main: { provider: "deepseek", modelId: "deepseek-v4-flash" } },
@@ -128,7 +128,7 @@ describe("TopBar", () => {
 			if (url === "/api/models") {
 				return json({
 					ok: true,
-					items: [
+					data: [
 						{
 							provider: "deepseek",
 							modelId: "deepseek-v4-flash",
@@ -153,7 +153,7 @@ describe("TopBar", () => {
 			if (url === "/api/config" && method === "POST") {
 				return json({
 					ok: true,
-					config: {
+					data: {
 						version: 1,
 						externalKnowledgeBases: [],
 						modelRoles: { main: { provider: "openai", modelId: "gpt-5" } },

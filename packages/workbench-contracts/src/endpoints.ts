@@ -253,21 +253,21 @@ export const ENDPOINT_REGISTRY = [
 	{
 		method: "GET",
 		path: "/api/config",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "read-only",
 		description: "读配置",
 	},
 	{
 		method: "POST",
 		path: "/api/config",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "写配置",
 	},
 	{
 		method: "GET",
 		path: "/api/models",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "read-only",
 		description: "可用模型列表",
 	},
@@ -295,7 +295,7 @@ export const ENDPOINT_REGISTRY = [
 	{
 		method: "GET",
 		path: "/api/auth/status",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "read-only",
 		description: "认证状态",
 	},

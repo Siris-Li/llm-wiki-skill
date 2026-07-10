@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	AppConfigSchema,
+	AuthStatusDataSchema,
+	AvailableModelsDataSchema,
 	ConflictDetailsSchema,
 	errorCodeToHttpStatus,
 	FailureEnvelopeSchema,
@@ -11,6 +14,7 @@ import {
 	InvalidRequestDetailsSchema,
 	JsonEnvelopeSchema,
 	MissingFieldDetailsSchema,
+	ModelRefSchema,
 	NotFoundDetailsSchema,
 	SuccessEnvelopeSchema,
 	success,
@@ -156,6 +160,56 @@ test("typed details schema 校验结构化形状", () => {
 	);
 	assert.equal(
 		ConflictDetailsSchema.safeParse({ conflicts: ["purpose.md"] }).success,
+		true,
+	);
+});
+
+test("ModelRef schema trim provider/modelId 且拒绝空字符串", () => {
+	assert.deepEqual(
+		ModelRefSchema.parse({ provider: " anthropic ", modelId: " claude-sonnet " }),
+		{ provider: "anthropic", modelId: "claude-sonnet" },
+	);
+	assert.equal(
+		ModelRefSchema.safeParse({ provider: " ", modelId: "claude-sonnet" }).success,
+		false,
+	);
+	assert.equal(
+		ModelRefSchema.safeParse({ provider: "anthropic", modelId: "" }).success,
+		false,
+	);
+});
+
+test("config / models / auth status data schema 校验公开响应 shape", () => {
+	assert.equal(
+		AppConfigSchema.safeParse({
+			version: 1,
+			externalKnowledgeBases: [],
+			showUserGlobalSkills: true,
+			modelRoles: { main: { provider: "anthropic", modelId: "claude-sonnet" }, digest: null },
+			uiPrefs: { sidebarExpandedKbs: ["/kb/demo"] },
+		}).success,
+		true,
+	);
+	assert.equal(
+		AvailableModelsDataSchema.safeParse([
+			{
+				provider: "anthropic",
+				modelId: "claude-sonnet",
+				name: "Claude Sonnet",
+				reasoning: false,
+				contextWindow: 200000,
+				cost: { input: 3, output: 15 },
+				hasAuth: true,
+			},
+		]).success,
+		true,
+	);
+	assert.equal(
+		AuthStatusDataSchema.safeParse({
+			authFileExists: true,
+			providers: [{ id: "anthropic", type: "api_key", configured: true }],
+			envKeys: [{ name: "ANTHROPIC_API_KEY", present: false }],
+		}).success,
 		true,
 	);
 });

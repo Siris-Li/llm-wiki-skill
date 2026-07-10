@@ -7,6 +7,8 @@ import type { MiddlewareHandler } from "hono";
 import { failure } from "@llm-wiki/workbench-contracts";
 
 import { HttpContractError } from "./http/request.js";
+import { createAuthRoutes, defaultAuthRouteService, type AuthRouteService } from "./routes/auth.js";
+import { createConfigRoutes, createModelRoutes, defaultConfigRouteService, type ConfigRouteService } from "./routes/config.js";
 import { createHealthRoutes } from "./routes/health.js";
 
 export type WorkbenchAppMode = "test" | "dev" | "desktop";
@@ -28,6 +30,10 @@ export interface WorkbenchAppDeps {
 	 * ENDPOINT_REGISTRY（每 endpoint 的 safety 字段）为单一来源（spec §7 / §9，#167）。
 	 */
 	security?: MiddlewareHandler;
+	/** 设置 / 模型 route 依赖；测试可注入 fake，真实启动用默认实现。 */
+	configService?: ConfigRouteService;
+	/** 认证状态 route 依赖；测试可注入 fake，真实启动用默认实现。 */
+	authService?: AuthRouteService;
 }
 
 /**
@@ -66,6 +72,9 @@ export function createApp(deps: WorkbenchAppDeps = {}): Hono {
 
 	// 3. 已迁移 route module：统一经过 request / response / security 接入点。
 	app.route("/api/health", createHealthRoutes());
+	app.route("/api/config", createConfigRoutes(deps.configService ?? defaultConfigRouteService));
+	app.route("/api/models", createModelRoutes(deps.configService ?? defaultConfigRouteService));
+	app.route("/api/auth", createAuthRoutes(deps.authService ?? defaultAuthRouteService));
 
 	return app;
 }

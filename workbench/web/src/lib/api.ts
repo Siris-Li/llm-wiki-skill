@@ -5,7 +5,17 @@
  */
 
 import { parseSSE, type SSEMessage } from "./sse";
+import { getConfig as getConfigMigrated, setConfig as setConfigMigrated, fetchAvailableModels as fetchAvailableModelsMigrated } from "./api/config";
+import { getAuthStatus as getAuthStatusMigrated } from "./api/auth";
+import {
+	type AppConfig,
+	type AuthStatusData,
+	type AvailableModelInfo,
+	type ModelRef,
+} from "@llm-wiki/workbench-contracts";
 import type { GraphData, GraphDiff, GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
+
+export type { AppConfig, AvailableModelInfo, ModelRef } from "@llm-wiki/workbench-contracts";
 
 // ============= 类型 =============
 
@@ -41,20 +51,7 @@ export interface ModelInfo {
 	id: string;
 }
 
-export interface ModelRef {
-	provider: string;
-	modelId: string;
-}
-
-export interface AvailableModelInfo {
-	provider: string;
-	modelId: string;
-	name: string;
-	reasoning: boolean;
-	contextWindow: number;
-	cost: { input: number; output: number };
-	hasAuth: boolean;
-}
+export type AuthStatus = AuthStatusData;
 
 export interface ActiveContext {
 	kb: CurrentKnowledgeBase;
@@ -81,12 +78,6 @@ export interface PageRef {
 	title: string;
 }
 
-export interface AuthStatus {
-	authFileExists: boolean;
-	providers: { id: string; type: string; configured: boolean }[];
-	envKeys: { name: string; present: boolean }[];
-}
-
 export interface ArtifactManifest {
 	id: string;
 	kind: "html" | "pdf" | "docx" | "pptx" | "xlsx";
@@ -108,20 +99,6 @@ export interface ArtifactManifest {
 }
 
 export type ExportKind = "pdf" | "docx" | "pptx" | "xlsx" | "html";
-
-export interface AppConfig {
-	version: 1;
-	externalKnowledgeBases: string[];
-	lastUsedKbPath?: string;
-	showUserGlobalSkills?: boolean;
-	modelRoles?: {
-		main?: ModelRef | null;
-		digest?: ModelRef | null;
-	};
-	uiPrefs?: {
-		sidebarExpandedKbs?: string[];
-	};
-}
 
 export interface InspectPathResult {
 	exists: boolean;
@@ -457,32 +434,15 @@ export async function listCommands(includeUserGlobal = false): Promise<CommandIt
 }
 
 export async function getConfig(): Promise<AppConfig> {
-	const res = await fetch("/api/config");
-	const json = (await res.json()) as { ok: boolean; config?: AppConfig; error?: string };
-	if (!res.ok || !json.ok || !json.config) throw new Error(json.error ?? `HTTP ${res.status}`);
-	return json.config;
+	return getConfigMigrated();
 }
 
 export async function setConfig(partial: Partial<AppConfig>): Promise<AppConfig> {
-	const res = await fetch("/api/config", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(partial),
-	});
-	const json = (await res.json()) as { ok: boolean; config?: AppConfig; error?: string };
-	if (!res.ok || !json.ok || !json.config) throw new Error(json.error ?? `HTTP ${res.status}`);
-	return json.config;
+	return setConfigMigrated(partial);
 }
 
 export async function fetchAvailableModels(): Promise<AvailableModelInfo[]> {
-	const res = await fetch("/api/models");
-	const json = (await res.json()) as {
-		ok: boolean;
-		items?: AvailableModelInfo[];
-		error?: string;
-	};
-	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-	return json.items ?? [];
+	return fetchAvailableModelsMigrated();
 }
 
 export async function streamBatchDigest(
@@ -612,10 +572,7 @@ export function buildExportPrompt(kind: ExportKind, titleSource: string): string
 }
 
 export async function getAuthStatus(): Promise<AuthStatus> {
-	const res = await fetch("/api/auth/status");
-	const json = (await res.json()) as ({ ok: true } & AuthStatus) | { ok: false; error?: string };
-	if (!res.ok || !json.ok) throw new Error(("error" in json && json.error) || `HTTP ${res.status}`);
-	return json;
+	return getAuthStatusMigrated();
 }
 
 export async function setAuthKey(provider: string, key: string): Promise<void> {
