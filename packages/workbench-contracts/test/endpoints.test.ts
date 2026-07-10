@@ -6,8 +6,10 @@ import {
 	EndpointKindSchema,
 	EndpointSafetySchema,
 	ENDPOINT_REGISTRY,
+	findEndpoint,
 	isMigratedJsonPath,
 	MIGRATED_JSON_PATHS,
+	requiresCapabilityToken,
 } from "../src/index.js";
 
 test("ENDPOINT_REGISTRY 每条 entry 形状合法", () => {
@@ -96,4 +98,50 @@ test("isMigratedJsonPath 接受 migrated-json、拒绝 legacy path", () => {
 		isMigratedJsonPath("/api/artifacts/x/files/y.md"),
 		false, // file-download，不是 migrated-json
 	);
+});
+
+// ============= #166 安全边界查询 =============
+
+test("禁止 GET 产生副作用：registry 里没有任何 GET 被标记为 state-changing", () => {
+	// spec §9：禁止 GET 产生副作用。数据层护栏——所有 GET 必须是只读白名单。
+	// 这条不变量保证安全中间件只要把 read-only 放行，就绝不会漏放一个会改状态的 GET。
+	for (const entry of ENDPOINT_REGISTRY) {
+		if (entry.method === "GET") {
+			assert.equal(
+				entry.safety,
+				"read-only",
+				`GET ${entry.path} 不允许标记为 state-changing`,
+			);
+		}
+	}
+});
+
+test("findEndpoint 命中静态 path 与动态段 path", () => {
+	assert.equal(findEndpoint("GET", "/api/health")?.path, "/api/health");
+	// 方法不匹配
+	assert.equal(findEndpoint("POST", "/api/health"), undefined);
+	// 动态段：:id / :filename 实际值匹配
+	const file = findEndpoint("GET", "/api/artifacts/abc-123/files/report.md");
+	assert.equal(file?.path, "/api/artifacts/:id/files/:filename");
+	assert.equal(file?.kind, "file-download");
+	assert.equal(file?.safety, "read-only");
+	// 方法小写也归一
+	assert.equal(findEndpoint("get", "/api/health")?.path, "/api/health");
+});
+
+test("requiresCapabilityToken：state-changing 需要、read-only 豁免、未登记 fail closed", () => {
+	// read-only 白名单豁免 token
+	assert.equal(requiresCapabilityToken("GET", "/api/health"), false);
+	assert.equal(requiresCapabilityToken("GET", "/api/events"), false); // 只读 SSE
+	assert.equal(
+		requiresCapabilityToken("GET", "/api/artifacts/x/files/y.md"),
+		false,
+	); // 文件下载
+	// state-changing 需要 token
+	assert.equal(requiresCapabilityToken("POST", "/api/prompt"), true);
+	assert.equal(requiresCapabilityToken("POST", "/api/knowledge-bases/new"), true);
+	assert.equal(requiresCapabilityToken("PUT", "/api/graph/layout"), true);
+	assert.equal(requiresCapabilityToken("DELETE", "/api/knowledge-base"), true);
+	// 未登记 endpoint 安全默认：需要 token（避免漏网的新增状态改写路由）
+	assert.equal(requiresCapabilityToken("POST", "/api/unknown-new-route"), true);
 });
