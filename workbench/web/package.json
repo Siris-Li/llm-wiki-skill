@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "prebuild": "npm run build -w @llm-wiki/graph-engine",
+    "prebuild": "npm run build -w @llm-wiki/workbench-contracts && npm run build -w @llm-wiki/graph-engine",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -15,12 +15,14 @@
     "test:unit": "node --import tsx --test test/*.test.ts",
     "test:dom": "node --test-concurrency=1 --import tsx --import ./test/setup-dom.ts --test test/*.test.tsx",
     "visual:paper": "node --import tsx test/visual/paper-ui.ts",
-    "pretypecheck": "npm run build -w @llm-wiki/graph-engine",
+    "pretypecheck": "npm run build -w @llm-wiki/workbench-contracts && npm run build -w @llm-wiki/graph-engine",
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
     "@llm-wiki/graph-engine": "0.0.0",
+    "@llm-wiki/workbench-contracts": "0.0.0",
     "@tailwindcss/vite": "^4.0.0",
+    "zod": "^4.4.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
