@@ -75,6 +75,12 @@ import {
 	unregisterExternalKnowledgeBase,
 } from "./knowledge-bases.js";
 import { listPageRefs, readWikiPage } from "./pages.js";
+import { localHostOnly } from "./security/host.js";
+import { createSecurityMiddleware } from "./security/middleware.js";
+import {
+	generateCapabilityToken,
+	writeCapabilityToken,
+} from "./security/token.js";
 import {
 	buildKnowledgeContextMessage,
 	contextBudgetFromWindow,
@@ -158,16 +164,24 @@ function errorStatus(err: unknown, fallback: 400 | 500 = 500): 400 | 403 | 500 {
 	return fallback;
 }
 
-function localHostOnly(rawHost: string | undefined): string {
-	const host = rawHost?.trim() || "127.0.0.1";
-	if (host === "127.0.0.1" || host === "localhost" || host === "::1") return host;
-	console.warn(`[llm-wiki-agent/server] ignoring unsafe HOST=${host}; binding to 127.0.0.1`);
-	return "127.0.0.1";
-}
+// 本次启动生成本地 capability token（#166）。token 写入运行期文件，供同机可信
+// dev 代理 / 未来桌面壳读取后注入请求头；token 不进 URL / 日志 / config。
+const capabilityToken = generateCapabilityToken();
+await writeCapabilityToken(capabilityToken);
+
+// 可信来源 Origin（辅助信号）：dev web origin。桌面壳 origin 待桌面安装版落地时
+// 在此追加。origin 仅作辅助 deny，会改状态 endpoint 仍必须带 token（见 middleware）。
+const trustedOrigins = new Set(["http://localhost:5180", "http://127.0.0.1:5180"]);
 
 // createApp 组装统一 middleware / 错误兜底 / 已迁移 route module（health）。
 // 未迁移的 legacy route 继续挂在这个 app 上，等后续 issue 逐个迁移。
-const app = createApp();
+// security 中间件挂在所有 /api/* 之前：read-only 白名单豁免，state-changing 强制 token + 可信来源。
+const app = createApp({
+	security: createSecurityMiddleware({
+		token: capabilityToken,
+		trustedOrigins,
+	}),
+});
 
 app.get("/api/events", (c) => {
 	return streamSSE(c, async (stream) => {
