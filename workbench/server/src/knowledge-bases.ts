@@ -109,7 +109,10 @@ export async function findRegisteredKnowledgeBase(
 export async function assertRegisteredKnowledgeBase(rawPath: string): Promise<string> {
 	const match = await findRegisteredKnowledgeBase(rawPath, await listKnowledgeBases());
 	if (!match) {
-		throw Object.assign(new Error("knowledge base is not registered"), { statusCode: 403 });
+		throw Object.assign(new Error("knowledge base is not registered"), {
+			code: "KB_NOT_REGISTERED",
+			statusCode: 403,
+		});
 	}
 	return match.path;
 }
@@ -120,7 +123,10 @@ export async function inspectPath(rawPath: string): Promise<InspectPathResult> {
 	const absolutePath = resolve(expanded);
 	const info = await stat(absolutePath).catch((err: NodeJS.ErrnoException) => {
 		if (err.code === "EACCES" || err.code === "EPERM") {
-			throw Object.assign(new Error(`没有权限访问：${absolutePath}`), { statusCode: 403 });
+			throw Object.assign(new Error("path is not accessible"), {
+				code: "FORBIDDEN_PATH",
+				details: { reason: "outside-root" },
+			});
 		}
 		return null;
 	});
@@ -274,7 +280,9 @@ export async function registerExternalKnowledgeBase(rawPath: string): Promise<{
 
 	const check = await inspectKnowledgeBasePath(absolutePath);
 	if (!check.valid) {
-		throw new Error(`不是合法知识库（${check.reason}）：${absolutePath}`);
+		throw Object.assign(new Error("path is not a valid knowledge base"), {
+			code: "KB_NOT_REGISTERED",
+		});
 	}
 
 	const config = await loadConfig();

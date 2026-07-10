@@ -37,7 +37,10 @@ import { ensureKbSessionDir, listConversations } from "./conversations.js";
 import { scanAndRebuildArtifactIndex } from "./artifacts.js";
 import { createArtifactsExtension } from "./extensions/artifacts.js";
 import knowledgeBaseExtension from "./extensions/knowledge-base.js";
-import { setCurrentKnowledgeBase } from "./extensions/knowledge-base.js";
+import {
+	clearCurrentKnowledgeBase,
+	setCurrentKnowledgeBase,
+} from "./extensions/knowledge-base.js";
 import { createNewWikiExtension } from "./extensions/new-wiki.js";
 import { createSynthesisExtension } from "./extensions/synthesis.js";
 
@@ -96,6 +99,21 @@ let resourceLoaderState: {
 	promise: Promise<DefaultResourceLoader>;
 } | null = null;
 let active: ActiveContext | null = null;
+let activeMutationQueue: Promise<void> = Promise.resolve();
+
+async function runActiveMutation<T>(operation: () => Promise<T>): Promise<T> {
+	const previous = activeMutationQueue;
+	let release!: () => void;
+	activeMutationQueue = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await previous;
+	try {
+		return await operation();
+	} finally {
+		release();
+	}
+}
 
 export async function getResourceLoader(): Promise<DefaultResourceLoader> {
 	const includeUserGlobal = (await loadConfig()).showUserGlobalSkills === true;
@@ -331,13 +349,15 @@ export function getConfiguredModel(ref: ModelRef): Model<any> | undefined {
 }
 
 /**
- * 选择/进入一个知识库：dispose 老 session，加载/新建该库下的活跃对话。
+ * 选择/进入一个知识库：先完整创建新 session，成功后才替换并 dispose 老 session。
  *   - 该 KB 有对话：opens most recent
  *   - 该 KB 无对话：creates a new one
  */
 export async function selectKb(kbPath: string): Promise<ActiveContext> {
-	await disposeActive();
-	const kb = await setCurrentKnowledgeBase(kbPath);
+	return runActiveMutation(() => selectKbSerial(kbPath));
+}
+
+async function selectKbSerial(kbPath: string): Promise<ActiveContext> {
 	const dir = await ensureKbSessionDir(kbPath);
 	const loader = await getResourceLoader();
 
@@ -363,7 +383,22 @@ export async function selectKb(kbPath: string): Promise<ActiveContext> {
 	});
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 
+	let kb: ActiveContext["kb"];
+	try {
+		kb = await setCurrentKnowledgeBase(kbPath);
+	} catch (err) {
+		session.dispose();
+		throw err;
+	}
+	const previous = active;
 	active = { kb, session, conversationId: session.sessionId, isNew };
+	if (previous) {
+		try {
+			previous.session.dispose();
+		} catch {
+			// noop
+		}
+	}
 	await rememberLastUsedKb(kbPath);
 	console.log(
 		`[agent] selectKb ${kb.name} → conversation ${active.conversationId.slice(0, 8)} (${isNew ? "new" : "resumed"})`,
@@ -375,6 +410,13 @@ export async function selectKb(kbPath: string): Promise<ActiveContext> {
  * 切到该 KB 下指定的对话。
  */
 export async function selectConversation(
+	kbPath: string,
+	conversationId: string,
+): Promise<ActiveContext> {
+	return runActiveMutation(() => selectConversationSerial(kbPath, conversationId));
+}
+
+async function selectConversationSerial(
 	kbPath: string,
 	conversationId: string,
 ): Promise<ActiveContext> {
@@ -410,6 +452,10 @@ export async function selectConversation(
  * 在该 KB 下新建一个空白对话，并设为活跃。
  */
 export async function createNewConversation(kbPath: string): Promise<ActiveContext> {
+	return runActiveMutation(() => createNewConversationSerial(kbPath));
+}
+
+async function createNewConversationSerial(kbPath: string): Promise<ActiveContext> {
 	await disposeActive();
 	const kb = await setCurrentKnowledgeBase(kbPath);
 	const dir = await ensureKbSessionDir(kbPath);
@@ -435,7 +481,10 @@ export async function createNewConversation(kbPath: string): Promise<ActiveConte
  * 完全清空活跃上下文（不删除磁盘上的会话文件）。
  */
 export async function clearActive(): Promise<void> {
-	await disposeActive();
+	await runActiveMutation(async () => {
+		await disposeActive();
+		clearCurrentKnowledgeBase();
+	});
 }
 
 /**

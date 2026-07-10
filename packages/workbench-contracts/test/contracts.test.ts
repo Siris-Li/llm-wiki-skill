@@ -12,6 +12,8 @@ import {
 	ForbiddenPathDetailsSchema,
 	HealthDataSchema,
 	InvalidRequestDetailsSchema,
+	KnowledgeBaseContextBodySchema,
+	KnowledgeBaseContextQuerySchema,
 	JsonEnvelopeSchema,
 	MissingFieldDetailsSchema,
 	ModelRefSchema,
@@ -211,6 +213,20 @@ test("config / models / auth status data schema 校验公开响应 shape", () =>
 			envKeys: [{ name: "ANTHROPIC_API_KEY", present: false }],
 		}).success,
 		true,
+	);
+});
+
+test("知识库上下文明确 GET query kb 与 JSON body kbPath", () => {
+	assert.deepEqual(KnowledgeBaseContextQuerySchema.parse({ kb: " /kb/query " }), {
+		kb: "/kb/query",
+	});
+	assert.deepEqual(
+		KnowledgeBaseContextBodySchema.parse({ kbPath: " /kb/body " }),
+		{ kbPath: "/kb/body" },
+	);
+	assert.equal(
+		KnowledgeBaseContextBodySchema.safeParse({ path: "/kb/legacy" }).success,
+		false,
 	);
 });
 

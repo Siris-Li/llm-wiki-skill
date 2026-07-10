@@ -38,13 +38,11 @@ import {
 } from "./artifacts.js";
 import {
 	bootstrapFromConfig,
-	clearActive,
 	createNewConversation,
 	getActive,
 	getActiveSession,
 	listLoadedSkills,
 	selectConversation,
-	selectKb,
 } from "./agent.js";
 import { setAuthKey, testAuthConnection } from "./auth.js";
 import { loadConfig } from "./config.js";
@@ -59,18 +57,13 @@ import {
 	readGraphLayout,
 	resumeGraphWatcher,
 	subscribeGraphEvents,
-	stopKnowledgeBaseGraphWatcher,
 	suspendGraphWatcher,
 	triggerGraphRebuild,
 	watchKnowledgeBaseGraph,
 	writeGraphLayout,
 } from "./graph.js";
 import {
-	inspectPath,
 	assertRegisteredKnowledgeBase,
-	listKnowledgeBases,
-	registerExternalKnowledgeBase,
-	unregisterExternalKnowledgeBase,
 } from "./knowledge-bases.js";
 import { listPageRefs, readWikiPage } from "./pages.js";
 import { localHostOnly } from "./security/host.js";
@@ -191,75 +184,7 @@ app.post("/api/echo", async (c) => {
 	return c.json({ ok: true, received: body });
 });
 
-// ============= 知识库列表（库的管理） =============
-
-app.get("/api/knowledge-bases", async (c) => {
-	try {
-		const items = await listKnowledgeBases();
-		return c.json({ ok: true, items });
-	} catch (err) {
-		return c.json(
-			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			500,
-		);
-	}
-});
-
-app.post("/api/knowledge-bases/external", async (c) => {
-	let body: { path?: unknown };
-	try {
-		body = await c.req.json();
-	} catch {
-		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
-	}
-	if (typeof body.path !== "string" || !body.path.trim()) {
-		return c.json({ ok: false, error: "Missing or empty 'path'" }, 400);
-	}
-	try {
-		const result = await registerExternalKnowledgeBase(body.path);
-		return c.json({ ok: true, ...result });
-	} catch (err) {
-		return c.json(
-			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			400,
-		);
-	}
-});
-
-app.post("/api/knowledge-bases/inspect", async (c) => {
-	let body: { path?: unknown };
-	try {
-		body = await c.req.json();
-	} catch {
-		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
-	}
-	if (typeof body.path !== "string" || !body.path.trim()) {
-		return c.json({ ok: false, error: "Missing or empty 'path'" }, 400);
-	}
-	try {
-		return c.json({ ok: true, result: await inspectPath(body.path) });
-	} catch (err) {
-		const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
-		return c.json(
-			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			statusCode === 403 ? 403 : 500,
-		);
-	}
-});
-
-app.delete("/api/knowledge-bases/external", async (c) => {
-	let body: { path?: unknown };
-	try {
-		body = await c.req.json();
-	} catch {
-		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
-	}
-	if (typeof body.path !== "string" || !body.path.trim()) {
-		return c.json({ ok: false, error: "Missing or empty 'path'" }, 400);
-	}
-	const result = await unregisterExternalKnowledgeBase(body.path);
-	return c.json({ ok: true, ...result });
-});
+// ============= 知识库初始化（仍为 legacy；列表/登记/active context 已迁入 routes） =============
 
 app.post("/api/knowledge-bases/new", async (c) => {
 	let body: { name?: unknown; purpose?: unknown };
@@ -325,63 +250,6 @@ app.post("/api/knowledge-bases/init-existing", async (c) => {
 			400,
 		);
 	}
-});
-
-// ============= 活跃上下文（当前选中的 KB + 对话） =============
-
-app.get("/api/knowledge-base", async (c) => {
-	const ctx = getActive();
-	if (!ctx) return c.json({ ok: true, active: null });
-	return c.json({
-		ok: true,
-		active: {
-			kb: ctx.kb,
-			conversation: {
-				id: ctx.conversationId,
-				messages: piMessagesToUIMessages(ctx.session.state.messages),
-			},
-			model: extractModelInfo(ctx.session),
-		},
-	});
-});
-
-app.post("/api/knowledge-base", async (c) => {
-	let body: { path?: unknown };
-	try {
-		body = await c.req.json();
-	} catch {
-		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
-	}
-	if (typeof body.path !== "string" || !body.path.trim()) {
-		return c.json({ ok: false, error: "Missing or empty 'path'" }, 400);
-	}
-	try {
-		const ctx = await selectKb(body.path);
-		watchKnowledgeBaseGraph(ctx.kb.path);
-		return c.json({
-			ok: true,
-			active: {
-				kb: ctx.kb,
-				conversation: {
-					id: ctx.conversationId,
-					isNew: ctx.isNew,
-					messages: piMessagesToUIMessages(ctx.session.state.messages),
-				},
-				model: extractModelInfo(ctx.session),
-			},
-		});
-	} catch (err) {
-		return c.json(
-			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			400,
-		);
-	}
-});
-
-app.delete("/api/knowledge-base", async (c) => {
-	await clearActive();
-	stopKnowledgeBaseGraphWatcher();
-	return c.json({ ok: true });
 });
 
 // ============= 图谱（指定知识库；未传时回退当前知识库） =============
