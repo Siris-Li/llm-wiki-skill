@@ -111,6 +111,7 @@ export async function assertRegisteredKnowledgeBase(rawPath: string): Promise<st
 	if (!match) {
 		throw Object.assign(new Error("knowledge base is not registered"), {
 			code: "KB_NOT_REGISTERED",
+			statusCode: 403,
 		});
 	}
 	return match.path;

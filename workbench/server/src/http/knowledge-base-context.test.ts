@@ -8,10 +8,10 @@ const deps = {
 	getActiveKnowledgeBasePath: () => "/kb/active",
 	assertRegisteredKnowledgeBase: async (kbPath: string) => {
 		if (kbPath === "/kb/missing") {
-			throw new HttpContractError(
-				"KB_NOT_REGISTERED",
-				"知识库未登记或已失效",
-			);
+			throw Object.assign(new Error("not registered"), {
+				code: "KB_NOT_REGISTERED",
+				statusCode: 403,
+			});
 		}
 		return kbPath;
 	},
