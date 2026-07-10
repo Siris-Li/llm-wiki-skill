@@ -42,14 +42,12 @@ import {
 	createNewConversation,
 	getActive,
 	getActiveSession,
-	listAvailableModels,
 	listLoadedSkills,
-	reloadActiveResources,
 	selectConversation,
 	selectKb,
 } from "./agent.js";
-import { getAuthStatus, setAuthKey, testAuthConnection } from "./auth.js";
-import { type AppConfig, loadConfig, saveConfig } from "./config.js";
+import { setAuthKey, testAuthConnection } from "./auth.js";
+import { loadConfig } from "./config.js";
 import { listConversations, piMessagesToUIMessages } from "./conversations.js";
 import { runBatchDigest } from "./digest/batch.js";
 import {
@@ -115,28 +113,6 @@ function extractModelInfo(session: AgentSession): { provider: string; id: string
 function extractContextWindow(session: AgentSession): number | undefined {
 	const model = (session.state as { model?: { contextWindow?: unknown } }).model;
 	return typeof model?.contextWindow === "number" ? model.contextWindow : undefined;
-}
-
-function normalizeRoleModelRef(raw: unknown): AppConfig["modelRoles"] extends infer Roles
-	? Roles extends { main?: infer Ref }
-		? Ref | undefined
-		: never
-	: never {
-	if (raw === null) return null;
-	if (typeof raw !== "object" || raw === undefined) return undefined;
-	const obj = raw as Record<string, unknown>;
-	if (typeof obj.provider !== "string" || typeof obj.modelId !== "string") return undefined;
-	if (!obj.provider.trim() || !obj.modelId.trim()) return undefined;
-	return { provider: obj.provider.trim(), modelId: obj.modelId.trim() };
-}
-
-function sameModelRef(a: unknown, b: unknown): boolean {
-	const left = normalizeRoleModelRef(a);
-	const right = normalizeRoleModelRef(b);
-	if (left === undefined && right === undefined) return true;
-	if (left === null || right === null) return left === right;
-	if (left === undefined || right === undefined) return false;
-	return left.provider === right.provider && left.modelId === right.modelId;
 }
 
 function requestedKnowledgeBasePath(queryValue: string | undefined, body?: unknown): string | null {
@@ -553,89 +529,6 @@ app.get("/api/commands", async (c) => {
 	}
 });
 
-app.get("/api/config", async (c) => {
-	try {
-		return c.json({ ok: true, config: await loadConfig() });
-	} catch (err) {
-		return c.json(
-			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			500,
-		);
-	}
-});
-
-app.post("/api/config", async (c) => {
-	let body: {
-		showUserGlobalSkills?: unknown;
-		modelRoles?: unknown;
-		uiPrefs?: unknown;
-	};
-	try {
-		body = await c.req.json();
-	} catch {
-		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
-	}
-	try {
-		const current = await loadConfig();
-		const next: AppConfig = {
-			...current,
-			...(typeof body.showUserGlobalSkills === "boolean"
-				? { showUserGlobalSkills: body.showUserGlobalSkills }
-				: {}),
-		};
-		let mainRoleChanged = false;
-		if (typeof body.modelRoles === "object" && body.modelRoles !== null) {
-			const roles = body.modelRoles as Record<string, unknown>;
-			const nextMain = normalizeRoleModelRef(roles.main);
-			const nextDigest = normalizeRoleModelRef(roles.digest);
-			mainRoleChanged = nextMain !== undefined && !sameModelRef(current.modelRoles?.main, nextMain);
-			next.modelRoles = {
-				...(current.modelRoles ?? {}),
-				...(nextMain !== undefined ? { main: nextMain } : {}),
-				...(nextDigest !== undefined ? { digest: nextDigest } : {}),
-			};
-		}
-		if (typeof body.uiPrefs === "object" && body.uiPrefs !== null) {
-			const prefs = body.uiPrefs as Record<string, unknown>;
-			next.uiPrefs = {
-				...(current.uiPrefs ?? {}),
-				...(Array.isArray(prefs.sidebarExpandedKbs)
-					? {
-							sidebarExpandedKbs: prefs.sidebarExpandedKbs.filter(
-								(value): value is string => typeof value === "string",
-							),
-						}
-					: {}),
-			};
-		}
-		await saveConfig(next);
-		if (
-			(typeof body.showUserGlobalSkills === "boolean" &&
-				body.showUserGlobalSkills !== current.showUserGlobalSkills) ||
-			mainRoleChanged
-		) {
-			await reloadActiveResources();
-		}
-		return c.json({ ok: true, config: next });
-	} catch (err) {
-		return c.json(
-			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			500,
-		);
-	}
-});
-
-app.get("/api/models", async (c) => {
-	try {
-		return c.json({ ok: true, items: listAvailableModels() });
-	} catch (err) {
-		return c.json(
-			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			500,
-		);
-	}
-});
-
 app.post("/api/system/choose-directory", async (c) => {
 	if (process.platform !== "darwin") {
 		return c.json({ ok: false, error: "当前系统暂不支持文件夹选择器" }, 501);
@@ -764,17 +657,6 @@ app.get("/api/artifacts/:id/files/:filename", async (c) => {
 });
 
 // ============= 模型认证 =============
-
-app.get("/api/auth/status", async (c) => {
-	try {
-		return c.json({ ok: true, ...(await getAuthStatus()) });
-	} catch (err) {
-		return c.json(
-			{ ok: false, error: err instanceof Error ? err.message : String(err) },
-			500,
-		);
-	}
-});
 
 app.post("/api/auth/set", async (c) => {
 	let body: { provider?: unknown; type?: unknown; key?: unknown };

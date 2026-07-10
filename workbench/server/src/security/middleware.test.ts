@@ -18,6 +18,10 @@ type EnvelopeJson = {
 /**
  * 搭一个带真实 security 中间件 + 若干 registry 路径的测试 app：
  *  - GET /api/health                         read-only（createApp 自带）
+ *  - GET /api/config                         read-only（#168 migrated-json）
+ *  - POST /api/config                        state-changing（#168 migrated-json）
+ *  - GET /api/models                         read-only（#168 migrated-json）
+ *  - GET /api/auth/status                    read-only（#168 migrated-json）
  *  - POST /api/echo                          read-only（POST 不等于要 token）
  *  - GET /api/artifacts/:id/files/:filename  file-download read-only
  *  - POST /api/knowledge-bases/new           state-changing
@@ -29,6 +33,15 @@ function buildApp(
 ) {
 	const app = createApp({
 		security: createSecurityMiddleware({ token, trustedOrigins }),
+		configService: {
+			loadConfig: async () => ({ version: 1, externalKnowledgeBases: [] }),
+			saveConfig: async () => {},
+			listAvailableModels: () => [],
+			reloadActiveResources: async () => {},
+		},
+		authService: {
+			getAuthStatus: async () => ({ authFileExists: false, providers: [], envKeys: [] }),
+		},
 	});
 	app.post("/api/echo", (c) => c.json({ ok: true }));
 	app.get("/api/artifacts/:id/files/:filename", (c) => c.json({ ok: true }));
@@ -69,6 +82,41 @@ test("POST 不等于需要 token：read-only 的 POST /api/echo 无 token 放行
 test("文件下载 GET 无 token / 来源即放行", async () => {
 	const app = buildApp();
 	const res = await app.request("/api/artifacts/abc/files/report.md");
+	assert.equal(res.status, 200);
+});
+
+test("#168 migrated-json read-only GET 无 token 放行", async () => {
+	const app = buildApp();
+	for (const path of ["/api/config", "/api/models", "/api/auth/status"]) {
+		const res = await app.request(path);
+		assert.equal(res.status, 200, path);
+	}
+});
+
+test("#168 migrated-json state-changing POST /api/config 缺 token -> 403 FORBIDDEN_LOCAL_API", async () => {
+	const app = buildApp();
+	const res = await app.request("/api/config", {
+		method: "POST",
+		headers: headers({ origin: TRUSTED_ORIGIN, "Content-Type": "application/json" }),
+		body: JSON.stringify({ showUserGlobalSkills: true }),
+	});
+	assert.equal(res.status, 403);
+	const json = (await res.json()) as EnvelopeJson;
+	assert.equal(json.ok, false);
+	assert.equal(json.code, "FORBIDDEN_LOCAL_API");
+});
+
+test("#168 migrated-json state-changing POST /api/config 带正确 token + 可信来源 -> 200", async () => {
+	const app = buildApp();
+	const res = await app.request("/api/config", {
+		method: "POST",
+		headers: headers({
+			origin: TRUSTED_ORIGIN,
+			"Content-Type": "application/json",
+			[CAPABILITY_TOKEN_HEADER]: TOKEN,
+		}),
+		body: JSON.stringify({ showUserGlobalSkills: true }),
+	});
 	assert.equal(res.status, 200);
 });
 

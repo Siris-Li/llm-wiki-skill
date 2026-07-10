@@ -76,12 +76,19 @@ test("MIGRATED_JSON_PATHS 与 registry 的 migrated-json 子集严格一致（�
 	assert.deepEqual([...MIGRATED_JSON_PATHS], expected);
 });
 
-test("health 是当前唯一 migrated-json endpoint 且只读", () => {
-	const migrated = ENDPOINT_REGISTRY.filter((e) => e.kind === "migrated-json");
-	assert.deepEqual(
-		migrated.map((e) => e.path),
-		["/api/health"],
+test("health 与设置/模型/auth status 是 migrated-json endpoint", () => {
+	const migrated = ENDPOINT_REGISTRY.filter((e) => e.kind === "migrated-json").map(
+		(e) => `${e.method} ${e.path}`,
 	);
+	for (const expected of [
+		"GET /api/health",
+		"GET /api/config",
+		"POST /api/config",
+		"GET /api/models",
+		"GET /api/auth/status",
+	]) {
+		assert.ok(migrated.includes(expected), `missing migrated endpoint ${expected}`);
+	}
 	const health = ENDPOINT_REGISTRY.find(
 		(e) => e.method === "GET" && e.path === "/api/health",
 	);
@@ -98,6 +105,26 @@ test("isMigratedJsonPath 接受 migrated-json、拒绝 legacy path", () => {
 		isMigratedJsonPath("/api/artifacts/x/files/y.md"),
 		false, // file-download，不是 migrated-json
 	);
+});
+
+test("config / models / auth status 已迁移为 migrated-json，并保持安全分类", () => {
+	const cases = [
+		{ method: "GET", path: "/api/config", safety: "read-only" },
+		{ method: "POST", path: "/api/config", safety: "state-changing" },
+		{ method: "GET", path: "/api/models", safety: "read-only" },
+		{ method: "GET", path: "/api/auth/status", safety: "read-only" },
+	] as const;
+	for (const item of cases) {
+		const entry = findEndpoint(item.method, item.path);
+		assert.equal(entry?.kind, "migrated-json", `${item.method} ${item.path}`);
+		assert.equal(entry?.safety, item.safety, `${item.method} ${item.path}`);
+		assert.equal(isMigratedJsonPath(item.path), true, item.path);
+		assert.equal(
+			requiresCapabilityToken(item.method, item.path),
+			item.safety === "state-changing",
+			`${item.method} ${item.path}`,
+		);
+	}
 });
 
 // ============= #166 安全边界查询 =============

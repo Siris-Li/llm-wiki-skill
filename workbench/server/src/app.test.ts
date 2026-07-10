@@ -10,8 +10,8 @@ type EnvelopeJson = {
 	ok?: boolean;
 	code?: string;
 	message?: string;
-	details?: { diagnosticId?: string; field?: string } | null;
-	data?: { status?: string; service?: string; timestamp?: number };
+	details?: { diagnosticId?: string; field?: string; issues?: Array<{ path: string; message: string }> } | null;
+	data?: any;
 };
 
 test("GET /api/health 返回统一成功 envelope", async () => {
@@ -79,6 +79,201 @@ test("dev 模式 INTERNAL_ERROR 默认不带 details", async () => {
 	const res = await app.request("/api/throw");
 	const json = (await res.json()) as EnvelopeJson;
 	assert.equal(json.details, undefined);
+});
+
+test("GET /api/config 返回统一成功 envelope，且 route seam 不读写真实用户目录", async () => {
+	const app = createApp({
+		configService: {
+			loadConfig: async () => ({
+				version: 1,
+				externalKnowledgeBases: [],
+				showUserGlobalSkills: true,
+				modelRoles: { main: { provider: "anthropic", modelId: "claude-sonnet" } },
+			}),
+			saveConfig: async () => {
+				throw new Error("GET 不应写配置");
+			},
+			listAvailableModels: () => [],
+			reloadActiveResources: async () => {
+				throw new Error("GET 不应 reload");
+			},
+		},
+	});
+	const res = await app.request("/api/config");
+	assert.equal(res.status, 200);
+	const json = (await res.json()) as EnvelopeJson;
+	assert.equal(json.ok, true);
+	assert.equal((json.data as { version?: number })?.version, 1);
+	assert.equal((json.data as { showUserGlobalSkills?: boolean })?.showUserGlobalSkills, true);
+});
+
+test("POST /api/config 校验 JSON body，写入后返回统一成功 envelope", async () => {
+	let saved: unknown;
+	let reloaded = 0;
+	const app = createApp({
+		configService: {
+			loadConfig: async () => ({ version: 1, externalKnowledgeBases: [] }),
+			saveConfig: async (next) => {
+				saved = next;
+			},
+			listAvailableModels: () => [],
+			reloadActiveResources: async () => {
+				reloaded += 1;
+			},
+		},
+	});
+	const res = await app.request("/api/config", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ showUserGlobalSkills: true, modelRoles: { main: null } }),
+	});
+	assert.equal(res.status, 200);
+	const json = (await res.json()) as EnvelopeJson;
+	assert.equal(json.ok, true);
+	assert.deepEqual(saved, {
+		version: 1,
+		externalKnowledgeBases: [],
+		showUserGlobalSkills: true,
+		modelRoles: { main: null },
+	});
+	assert.equal(reloaded, 1);
+	assert.equal((json.data as { showUserGlobalSkills?: boolean })?.showUserGlobalSkills, true);
+});
+
+test("POST /api/config 对模型引用 trim 后保存，并拒绝空模型字段", async () => {
+	let saved: unknown;
+	const app = createApp({
+		configService: {
+			loadConfig: async () => ({ version: 1, externalKnowledgeBases: [] }),
+			saveConfig: async (next) => {
+				saved = next;
+			},
+			listAvailableModels: () => [],
+			reloadActiveResources: async () => {},
+		},
+	});
+	const ok = await app.request("/api/config", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			modelRoles: { main: { provider: " anthropic ", modelId: " claude-sonnet " } },
+		}),
+	});
+	assert.equal(ok.status, 200);
+	assert.deepEqual(saved, {
+		version: 1,
+		externalKnowledgeBases: [],
+		modelRoles: { main: { provider: "anthropic", modelId: "claude-sonnet" } },
+	});
+
+	const invalid = await app.request("/api/config", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ modelRoles: { main: { provider: " ", modelId: "claude-sonnet" } } }),
+	});
+	assert.equal(invalid.status, 400);
+	const json = (await invalid.json()) as EnvelopeJson;
+	assert.equal(json.ok, false);
+	assert.equal(json.code, "INVALID_REQUEST");
+});
+
+test("POST /api/config invalid JSON 返回 INVALID_JSON envelope", async () => {
+	const app = createApp();
+	const res = await app.request("/api/config", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: "{bad",
+	});
+	assert.equal(res.status, 400);
+	const json = (await res.json()) as EnvelopeJson;
+	assert.equal(json.ok, false);
+	assert.equal(json.code, "INVALID_JSON");
+	assert.equal(json.message, "请求体不是有效的 JSON");
+});
+
+test("POST /api/config invalid request 返回 typed details 且不包含原始 body", async () => {
+	const app = createApp();
+	const res = await app.request("/api/config", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ showUserGlobalSkills: "yes", secret: "sk-should-not-echo" }),
+	});
+	assert.equal(res.status, 400);
+	const json = (await res.json()) as EnvelopeJson;
+	assert.equal(json.ok, false);
+	assert.equal(json.code, "INVALID_REQUEST");
+	assert.equal(Array.isArray(json.details?.issues), true);
+	assert.equal(JSON.stringify(json).includes("sk-should-not-echo"), false);
+});
+
+test("GET /api/models 返回统一成功 envelope", async () => {
+	const app = createApp({
+		configService: {
+			loadConfig: async () => ({ version: 1, externalKnowledgeBases: [] }),
+			saveConfig: async () => {},
+			listAvailableModels: () => [
+				{
+					provider: "anthropic",
+					modelId: "claude-sonnet",
+					name: "Claude Sonnet",
+					reasoning: false,
+					contextWindow: 200000,
+					cost: { input: 3, output: 15 },
+					hasAuth: true,
+				},
+			],
+			reloadActiveResources: async () => {},
+		},
+	});
+	const res = await app.request("/api/models");
+	assert.equal(res.status, 200);
+	const json = (await res.json()) as EnvelopeJson;
+	assert.equal(json.ok, true);
+	assert.equal(Array.isArray(json.data), true);
+	assert.equal((json.data as Array<{ provider?: string }>)[0]?.provider, "anthropic");
+});
+
+test("GET /api/auth/status 返回脱敏认证状态，不泄露 key、auth 路径、环境变量值或 raw provider error", async () => {
+	const app = createApp({
+		authService: {
+			getAuthStatus: async () => ({
+				authFileExists: true,
+				providers: [{ id: "anthropic", type: "api_key", configured: true }],
+				envKeys: [{ name: "ANTHROPIC_API_KEY", present: true }],
+			}),
+		},
+	});
+	const res = await app.request("/api/auth/status");
+	assert.equal(res.status, 200);
+	const json = (await res.json()) as EnvelopeJson;
+	assert.equal(json.ok, true);
+	const body = JSON.stringify(json);
+	assert.equal(body.includes("sk-"), false);
+	assert.equal(body.includes("/Users/"), false);
+	assert.equal(body.includes(".pi/agent/auth.json"), false);
+	assert.equal(body.includes(String(process.env.ANTHROPIC_API_KEY ?? "__absent__")), false);
+});
+
+test("GET /api/auth/status 服务异常返回统一失败 envelope，且不泄露敏感细节", async () => {
+	const app = createApp({
+		authService: {
+			getAuthStatus: async () => {
+				throw new Error("/Users/demo/.pi/agent/auth.json raw provider error api_key=sk-should-not-leak");
+			},
+		},
+		mode: "test",
+	});
+	const res = await app.request("/api/auth/status");
+	assert.equal(res.status, 500);
+	const json = (await res.json()) as EnvelopeJson;
+	assert.equal(json.ok, false);
+	assert.equal(json.code, "INTERNAL_ERROR");
+	assert.equal(json.message, "服务器内部错误");
+	const body = JSON.stringify(json);
+	assert.equal(body.includes("/Users/"), false);
+	assert.equal(body.includes(".pi/agent/auth.json"), false);
+	assert.equal(body.includes("raw provider error"), false);
+	assert.equal(body.includes("sk-should-not-leak"), false);
 });
 
 test("注入 deps.security 后作用于 /api/* 请求（#166 接入点预留）", async () => {
