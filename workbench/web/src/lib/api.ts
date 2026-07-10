@@ -247,16 +247,8 @@ export type ToolStatusContractEvent =
 	| AssistantErrorEvent;
 
 // ============= API =============
-
-export async function getHealth(): Promise<{
-	status: string;
-	timestamp: number;
-	service: string;
-}> {
-	const res = await fetch("/api/health");
-	if (!res.ok) throw new Error(`Health check failed: HTTP ${res.status}`);
-	return res.json();
-}
+// health 已迁移到统一契约路径 ./api/health（createApp + workbench-contracts）。
+// 其余函数仍是 legacy，等待按 issue 逐个迁移到 ./api/<domain>。
 
 export async function listKnowledgeBases(): Promise<KnowledgeBaseInfo[]> {
 	const res = await fetch("/api/knowledge-bases");

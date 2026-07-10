@@ -20,7 +20,6 @@
  */
 
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -28,6 +27,7 @@ import { promisify } from "node:util";
 
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
+import { createApp } from "./app.js";
 import {
 	artifactEvents,
 	getArtifact,
@@ -165,15 +165,9 @@ function localHostOnly(rawHost: string | undefined): string {
 	return "127.0.0.1";
 }
 
-const app = new Hono();
-
-app.get("/api/health", (c) => {
-	return c.json({
-		status: "ok",
-		timestamp: Date.now(),
-		service: "llm-wiki-agent/server",
-	});
-});
+// createApp 组装统一 middleware / 错误兜底 / 已迁移 route module（health）。
+// 未迁移的 legacy route 继续挂在这个 app 上，等后续 issue 逐个迁移。
+const app = createApp();
 
 app.get("/api/events", (c) => {
 	return streamSSE(c, async (stream) => {

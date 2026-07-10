@@ -7,11 +7,11 @@
   "license": "MIT",
   "main": "dist/index.js",
   "scripts": {
-    "prebuild": "npm run build -w @llm-wiki/graph-engine",
+    "prebuild": "npm run build -w @llm-wiki/workbench-contracts && npm run build -w @llm-wiki/graph-engine",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "pretypecheck": "npm run build -w @llm-wiki/graph-engine",
+    "pretypecheck": "npm run build -w @llm-wiki/workbench-contracts && npm run build -w @llm-wiki/graph-engine",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -20,6 +20,7 @@
     "@earendil-works/pi-coding-agent": "^0.79.4",
     "@hono/node-server": "^1.13.0",
     "@llm-wiki/graph-engine": "0.0.0",
+    "@llm-wiki/workbench-contracts": "0.0.0",
     "hono": "^4.6.0",
     "typebox": "^1.1.38"
   },
