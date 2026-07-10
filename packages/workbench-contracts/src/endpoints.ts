@@ -362,43 +362,8 @@ export function isMigratedJsonPath(path: string): path is MigratedJsonPath {
 	return (MIGRATED_JSON_PATHS as readonly string[]).includes(path);
 }
 
-// ============= 查询 helper（#166 安全边界消费） =============
-
-/** 把 registry 的 `:param` 段匹配到实际 path。 */
-function matchPath(pattern: string, actual: string): boolean {
-	if (!pattern.includes(":")) return pattern === actual;
-	const re = new RegExp(`^${pattern.replace(/:[^/]+/g, "[^/]+")}$`);
-	return re.test(actual);
-}
-
-/**
- * 按 method + path 查找 endpoint。动态段按 `:param` 匹配。
- * 返回宽类型 EndpointEntry，供 #166 按字段读取。
- */
-export function findEndpoint(
-	method: HttpMethod,
-	path: string,
-): EndpointEntry | undefined {
-	for (const entry of ENDPOINT_REGISTRY) {
-		if (entry.method === method && matchPath(entry.path, path)) {
-			return entry as EndpointEntry;
-		}
-	}
-	return undefined;
-}
-
-/**
- * endpoint 是否只读（豁免 capability token）。未登记 endpoint 默认 false
- * （state-changing），保证 #166 的安全边界对未知路由保守拒绝。
- */
-export function isReadOnly(method: HttpMethod, path: string): boolean {
-	return findEndpoint(method, path)?.safety === "read-only";
-}
-
-/** endpoint 是否要求 capability token（#166 用）。= !isReadOnly。 */
-export function requiresToken(method: HttpMethod, path: string): boolean {
-	return !isReadOnly(method, path);
-}
+// 注：按 method + path 查询 endpoint、把 safety 映射成 token 要求等安全边界
+// 查询留给 #166 实现时按需补（本 PR 只提供 metadata 单一来源，不预判其 API 形态）。
 
 // ============= 静态自检（编译期护栏，被 typecheck 覆盖） =============
 //

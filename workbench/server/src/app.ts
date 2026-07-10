@@ -25,7 +25,7 @@ export interface WorkbenchAppDeps {
 	 * 可信来源 / capability token 统一检查接入点（#166 注入实现）。
 	 * 会改文件、触发模型、改配置、启动 SSE 的端点都应在此校验；
 	 * 只读白名单 vs state-changing 的判定以 @llm-wiki/workbench-contracts 的
-	 * ENDPOINT_REGISTRY / isReadOnly 为单一来源（spec §7 / §9，#167）。
+	 * ENDPOINT_REGISTRY（每 endpoint 的 safety 字段）为单一来源（spec §7 / §9，#167）。
 	 */
 	security?: MiddlewareHandler;
 }

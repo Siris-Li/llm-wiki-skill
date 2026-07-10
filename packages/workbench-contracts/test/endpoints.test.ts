@@ -6,11 +6,8 @@ import {
 	EndpointKindSchema,
 	EndpointSafetySchema,
 	ENDPOINT_REGISTRY,
-	findEndpoint,
 	isMigratedJsonPath,
-	isReadOnly,
 	MIGRATED_JSON_PATHS,
-	requiresToken,
 } from "../src/index.js";
 
 test("ENDPOINT_REGISTRY 每条 entry 形状合法", () => {
@@ -63,7 +60,9 @@ test("file-download 与 sse 作为显式例外进入 registry", () => {
 		);
 	}
 	// GET /api/events 是 EventSource 只读流（spec §9：保持只读），登记为 read-only sse
-	const graphEvents = findEndpoint("GET", "/api/events");
+	const graphEvents = ENDPOINT_REGISTRY.find(
+		(e) => e.method === "GET" && e.path === "/api/events",
+	);
 	assert.equal(graphEvents?.kind, "sse");
 	assert.equal(graphEvents?.safety, "read-only");
 });
@@ -81,7 +80,9 @@ test("health 是当前唯一 migrated-json endpoint 且只读", () => {
 		migrated.map((e) => e.path),
 		["/api/health"],
 	);
-	const health = findEndpoint("GET", "/api/health");
+	const health = ENDPOINT_REGISTRY.find(
+		(e) => e.method === "GET" && e.path === "/api/health",
+	);
 	assert.equal(health?.kind, "migrated-json");
 	assert.equal(health?.safety, "read-only");
 });
@@ -95,41 +96,4 @@ test("isMigratedJsonPath 接受 migrated-json、拒绝 legacy path", () => {
 		isMigratedJsonPath("/api/artifacts/x/files/y.md"),
 		false, // file-download，不是 migrated-json
 	);
-});
-
-test("findEndpoint 精确匹配静态 path", () => {
-	assert.equal(findEndpoint("GET", "/api/health")?.path, "/api/health");
-	assert.equal(findEndpoint("POST", "/api/echo")?.path, "/api/echo");
-	// method 不匹配
-	assert.equal(findEndpoint("POST", "/api/health"), undefined);
-});
-
-test("findEndpoint 按 :param 动态段匹配", () => {
-	assert.equal(
-		findEndpoint("GET", "/api/artifacts/abc/files/x.md")?.path,
-		"/api/artifacts/:id/files/:filename",
-	);
-	assert.equal(
-		findEndpoint("GET", "/api/artifacts/abc")?.path,
-		"/api/artifacts/:id",
-	);
-	// 动态段不跨 /，非法多段不匹配
-	assert.equal(findEndpoint("GET", "/api/artifacts/a/b/files/c"), undefined);
-});
-
-test("isReadOnly 按查询返回，未登记 endpoint 默认 state-changing（安全默认）", () => {
-	assert.equal(isReadOnly("GET", "/api/health"), true); // read-only
-	assert.equal(isReadOnly("GET", "/api/knowledge-bases"), true); // legacy read-only
-	assert.equal(isReadOnly("POST", "/api/knowledge-bases/external"), false); // state-changing
-	assert.equal(isReadOnly("DELETE", "/api/knowledge-base"), false);
-	assert.equal(isReadOnly("GET", "/api/artifacts/abc/files/x.md"), true); // file-download read-only
-	// 未登记的任意 path 默认要求 token（保守拒绝）
-	assert.equal(isReadOnly("POST", "/api/unknown-route"), false);
-	assert.equal(isReadOnly("GET", "/api/brand-new"), false);
-});
-
-test("requiresToken 是 isReadOnly 的反", () => {
-	assert.equal(requiresToken("GET", "/api/health"), false);
-	assert.equal(requiresToken("POST", "/api/config"), true);
-	assert.equal(requiresToken("POST", "/api/unknown"), true); // 未登记默认要 token
 });
