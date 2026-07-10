@@ -362,8 +362,72 @@ export function isMigratedJsonPath(path: string): path is MigratedJsonPath {
 	return (MIGRATED_JSON_PATHS as readonly string[]).includes(path);
 }
 
-// 注：按 method + path 查询 endpoint、把 safety 映射成 token 要求等安全边界
-// 查询留给 #166 实现时按需补（本 PR 只提供 metadata 单一来源，不预判其 API 形态）。
+// ============= 从 registry 派生：安全边界查询（#166） =============
+//
+// 把 (method, path) 映射到 endpoint 的 safety，供本地 API 安全中间件判定
+// “该请求是否需要本次启动的 capability token”。与 migrated-json 派生一样，
+// 这里只读 ENDPOINT_REGISTRY 单一来源，不维护第二份分类表。
+//
+// path 用 Hono 风格 `:param` 登记动态段（如 `/api/artifacts/:id/files/:filename`）。
+// 下面把每条 entry 的 pattern 预编译成 RegExp，请求时按 method + path 匹配。
+
+/**
+ * 携带本地 capability token 的请求头名（#166）。
+ * 后端中间件据此头校验，dev 代理 / 未来桌面壳据此头注入。单一来源，避免双端
+ * 各写一份字面量后漂移（漂移会导致安全检查静默失效）。
+ */
+export const CAPABILITY_TOKEN_HEADER = "X-LLM-Wiki-Workbench-Token";
+
+/** 把 Hono 风格 `:param` path 编译成完整匹配的 RegExp（:param -> [^/]+）。 */
+function compilePathPattern(pattern: string): RegExp {
+	const escaped = pattern
+		.split("/")
+		.map((segment) =>
+			segment.startsWith(":")
+				? `[^/]+`
+				: segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+		)
+		.join("/");
+	return new RegExp(`^${escaped}$`);
+}
+
+/** 预编译的 registry：entry + 可匹配 path 的 RegExp。模块加载时一次性建好。 */
+interface CompiledEntry {
+	readonly entry: EndpointEntry;
+	readonly pattern: RegExp;
+}
+const COMPILED_REGISTRY: readonly CompiledEntry[] = ENDPOINT_REGISTRY.map(
+	(entry) => ({ entry, pattern: compilePathPattern(entry.path) }),
+);
+
+/**
+ * 按 (method, path) 查找 endpoint 元数据。path 支持动态段实际值匹配
+ * （如 `/api/artifacts/abc/files/x.md` 命中 `/api/artifacts/:id/files/:filename`）。
+ * 未登记 endpoint 返回 undefined。
+ */
+export function findEndpoint(
+	method: string,
+	path: string,
+): EndpointEntry | undefined {
+	const normalized = method.toUpperCase();
+	for (const { entry, pattern } of COMPILED_REGISTRY) {
+		if (entry.method === normalized && pattern.test(path)) return entry;
+	}
+	return undefined;
+}
+
+/**
+ * 该请求是否需要本地 capability token（#166 安全中间件消费）。
+ *
+ * - 命中 `state-changing` endpoint → 需要 token。
+ * - 命中 `read-only` endpoint → 豁免（显式白名单）。
+ * - 未登记 endpoint → **安全默认：需要 token**（fail closed，避免漏网的新增状态改写路由）。
+ */
+export function requiresCapabilityToken(method: string, path: string): boolean {
+	const entry = findEndpoint(method, path);
+	if (!entry) return true;
+	return entry.safety === "state-changing";
+}
 
 // ============= 静态自检（编译期护栏，被 typecheck 覆盖） =============
 //
