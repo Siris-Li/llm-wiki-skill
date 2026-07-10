@@ -13,3 +13,4 @@
 export * from "./errors.js";
 export * from "./json.js";
 export * from "./health.js";
+export * from "./endpoints.js";

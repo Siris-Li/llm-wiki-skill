@@ -4,6 +4,7 @@ import {
 	FailureEnvelopeSchema,
 	SuccessEnvelopeSchema,
 	type FailureEnvelope,
+	type MigratedJsonPath,
 } from "@llm-wiki/workbench-contracts";
 
 /**
@@ -55,9 +56,14 @@ export interface RequestOptions<T> {
  * - 成功 envelope -> 返回 data（已按 responseSchema 校验）。
  * - 失败 envelope -> 抛 ApiError（带 code / details）。
  * - 旧格式 / data 校验失败 -> 抛 ContractMismatchError，绝不静默吞掉。
+ *
+ * `path` 类型为 MigratedJsonPath（派生自 @llm-wiki/workbench-contracts 的
+ * endpoint registry）：编译期锁死，业务代码只能用本 client 调已迁移 endpoint，
+ * 误调 legacy endpoint 会被 `npm run typecheck` 拒绝（静态检查）。未迁移
+ * endpoint 继续走 legacy api.ts，互不污染。
  */
 export async function request<T>(
-	path: string,
+	path: MigratedJsonPath,
 	options: RequestOptions<T>,
 ): Promise<T> {
 	const init: RequestInit = { method: options.method ?? "GET" };
