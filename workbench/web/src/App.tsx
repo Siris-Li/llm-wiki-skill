@@ -7,7 +7,6 @@ import {
 	type GraphSummaryObjectRef,
 	type GraphVisibilityState,
 	type PinMap,
-	type Selection,
 } from "@llm-wiki/graph-engine";
 
 import { BatchDigestPanel, type BatchDigestJob } from "@/components/BatchDigestPanel";
@@ -46,20 +45,19 @@ import {
 	artifactDrawer,
 	closedDrawer,
 	type DrawerState,
-	graphCommunitySummaryDrawer,
 	graphReaderDrawer,
-	graphSelectionDrawer,
+	isGraphInteractionDrawer,
 	shouldApplyGraphReaderResult,
 	wikiDrawer,
 } from "@/lib/drawer-state";
 import type { GraphReaderActionId } from "@/lib/graph-reader";
 import { graphReaderFilteredHidden } from "@/lib/graph-data-refresh";
-import { planActiveMapReadingWorkflow } from "@/lib/active-map-reading-workflow";
+import type { ActiveMapReadingWorkflowPlan } from "@/lib/active-map-reading-workflow";
 import {
 	type GraphSelectionCommand,
 } from "@/lib/graph-summary-actions";
 import { COMMUNITY_ENTER_EXIT_DURATION_MS } from "@/lib/graph-community-enter";
-import { useDrawerExitRail } from "@/lib/use-drawer-exit-rail";
+import { useActiveMapReadingWorkflow } from "@/lib/use-active-map-reading-workflow";
 import { WIKI_LINK_SEEN_EVENT } from "@/lib/wiki-links";
 import {
 	applyAppearance,
@@ -80,8 +78,6 @@ import {
 	clampDrawerWidthForViewport,
 	sidebarLayoutWidth,
 } from "@/lib/drawer-layout";
-
-type ActiveMapReadingWorkflowPlan = ReturnType<typeof planActiveMapReadingWorkflow>;
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "llm-wiki-agent-sidebar-collapsed";
 const DRAWER_WIDTH_STORAGE_KEY = "llm-wiki-agent-drawer-width";
@@ -153,15 +149,6 @@ function App() {
 	const [graphStatus, setGraphStatus] = useState<GraphStatusSnapshot>(DEFAULT_GRAPH_STATUS);
 	const [artifacts, setArtifacts] = useState<ArtifactManifest[]>([]);
 	const [drawerFullscreen, setDrawerFullscreen] = useState(false);
-	// 进入社区退场轨道（#120）：exit 期间保留社区摘要挂载做退场，结束后落回 closed。
-	const {
-		drawer,
-		setDrawer,
-		isExiting: drawerExitIsExiting,
-		stage: stageDrawerExit,
-		complete: handleDrawerExitComplete,
-		isProtected: isDrawerExitProtected,
-	} = useDrawerExitRail();
 	const [batchJob, setBatchJob] = useState<BatchDigestJob | null>(null);
 	const [pendingGraphPrompt, setPendingGraphPrompt] = useState<{
 		id: string;
@@ -184,12 +171,55 @@ function App() {
 		return window.localStorage.getItem(MAIN_VIEW_STORAGE_KEY) === "graph" ? "graph" : "chat";
 	});
 	const mainViewRef = useRef(mainView);
-	const graphTemporaryObjectRef = useRef<GraphSummaryObjectRef | null>(null);
-	const drawerRef = useRef(drawer);
+	const drawerRef = useRef<DrawerState>(closedDrawer());
 	const activeConversationId = active?.conversation.id ?? null;
+	const graphPageReadRequestRef = useRef<(request: NonNullable<ActiveMapReadingWorkflowPlan["pageReadRequest"]>) => void>(() => {});
+	const graphConversationHandoffRef = useRef<(input: NonNullable<ActiveMapReadingWorkflowPlan["conversationHandoff"]>) => void>(() => {});
 	const createGraphCommandId = useCallback((prefix: string) => (
 		`${prefix}-${Math.random().toString(36).slice(2, 10)}`
 	), []);
+	const activeMapReadingWorkflow = useActiveMapReadingWorkflow({
+		data: graphData,
+		pins: graphPins,
+		visibility: graphVisibilityState,
+		temporaryObject: graphTemporaryObject,
+		setData: setGraphData,
+		setPins: setGraphPins,
+		setVisibility: setGraphVisibilityState,
+		setTemporaryObject: setGraphTemporaryObject,
+		setSelectionCommand,
+		setGraphFocusPath,
+		createCommandId: createGraphCommandId,
+		onDrawerChange: (nextDrawer) => {
+			drawerRef.current = nextDrawer;
+		},
+		onPageReadRequest: (request) => graphPageReadRequestRef.current(request),
+		onConversationHandoff: (handoff) => graphConversationHandoffRef.current(handoff),
+	});
+	const {
+		drawer,
+		setDrawer,
+		handleGraphSelectionChange,
+		handleGraphVisibilityChange,
+		handleGraphDataChange,
+		handleGraphPinsChange,
+		handleGraphViewReset,
+		handleGraphSummaryCommand: runGraphSummaryCommand,
+		handleGraphSummaryNodeSelect,
+		handleGraphSummaryNodePreview,
+		handleGraphSummaryReturnCommunity,
+		handleGraphReaderAction: runGraphReaderAction,
+		handleGraphPageReadRequest: runGraphPageReadRequest,
+		handleGraphSelectionTextChange: runGraphSelectionTextChange,
+		handleGraphCommunityTextChange: runGraphCommunityTextChange,
+		handleGraphSelectionAsk: runGraphSelectionAsk,
+		handleGraphCommunityAsk: runGraphCommunityAsk,
+		handleDrawerClose: runDrawerClose,
+		syncGraphDataAndVisibility,
+		drawerExitIsExiting,
+		handleDrawerExitComplete,
+		reset: resetActiveMapReading,
+	} = activeMapReadingWorkflow;
 	const setDrawerWithRef = useCallback((next: DrawerState) => {
 		drawerRef.current = next;
 		setDrawer(next);
@@ -201,18 +231,6 @@ function App() {
 			return next;
 		});
 	}, [setDrawer]);
-
-	const applyActiveMapReadingPlan = useCallback((plan: ActiveMapReadingWorkflowPlan) => {
-		if ("temporaryObject" in plan) {
-			graphTemporaryObjectRef.current = plan.temporaryObject ?? null;
-			setGraphTemporaryObject(plan.temporaryObject ?? null);
-		}
-		if (plan.clearGraphFocusPath) setGraphFocusPath(null);
-		if (plan.selectionCommand) setSelectionCommand(plan.selectionCommand);
-		if ("drawerExit" in plan) stageDrawerExit(plan.drawerExit ? plan.drawerExit.drawer : null);
-		setDrawerWithRef(plan.drawer);
-	}, [setDrawerWithRef, stageDrawerExit]);
-
 	useEffect(() => {
 		drawerRef.current = drawer;
 	}, [drawer]);
@@ -267,10 +285,6 @@ function App() {
 	}, [mainView]);
 
 	useEffect(() => {
-		graphTemporaryObjectRef.current = graphTemporaryObject;
-	}, [graphTemporaryObject]);
-
-	useEffect(() => {
 		const handleWikiLinkSeenEvent = (event: Event) => {
 			const path = (event as CustomEvent<string>).detail;
 			if (typeof path === "string" && path.startsWith("wiki/")) setGraphFocusPath(path);
@@ -322,14 +336,14 @@ function App() {
 				setConversations([]);
 				setArtifacts([]);
 				setGraphBuildError(null);
-				setDrawerWithRef(closedDrawer());
+				resetActiveMapReading();
 			}
 		} catch (err) {
 			setSidebarError(err instanceof Error ? err.message : String(err));
 		} finally {
 			setLoading(false);
 		}
-	}, [refreshConversations, setDrawerWithRef]);
+	}, [refreshConversations, resetActiveMapReading]);
 
 	useEffect(() => {
 		refreshAll();
@@ -364,15 +378,12 @@ function App() {
 		setChatKey((k) => k + 1);
 		setChatStatus(DEFAULT_CHAT_STATUS);
 		setGraphStatus(DEFAULT_GRAPH_STATUS);
-		setDrawerWithRef(closedDrawer());
+		setDrawerFullscreen(false);
+		resetActiveMapReading();
 		setArtifacts([]);
 		setPendingGraphDiff(null);
 		setGraphBuildError(null);
 		setGraphHasPendingUpdate(false);
-		setGraphData(null);
-		setGraphPins({});
-		setSelectionCommand({ id: Math.random().toString(36).slice(2, 10), type: "clear" });
-		setGraphFocusPath(null);
 	};
 
 	const handleSelectKb = async (item: KnowledgeBaseInfo) => {
@@ -440,156 +451,29 @@ function App() {
 		}
 	};
 
-	const handleGraphSelectionChange = useCallback((selection: Selection | null) => {
-		setDrawer((current) => {
-			const plan = planActiveMapReadingWorkflow({
-				event: { type: "graph-selection-change", selection },
-				data: graphData,
-				drawer: current,
-				pins: graphPins,
-				visibility: graphVisibilityState,
-				temporaryObject: graphTemporaryObjectRef.current,
-				drawerExitProtected: isDrawerExitProtected(current),
-				createCommandId: createGraphCommandId,
-			});
-			drawerRef.current = plan.drawer;
-			return plan.drawer;
-		});
-	}, [createGraphCommandId, graphData, graphPins, graphVisibilityState, isDrawerExitProtected, setDrawer]);
-
-	const handleGraphVisibilityChange = useCallback((state: GraphVisibilityState | null) => {
-		setGraphVisibilityState(state);
-		const temporaryObjectPlan = planActiveMapReadingWorkflow({
-			event: { type: "graph-visibility-change" },
-			data: graphData,
-			drawer: drawerRef.current,
-			pins: graphPins,
-			visibility: state,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawerRef.current),
-			createCommandId: createGraphCommandId,
-		});
-		if ("temporaryObject" in temporaryObjectPlan) {
-			graphTemporaryObjectRef.current = temporaryObjectPlan.temporaryObject ?? null;
-			setGraphTemporaryObject(temporaryObjectPlan.temporaryObject ?? null);
-		}
-		setDrawer((current) => {
-			const plan = planActiveMapReadingWorkflow({
-				event: { type: "graph-visibility-change" },
-				data: graphData,
-				drawer: current,
-				pins: graphPins,
-				visibility: state,
-				temporaryObject: graphTemporaryObjectRef.current,
-				drawerExitProtected: isDrawerExitProtected(current),
-				createCommandId: createGraphCommandId,
-			});
-			drawerRef.current = plan.drawer;
-			return plan.drawer;
-		});
-	}, [createGraphCommandId, graphData, graphPins, isDrawerExitProtected, setDrawer]);
-
-	const handleGraphDataChange = useCallback((nextData: GraphData | null) => {
-		setGraphData(nextData);
-		applyActiveMapReadingPlan(planActiveMapReadingWorkflow({
-			event: { type: "graph-data-change" },
-			data: nextData,
-			drawer: drawerRef.current,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawerRef.current),
-			createCommandId: createGraphCommandId,
-		}));
-	}, [applyActiveMapReadingPlan, createGraphCommandId, graphPins, graphVisibilityState, isDrawerExitProtected]);
-
-	const handleGraphViewReset = useCallback(() => {
-		applyActiveMapReadingPlan(planActiveMapReadingWorkflow({
-			event: { type: "graph-view-reset" },
-			data: graphData,
-			drawer,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawer),
-			createCommandId: createGraphCommandId,
-		}));
-	}, [applyActiveMapReadingPlan, createGraphCommandId, drawer, graphData, graphPins, graphVisibilityState, isDrawerExitProtected]);
-
 	const handleGraphSelectionTextChange = useCallback((value: string) => {
-		updateDrawerWithRef((current) => (
-			current.mode === "graph-selection"
-				? graphSelectionDrawer(current.selection, current.title, value)
-				: current
-		));
-	}, [updateDrawerWithRef]);
+		runGraphSelectionTextChange(value);
+	}, [runGraphSelectionTextChange]);
 
 	const handleGraphSelectionAsk = (actionId: string | null, newConversation: boolean) => {
-		const plan = planActiveMapReadingWorkflow({
-			event: { type: "graph-selection-ask", actionId, newConversation },
-			data: graphData,
-			drawer: drawerRef.current,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawerRef.current),
-			createCommandId: createGraphCommandId,
-		});
-		applyActiveMapReadingPlan(plan);
-		void handleGraphConversationHandoff(plan.conversationHandoff);
+		runGraphSelectionAsk(actionId, newConversation);
 	};
 
 	const handleGraphCommunityTextChange = useCallback((value: string) => {
-		updateDrawerWithRef((current) => (
-			current.mode === "graph-community-summary"
-				? graphCommunitySummaryDrawer(current.payload, value)
-				: current
-		));
-	}, [updateDrawerWithRef]);
+		runGraphCommunityTextChange(value);
+	}, [runGraphCommunityTextChange]);
 
 	const handleGraphCommunityAsk = (actionId: string | null, newConversation: boolean) => {
-		const plan = planActiveMapReadingWorkflow({
-			event: { type: "graph-community-ask", actionId, newConversation },
-			data: graphData,
-			drawer: drawerRef.current,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawerRef.current),
-			createCommandId: createGraphCommandId,
-		});
-		applyActiveMapReadingPlan(plan);
-		void handleGraphConversationHandoff(plan.conversationHandoff);
+		runGraphCommunityAsk(actionId, newConversation);
 	};
 
 	const handleGraphReaderAction = (actionId: GraphReaderActionId) => {
-		if (drawer.mode !== "graph-reader") return;
-		const plan = planActiveMapReadingWorkflow({
-			event: { type: "graph-reader-action", actionId },
-			data: graphData,
-			drawer,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawer),
-			createCommandId: createGraphCommandId,
-		});
-		applyActiveMapReadingPlan(plan);
-		void handleGraphConversationHandoff(plan.conversationHandoff);
+		runGraphReaderAction(actionId);
 	};
 
 	const handleCloseDrawer = useCallback((reason: "button" | "escape") => {
-		applyActiveMapReadingPlan(planActiveMapReadingWorkflow({
-			event: { type: "graph-drawer-close", reason },
-			data: graphData,
-			drawer,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawer),
-			createCommandId: createGraphCommandId,
-		}));
-	}, [applyActiveMapReadingPlan, createGraphCommandId, drawer, graphData, graphPins, graphVisibilityState, isDrawerExitProtected]);
+		runDrawerClose(reason);
+	}, [runDrawerClose]);
 
 	const handleAddExternal = async (path: string) => {
 		const { info } = await registerExternalKnowledgeBase(path);
@@ -630,114 +514,42 @@ function App() {
 				sourcePath: toRelativePagePath(payload.node.sourcePath, active.kb.path) ?? payload.node.sourcePath,
 			},
 		};
+		const requestKey = `${active.kb.path}:${normalizedPagePath}:${normalizedPayload.node.id}:${Math.random().toString(36).slice(2, 10)}`;
 		if (syncGraphFocus && normalizedPagePath.startsWith("wiki/")) setGraphFocusPath(normalizedPagePath);
 		setDrawerWithRef(graphReaderDrawer(normalizedPayload, { loading: true }, {
 			filteredHidden: graphReaderFilteredHidden(normalizedPayload.node.id, graphVisibilityState),
+			requestKey,
 		}));
 		try {
 			const content = await readPage(active.kb.path, normalizedPagePath);
 			updateDrawerWithRef((current) => (
-				current.mode === "graph-reader" && shouldApplyGraphReaderResult(current, normalizedPayload)
-					? graphReaderDrawer(normalizedPayload, { content }, { filteredHidden: current.filteredHidden })
+				shouldApplyGraphReaderResult(current, normalizedPayload, { requestKey })
+					? graphReaderDrawer(normalizedPayload, { content }, { filteredHidden: current.filteredHidden, requestKey })
 					: current
 			));
 		} catch (err) {
 			updateDrawerWithRef((current) => (
-				current.mode === "graph-reader" && shouldApplyGraphReaderResult(current, normalizedPayload)
-					? graphReaderDrawer(normalizedPayload, { error: err instanceof Error ? err.message : String(err) }, { filteredHidden: current.filteredHidden })
+				shouldApplyGraphReaderResult(current, normalizedPayload, { requestKey })
+					? graphReaderDrawer(normalizedPayload, { error: err instanceof Error ? err.message : String(err) }, { filteredHidden: current.filteredHidden, requestKey })
 				: current
 			));
 		}
 	}, [active, graphVisibilityState, setDrawerWithRef, updateDrawerWithRef]);
 
 	const handleGraphSummaryCommand = useCallback((command: GraphSummaryCommand) => {
-		const plan = planActiveMapReadingWorkflow({
-			event: { type: "graph-summary-command", command, reducedMotion: prefersReducedMotion() },
-			data: graphData,
-			drawer,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawer),
-			createCommandId: createGraphCommandId,
-		});
-		applyActiveMapReadingPlan(plan);
-		if (plan.pageReadRequest) {
-			void handleOpenGraphPage(plan.pageReadRequest.payload, {
-				syncGraphFocus: plan.pageReadRequest.syncGraphFocus,
-			});
-		}
-	}, [
-		applyActiveMapReadingPlan,
-		createGraphCommandId,
-		drawer,
-		graphData,
-		graphPins,
-		graphVisibilityState,
-		handleOpenGraphPage,
-		isDrawerExitProtected,
-	]);
+		runGraphSummaryCommand(command, { reducedMotion: prefersReducedMotion() });
+	}, [runGraphSummaryCommand]);
+
+	graphPageReadRequestRef.current = (request) => {
+		void handleOpenGraphPage(request.payload, { syncGraphFocus: request.syncGraphFocus });
+	};
+	graphConversationHandoffRef.current = (handoff) => {
+		void handleGraphConversationHandoff(handoff);
+	};
 
 	useEffect(() => {
-		const current = drawerRef.current;
-		const plan = planActiveMapReadingWorkflow({
-			event: { type: "graph-data-change" },
-			data: graphData,
-			drawer: current,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(current),
-			createCommandId: createGraphCommandId,
-		});
-		if (isGraphInteractionDrawer(current)) {
-			applyActiveMapReadingPlan(plan);
-			return;
-		}
-		if ("temporaryObject" in plan) {
-			graphTemporaryObjectRef.current = plan.temporaryObject ?? null;
-			setGraphTemporaryObject(plan.temporaryObject ?? null);
-		}
-	}, [applyActiveMapReadingPlan, createGraphCommandId, graphData, graphPins, graphVisibilityState, isDrawerExitProtected]);
-
-	const handleGraphSummaryNodeSelect = useCallback((nodeId: string) => {
-		applyActiveMapReadingPlan(planActiveMapReadingWorkflow({
-			event: { type: "graph-summary-node-select", nodeId },
-			data: graphData,
-			drawer,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawer),
-			createCommandId: createGraphCommandId,
-		}));
-	}, [applyActiveMapReadingPlan, createGraphCommandId, drawer, graphData, graphPins, graphVisibilityState, isDrawerExitProtected]);
-
-	const handleGraphSummaryReturnCommunity = useCallback((communityId: string) => {
-		applyActiveMapReadingPlan(planActiveMapReadingWorkflow({
-			event: { type: "graph-summary-return-community", communityId },
-			data: graphData,
-			drawer,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawer),
-			createCommandId: createGraphCommandId,
-		}));
-	}, [applyActiveMapReadingPlan, createGraphCommandId, drawer, graphData, graphPins, graphVisibilityState, isDrawerExitProtected]);
-
-	const handleGraphSummaryNodePreview = useCallback((nodeId: string | null) => {
-		applyActiveMapReadingPlan(planActiveMapReadingWorkflow({
-			event: { type: "graph-summary-node-preview", nodeId },
-			data: graphData,
-			drawer,
-			pins: graphPins,
-			visibility: graphVisibilityState,
-			temporaryObject: graphTemporaryObjectRef.current,
-			drawerExitProtected: isDrawerExitProtected(drawer),
-			createCommandId: createGraphCommandId,
-		}));
-	}, [applyActiveMapReadingPlan, createGraphCommandId, drawer, graphData, graphPins, graphVisibilityState, isDrawerExitProtected]);
+		syncGraphDataAndVisibility();
+	}, [graphData, graphPins, graphVisibilityState, syncGraphDataAndVisibility]);
 
 	const handleWikiLinkSeen = useCallback((pagePath: string) => {
 		setGraphFocusPath(pagePath);
@@ -1033,9 +845,9 @@ function App() {
 									currentKnowledgeBasePath={active?.kb.path ?? null}
 									theme={theme}
 									graphBuildError={graphBuildError}
-									onOpenPage={handleOpenGraphPage}
+									onOpenPage={(payload) => runGraphPageReadRequest(payload)}
 									onGraphDataChange={handleGraphDataChange}
-									onGraphPinsChange={setGraphPins}
+									onGraphPinsChange={handleGraphPinsChange}
 									onGraphVisibilityChange={handleGraphVisibilityChange}
 									onSelectionChange={handleGraphSelectionChange}
 									onStatusChange={setGraphStatus}
@@ -1122,19 +934,6 @@ function toRelativePagePath(outputPath: string, kbPath: string): string | null {
 	if (outputPath.startsWith(normalizedKb)) return outputPath.slice(normalizedKb.length);
 	if (outputPath.startsWith("wiki/")) return outputPath;
 	return null;
-}
-
-function isGraphInteractionDrawer(drawer: DrawerState): boolean {
-	return drawer.mode === "graph-selection"
-		|| drawer.mode === "graph-node-summary"
-		|| drawer.mode === "graph-community-summary"
-		|| drawer.mode === "graph-search-results"
-		|| drawer.mode === "graph-excluded-object"
-		|| drawer.mode === "graph-unavailable-object"
-		|| drawer.mode === "graph-global-overview"
-		|| drawer.mode === "graph-loading"
-		|| drawer.mode === "graph-empty"
-		|| drawer.mode === "graph-error";
 }
 
 function prefersReducedMotion(): boolean {
