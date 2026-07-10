@@ -106,6 +106,22 @@ npm 名建议：
 - 通用 JSON envelope schema。
 - SSE event data schema。
 
+它是一个可构建的 workspace package，不是只放源码给 TypeScript 跨目录偷读：
+
+- 有自己的 `package.json`、`tsconfig.json`、`src/`、`dist/` 和 `exports`。
+- 有自己的 `build`、`typecheck`、`test` 脚本。
+- Zod 是 contracts 包的 runtime dependency，不是只给测试用的 devDependency。
+- server 和 web 只从 package export import，不从 `packages/workbench-contracts/src/*` 深路径 import。
+- 根工作区构建时要保证 contracts 先于 server/web 可用。实现方式可以参考 `@llm-wiki/graph-engine` 的 workspace 包模式。
+- 根 `package.json` 继续不设 `"type": "module"`；contracts 包自己的模块格式和 `exports` 必须与 server/web 的 TypeScript/Vite/Node 用法兼容。
+
+它不替代现有 `typebox` 用法。当前 `typebox` 继续服务于 pi-agent Extension 工具参数 schema；Zod 只服务于工作台 HTTP JSON、SSE 事件和前后端共享契约。两者边界如下：
+
+| schema 工具 | 负责范围 | 不负责 |
+|---|---|---|
+| Zod | 工作台 HTTP request/response、JSON envelope、SSE event data、前端 client 校验 | pi-agent Extension 工具参数 |
+| TypeBox | pi-agent Extension 的 tool `parameters` | 工作台 HTTP/SSE 契约 |
+
 它不承担业务职责：
 
 - 不读写文件。
@@ -151,9 +167,17 @@ packages/workbench-contracts/src/
   ok: false,
   code: WorkbenchErrorCode,
   message: string,
-  details?: unknown
+  details?: WorkbenchErrorDetails
 }
 ```
+
+`details` 不是任意错误对象，也不能直接返回 `Error.stack`、本机绝对路径、认证文件路径、原始 request body 或 pi-agent 原始错误。contracts 包要按错误码定义可公开的 details schema，例如：
+
+- `MISSING_FIELD`：`{ field: string }`。
+- `INVALID_REQUEST`：`{ issues: Array<{ path: string; message: string }> }`，不包含原始 body。
+- `FORBIDDEN_PATH`：`{ reason: 'outside-root' | 'not-registered' | 'symlink-escape' }`，不返回本机绝对路径。
+- `FORBIDDEN_ORIGIN` / `FORBIDDEN_LOCAL_API`：只返回可公开原因，不返回 token、origin 全量诊断或内部配置。
+- `INTERNAL_ERROR`：默认不带 details；dev/test 可带脱敏 diagnostic id。
 
 含义：
 
@@ -161,7 +185,7 @@ packages/workbench-contracts/src/
 - `data`：统一成功 payload 字段，替代现在的 `items`、`active`、`config`、`content`、`manifest`、`status` 等混用。
 - `code`：稳定英文错误码，给程序判断和测试断言。
 - `message`：中文用户可读提示。
-- `details`：结构化补充信息，例如缺失字段、冲突文件列表、非法路径原因。
+- `details`：结构化补充信息，例如缺失字段、冲突文件列表、非法路径原因。details 必须由 contracts 中的公开 schema 定义，且经过 redaction，不能泄露本机路径、stack、认证位置、环境变量或原始 prompt/body。
 
 第一批错误码建议：
 
@@ -171,6 +195,8 @@ packages/workbench-contracts/src/
 - `NO_ACTIVE_KB`：当前没有选择知识库。
 - `KB_NOT_REGISTERED`：知识库未登记或已失效。
 - `FORBIDDEN_PATH`：路径越界或无权限。
+- `FORBIDDEN_ORIGIN`：请求来源不是工作台可信来源。
+- `FORBIDDEN_LOCAL_API`：本地 API 缺少或携带了错误的本次启动 capability token。
 - `NOT_FOUND`：资源不存在。
 - `CONFLICT`：资源冲突，例如初始化已有库时存在冲突文件。
 - `UNSUPPORTED_PLATFORM`：当前平台不支持。
@@ -227,11 +253,25 @@ routes/system.ts
 `createApp()` 的目标是让测试可以直接调用：
 
 ```ts
-const app = createApp();
+const app = createApp(testDeps);
 const res = await app.request('/api/knowledge-bases');
 ```
 
 测试不需要启动 `8787` 端口。
+
+`createApp()` 不能偷偷执行真实启动流程。它必须只组装请求处理，并接收依赖注入：
+
+```ts
+createApp(deps: WorkbenchAppDeps, options?: { mode: 'test' | 'dev' | 'desktop' })
+```
+
+约束：
+
+- `index.ts` 负责组装真实 deps、`bootstrapFromConfig()`、恢复 graph watcher、读取 host/port、调用 `serve()`。
+- `createApp()` 不监听端口，不 bootstrap，不恢复 watcher，不主动读写真实 `~/.llm-wiki-agent/` 或知识库目录。
+- route 测试传入 temp dir、fake active context、fake graph service、fake pi-agent/session service。
+- 安全检查、JSON 解析、错误映射作为全局 middleware 注册在所有 `/api/*` route 之前。
+- route module 不允许自己选择要不要启用可信来源检查或统一 response helper。
 
 ### 4. 前端 API client 与领域 module
 
@@ -281,6 +321,15 @@ SSE 接口不套 `{ ok, data }`，但纳入共享 schema。
 - `assistant_error`
 - `artifact_created`
 
+SSE contracts 还必须定义流生命周期规则，不只定义单个事件 shape：
+
+- 每个 `runId` 的 `seq` 从 1 开始严格递增。
+- 每个 stream 必须且只能有一个 terminal event：`assistant_done`、`assistant_cancelled`、`assistant_error` 三选一。
+- terminal event 后不得再发送 text delta、tool status 或 artifact 事件。
+- 前端遇到未知 event、不支持的 `schemaVersion`、关键字段缺失或 `seq` 逆序时，要结束当前 run 的生成态，并进入可恢复错误状态。
+- 取消、重复发送、BUSY、断线和 parse 失败都要有测试 fixture。
+- graph `/api/events` 如果继续使用 `EventSource` GET，必须保持只读；任何会改状态或触发模型的 SSE 启动必须使用 POST 并通过本地 API token 检查。
+
 `assistant_error` 事件需要稳定化为类似：
 
 ```ts
@@ -292,7 +341,7 @@ SSE 接口不套 `{ ok, data }`，但纳入共享 schema。
   seq: number,
   code: WorkbenchErrorCode,
   message: string,
-  details?: unknown
+  details?: WorkbenchErrorDetails
 }
 ```
 
@@ -320,6 +369,20 @@ batch digest 和 graph events 也按同样原则共享事件 schema。
 - 不长期同时支持 `items` 和 `data`。
 - 不长期同时支持多种参数名。
 
+为了避免迁移期间两套 client 互相污染，实现时必须维护 endpoint contract registry。每个 endpoint 标记为：
+
+- `legacy`：尚未迁移，继续由 legacy wrapper 处理。
+- `migrated-json`：已迁移到统一 JSON envelope，只能由新 `api/client.ts` 处理。
+- `file-download`：成功返回文件 Response，失败返回 JSON error envelope。
+- `sse`：启动请求和事件流按 SSE 契约处理。
+
+迁移规则：
+
+- 新 `api/client.ts` 只服务 `migrated-json` endpoint，不吞新旧两套响应。
+- 未迁移 endpoint 留在 legacy wrapper 中，不让 generic client 兼容旧格式。
+- 每个 Phase 结束时删除该 Phase 已迁移 endpoint 的 legacy parser/fallback。
+- PR 描述必须列出本 PR 迁移 endpoint 清单和仍为 legacy 的 endpoint 清单。
+
 ### 8. 知识库、应用数据、模型凭证边界不变
 
 这次只改 HTTP 与路由模块边界，不改变三类数据位置和职责：
@@ -329,6 +392,33 @@ batch digest 和 graph events 也按同样原则共享事件 schema。
 | 知识库数据 | `~/llm-wiki/<name>/` 或外部登记路径 | 不改结构，不改读写范围 |
 | 应用数据 | `~/.llm-wiki-agent/` | 继续只存 UI 偏好、外部库登记、会话、日志等 |
 | 模型凭证 | `~/.pi/agent/auth.json` | 继续由 pi-agent 管理，工作台 config 不存 API key |
+
+### 9. 本地 API 信任边界
+
+未来工作台可能进入 Mac / Windows 桌面安装版，因此 HTTP module 不能只追求“代码拆干净”，还要明确本地 API 的安全边界。
+
+这次设计不新增登录系统，也不把工作台变成远程服务。后端仍默认只绑定 loopback，且所有会读写文件、触发模型、改配置或发起 SSE 的端点都必须只接受工作台可信来源。
+
+可信来源不能只靠 Origin/Referer。Phase 1 必须定义本地 API 安全契约：
+
+- 后端默认只绑定 `127.0.0.1` / `::1` / `localhost`，禁止 `0.0.0.0`，测试覆盖。
+- 每次后端启动生成本地 capability token，例如 `X-LLM-Wiki-Workbench-Token`。
+- 所有会读写文件、改配置、触发模型、启动 SSE、取消任务的端点都必须带 token。
+- token 不写入仓库、不放 URL、不进日志。
+- Origin / Fetch Metadata 只作为辅助信号：允许 dev web origin、未来桌面 app origin；如桌面 WebView 出现 `null` origin，也必须带 token。
+- 禁止 GET 产生副作用；health、只读 graph events、文件下载等只读端点必须显式列白名单。
+- SSE 启动请求经过同一 token 与来源检查。
+- 新增 route module 不能绕过统一安全 middleware。
+
+Phase 1 要把这条边界纳入 HTTP 地基：
+
+- 保留并测试 loopback-only host 约束。
+- 为普通 HTTP 和 SSE 请求建立统一可信来源和 capability token 检查位置。
+- 明确 health、只读 graph events、文件下载这类无副作用端点与会改状态端点的边界差异。
+- route module 拆分后，不能让新增路由绕过可信来源检查。
+- 错误返回走统一 error envelope，例如 `FORBIDDEN_ORIGIN` 或 `FORBIDDEN_LOCAL_API`。
+
+这和 `workbench/PRODUCT.md §6.8` 保持一致：本地后端 API 不对局域网或任意网页开放。
 
 ## 数据流
 
@@ -358,9 +448,18 @@ UI component
   -> streamSSE
   -> 每个 event 写入符合共享 schema 的 data
   -> 前端 parseSSE
-  -> 按 event schema 校验 data
+  -> 生产路径按 event 做轻量判别和关键字段校验
+  -> 测试路径用共享 schema 全量校验 fixture
   -> UI 更新流式状态
 ```
+
+SSE 是流式热路径，不能简单要求生产环境对每个高频事件都做完整重解析。校验策略分层：
+
+- 普通 JSON request/response：前后端都按 schema 强校验。
+- SSE 启动前 request body：按 schema 强校验，失败返回 JSON error envelope。
+- SSE 生产消费路径：按事件名、`type`、`schemaVersion`、`runId`、`messageId`、`seq` 等关键字段做轻量校验；对低频结构化事件可以完整 parse。
+- SSE 测试路径：对所有事件 fixture 做共享 schema 全量校验，防止契约漂移。
+- 对 `assistant_text_delta` 这类高频事件，避免在每个 token/delta 上做过重工作，保证流式文字出现的手感不退化。
 
 ### 文件下载
 
@@ -387,12 +486,17 @@ UI component
 - 后端新增 request/response helper。
 - 前端新增 api client。
 - 新增 `createApp()`。
+- 建立普通 HTTP 与 SSE 的可信来源检查位置，保留 loopback-only 约束。
 - 迁移少量低风险路由验证结构可行。
 
 验收：
 
 - contracts 包能被 server 和 web 引用。
+- contracts 包自己的 build、typecheck、test 通过。
+- server/web 只从 `@llm-wiki/workbench-contracts` package export 引用契约。
 - `createApp().request(...)` 可以在测试里直接调用。
+- route 测试不读写真实用户目录。
+- loopback-only、可信来源和 capability token 检查有 route 测试覆盖。
 - typecheck 通过。
 - 不启动本地端口也能测试已迁移 route。
 
@@ -407,7 +511,8 @@ UI component
 - auth/status。
 - artifacts manifest/list。
 - refs/page 读取。
-- graph read/layout/rebuild。
+- graph read/layout。
+- graph rebuild 如果只是读取并返回状态，可随 Phase 2；如果会写缓存、长耗时或触发后台任务，应作为 state-changing endpoint 单独覆盖 BUSY、并发和失败一致性。
 
 验收：
 
@@ -474,7 +579,17 @@ UI component
 
 ## 测试方案
 
-测试是本设计的硬性组成部分。
+测试是本设计的硬性组成部分。每个阶段都要能说明“改了哪个 codepath、覆盖了哪个用户路径、还剩什么缺口”。
+
+### 覆盖图
+
+| Phase | 主要 codepath | 必测用户路径 | 必测失败模式 | 主要测试层 |
+|---|---|---|---|---|
+| Phase 1 契约基础设施 | contracts package、json envelope、错误码、`createApp()`、request/response helper、api client、可信来源检查 | 已迁移低风险 route 可从前端 client 到后端 route 跑通 | invalid JSON、schema mismatch、非可信来源、非 loopback host、response schema mismatch | contracts 单测、server route 测试、web client 测试 |
+| Phase 2 低风险 JSON 路由 | health、config/models、auth/status、artifacts manifest/list、refs/page、graph read/layout；graph rebuild 仅在无副作用时纳入 | 读设置、看模型状态、读页面、看 artifact、读图谱/重建图谱 | missing field、not found、forbidden path、unsupported platform、artifact 文件下载失败；graph rebuild 若有副作用还要测 BUSY、并发和失败一致性 | server route 测试、web client 测试、相关 UI 回归 |
+| Phase 3 知识库与对话 | knowledge-bases、conversations、active context schema | 选知识库、清除 active、新建/切换对话、启动恢复最近库和最近对话 | no active KB、KB not registered、失效路径、`kb`/`kbPath` 双口径收敛失败、空对话 stub 丢失 | server route 测试、web client 测试、主路径 UI 回归 |
+| Phase 4 SSE 与事件 | prompt request、prompt SSE、tool status events、assistant error、batch digest、graph events | 发送消息、取消、生成中重复发送、artifact_created、batch digest、图谱 EventSource 更新 | prompt body invalid、no active KB、BUSY、assistant_error 结构漂移、SSE 事件字段缺失、单文件失败、整体失败 | contracts event fixture、server SSE 测试、web parser/client 测试、真实 UI 流式回归 |
+| Phase 5 清理旧约定 | 删除旧 `api.ts` 大文件或临时 re-export、删除旧 `{ ok:false,error }` fallback、删除重复 response shape | 已迁移主路径仍全部可用 | 新增旧格式残留、web 深路径 import server、文件下载被 JSON client 误处理 | grep/static check、typecheck、全量相关测试、手动 UI 验收 |
 
 ### 1. contracts schema 测试
 
@@ -486,6 +601,7 @@ UI component
 - 典型 response data。
 - 典型 SSE event data。
 - 错误码枚举。
+- SSE fixture 全量 schema 校验。
 
 目标：schema 自己无矛盾，类型推导可用。
 
@@ -504,6 +620,8 @@ UI component
 - not found。
 - conflict。
 - unsupported platform。
+- 非可信来源。
+- route module 拆分后没有绕过统一 request/response helper。
 
 ### 3. 前端 client 测试
 
@@ -517,6 +635,8 @@ mock `fetch`。
 - 成功响应解析。
 - 错误响应解析。
 - response schema 校验失败时的报错。
+- SSE 事件轻量校验策略。
+- SSE fixture 全量校验。
 - 文件下载 URL 不被普通 JSON client 误处理。
 
 ### 4. 主路径回归
@@ -534,7 +654,27 @@ mock `fetch`。
 - 读页面。
 - 图谱重建。
 - 发送消息。
+- 取消发送。
+- 生成中重复发送。
 - 查看产出物。
+
+### 5. 静态边界检查
+
+除单元测试和 UI 回归外，还要补静态检查，避免后续改动重新打破 module 边界：
+
+- web 中禁止直接 `fetch('/api/`，除 `api/client.ts`、SSE 启动封装和文件下载 URL helper 外。
+- web 禁止 import `workbench/server/src/*`。
+- server route 禁止手写 `{ ok:false,error }`。
+- contracts 禁止 import Hono、React、pi-agent、`fs` 或任何业务实现。
+- 已迁移 endpoint 不再保留 legacy parser/fallback。
+
+这些检查可以先用 grep 脚本或 node:test 实现，不需要引入新 lint 工具。
+
+### 明确缺口
+
+这份 spec 不是实现计划，因此不逐条列出每个 endpoint 的最终测试文件名。写实施计划时必须把每个 Phase 拆成具体任务，并给每个任务附上对应测试入口。
+
+任何阶段如果无法覆盖某个失败模式，PR 描述必须明说原因和后续补测位置，不能用“已跑 typecheck”替代契约测试或 UI 主路径验证。
 
 ## 风险和护栏
 
@@ -554,6 +694,22 @@ mock `fetch`。
 
 护栏：SSE 只共享事件 schema，不套 `{ ok,data }`。
 
+### 风险：SSE 校验过重导致流式体验变慢
+
+护栏：SSE 生产消费路径采用分层校验；高频文本 delta 只做轻量关键字段校验，测试 fixture 做全量 schema 校验。
+
+### 风险：本地 API 拆分后安全检查被绕过
+
+护栏：可信来源检查放进 Phase 1 的 HTTP 地基，并用 route 测试覆盖普通 HTTP 与 SSE，不让每个 route module 自己选择要不要检查。
+
+### 风险：Zod 和 TypeBox 职责混淆
+
+护栏：Zod 只用于工作台 HTTP/SSE contracts；TypeBox 继续用于 pi-agent Extension tool `parameters`，不在本次迁移中互相替换。
+
+### 风险：contracts 包变成不可构建的源码共享目录
+
+护栏：`@llm-wiki/workbench-contracts` 必须是可构建 workspace package，有自己的 build/typecheck/test/export，server/web 只从 package export 引用。
+
 ### 风险：前端绑到后端内部实现
 
 护栏：web 只 import `@llm-wiki/workbench-contracts`，不 import `workbench/server/src/*`。
@@ -569,22 +725,45 @@ mock `fetch`。
 ## 验收标准
 
 - 新增独立 contracts workspace package，并被 server/web 引用。
+- contracts package 可独立 build、typecheck、test，server/web 只从 package export import。
 - 普通 JSON 接口迁移后统一返回 `{ ok:true,data } | { ok:false,code,message,details? }`。
 - 前端不再为已迁移接口手写一份返回 shape。
 - 后端 `index.ts` 不再承担具体 route 处理，启动和请求处理分离。
 - 后端 route 按产品领域拆分。
+- route module 拆分后仍保留 loopback-only 与可信来源检查。
 - 前端 API 按底层 client + 领域 module 拆分。
 - SSE 事件有共享 schema，但不套 JSON envelope。
+- SSE 生产路径采用分层校验，测试 fixture 做全量 schema 校验。
 - artifact 文件下载成功仍返回文件，失败返回统一 error envelope。
-- 选知识库、切对话、读页面、图谱重建、发送消息、查看产出物主路径不退化。
-- 测试覆盖 contracts、后端 route、前端 client 和主路径回归。
+- Zod 只用于工作台 HTTP/SSE 契约，现有 TypeBox 继续用于 pi-agent Extension 工具参数。
+- 选知识库、切对话、读页面、图谱重建、发送消息、取消发送、生成中重复发送、查看产出物主路径不退化。
+- 测试覆盖 contracts、后端 route、前端 client、SSE fixture 和主路径回归。
 
 ## 后续实施拆分建议
 
 1. 建立 `@llm-wiki/workbench-contracts`、JSON envelope、错误码、后端 request/response helper、前端 api client 和 `createApp()`。
-2. 迁移 health/config/models/auth/status/artifacts/refs/page/graph 等低风险 JSON 路由。
-3. 迁移 knowledge-bases 和 conversations。
-4. 迁移 prompt、batch digest 和 graph events 的 SSE schema。
-5. 删除旧格式兼容和大文件残留，补文档和发布记录。
+2. 建立本地 API capability token、可信来源检查、endpoint contract registry 和静态边界检查。
+3. 迁移 health/config/models/auth/status/artifacts/refs/page/graph read/layout 等低风险 JSON 路由。
+4. 迁移 knowledge-bases 和 conversations。
+5. 迁移 prompt、batch digest 和 graph events 的 SSE schema 与生命周期规则。
+6. 删除旧格式兼容和大文件残留，补文档和发布记录。
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & product strategy | 0 | not run | Not needed: #158 is internal architecture groundwork with no user-facing feature change. |
+| Codex Review | outside voice via engineering subagent | Independent 2nd opinion | 1 | clear after changes | Found 5 blocking gaps: local API token, `createApp(deps)`, endpoint migration registry, typed/redacted error details, SSE lifecycle invariants. All were folded into this spec. |
+| Eng Review | `/plan-eng-review` | Architecture, safety, tests, performance | 1 | clear | Reviewed contracts package boundary, Zod/TypeBox split, desktop local API security, phased migration, test matrix, SSE performance. |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | not run | Not needed: this spec explicitly avoids UI/visual/interaction changes. |
+| DX Review | `/plan-devex-review` | Developer workflow | 0 | not run | Covered inline by contracts package build/export rules and static boundary checks; no separate DX review needed before implementation planning. |
+
+- **ARCHITECTURE:** `createApp()` must use dependency injection and stay separate from bootstrap/serve/watchers.
+- **SECURITY:** local API trust boundary is Phase 1, with loopback-only, per-start capability token, Origin as auxiliary signal, and no GET side effects.
+- **CONTRACTS:** Zod owns workbench HTTP/SSE contracts; TypeBox stays with pi-agent Extension tool parameters.
+- **MIGRATION:** endpoint contract registry prevents generic client from swallowing both new and old response formats.
+- **SSE:** events need both schema and lifecycle invariants; production uses layered validation, tests do full fixture validation.
+- **TESTS:** coverage now maps Phase × codepath × user path × failure mode, plus static boundary checks.
+- **VERDICT:** ENG CLEARED — ready to write the implementation plan after user review.
 
 NO UNRESOLVED DECISIONS
