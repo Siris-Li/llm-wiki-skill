@@ -99,6 +99,7 @@ let resourceLoaderState: {
 	promise: Promise<DefaultResourceLoader>;
 } | null = null;
 let active: ActiveContext | null = null;
+let selectKbQueue: Promise<void> = Promise.resolve();
 
 export async function getResourceLoader(): Promise<DefaultResourceLoader> {
 	const includeUserGlobal = (await loadConfig()).showUserGlobalSkills === true;
@@ -339,6 +340,20 @@ export function getConfiguredModel(ref: ModelRef): Model<any> | undefined {
  *   - 该 KB 无对话：creates a new one
  */
 export async function selectKb(kbPath: string): Promise<ActiveContext> {
+	const previous = selectKbQueue;
+	let release!: () => void;
+	selectKbQueue = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await previous;
+	try {
+		return await selectKbSerial(kbPath);
+	} finally {
+		release();
+	}
+}
+
+async function selectKbSerial(kbPath: string): Promise<ActiveContext> {
 	const dir = await ensureKbSessionDir(kbPath);
 	const loader = await getResourceLoader();
 
