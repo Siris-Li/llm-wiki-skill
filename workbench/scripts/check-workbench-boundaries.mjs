@@ -10,6 +10,7 @@ const WEB_FETCH_FILES = new Set([
 	"workbench/web/src/lib/api/prompt.ts",
 	"workbench/web/src/lib/api/batch-digest.ts",
 	"workbench/web/src/lib/api/legacy.ts",
+	"workbench/web/src/components/renderers/HtmlRenderer.tsx",
 ]);
 const WEB_RESPONSE_PARSER_FILES = new Set([
 	"workbench/web/src/lib/api/client.ts",
@@ -49,14 +50,84 @@ async function sourceFiles(directory) {
 	return files;
 }
 
-function importSpecifiers(source) {
+function scriptKind(file) {
+	if (file.endsWith(".tsx")) return ts.ScriptKind.TSX;
+	if (file.endsWith(".jsx")) return ts.ScriptKind.JSX;
+	if (/\.[cm]?js$/.test(file)) return ts.ScriptKind.JS;
+	return ts.ScriptKind.TS;
+}
+
+function parseSource(source, file) {
+	return ts.createSourceFile(
+		file,
+		source,
+		ts.ScriptTarget.Latest,
+		true,
+		scriptKind(file),
+	);
+}
+
+function staticString(expression) {
+	const value = expression && unwrapExpression(expression);
+	return value && (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value))
+		? value.text
+		: null;
+}
+
+function importSpecifiers(source, file) {
 	const specifiers = [];
-	const staticImport = /\b(?:import|export)\s+(?:type\s+)?(?:[^"'`]*?\s+from\s+)?["']([^"']+)["']/g;
-	const dynamicImport = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
-	for (const pattern of [staticImport, dynamicImport]) {
-		for (const match of source.matchAll(pattern)) specifiers.push(match[1]);
-	}
+	const visit = (node) => {
+		if (
+			(ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+			node.moduleSpecifier
+		) {
+			const specifier = staticString(node.moduleSpecifier);
+			if (specifier) specifiers.push(specifier);
+		}
+		if (
+			ts.isCallExpression(node) &&
+			node.expression.kind === ts.SyntaxKind.ImportKeyword
+		) {
+			const specifier = staticString(node.arguments[0]);
+			if (specifier) specifiers.push(specifier);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(parseSource(source, file));
 	return specifiers;
+}
+
+function fetchCalls(source, file) {
+	const calls = [];
+	const visit = (node) => {
+		if (
+			ts.isCallExpression(node) &&
+			ts.isIdentifier(node.expression) &&
+			node.expression.text === "fetch"
+		) {
+			let method = "GET";
+			const init = node.arguments[1] && unwrapExpression(node.arguments[1]);
+			if (init && ts.isObjectLiteralExpression(init)) {
+				for (const property of init.properties) {
+					if (
+						ts.isPropertyAssignment(property) &&
+						propertyName(property) === "method"
+					) {
+						method = staticString(property.initializer) ?? method;
+					}
+				}
+			}
+			const argument = node.arguments[0] && unwrapExpression(node.arguments[0]);
+			let apiPath = staticString(argument);
+			if (argument && ts.isTemplateExpression(argument)) {
+				apiPath = argument.head.text;
+			}
+			calls.push({ apiPath, method });
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(parseSource(source, file));
+	return calls;
 }
 
 function within(target, directory) {
@@ -94,21 +165,16 @@ function unwrapExpression(expression) {
 }
 
 function containsLegacyErrorEnvelope(source, file) {
-	const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-	const sourceFile = ts.createSourceFile(
-		file,
-		source,
-		ts.ScriptTarget.Latest,
-		true,
-		kind,
-	);
+	const sourceFile = parseSource(source, file);
 	let found = false;
 	const visit = (node) => {
 		if (found) return;
 		if (ts.isObjectLiteralExpression(node)) {
 			let hasFalseOk = false;
 			let hasError = false;
+			let hasSpread = false;
 			for (const property of node.properties) {
+				if (ts.isSpreadAssignment(property)) hasSpread = true;
 				const name = propertyName(property);
 				if (name === "error") hasError = true;
 				if (
@@ -119,7 +185,7 @@ function containsLegacyErrorEnvelope(source, file) {
 					hasFalseOk = true;
 				}
 			}
-			if (hasFalseOk && hasError) {
+			if (hasFalseOk && (hasError || hasSpread)) {
 				found = true;
 				return;
 			}
@@ -160,7 +226,7 @@ export async function checkWorkbenchBoundaries(
 	for (const file of webSourceFiles) {
 		const relative = path.relative(absoluteRoot, file);
 		const source = await readFile(file, "utf8");
-		if (/\bfetch\s*\(\s*["'`]\/api\//.test(source) && !WEB_FETCH_FILES.has(relative)) {
+		if (fetchCalls(source, file).length > 0 && !WEB_FETCH_FILES.has(relative)) {
 			report("web-direct-api-fetch", file, "direct /api fetch is restricted to low-level clients and SSE starters");
 		}
 		if (
@@ -174,7 +240,7 @@ export async function checkWorkbenchBoundaries(
 
 	for (const file of webFiles) {
 		const source = await readFile(file, "utf8");
-		for (const specifier of importSpecifiers(source)) {
+		for (const specifier of importSpecifiers(source, file)) {
 			const resolved = resolveWebImport(file, specifier, webRoot);
 			if (
 				specifier.includes("workbench/server") ||
@@ -191,11 +257,15 @@ export async function checkWorkbenchBoundaries(
 	);
 	try {
 		const legacyClient = await readFile(legacyClientFile, "utf8");
-		for (const match of legacyClient.matchAll(/\bfetch\s*\(\s*["'`](\/api\/[^"'`$?]*)/g)) {
-			const apiPath = match[1];
-			const callStart = match.index ?? 0;
-			const callPrefix = legacyClient.slice(callStart, callStart + 200);
-			const method = callPrefix.match(/\bmethod\s*:\s*["']([A-Z]+)["']/)?.[1] ?? "GET";
+		for (const { apiPath, method } of fetchCalls(legacyClient, legacyClientFile)) {
+			if (!apiPath?.startsWith("/api/")) {
+				report(
+					"web-legacy-endpoint-not-allowed",
+					legacyClientFile,
+					"legacy client fetch targets must be statically listed",
+				);
+				continue;
+			}
 			const endpoint = `${method} ${apiPath}`;
 			if (
 				!REMAINING_LEGACY_PATHS.has(apiPath) ||
@@ -224,7 +294,7 @@ export async function checkWorkbenchBoundaries(
 	const serverFiles = await sourceFiles(serverRoot);
 	for (const file of [...webFiles, ...serverFiles]) {
 		const source = await readFile(file, "utf8");
-		for (const specifier of importSpecifiers(source)) {
+		for (const specifier of importSpecifiers(source, file)) {
 			const resolved = specifier.startsWith(".")
 				? path.resolve(path.dirname(file), specifier)
 				: null;
@@ -241,7 +311,7 @@ export async function checkWorkbenchBoundaries(
 	const contractsRoot = path.join(contractsPackageRoot, "src");
 	for (const file of await sourceFiles(contractsRoot)) {
 		const source = await readFile(file, "utf8");
-		for (const specifier of importSpecifiers(source)) {
+		for (const specifier of importSpecifiers(source, file)) {
 			if (specifier === "zod") continue;
 			const resolved = specifier.startsWith(".")
 				? path.resolve(path.dirname(file), specifier)

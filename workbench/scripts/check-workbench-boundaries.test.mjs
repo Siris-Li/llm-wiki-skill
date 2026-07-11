@@ -29,10 +29,11 @@ async function fixture(files) {
 test("reports every forbidden workbench contract boundary", async (t) => {
 	const root = await fixture({
 		"workbench/web/src/components/Bad.tsx": [
-			'fetch("/api/health");',
+			'const endpoint = "/api/health";',
+			"fetch(endpoint);",
 		].join("\n"),
 		"workbench/web/test/bad.test.ts":
-			'import { createApp } from "@/../../server/src/app";',
+			'const app = await import(/* @vite-ignore */ `@/../../server/src/app`);',
 		"workbench/web/vite.config.ts":
 			'import { HealthDataSchema } from "../../packages/workbench-contracts/dist/health.js";',
 		"workbench/web/src/lib/api/domain.ts": [
@@ -42,14 +43,16 @@ test("reports every forbidden workbench contract boundary", async (t) => {
 		"workbench/web/src/lib/api.ts":
 			'export * from "./api/health";',
 		"workbench/web/src/lib/api/legacy.ts": [
-			'const response = await fetch("/api/health");',
+			'const response = await fetch(/* keep request readable */ "/api/health");',
 			'const json = (await response.json()) as { ok: boolean; error?: string };',
 		].join("\n"),
-		"workbench/server/src/routes/bad.ts":
-			'return c.json({ error: "broken", details: { note: "x".repeat(400) }, ok: false }, 400);',
+		"workbench/server/src/routes/bad.ts": [
+			'const failure = { error: "broken" };',
+			'return c.json({ details: { note: "x".repeat(400) }, ok: false, ...failure }, 400);',
+		].join("\n"),
 		"packages/workbench-contracts/src/bad.ts": [
 			'import { Hono } from "hono";',
-			'import { readFile } from "node:fs/promises";',
+			'const fs = await import(/* runtime */ `node:fs/promises`);',
 		].join("\n"),
 		"packages/workbench-contracts/src/endpoints.ts": [
 			'export const ENDPOINT_REGISTRY = [{ method: "GET", path: "/api/health", kind: "legacy", safety: "read-only" }] as const;',
@@ -95,6 +98,24 @@ test("legacy client calls must still be legacy in the endpoint registry", async 
 		endpointRegistry: [
 			{ method: "GET", path: "/api/commands", kind: "migrated-json" },
 		],
+	});
+	assert.ok(
+		findings.some((finding) => finding.rule === "web-legacy-endpoint-not-allowed"),
+	);
+});
+
+test("legacy client rejects indirect fetch targets", async (t) => {
+	const root = await fixture({
+		"workbench/web/src/lib/api/legacy.ts": [
+			'const endpoint = "/api/commands";',
+			"const response = await fetch(endpoint);",
+			'const payload = (await response.json()) as { error?: string; ok: boolean };',
+		].join("\n"),
+	});
+	t.after(() => rm(root, { recursive: true, force: true }));
+
+	const findings = await checkWorkbenchBoundaries(root, {
+		endpointRegistry: remainingLegacyEndpoints,
 	});
 	assert.ok(
 		findings.some((finding) => finding.rule === "web-legacy-endpoint-not-allowed"),
