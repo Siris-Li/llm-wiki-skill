@@ -8,6 +8,7 @@ import {
 	modelRegistry,
 } from "../agent.js";
 import type { ModelRef } from "../config.js";
+import { throwIfAborted } from "../abort.js";
 
 export interface DigestFileInput {
 	kbPath: string;
@@ -19,7 +20,9 @@ export interface DigestFileInput {
 export async function digestFileWithSubagent(
 	input: DigestFileInput,
 	onProgress?: (chars: number) => void | Promise<void>,
+	signal?: AbortSignal,
 ): Promise<string> {
+	throwIfAborted(signal);
 	const loader = await getResourceLoader();
 	const model = input.model
 		? getConfiguredModel(input.model) ?? (await getRoleModel("digest"))
@@ -46,18 +49,23 @@ export async function digestFileWithSubagent(
 			if (onProgress && (output.length - lastEmittedChars >= 500 || now - lastEmittedAt >= 300)) {
 				lastEmittedChars = output.length;
 				lastEmittedAt = now;
-				void onProgress(output.length);
+					void Promise.resolve(onProgress(output.length)).catch(() => {});
 			}
 		}
 	});
+	const abortSession = () => session.abort();
+	signal?.addEventListener("abort", abortSession, { once: true });
 
 	try {
+		throwIfAborted(signal);
 		await session.prompt(buildDigestPrompt(input));
+		throwIfAborted(signal);
 		const trimmed = output.trim();
 		if (!trimmed) throw new Error("子代理没有返回内容");
 		await onProgress?.(trimmed.length);
 		return trimmed;
 	} finally {
+		signal?.removeEventListener("abort", abortSession);
 		unsubscribe();
 		session.dispose();
 	}

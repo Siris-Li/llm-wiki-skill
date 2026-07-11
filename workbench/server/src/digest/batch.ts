@@ -2,6 +2,7 @@ import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { ModelRef } from "../config.js";
+import { isAbortError, throwIfAborted } from "../abort.js";
 import {
 	inspectKnowledgeBasePath,
 	validateInspectedSourceFiles,
@@ -30,8 +31,11 @@ const ALLOWED_EXTS = new Set([".md", ".txt", ".pdf"]);
 export async function runBatchDigest(
 	input: BatchDigestInput,
 	emit: (event: BatchDigestEvent) => Promise<void>,
+	signal?: AbortSignal,
 ): Promise<void> {
+	throwIfAborted(signal);
 	const validated = await validateBatchDigestInput(input);
+	throwIfAborted(signal);
 	const purpose = await readPurpose(validated.kbPath);
 	const outputDir = path.join(validated.kbPath, "wiki", "synthesis", "sessions");
 	await mkdir(outputDir, { recursive: true });
@@ -47,6 +51,7 @@ export async function runBatchDigest(
 		validated.filePaths,
 		validated.concurrency,
 		async (filePath, index) => {
+			throwIfAborted(signal);
 			await emit({ type: "file_start", index, filePath });
 			try {
 				const resolvedFilePath = await resolveDigestFile(
@@ -61,21 +66,26 @@ export async function runBatchDigest(
 						purpose,
 						model: input.digestModel ?? null,
 					},
-					async (chars) => {
-						await emit({ type: "file_progress", index, filePath, chars });
-					},
-				);
-				const outputPath = await writeDigestOutput(outputDir, resolvedFilePath, index, content);
-				await emit({ type: "file_complete", index, filePath, outputPath });
-				return outputPath;
-			} catch (err) {
-				const error = err instanceof Error ? err.message : String(err);
-				await emit({ type: "file_error", index, filePath, error });
+						async (chars) => {
+							if (signal?.aborted) return;
+							await emit({ type: "file_progress", index, filePath, chars });
+						},
+						signal,
+					);
+					throwIfAborted(signal);
+					const outputPath = await writeDigestOutput(outputDir, resolvedFilePath, index, content);
+					await emit({ type: "file_complete", index, filePath, outputPath });
+					return outputPath;
+				} catch (err) {
+					if (isAbortError(err)) throw err;
+					const error = err instanceof Error ? err.message : String(err);
+					await emit({ type: "file_error", index, filePath, error });
 				throw err;
 			}
 		},
 	);
 
+	throwIfAborted(signal);
 	const completed = outcomes.filter((outcome) => outcome.ok).length;
 	await emit({
 		type: "done",
