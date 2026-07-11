@@ -1,8 +1,16 @@
 import {
+	ArtifactCreatedPromptEventSchema,
+	AssistantCancelledEventSchema,
+	AssistantDoneEventSchema,
+	AssistantErrorEventSchema,
 	FailureEnvelopeSchema,
 	PROMPT_SSE_EVENT_TYPES,
 	PROMPT_SSE_SCHEMA_VERSION,
 	PromptRequestBodySchema,
+	ToolStatusEndEventSchema,
+	ToolStatusStartEventSchema,
+	ToolStatusSummaryEventSchema,
+	ToolStatusUpdateEventSchema,
 	isPromptTerminalEvent,
 	type PromptSseEvent,
 } from "@llm-wiki/workbench-contracts";
@@ -105,15 +113,41 @@ function parsePromptEvent(value: unknown, eventName: string): PromptSseEvent {
 	if (!Number.isInteger(value.seq) || (value.seq as number) < 1) {
 		throw new PromptProtocolError("回复流事件 seq 无效");
 	}
-	if (value.type === "assistant_text_delta" && typeof value.delta !== "string") {
-		throw new PromptProtocolError("文本增量事件缺少 delta");
-	}
-	if (value.type === "assistant_error") {
-		if (typeof value.code !== "string" || typeof value.message !== "string" || value.message.length === 0) {
-			throw new PromptProtocolError("错误事件缺少 code 或 message");
+	if (value.type === "assistant_text_delta") {
+		if (typeof value.delta !== "string") {
+			throw new PromptProtocolError("文本增量事件缺少 delta");
 		}
+		return value as PromptSseEvent;
 	}
-	return value as PromptSseEvent;
+	const schema = promptEventSchema(
+		value.type as Exclude<PromptSseEvent["type"], "assistant_text_delta">,
+	);
+	const parsed = schema.safeParse(value);
+	if (!parsed.success) {
+		throw new PromptProtocolError("回复流事件缺少必要字段或不符合契约");
+	}
+	return parsed.data;
+}
+
+function promptEventSchema(type: Exclude<PromptSseEvent["type"], "assistant_text_delta">) {
+	switch (type) {
+		case "tool_status_start":
+			return ToolStatusStartEventSchema;
+		case "tool_status_update":
+			return ToolStatusUpdateEventSchema;
+		case "tool_status_end":
+			return ToolStatusEndEventSchema;
+		case "tool_status_summary":
+			return ToolStatusSummaryEventSchema;
+		case "artifact_created":
+			return ArtifactCreatedPromptEventSchema;
+		case "assistant_done":
+			return AssistantDoneEventSchema;
+		case "assistant_cancelled":
+			return AssistantCancelledEventSchema;
+		case "assistant_error":
+			return AssistantErrorEventSchema;
+	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

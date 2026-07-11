@@ -46,6 +46,34 @@ describe("prompt API client", () => {
 		await assert.rejects(request, (error: unknown) => error instanceof Error && error.name === "AbortError");
 	});
 
+		it("rejects a low-frequency event with missing required fields", async () => {
+			const invalidArtifact = {
+				schemaVersion: 1,
+				type: "artifact_created",
+				runId: "run-1",
+				messageId: "message-1",
+				seq: 1,
+				id: "artifact-1",
+				kind: "html",
+			};
+			await assert.rejects(
+				collect(parsePromptEvents(sseStream([invalidArtifact as PromptSseEvent]))),
+				(error: unknown) => error instanceof PromptProtocolError && error.recoverable,
+			);
+		});
+
+		it("rejects an unknown event and unsupported schema version", async () => {
+			for (const invalid of [
+				{ ...event("assistant_done", 1), type: "unknown" },
+				{ ...event("assistant_done", 1), schemaVersion: 2 },
+			]) {
+				await assert.rejects(
+					collect(parsePromptEvents(sseStream([invalid as PromptSseEvent]))),
+					(error: unknown) => error instanceof PromptProtocolError && error.recoverable,
+				);
+			}
+		});
+
 	for (const [name, fixture] of [
 		["首事件不是 seq=1", [event("assistant_done", 2)]],
 		["seq 不连续", [event("assistant_text_delta", 1, { delta: "部分" }), event("assistant_done", 3)]],

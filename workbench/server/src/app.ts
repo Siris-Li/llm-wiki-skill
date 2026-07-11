@@ -15,6 +15,11 @@ import { createHealthRoutes } from "./routes/health.js";
 import { createGraphRoutes, defaultGraphRouteService, type GraphRouteService } from "./routes/graph.js";
 import { createKnowledgeBaseRoutes, defaultKnowledgeBaseRouteService, type KnowledgeBaseRouteService } from "./routes/knowledge-bases.js";
 import { createPageRoutes, defaultPageRouteService, type PageRouteService } from "./routes/pages.js";
+import {
+	createPromptRoutes,
+	defaultPromptRouteService,
+	type PromptRouteService,
+} from "./routes/prompt.js";
 
 export type WorkbenchAppMode = "test" | "dev" | "desktop";
 
@@ -49,6 +54,8 @@ export interface WorkbenchAppDeps {
 	graphService?: GraphRouteService;
 	/** artifact manifest/list/file route 依赖。 */
 	artifactService?: ArtifactRouteService;
+	/** prompt 启动 + assistant/tool/artifact SSE route 依赖。 */
+	promptService?: PromptRouteService;
 }
 
 /**
@@ -113,6 +120,10 @@ export function createApp(deps: WorkbenchAppDeps = {}): Hono {
 	app.route(
 		"/api",
 		createArtifactRoutes(deps.artifactService ?? defaultArtifactRouteService),
+	);
+	app.route(
+		"/api",
+		createPromptRoutes(deps.promptService ?? defaultPromptRouteService),
 	);
 
 	return app;

@@ -33,14 +33,25 @@ interface KnowledgeBaseState {
 	name: string;
 }
 
+interface PendingKnowledgeContextOwner {
+  runId: string;
+  conversationId: string;
+}
+
+interface PendingKnowledgeContext extends PendingKnowledgeContextOwner {
+  context: string;
+}
+
 let current: KnowledgeBaseState | null = null;
-let pendingKnowledgeContext: string | null = null;
+let pendingKnowledgeContext: PendingKnowledgeContext | null = null;
 
 export function getCurrentKnowledgeBase(): KnowledgeBaseState | null {
 	return current;
 }
 
-export async function setCurrentKnowledgeBase(absolutePath: string): Promise<KnowledgeBaseState> {
+export async function setCurrentKnowledgeBase(
+  absolutePath: string,
+): Promise<KnowledgeBaseState> {
 	// 共享的有效性检查（PRODUCT.md §6.2 约定）
 	const check = await inspectKnowledgeBasePath(absolutePath);
 	if (!check.valid) {
@@ -56,12 +67,29 @@ export function clearCurrentKnowledgeBase(): void {
 	current = null;
 }
 
-export function setPendingKnowledgeContext(context: string): void {
-	pendingKnowledgeContext = context;
+export function setPendingKnowledgeContext(
+  context: string,
+  owner: PendingKnowledgeContextOwner,
+): void {
+  pendingKnowledgeContext = { context, ...owner };
 }
 
-export function clearPendingKnowledgeContext(): void {
+export function clearPendingKnowledgeContext(
+  owner?: PendingKnowledgeContextOwner,
+): void {
+  if (
+    !owner ||
+    (pendingKnowledgeContext?.runId === owner.runId &&
+      pendingKnowledgeContext.conversationId === owner.conversationId)
+  ) {
+    pendingKnowledgeContext = null;
+  }
+}
+
+export function consumePendingKnowledgeContext(): string | null {
+  const pending = pendingKnowledgeContext;
 	pendingKnowledgeContext = null;
+  return pending?.context ?? null;
 }
 
 // ============= Extension =============
@@ -87,7 +115,10 @@ function shouldIgnore(name: string): boolean {
 	return IGNORE_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
-async function listMarkdownFiles(rootDir: string, base: string): Promise<string[]> {
+async function listMarkdownFiles(
+  rootDir: string,
+  base: string,
+): Promise<string[]> {
 	const results: string[] = [];
 
 	async function walk(dir: string): Promise<void> {
@@ -115,9 +146,8 @@ async function listMarkdownFiles(rootDir: string, base: string): Promise<string[
 
 export default function knowledgeBaseExtension(pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event) => {
-		const context = pendingKnowledgeContext;
+    const context = consumePendingKnowledgeContext();
 		if (!context) return undefined;
-		pendingKnowledgeContext = null;
 		return {
 			systemPrompt: `${event.systemPrompt}\n\n${context}`,
 		};
@@ -148,7 +178,9 @@ export default function knowledgeBaseExtension(pi: ExtensionAPI) {
 			// 读 purpose.md 给 agent 一段"这是什么库"的提示
 			let purpose = "";
 			try {
-				purpose = (await readFile(join(current.path, "purpose.md"), "utf8")).slice(0, 500);
+        purpose = (
+          await readFile(join(current.path, "purpose.md"), "utf8")
+        ).slice(0, 500);
 			} catch {
 				// 没 purpose.md 也无所谓
 			}
@@ -207,7 +239,12 @@ export default function knowledgeBaseExtension(pi: ExtensionAPI) {
 									: `${files.length} markdown files:\n${files.join("\n")}`,
 						},
 					],
-					details: { selected: true, count: files.length, files, path: current.path },
+          details: {
+            selected: true,
+            count: files.length,
+            files,
+            path: current.path,
+          },
 				};
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
@@ -236,7 +273,9 @@ export default function knowledgeBaseExtension(pi: ExtensionAPI) {
 		}> {
 			if (!current) {
 				return {
-					content: [{ type: "text", text: "No knowledge base is currently selected." }],
+          content: [
+            { type: "text", text: "No knowledge base is currently selected." },
+          ],
 					details: { selected: false },
 				};
 			}

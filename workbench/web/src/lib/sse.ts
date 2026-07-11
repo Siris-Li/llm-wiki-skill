@@ -26,24 +26,23 @@ export async function* parseSSE(
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
+			buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+
+			while (true) {
+				const boundary = /\r?\n\r?\n/.exec(buffer);
+				if (!boundary || boundary.index === undefined) break;
+				const block = buffer.slice(0, boundary.index);
+				buffer = buffer.slice(boundary.index + boundary[0].length);
+				const msg = parseBlock(block);
+				if (msg) yield msg;
+			}
+
 			if (done) {
-				// flush 剩余 buffer（理论上 server 用空行结尾，不会有残余）
 				if (buffer.trim()) {
 					const msg = parseBlock(buffer);
 					if (msg) yield msg;
 				}
 				return;
-			}
-			buffer += decoder.decode(value, { stream: true });
-
-			// 按 "\n\n" 切分消息块
-			while (true) {
-				const idx = buffer.indexOf("\n\n");
-				if (idx === -1) break;
-				const block = buffer.slice(0, idx);
-				buffer = buffer.slice(idx + 2);
-				const msg = parseBlock(block);
-				if (msg) yield msg;
 			}
 		}
 	} finally {
