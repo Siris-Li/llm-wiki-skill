@@ -30,7 +30,7 @@ test("reports every forbidden workbench contract boundary", async (t) => {
 	const root = await fixture({
 		"workbench/web/src/components/Bad.tsx": [
 			'const endpoint = "/api/health";',
-			"fetch(endpoint);",
+			"window.fetch(endpoint);",
 		].join("\n"),
 		"workbench/web/test/bad.test.ts":
 			'const app = await import(/* @vite-ignore */ `@/../../server/src/app`);',
@@ -122,6 +122,40 @@ test("legacy client rejects indirect fetch targets", async (t) => {
 	);
 });
 
+test("file helpers cannot use their exception for ordinary API calls", async (t) => {
+	const root = await fixture({
+		"workbench/web/src/components/renderers/HtmlRenderer.tsx":
+			'window.fetch("/api/health");',
+	});
+	t.after(() => rm(root, { recursive: true, force: true }));
+
+	const findings = await checkWorkbenchBoundaries(root, {
+		endpointRegistry: remainingLegacyEndpoints,
+	});
+	assert.ok(
+		findings.some(
+			(finding) =>
+				finding.rule === "web-direct-api-fetch" &&
+				finding.file.endsWith("HtmlRenderer.tsx"),
+		),
+	);
+});
+
+test("legacy client rejects dynamic path substitutions", async (t) => {
+	const root = await fixture({
+		"workbench/web/src/lib/api/legacy.ts":
+			'const response = await fetch(`/api/commands${"/../health"}`);',
+	});
+	t.after(() => rm(root, { recursive: true, force: true }));
+
+	const findings = await checkWorkbenchBoundaries(root, {
+		endpointRegistry: remainingLegacyEndpoints,
+	});
+	assert.ok(
+		findings.some((finding) => finding.rule === "web-legacy-endpoint-not-allowed"),
+	);
+});
+
 test("allows the narrow client, SSE, file download, and remaining legacy seams", async (t) => {
 	const root = await fixture({
 		"workbench/web/src/lib/api/client.ts": 'fetch("/api/health");',
@@ -129,7 +163,8 @@ test("allows the narrow client, SSE, file download, and remaining legacy seams",
 		"workbench/web/src/lib/api/batch-digest.ts":
 			'fetch("/api/knowledge-bases/batch-digest");',
 		"workbench/web/src/lib/api/legacy.ts": [
-			'const response = await fetch("/api/commands");',
+			'const suffix = kbPath ? `?kb=${encodeURIComponent(kbPath)}` : "";',
+			'const response = await fetch(`/api/commands${suffix}`);',
 			'const json = (await response.json()) as { ok: boolean; items?: unknown[]; error?: string };',
 		].join("\n"),
 		"workbench/web/src/lib/api/artifacts.ts":

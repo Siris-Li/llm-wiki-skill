@@ -10,6 +10,8 @@ const WEB_FETCH_FILES = new Set([
 	"workbench/web/src/lib/api/prompt.ts",
 	"workbench/web/src/lib/api/batch-digest.ts",
 	"workbench/web/src/lib/api/legacy.ts",
+]);
+const WEB_FILE_FETCH_FILES = new Set([
 	"workbench/web/src/components/renderers/HtmlRenderer.tsx",
 ]);
 const WEB_RESPONSE_PARSER_FILES = new Set([
@@ -100,11 +102,16 @@ function importSpecifiers(source, file) {
 function fetchCalls(source, file) {
 	const calls = [];
 	const visit = (node) => {
-		if (
-			ts.isCallExpression(node) &&
-			ts.isIdentifier(node.expression) &&
-			node.expression.text === "fetch"
-		) {
+		if (ts.isCallExpression(node)) {
+			const isFetch =
+				ts.isIdentifier(node.expression) && node.expression.text === "fetch";
+			const isMemberFetch =
+				ts.isPropertyAccessExpression(node.expression) &&
+				node.expression.name.text === "fetch";
+			if (!isFetch && !isMemberFetch) {
+				ts.forEachChild(node, visit);
+				return;
+			}
 			let method = "GET";
 			const init = node.arguments[1] && unwrapExpression(node.arguments[1]);
 			if (init && ts.isObjectLiteralExpression(init)) {
@@ -119,10 +126,24 @@ function fetchCalls(source, file) {
 			}
 			const argument = node.arguments[0] && unwrapExpression(node.arguments[0]);
 			let apiPath = staticString(argument);
+			let allowedLegacyTemplate = false;
 			if (argument && ts.isTemplateExpression(argument)) {
 				apiPath = argument.head.text;
+				allowedLegacyTemplate =
+					apiPath === "/api/commands" &&
+					argument.templateSpans.length === 1 &&
+					ts.isIdentifier(argument.templateSpans[0].expression) &&
+					argument.templateSpans[0].expression.text === "suffix" &&
+					argument.templateSpans[0].literal.text === "";
 			}
-			calls.push({ apiPath, method });
+			calls.push({
+				apiPath,
+				method,
+				allowedLegacyTemplate,
+				argumentIdentifier:
+					argument && ts.isIdentifier(argument) ? argument.text : null,
+				isDynamicTemplate: Boolean(argument && ts.isTemplateExpression(argument)),
+			});
 		}
 		ts.forEachChild(node, visit);
 	};
@@ -226,7 +247,13 @@ export async function checkWorkbenchBoundaries(
 	for (const file of webSourceFiles) {
 		const relative = path.relative(absoluteRoot, file);
 		const source = await readFile(file, "utf8");
-		if (fetchCalls(source, file).length > 0 && !WEB_FETCH_FILES.has(relative)) {
+		const calls = fetchCalls(source, file);
+		const hasForbiddenFetch = WEB_FETCH_FILES.has(relative)
+			? false
+			: WEB_FILE_FETCH_FILES.has(relative)
+				? calls.some((call) => call.argumentIdentifier !== "fileUrl")
+				: calls.length > 0;
+		if (hasForbiddenFetch) {
 			report("web-direct-api-fetch", file, "direct /api fetch is restricted to low-level clients and SSE starters");
 		}
 		if (
@@ -257,12 +284,25 @@ export async function checkWorkbenchBoundaries(
 	);
 	try {
 		const legacyClient = await readFile(legacyClientFile, "utf8");
-		for (const { apiPath, method } of fetchCalls(legacyClient, legacyClientFile)) {
+		for (const {
+			apiPath,
+			method,
+			allowedLegacyTemplate,
+			isDynamicTemplate,
+		} of fetchCalls(legacyClient, legacyClientFile)) {
 			if (!apiPath?.startsWith("/api/")) {
 				report(
 					"web-legacy-endpoint-not-allowed",
 					legacyClientFile,
 					"legacy client fetch targets must be statically listed",
+				);
+				continue;
+			}
+			if (isDynamicTemplate && !allowedLegacyTemplate) {
+				report(
+					"web-legacy-endpoint-not-allowed",
+					legacyClientFile,
+					"legacy client dynamic fetch targets are restricted to the commands query",
 				);
 				continue;
 			}
