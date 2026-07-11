@@ -1,4 +1,4 @@
-import type { ToolStatusContractEvent } from "./api";
+import type { ToolStatusContractEvent } from "./tool-status-types";
 import {
 	createToolStatusState,
 	reduceToolStatusEvent,

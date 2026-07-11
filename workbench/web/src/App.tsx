@@ -21,27 +21,32 @@ import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
+	type ArtifactManifest,
 	type ActiveContext,
 	type ConversationInfo,
-	createNewConversation,
-	type ArtifactManifest,
-	getActiveContext,
 	type KnowledgeBaseInfo,
-	listArtifacts,
-	listConversations,
-	listKnowledgeBases,
-	listRefs,
 	type ModelRef,
 	type PageRef,
-	registerExternalKnowledgeBase,
-	readPage,
-	selectConversation,
-	selectKnowledgeBase,
-	subscribeGraphEvents,
-	streamBatchDigest,
-	type GraphEvent,
 	type UIMessage,
-} from "@/lib/api";
+} from "@llm-wiki/workbench-contracts";
+import { listArtifacts } from "@/lib/api/artifacts";
+import { streamBatchDigest } from "@/lib/api/batch-digest";
+import {
+	createNewConversation,
+	listConversations,
+	selectConversation,
+} from "@/lib/api/conversations";
+import {
+	subscribeGraphEvents,
+	type GraphNotificationEvent as GraphEvent,
+} from "@/lib/api/events";
+import {
+	getActiveContext,
+	listKnowledgeBases,
+	registerExternalKnowledgeBase,
+	selectKnowledgeBase,
+} from "@/lib/api/knowledge-bases";
+import { listRefs, readPage } from "@/lib/api/pages";
 import {
 	artifactDrawer,
 	closedDrawer,

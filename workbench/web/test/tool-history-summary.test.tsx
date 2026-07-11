@@ -14,7 +14,7 @@ import {
 	reduceToolStatusEvent,
 	type ToolStatusState,
 } from "../src/lib/tool-status-model";
-import type { ToolStatusContractEvent } from "../src/lib/api";
+import type { ToolStatusContractEvent } from "../src/lib/tool-status-types";
 import { click, render } from "./render";
 
 describe("ToolHistorySummary", () => {

@@ -1,7 +1,7 @@
 import React from "react";
 
 import { formatToolStatusItem } from "../lib/tool-status-format";
-import type { ToolDisplay } from "../lib/api";
+import type { ToolDisplay } from "../lib/tool-status-types";
 import type { ToolStatusCompletedItem, ToolStatusState } from "../lib/tool-status-model";
 
 export const TOOL_RUNWAY_DETAIL_LIMIT = 50;

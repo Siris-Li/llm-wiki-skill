@@ -15,7 +15,7 @@ import {
 	createToolStatusState,
 	reduceToolStatusEvent,
 } from "../src/lib/tool-status-model";
-import type { ToolStatusContractEvent } from "../src/lib/api";
+import type { ToolStatusContractEvent } from "../src/lib/tool-status-types";
 
 describe("ToolStatusRunway", () => {
 	it("prioritizes the current tool action in one compact line", () => {

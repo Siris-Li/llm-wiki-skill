@@ -1,4 +1,8 @@
 import React, { useEffect, useState } from "react";
+import type {
+	AvailableModelInfo,
+	ModelRef,
+} from "@llm-wiki/workbench-contracts";
 
 import { Button } from "./ui/button";
 import {
@@ -10,16 +14,15 @@ import {
 	DialogTitle,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { fetchAvailableModels, getConfig } from "../lib/api/config";
 import {
-	type AvailableModelInfo,
-	chooseDirectory,
-	fetchAvailableModels,
-	getConfig,
-	initExistingKnowledgeBase,
 	inspectKnowledgeBasePath,
 	type InspectPathResult,
-	type ModelRef,
-} from "../lib/api";
+} from "../lib/api/knowledge-bases";
+import {
+	chooseDirectory,
+	initExistingKnowledgeBase,
+} from "../lib/api/legacy";
 
 interface Props {
 	open: boolean;

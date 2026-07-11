@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 import { BatchDigestPanel, type BatchDigestJob } from "../src/components/BatchDigestPanel";
 import { ExportButtons } from "../src/components/ExportButtons";
 import { TooltipProvider } from "../src/components/ui/tooltip";
-import type { ExportKind } from "../src/lib/api";
+import type { ExportKind } from "../src/lib/export-prompt";
 import { click, render, screen } from "./render";
 
 describe("Paper export and batch digest surfaces", () => {

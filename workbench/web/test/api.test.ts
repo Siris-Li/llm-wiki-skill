@@ -6,7 +6,7 @@ import {
 	getGraphLayout,
 	putGraphLayout,
 	rebuildGraph,
-} from "../src/lib/api";
+} from "../src/lib/api/graph";
 
 describe("graph API helpers", () => {
 	const originalFetch = globalThis.fetch;

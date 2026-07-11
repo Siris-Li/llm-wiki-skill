@@ -12,7 +12,10 @@ import {
 import { AddExternalDialog } from "./AddExternalDialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import type { MainView } from "./MainViewTabs";
-import type { ConversationInfo, KnowledgeBaseInfo } from "../lib/api";
+import type {
+	ConversationInfo,
+	KnowledgeBaseInfo,
+} from "@llm-wiki/workbench-contracts";
 import { cn } from "../lib/utils";
 
 interface Props {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import React from "react";
 
 import { SearchPanel } from "../src/components/SearchPanel";
-import type { PageRef } from "../src/lib/api";
+import type { PageRef } from "@llm-wiki/workbench-contracts";
 import { changeText, click, pressKey, render, screen } from "./render";
 
 describe("SearchPanel", () => {
