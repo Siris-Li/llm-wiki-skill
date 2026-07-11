@@ -22,6 +22,7 @@ export async function* parseSSE(
 	const reader = stream.getReader();
 	const decoder = new TextDecoder("utf-8");
 	let buffer = "";
+	let completed = false;
 
 	try {
 		while (true) {
@@ -42,10 +43,12 @@ export async function* parseSSE(
 					const msg = parseBlock(buffer);
 					if (msg) yield msg;
 				}
+				completed = true;
 				return;
 			}
 		}
 	} finally {
+		if (!completed) await reader.cancel().catch(() => {});
 		reader.releaseLock();
 	}
 }

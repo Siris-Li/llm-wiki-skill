@@ -37,6 +37,7 @@ import {
 	readPage,
 	selectConversation,
 	selectKnowledgeBase,
+	subscribeGraphEvents,
 	streamBatchDigest,
 	type GraphEvent,
 	type UIMessage,
@@ -261,23 +262,23 @@ function App() {
 
 	useEffect(() => {
 		if (!active?.kb.path) return;
-		const events = new EventSource("/api/events");
-		events.addEventListener("graph_updated", (message) => {
-			const event = JSON.parse((message as MessageEvent).data) as GraphEvent;
-			if (event.type !== "graph_updated" || event.kbPath !== active.kb.path) return;
-			setGraphBuildError(null);
-			setGraphRefreshToken((token) => token + 1);
-			setPendingGraphDiff(event.diff);
-			if (mainViewRef.current !== "graph" && event.diff) setGraphHasPendingUpdate(true);
-		});
-		events.addEventListener("graph_error", (message) => {
-			const event = JSON.parse((message as MessageEvent).data) as GraphEvent;
-			if (event.type === "graph_error" && event.kbPath === active.kb.path) {
+		return subscribeGraphEvents({
+			onEvent(event) {
+				if (event.kbPath !== active.kb.path) return;
+				if (event.type === "graph_updated") {
+					setGraphBuildError(null);
+					setGraphRefreshToken((token) => token + 1);
+					setPendingGraphDiff(event.diff);
+					if (mainViewRef.current !== "graph" && event.diff) setGraphHasPendingUpdate(true);
+					return;
+				}
 				setSidebarError(event.message);
 				setGraphBuildError(event);
-			}
+			},
+			onProtocolError(error) {
+				setSidebarError(error.message);
+			},
 		});
-		return () => events.close();
 	}, [active?.kb.path]);
 
 	useEffect(() => {
@@ -604,15 +605,10 @@ function App() {
 		void (async () => {
 			try {
 				const stream = await streamBatchDigest(input);
-				for await (const message of stream) {
-					if (message.event === "error") {
-						const payload = JSON.parse(message.data) as { message: string };
-						throw new Error(payload.message);
-					}
-					const event = JSON.parse(message.data);
+				for await (const event of stream) {
 					setBatchJob((current) => {
 						if (!current || current.id !== jobId) return current;
-						if (event.type === "start") {
+						if (event.type === "batch_started") {
 							return {
 								...current,
 								total: event.total,
@@ -620,7 +616,7 @@ function App() {
 								events: [...current.events, event],
 							};
 						}
-						if (event.type === "file_start") {
+						if (event.type === "batch_file_started") {
 							return {
 								...current,
 								current: event.filePath,
@@ -630,7 +626,7 @@ function App() {
 								events: [...current.events, event],
 							};
 						}
-						if (event.type === "file_progress") {
+						if (event.type === "batch_file_progress") {
 							return {
 								...current,
 								files: updateBatchFile(current.files, event.index, {
@@ -640,7 +636,7 @@ function App() {
 								events: [...current.events, event],
 							};
 						}
-						if (event.type === "file_complete") {
+						if (event.type === "batch_file_completed") {
 							return {
 								...current,
 								completed: current.completed + 1,
@@ -652,25 +648,41 @@ function App() {
 								events: [...current.events, event],
 							};
 						}
-						if (event.type === "file_error") {
+						if (event.type === "batch_file_failed") {
 							return {
 								...current,
 								failed: current.failed + 1,
 								current: event.filePath,
 								files: updateBatchFile(current.files, event.index, {
 									status: "error",
-									error: event.error,
+									error: event.message,
 								}),
 								events: [...current.events, event],
 							};
 						}
-						if (event.type === "done") {
+						if (event.type === "batch_completed") {
 							return {
 								...current,
 								status: "done",
 								completed: event.completed,
 								failed: event.failed,
 								outputDir: event.outputDir,
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "batch_cancelled") {
+							return {
+								...current,
+								status: "error",
+								error: event.reason,
+								events: [...current.events, event],
+							};
+						}
+						if (event.type === "batch_failed") {
+							return {
+								...current,
+								status: "error",
+								error: event.message,
 								events: [...current.events, event],
 							};
 						}
