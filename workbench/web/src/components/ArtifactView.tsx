@@ -1,6 +1,6 @@
 import { HtmlRenderer } from "./renderers/HtmlRenderer";
 import { DownloadOnlyRenderer } from "./renderers/DownloadOnlyRenderer";
-import type { ArtifactManifest } from "../lib/api";
+import type { ArtifactManifest } from "@llm-wiki/workbench-contracts";
 
 interface Props {
 	manifest: ArtifactManifest;

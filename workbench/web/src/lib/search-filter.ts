@@ -1,4 +1,4 @@
-import type { PageRef } from "./api";
+import type { PageRef } from "@llm-wiki/workbench-contracts";
 
 export interface SearchResult {
 	ref: PageRef;

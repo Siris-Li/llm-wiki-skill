@@ -16,7 +16,8 @@ import {
 } from "./GraphSummaryDrawer";
 import { MarkdownView } from "./MarkdownView";
 import type { DrawerState } from "../lib/drawer-state";
-import { getArtifactFileUrl, type ArtifactManifest } from "../lib/api";
+import type { ArtifactManifest } from "@llm-wiki/workbench-contracts";
+import { getArtifactFileUrl } from "../lib/api/artifacts";
 import type { GraphReaderActionId } from "../lib/graph-reader";
 import { cn } from "../lib/utils";
 

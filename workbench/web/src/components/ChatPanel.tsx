@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, Files, Send, Square, X } from "lucide-react";
+import type { PageRef, UIMessage } from "@llm-wiki/workbench-contracts";
 
 import { CommandMenu } from "./CommandMenu";
 import { ExportButtons } from "./ExportButtons";
@@ -7,20 +8,18 @@ import { MarkdownView } from "./MarkdownView";
 import { RefMenu } from "./RefMenu";
 import { ToolHistorySummary } from "./ToolHistorySummary";
 import { ToolStatusRunway } from "./ToolStatusRunway";
+import { ApiError } from "../lib/api/client";
 import {
-	buildExportPrompt,
-	type CommandItem,
-	type ExportKind,
 	inspectKnowledgeBasePath,
 	type InspectPathResult,
-	listCommands,
-	listRefs,
-	type PageRef,
-	streamPrompt,
-	type ToolStatusContractEvent,
-	type UIMessage,
-} from "../lib/api";
-import { ApiError } from "../lib/api/client";
+} from "../lib/api/knowledge-bases";
+import { listCommands, type CommandItem } from "../lib/api/legacy";
+import { listRefs } from "../lib/api/pages";
+import { streamPrompt } from "../lib/api/prompt";
+import {
+	buildExportPrompt,
+	type ExportKind,
+} from "../lib/export-prompt";
 import { createLegacyToolStatusState } from "../lib/legacy-tool-status";
 import {
 	cancelActiveToolStatus,
@@ -29,6 +28,7 @@ import {
 	reduceToolStatusEvent,
 	type ToolStatusState,
 } from "../lib/tool-status-model";
+import type { ToolStatusContractEvent } from "../lib/tool-status-types";
 import { cn } from "../lib/utils";
 import { DEFAULT_CHAT_STATUS, type ChatStatusSnapshot } from "../lib/view-status";
 import { extractWikiPageRefs } from "../lib/wiki-links";

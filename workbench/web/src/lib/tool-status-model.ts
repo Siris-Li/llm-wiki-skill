@@ -1,14 +1,16 @@
 import type {
 	AssistantCancelledEvent,
 	AssistantErrorEvent,
-	ToolDisplay,
-	ToolRunStatus,
-	ToolStatusContractEvent,
 	ToolStatusEndEvent,
 	ToolStatusStartEvent,
 	ToolStatusSummaryEvent,
 	ToolStatusUpdateEvent,
-} from "./api";
+} from "@llm-wiki/workbench-contracts";
+import type {
+	ToolDisplay,
+	ToolRunStatus,
+	ToolStatusContractEvent,
+} from "./tool-status-types";
 
 type CompletedStatus = Exclude<ToolRunStatus, "running">;
 

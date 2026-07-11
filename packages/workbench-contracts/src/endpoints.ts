@@ -6,7 +6,7 @@ import { z } from "zod";
  * 每个 endpoint 同时携带两维元数据：
  *
  * - `kind`：迁移状态 + 响应形态。决定 endpoint 走哪条调用路径。
- *   - `legacy`        尚未迁移，继续由旧 legacy wrapper（web `lib/api.ts` /
+ *   - `legacy`        尚未迁移，继续由隔离的 legacy wrapper（web `lib/api/legacy.ts` /
  *     server `index.ts` 手写 handler）处理，返回旧 `{ ok, error }` /
  *     `{ ok:true, items }` 形态。
  *   - `migrated-json` 已迁移到统一 JSON envelope
@@ -130,7 +130,7 @@ export const ENDPOINT_REGISTRY = [
 		description: "产物文件下载，无副作用",
 	},
 
-	// ---------- legacy（未迁移，继续由 legacy wrapper 处理） ----------
+	// ---------- remaining endpoints（legacy 与已迁移状态按 entry 明确登记） ----------
 	{
 		method: "POST",
 		path: "/api/echo",

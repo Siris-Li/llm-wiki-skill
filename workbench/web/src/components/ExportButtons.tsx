@@ -2,7 +2,7 @@ import { FileDown, FileText, Globe, Presentation, Table } from "lucide-react";
 import type { ComponentType } from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import type { ExportKind } from "../lib/api";
+import type { ExportKind } from "../lib/export-prompt";
 
 const EXPORTS: Array<{
 	kind: ExportKind;

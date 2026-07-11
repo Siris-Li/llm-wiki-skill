@@ -1,7 +1,8 @@
 import { Download } from "lucide-react";
 
 import { Button } from "../ui/button";
-import { getArtifactFileUrl, type ArtifactManifest } from "../../lib/api";
+import type { ArtifactManifest } from "@llm-wiki/workbench-contracts";
+import { getArtifactFileUrl } from "../../lib/api/artifacts";
 
 interface Props {
 	manifest: ArtifactManifest;

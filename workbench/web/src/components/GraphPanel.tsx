@@ -21,7 +21,7 @@ import {
 	getGraphLayout,
 	putGraphLayout,
 	rebuildGraph,
-} from "../lib/api";
+} from "../lib/api/graph";
 import type { GraphSelectionCommand } from "../lib/graph-summary-actions";
 import { applyCommunityEnter } from "../lib/graph-community-enter";
 import {
