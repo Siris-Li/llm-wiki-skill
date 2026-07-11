@@ -10,7 +10,7 @@
 
 把碎片化的信息变成持续积累、互相链接的知识库
 
-[![version](https://img.shields.io/badge/v3.6.40-活地图流程-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.41-流式事件契约-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-多平台-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -149,6 +149,7 @@ bash install.sh --platform claude --with-optional-adapters
 - **工作台 Paper 视觉** — Paper v2 暖纸配色覆盖工作台默认主题、新对话按钮、消息气泡、侧栏和图谱控件，长标题和长消息保持在页面内部
 - **查询结果持久化** — 有价值的综合回答可保存回知识库，越用越完整
 - **批量消化** — 给一个文件夹路径，批量处理所有文件
+- **工作台事件流更稳** — 批量消化进度和活地图更新都有明确顺序与结束规则；单文件失败可继续，整体失败或取消会明确收口，断线和异常事件会安全停止或重连
 - **工作台对话自动跟随** — 发送消息和接收长回复时默认跟随最新内容，用户上翻阅读历史时暂停，并提供图标按钮回到底部
 - **工作台工具摘要** — `workbench/` 对话区采用 `omp` 风格动态工具状态，停止时显示取消状态，历史工具调用默认折叠为分组摘要
 - **知识库健康检查** — 脚本检测孤立页面、断链、index 一致性；AI 层面检查矛盾和交叉引用

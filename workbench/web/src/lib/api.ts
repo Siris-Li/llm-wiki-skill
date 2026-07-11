@@ -4,8 +4,8 @@
  * 所有走 Vite proxy 到 :8787 的后端调用集中在这里。
  */
 
-import { parseSSE, type SSEMessage } from "./sse";
 import { streamPrompt as streamPromptMigrated } from "./api/prompt";
+import { streamBatchDigest as streamBatchDigestMigrated } from "./api/batch-digest";
 import { getConfig as getConfigMigrated, setConfig as setConfigMigrated, fetchAvailableModels as fetchAvailableModelsMigrated } from "./api/config";
 import { getAuthStatus as getAuthStatusMigrated } from "./api/auth";
 import {
@@ -46,11 +46,15 @@ import {
 	type ConversationInfo,
 	type InspectKnowledgeBasePathData,
 	type KnowledgeBaseInfo,
-	type ModelRef,
 	type PageRef,
 	type PromptSseEvent,
+	type BatchDigestRequestBody,
+	type BatchDigestSseEvent,
+	type GraphSseEvent,
 } from "@llm-wiki/workbench-contracts";
-import type { GraphData, GraphDiff, GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
+import type { GraphData, GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
+
+export { subscribeGraphEvents } from "./api/events";
 
 export type {
 	ActiveContext,
@@ -90,13 +94,7 @@ export type ModelInfo = ActiveContext["model"] extends infer Model
 	? Exclude<Model, null>
 	: never;
 
-export type BatchDigestEvent =
-	| { type: "start"; total: number; concurrency: number; outputDir: string }
-	| { type: "file_start"; index: number; filePath: string }
-	| { type: "file_progress"; index: number; filePath: string; chars: number }
-	| { type: "file_complete"; index: number; filePath: string; outputPath: string }
-	| { type: "file_error"; index: number; filePath: string; error: string }
-	| { type: "done"; total: number; completed: number; failed: number; outputDir: string };
+export type BatchDigestEvent = BatchDigestSseEvent;
 
 export type GraphApiResult =
 	| { needsBuild: true }
@@ -104,20 +102,7 @@ export type GraphApiResult =
 
 export type GraphLayoutApiResult = GraphLayoutFile;
 
-export type GraphEvent =
-	| {
-			type: "graph_updated";
-			kbPath: string;
-			diff: GraphDiff | null;
-			rebuiltAt: string;
-			stats: { nodeCount: number; edgeCount: number };
-	  }
-	| {
-			type: "graph_error";
-			kbPath: string;
-			message: string;
-			rebuiltAt: string;
-	  };
+export type GraphEvent = Exclude<GraphSseEvent, { type: "graph_stream_ready" }>;
 
 export type ToolRunStatus = "running" | "done" | "failed" | "cancelled";
 export interface ToolDisplay {
@@ -266,32 +251,10 @@ export async function fetchAvailableModels(): Promise<AvailableModelInfo[]> {
 }
 
 export async function streamBatchDigest(
-	input: {
-		kbPath: string;
-		filePaths: string[];
-		concurrency?: 1 | 3 | 5;
-		sourceScanId?: string;
-		digestModel?: ModelRef | null;
-	},
+	input: BatchDigestRequestBody,
 	signal?: AbortSignal,
-): Promise<AsyncGenerator<SSEMessage, void, undefined>> {
-	const res = await fetch("/api/knowledge-bases/batch-digest", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(input),
-		signal,
-	});
-	if (!res.ok || !res.body) {
-		let message = `HTTP ${res.status} ${res.statusText}`;
-		try {
-			const json = (await res.json()) as { error?: string };
-			if (json.error) message = json.error;
-		} catch {
-			// keep HTTP message
-		}
-		throw new Error(message);
-	}
-	return parseSSE(res.body);
+): Promise<AsyncGenerator<BatchDigestSseEvent, void, undefined>> {
+	return streamBatchDigestMigrated(input, signal);
 }
 
 export function listRefs(kbPath: string, query: string, limit = 20): Promise<PageRef[]> {
