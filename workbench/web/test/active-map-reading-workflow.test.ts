@@ -14,7 +14,7 @@ import {
 	graphSelectionDrawer,
 	wikiDrawer,
 } from "../src/lib/drawer-state";
-import type { ArtifactManifest } from "../src/lib/api";
+import type { ArtifactManifest } from "@llm-wiki/workbench-contracts";
 
 describe("active map reading workflow", () => {
 	it("opens the same node summary when the graph reports a single node click", () => {

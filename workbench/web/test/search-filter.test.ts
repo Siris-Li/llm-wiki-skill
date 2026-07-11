@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import type { PageRef } from "../src/lib/api";
+import type { PageRef } from "@llm-wiki/workbench-contracts";
 import { filterPageRefs } from "../src/lib/search-filter";
 
 describe("search filter", () => {

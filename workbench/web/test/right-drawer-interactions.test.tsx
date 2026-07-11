@@ -6,7 +6,7 @@ import { fireEvent } from "@testing-library/react";
 import { RightDrawer } from "../src/components/RightDrawer";
 import { SearchPanel } from "../src/components/SearchPanel";
 import { artifactDrawer, graphCommunitySummaryDrawer, graphNodeSummaryDrawer, graphSelectionDrawer, wikiDrawer, type DrawerState } from "../src/lib/drawer-state";
-import type { ArtifactManifest } from "../src/lib/api";
+import type { ArtifactManifest } from "@llm-wiki/workbench-contracts";
 import type { GraphCommunitySummaryPayload, GraphNodeSummaryPayload, GraphSummaryCommand, Selection } from "@llm-wiki/graph-engine";
 import { click, pressKey, render, screen } from "./render";
 
