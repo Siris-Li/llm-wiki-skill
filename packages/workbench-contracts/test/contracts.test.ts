@@ -21,6 +21,10 @@ import {
 	SuccessEnvelopeSchema,
 	success,
 	WorkbenchErrorCodeSchema,
+	PromptRequestBodySchema,
+	PromptSseEventSchema,
+	PROMPT_SSE_EVENT_TYPES,
+	isPromptTerminalEvent,
 } from "../src/index.js";
 
 test("WorkbenchErrorCode 包含第一批稳定错误码", () => {
@@ -228,6 +232,108 @@ test("知识库上下文明确 GET query kb 与 JSON body kbPath", () => {
 		KnowledgeBaseContextBodySchema.safeParse({ path: "/kb/legacy" }).success,
 		false,
 	);
+});
+
+test("prompt 启动 request 只接受非空 message", () => {
+	assert.deepEqual(PromptRequestBodySchema.parse({ message: " 你好 " }), {
+		message: "你好",
+	});
+	for (const input of [
+		{},
+		{ message: " " },
+		{ message: 1 },
+		{ message: "你好", rawPrompt: "secret" },
+	]) {
+		assert.equal(PromptRequestBodySchema.safeParse(input).success, false);
+	}
+});
+
+test("prompt SSE schema 完整校验所有公开事件", () => {
+	const base = { schemaVersion: 1, runId: "run-1", messageId: "message-1" } as const;
+	const events = [
+		{ ...base, seq: 1, type: "assistant_text_delta", delta: "你好" },
+		{
+			...base,
+			seq: 2,
+			type: "tool_status_start",
+			toolCallId: "read-1",
+			toolName: "read",
+			action: "读取",
+			target: "~/wiki/a.md",
+			status: "running",
+			args: { path: "~/wiki/a.md" },
+			runningToolCount: 1,
+			otherRunningCount: 0,
+		},
+		{
+			...base,
+			seq: 3,
+			type: "tool_status_update",
+			toolCallId: "read-1",
+			toolName: "read",
+			action: "读取",
+			target: "~/wiki/a.md",
+			status: "running",
+			args: {},
+			detail: { summary: "读取中" },
+			runningToolCount: 1,
+			otherRunningCount: 0,
+		},
+		{
+			...base,
+			seq: 4,
+			type: "tool_status_end",
+			toolCallId: "read-1",
+			toolName: "read",
+			action: "读取",
+			target: "~/wiki/a.md",
+			status: "done",
+			result: { summary: "完成" },
+			summary: "完成",
+			error: null,
+			durationMs: 12,
+			runningToolCount: 0,
+			otherRunningCount: 0,
+		},
+		{
+			...base,
+			seq: 5,
+			type: "tool_status_summary",
+			items: [{ toolCallId: "read-1", toolName: "read", action: "读取", target: "~/wiki/a.md", status: "done", summary: "完成" }],
+			remainingRunningCount: 0,
+		},
+		{ ...base, seq: 6, type: "artifact_created", id: "artifact-1", kind: "html", title: "报告" },
+		{ ...base, seq: 7, type: "assistant_done" },
+		{ ...base, seq: 7, type: "assistant_cancelled", reason: "用户已停止" },
+		{ ...base, seq: 7, type: "assistant_error", code: "INTERNAL_ERROR", message: "生成过程中发生错误", details: { diagnosticId: "safe-id" } },
+	];
+
+	assert.equal(events.length, PROMPT_SSE_EVENT_TYPES.length);
+	for (const event of events) assert.deepEqual(PromptSseEventSchema.parse(event), event);
+	assert.equal(isPromptTerminalEvent(events[6]!), true);
+	assert.equal(isPromptTerminalEvent(events[0]!), false);
+});
+
+test("prompt SSE schema 拒绝版本、关键字段和旧错误 shape 漂移", () => {
+	const valid = {
+		schemaVersion: 1,
+		type: "assistant_error",
+		runId: "run-1",
+		messageId: "message-1",
+		seq: 1,
+		code: "INTERNAL_ERROR",
+		message: "生成过程中发生错误",
+	};
+	for (const invalid of [
+		{ ...valid, schemaVersion: 2 },
+		{ ...valid, runId: "" },
+		{ ...valid, messageId: undefined },
+		{ ...valid, seq: 0 },
+		{ ...valid, type: "unknown_event" },
+		{ schemaVersion: 1, type: "assistant_error", runId: "run-1", messageId: "message-1", seq: 1, error: "/Users/private/stack" },
+	]) {
+		assert.equal(PromptSseEventSchema.safeParse(invalid).success, false);
+	}
 });
 
 test("HealthData schema 校验心跳 data", () => {
