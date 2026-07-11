@@ -77,7 +77,7 @@ describe("tool status model", () => {
 			tool_status_summary: ["items", "messageId", "remainingRunningCount", "runId", "schemaVersion", "seq", "type"],
 			assistant_done: ["messageId", "runId", "schemaVersion", "seq", "type"],
 			assistant_cancelled: ["messageId", "reason", "runId", "schemaVersion", "seq", "type"],
-			assistant_error: ["error", "messageId", "runId", "schemaVersion", "seq", "type"],
+			assistant_error: ["code", "message", "messageId", "runId", "schemaVersion", "seq", "type"],
 		};
 
 		assert.deepEqual(

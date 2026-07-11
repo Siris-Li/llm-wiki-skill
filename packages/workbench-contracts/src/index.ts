@@ -20,4 +20,5 @@ export * from "./conversations.js";
 export * from "./pages.js";
 export * from "./graph.js";
 export * from "./artifacts.js";
+export * from "./prompt-events.js";
 export * from "./endpoints.js";

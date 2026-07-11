@@ -24,26 +24,15 @@ import { streamSSE } from "hono/streaming";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
-
 import { createApp } from "./app.js";
-import {
-	artifactEvents,
-	type ArtifactCreatedEvent,
-} from "./artifacts.js";
 import {
 	bootstrapFromConfig,
 	getActive,
-	getActiveSession,
 	listLoadedSkills,
 } from "./agent.js";
 import { setAuthKey, testAuthConnection } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { runBatchDigest } from "./digest/batch.js";
-import {
-	clearPendingKnowledgeContext,
-	setPendingKnowledgeContext,
-} from "./extensions/knowledge-base.js";
 import {
 	resumeGraphWatcher,
 	subscribeGraphEvents,
@@ -56,28 +45,9 @@ import {
 	generateCapabilityToken,
 	writeCapabilityToken,
 } from "./security/token.js";
-import {
-	buildKnowledgeContextMessage,
-	contextBudgetFromWindow,
-	parseExplicitPageRefs,
-	searchKnowledgeBase,
-	shouldUseKnowledgeBase,
-	writeRetrievalLog,
-} from "./retrieval.js";
-import {
-	OrderedSseWriter,
-	PromptRunRegistry,
-	ToolStatusEventAdapter,
-} from "./tool-status-events.js";
 import { createWiki, InitConflictError, initExistingWiki } from "./wiki-init.js";
 
 const execFileAsync = promisify(execFile);
-const promptRuns = new PromptRunRegistry();
-
-function extractContextWindow(session: AgentSession): number | undefined {
-	const model = (session.state as { model?: { contextWindow?: unknown } }).model;
-	return typeof model?.contextWindow === "number" ? model.contextWindow : undefined;
-}
 
 // 本次启动生成本地 capability token（#166）。token 写入运行期文件，供同机可信
 // dev 代理 / 未来桌面壳读取后注入请求头；token 不进 URL / 日志 / config。
@@ -369,225 +339,6 @@ app.post("/api/auth/test", async (c) => {
 	}
 	const result = await testAuthConnection(body.provider);
 	return c.json(result);
-});
-
-// ============= Prompt（agent 事件流） =============
-
-app.post("/api/prompt", async (c) => {
-	let body: { message?: unknown };
-	try {
-		body = await c.req.json();
-	} catch {
-		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
-	}
-	const message = body.message;
-	if (typeof message !== "string" || !message.trim()) {
-		return c.json({ ok: false, error: "Missing or empty 'message'" }, 400);
-	}
-
-	return streamSSE(c, async (stream) => {
-		let session;
-		let activeForRun;
-		try {
-			session = await getActiveSession();
-			activeForRun = getActive();
-		} catch (err) {
-			clearPendingKnowledgeContext();
-			const adapter = new ToolStatusEventAdapter({
-				runId: "unavailable",
-				messageId: "unavailable",
-			});
-			const errorEvent = adapter.failAssistant(err)[0] ?? {
-				schemaVersion: 1 as const,
-				type: "assistant_error" as const,
-				runId: "unavailable",
-				messageId: "unavailable",
-				seq: 1,
-				error: err instanceof Error ? err.message : String(err),
-			};
-			await stream.writeSSE({
-				event: errorEvent.type,
-				data: JSON.stringify({ ...errorEvent, hint: "请先在侧栏选择一个知识库" }),
-			});
-			return;
-		}
-
-		const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-		const messageId = `assistant-${runId}`;
-		const sessionId = activeForRun?.conversationId ?? "active-session";
-		if (!promptRuns.begin(sessionId, runId)) {
-			await stream.writeSSE({
-				event: "assistant_error",
-				data: JSON.stringify({
-					schemaVersion: 1,
-					runId,
-					messageId,
-					seq: 1,
-					type: "assistant_error",
-					error: "当前对话正在生成，请等待上一条回复完成。",
-				}),
-			});
-			return;
-		}
-
-		let aborted = false;
-		let streamOpen = true;
-		let responseFinished = false;
-		const adapter = new ToolStatusEventAdapter({ runId, messageId });
-		const writer = new OrderedSseWriter(async ({ event, data }) => {
-			if (!streamOpen) return;
-			await stream.writeSSE({ event, data });
-		});
-		const unsubscribe = session.subscribe(async (event) => {
-			try {
-				for (const contractEvent of adapter.adapt(event)) {
-					await writer.writeContract(contractEvent);
-				}
-			} catch {
-				streamOpen = false;
-			}
-		});
-		const onArtifactCreated = async (event: ArtifactCreatedEvent) => {
-			if (event.conversationId !== getActive()?.conversationId) return;
-			try {
-				await writer.writeNamed("artifact_created", {
-					id: event.id,
-					kind: event.kind,
-					title: event.title,
-				});
-			} catch {
-				streamOpen = false;
-			}
-		};
-		artifactEvents.on("artifact_created", onArtifactCreated);
-		stream.onAbort(() => {
-			aborted = true;
-			streamOpen = false;
-			writer.close();
-			clearPendingKnowledgeContext();
-			if (!responseFinished) session.abort?.();
-		});
-
-		try {
-			const active = getActive();
-			const explicitRefs = parseExplicitPageRefs(message);
-			const shouldSearch = shouldUseKnowledgeBase(message, Boolean(active));
-			if (active) {
-				const baseLog = {
-					ts: Date.now(),
-					sessionId: active.conversationId,
-					kbPath: active.kb.path,
-					messagePreview: message.slice(0, 120),
-					explicitRefs,
-				};
-				if (shouldSearch) {
-					const toolCallId = `${runId}-knowledge-search`;
-					await writer.writeContract(adapter.startTool({
-						toolCallId,
-						toolName: "knowledge_search",
-						args: {
-							query: message,
-							path: active.kb.path,
-						},
-					}));
-					await writer.writeContract(adapter.updateTool({
-						toolCallId,
-						toolName: "knowledge_search",
-						args: {
-							query: message,
-							path: active.kb.path,
-						},
-						partialResult: { summary: "正在检索当前知识库" },
-					}));
-					try {
-						const search = await searchKnowledgeBase(active.kb.path, message, {
-							explicitRefs,
-							totalBudgetChars: contextBudgetFromWindow(extractContextWindow(session)),
-						});
-						const knowledgeContext = buildKnowledgeContextMessage({
-							kb: active.kb,
-							search,
-						});
-						setPendingKnowledgeContext(knowledgeContext);
-						const payload = {
-							count: search.results.length,
-							paths: search.results.map((result) => result.path),
-						};
-						await writer.writeContract(adapter.endTool({
-							toolCallId,
-							toolName: "knowledge_search",
-							result: {
-								summary:
-									search.results.length > 0
-										? `已检索到 ${search.results.length} 个相关页面`
-										: "当前知识库未找到相关页面",
-								...payload,
-							},
-						}));
-						await writeRetrievalLog({
-							...baseLog,
-							triggered: true,
-							results: search.results.map((result) => ({
-								path: result.path,
-								hitReason: result.hitReason,
-								score: result.score,
-							})),
-							wrappedCharCount: message.length + knowledgeContext.length,
-							error: null,
-						}).catch(() => {});
-					} catch (err) {
-						const error = err instanceof Error ? err.stack ?? err.message : String(err);
-						await writer.writeContract(adapter.endTool({
-							toolCallId,
-							toolName: "knowledge_search",
-							result: {
-								error: err instanceof Error ? err.message : String(err),
-							},
-							isError: true,
-						}));
-						await writeRetrievalLog({
-							...baseLog,
-							triggered: true,
-							results: [],
-							wrappedCharCount: 0,
-							error,
-						}).catch(() => {});
-					}
-				} else {
-					await writeRetrievalLog({
-						...baseLog,
-						triggered: false,
-						results: [],
-						wrappedCharCount: 0,
-						error: null,
-					}).catch(() => {});
-				}
-			}
-			await session.prompt(message);
-			responseFinished = true;
-			for (const event of adapter.finishAssistant()) {
-				await writer.writeContract(event);
-			}
-			await writer.flush();
-		} catch (err) {
-			if (aborted) {
-				for (const event of adapter.cancelAssistant("client disconnected")) {
-					await writer.writeContract(event);
-				}
-			} else {
-				for (const event of adapter.failAssistant(err)) {
-					await writer.writeContract(event);
-				}
-			}
-			await writer.flush();
-		} finally {
-			clearPendingKnowledgeContext();
-			unsubscribe();
-			artifactEvents.off("artifact_created", onArtifactCreated);
-			promptRuns.end(sessionId, runId);
-			writer.close();
-		}
-	});
 });
 
 const PORT = Number(process.env.PORT ?? 8787);

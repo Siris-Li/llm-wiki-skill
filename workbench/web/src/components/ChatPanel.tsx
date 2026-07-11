@@ -20,6 +20,7 @@ import {
 	type ToolStatusContractEvent,
 	type UIMessage,
 } from "../lib/api";
+import { ApiError } from "../lib/api/client";
 import { createLegacyToolStatusState } from "../lib/legacy-tool-status";
 import {
 	cancelActiveToolStatus,
@@ -441,51 +442,32 @@ export function ChatPanel({
 
 		try {
 			const stream = await streamPrompt(outgoingText, controller.signal);
-			for await (const { event, data } of stream) {
-				if (event === "assistant_text_delta") {
-					const payload = parseToolStatusEvent(event, data);
-					if (payload?.type === "assistant_text_delta") {
+			for await (const event of stream) {
+				switch (event.type) {
+					case "assistant_text_delta":
 						setMessages((prev) =>
-							prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + payload.delta } : m)),
+							prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + event.delta } : m)),
 						);
-					}
-				} else if (isToolStatusEventName(event)) {
-					const payload = parseToolStatusEvent(event, data);
-					if (!payload) continue;
-					applyToolStatusEvent(assistantId, payload);
-					if (payload.type === "assistant_done") {
+						break;
+					case "artifact_created":
+						onArtifactCreated?.(event.id);
+						break;
+					case "assistant_done":
+						applyToolStatusEvent(assistantId, event);
 						setStatus("idle");
 						onMessageSent?.();
-					} else if (payload.type === "assistant_cancelled") {
+						break;
+					case "assistant_cancelled":
+						applyToolStatusEvent(assistantId, event);
 						setStatus("idle");
-					} else if (payload.type === "assistant_error") {
-						setErrorMsg(payload.error);
+						break;
+					case "assistant_error":
+						applyToolStatusEvent(assistantId, event);
+						setErrorMsg(event.message);
 						setStatus("error");
-					}
-				} else if (event === "text_delta") {
-					setMessages((prev) =>
-						prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + data } : m)),
-					);
-				} else if (event === "knowledge_search_start") {
-					continue;
-				} else if (event === "knowledge_search_done" || event === "knowledge_search_empty") {
-					continue;
-				} else if (event === "knowledge_search_error") {
-					continue;
-				} else if (event === "tool_start") {
-					continue;
-				} else if (event === "tool_end") {
-					continue;
-				} else if (event === "done") {
-					setStatus("idle");
-					onMessageSent?.();
-				} else if (event === "artifact_created") {
-					const payload = JSON.parse(data) as { id: string };
-					onArtifactCreated?.(payload.id);
-				} else if (event === "error") {
-					const payload = JSON.parse(data) as { message: string; hint?: string };
-					setErrorMsg(payload.message + (payload.hint ? `\n提示：${payload.hint}` : ""));
-					setStatus("error");
+						break;
+					default:
+						applyToolStatusEvent(assistantId, event);
 				}
 			}
 		} catch (err) {
@@ -493,8 +475,9 @@ export function ChatPanel({
 				setStatus("idle");
 				return;
 			}
+			cancelCurrentToolStatus(assistantId, "回复中断，可重新发送");
 			const message = err instanceof Error ? err.message : String(err);
-			setErrorMsg(message.includes("409") ? "当前对话还在生成中，请停止或稍后再试。" : message);
+			setErrorMsg(err instanceof ApiError && err.code === "BUSY" ? "当前对话还在生成中，请停止或稍后再试。" : message);
 			setStatus("error");
 		} finally {
 			abortRef.current = null;
@@ -838,29 +821,6 @@ function MessageBubble({
 			</div>
 		</div>
 	);
-}
-
-const TOOL_STATUS_EVENT_NAMES: Set<ToolStatusContractEvent["type"]> = new Set([
-	"tool_status_start",
-	"tool_status_update",
-	"tool_status_end",
-	"tool_status_summary",
-	"assistant_done",
-	"assistant_cancelled",
-	"assistant_error",
-]);
-
-function isToolStatusEventName(event: string): event is ToolStatusContractEvent["type"] {
-	return TOOL_STATUS_EVENT_NAMES.has(event as ToolStatusContractEvent["type"]);
-}
-
-function parseToolStatusEvent(event: string, data: string): ToolStatusContractEvent | null {
-	try {
-		const payload = JSON.parse(data) as ToolStatusContractEvent;
-		return payload.type === event ? payload : null;
-	} catch {
-		return null;
-	}
 }
 
 function chatStatusSummary(
