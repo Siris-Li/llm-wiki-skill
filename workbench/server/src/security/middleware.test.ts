@@ -95,6 +95,16 @@ test("文件下载 GET 无 token / 来源即放行", async () => {
 	assert.equal(res.status, 200);
 });
 
+test("只读 graph EventSource GET 无 token / 来源即放行", async () => {
+	const app = buildApp();
+	const res = await app.request("/api/events", {
+		headers: headers({ origin: "http://evil.example" }),
+	});
+	assert.equal(res.status, 200);
+	assert.equal(res.headers.get("content-type")?.includes("text/event-stream"), true);
+	await res.body?.cancel();
+});
+
 test("#168 migrated-json read-only GET 无 token 放行", async () => {
 	const app = buildApp();
 	for (const path of ["/api/config", "/api/models", "/api/auth/status"]) {
@@ -175,6 +185,20 @@ test("SSE 启动 POST /api/prompt 同样要求 token（缺 -> 403）", async () 
 	const res = await app.request("/api/prompt", {
 		method: "POST",
 		headers: headers({ origin: TRUSTED_ORIGIN }),
+	});
+	assert.equal(res.status, 403);
+	assert.equal(((await res.json()) as EnvelopeJson).code, "FORBIDDEN_LOCAL_API");
+});
+
+test("batch digest SSE 启动会触发模型，缺 token -> 403", async () => {
+	const app = buildApp();
+	const res = await app.request("/api/knowledge-bases/batch-digest", {
+		method: "POST",
+		headers: headers({
+			origin: TRUSTED_ORIGIN,
+			"Content-Type": "application/json",
+		}),
+		body: JSON.stringify({ kbPath: "/fake/kb", filePaths: ["/fake/a.md"] }),
 	});
 	assert.equal(res.status, 403);
 	assert.equal(((await res.json()) as EnvelopeJson).code, "FORBIDDEN_LOCAL_API");
