@@ -211,7 +211,7 @@ export const ENDPOINT_REGISTRY = [
 	{
 		method: "POST",
 		path: "/api/graph/rebuild",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "重建图谱，触发后台任务 / 写缓存",
 	},
@@ -431,12 +431,7 @@ export function requiresCapabilityToken(method: string, path: string): boolean {
 
 // ============= 静态自检（编译期护栏，被 typecheck 覆盖） =============
 //
-// 证明 MigratedJsonPath 不含 legacy path：把一个 legacy path 赋给
-// MigratedJsonPath 应触发类型错误，由 @ts-expect-error 吸收。
-// 若未来该 endpoint 被迁移为 migrated-json，赋值不再报错 → tsc 报
-// "Unused '@ts-expect-error' directive" → 强制更新本护栏。这样"新 client 误
-// 处理 legacy endpoint"在编译期即可被发现。
-//
-// @ts-expect-error /api/graph/rebuild 是 legacy，MigratedJsonPath 必须拒绝
-const _legacyPathRejectedByClient: MigratedJsonPath = "/api/graph/rebuild";
-void _legacyPathRejectedByClient;
+// 编译期证明 graph rebuild 已迁移，可由 typed client 调用。若 endpoint
+// 退回 legacy-json，赋值会触发类型错误，强制同步更新 client 与契约。
+const _graphRebuildAcceptedByClient: MigratedJsonPath = "/api/graph/rebuild";
+void _graphRebuildAcceptedByClient;
