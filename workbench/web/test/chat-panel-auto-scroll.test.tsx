@@ -24,8 +24,8 @@ afterEach(() => {
 describe("ChatPanel auto scroll", () => {
 	it("scrolls to the bottom on existing messages and after a streamed reply when follow is active", async () => {
 		installChatFetch([
-			{ event: "text_delta", data: "第一段回复" },
-			{ event: "done", data: "{}" },
+			promptEvent("assistant_text_delta", 1, { delta: "第一段回复" }),
+			promptEvent("assistant_done", 2),
 		]);
 		const scrollBox = installChatScrollerLayoutMock({
 			clientHeight: 320,
@@ -82,8 +82,8 @@ describe("ChatPanel auto scroll", () => {
 		assert.equal(returnButton.textContent, "");
 
 		scrollBox.update({ scrollHeight: 1500 });
-		promptStream.send({ event: "text_delta", data: "新的长回复" });
-		promptStream.send({ event: "done", data: "{}" });
+		promptStream.send(promptEvent("assistant_text_delta", 1, { delta: "新的长回复" }));
+		promptStream.send(promptEvent("assistant_done", 2));
 		promptStream.close();
 
 		await waitFor(() => {
@@ -128,7 +128,8 @@ describe("ChatPanel auto scroll", () => {
 		await waitFor(() => assert.equal(screen.queryByRole("button", { name: "回到底部" }), null));
 
 		scrollBox.update({ scrollHeight: 1600 });
-		promptStream.send({ event: "text_delta", data: "继续增长的回复" });
+		promptStream.send(promptEvent("assistant_text_delta", 1, { delta: "继续增长的回复" }));
+		promptStream.send(promptEvent("assistant_done", 2));
 		promptStream.close();
 
 		await waitFor(() => assert.equal(scroller.scrollTop, 1300));
@@ -276,6 +277,13 @@ function jsonResponse(body: unknown) {
 		status: 200,
 		headers: { "Content-Type": "application/json" },
 	});
+}
+
+function promptEvent(type: string, seq: number, extra: Record<string, unknown> = {}): StreamEvent {
+	return {
+		event: type,
+		data: JSON.stringify({ schemaVersion: 1, type, runId: "run-1", messageId: "message-1", seq, ...extra }),
+	};
 }
 
 function sseStream(events: StreamEvent[]) {

@@ -10,7 +10,7 @@
 
 把碎片化的信息变成持续积累、互相链接的知识库
 
-[![version](https://img.shields.io/badge/v3.6.38-活地图流程-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.40-活地图流程-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-多平台-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -95,6 +95,7 @@ bash install.sh --platform hermes
 | 🎨 | **工作台 Paper 视觉** | 工作台沿用暖纸配色，按钮、消息、侧栏和图谱控件保持统一，长标题不会撑开页面 |
 | 💬 | **工作台对话自动跟随** | 发送和流式回复时自动停在最新内容，用户上翻时暂停，并用向下箭头一键回到底部 |
 | 🧰 | **工作台动态工具状态** | agent 执行工具时显示当前动作；完成后折叠成摘要，避免主对话被工具流水账刷屏 |
+| 🛡️ | **工作台安全流式对话** | prompt、工具状态、产物和终态使用统一流式契约；异常、乱序或中断的流会安全结束并恢复继续输入，公开状态不回显知识库路径或检索原文 |
 
 ---
 

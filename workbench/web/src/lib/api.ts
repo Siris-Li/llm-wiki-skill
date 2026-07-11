@@ -5,6 +5,7 @@
  */
 
 import { parseSSE, type SSEMessage } from "./sse";
+import { streamPrompt as streamPromptMigrated } from "./api/prompt";
 import { getConfig as getConfigMigrated, setConfig as setConfigMigrated, fetchAvailableModels as fetchAvailableModelsMigrated } from "./api/config";
 import { getAuthStatus as getAuthStatusMigrated } from "./api/auth";
 import {
@@ -30,6 +31,7 @@ import {
 	getGraphData as getGraphDataMigrated,
 	getGraphLayout as getGraphLayoutMigrated,
 	putGraphLayout as putGraphLayoutMigrated,
+	rebuildGraph as rebuildGraphMigrated,
 } from "./api/graph";
 import {
 	listRefs as listRefsMigrated,
@@ -46,6 +48,7 @@ import {
 	type KnowledgeBaseInfo,
 	type ModelRef,
 	type PageRef,
+	type PromptSseEvent,
 } from "@llm-wiki/workbench-contracts";
 import type { GraphData, GraphDiff, GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
 
@@ -58,6 +61,13 @@ export type {
 	KnowledgeBaseInfo,
 	ModelRef,
 	PageRef,
+	PromptSseEvent,
+	AssistantCancelledEvent,
+	AssistantErrorEvent,
+	ToolStatusEndEvent,
+	ToolStatusStartEvent,
+	ToolStatusSummaryEvent,
+	ToolStatusUpdateEvent,
 	UIMessage,
 } from "@llm-wiki/workbench-contracts";
 
@@ -110,84 +120,13 @@ export type GraphEvent =
 	  };
 
 export type ToolRunStatus = "running" | "done" | "failed" | "cancelled";
-
-export interface ToolStatusBaseEvent {
-	schemaVersion: 1;
-	type: ToolStatusContractEvent["type"];
-	runId: string;
-	messageId: string;
-	seq: number;
-}
-
 export interface ToolDisplay {
 	toolCallId: string;
 	toolName: string;
 	action: string;
 	target: string;
 }
-
-export interface ToolStatusStartEvent extends ToolStatusBaseEvent, ToolDisplay {
-	type: "tool_status_start";
-	status: "running";
-	args: Record<string, unknown>;
-	runningToolCount: number;
-	otherRunningCount: number;
-}
-
-export interface ToolStatusUpdateEvent extends ToolStatusBaseEvent, ToolDisplay {
-	type: "tool_status_update";
-	status: "running";
-	args: Record<string, unknown>;
-	detail: unknown;
-	runningToolCount: number;
-	otherRunningCount: number;
-}
-
-export interface ToolStatusEndEvent extends ToolStatusBaseEvent, ToolDisplay {
-	type: "tool_status_end";
-	status: Exclude<ToolRunStatus, "running">;
-	result: unknown;
-	summary: string | null;
-	error: string | null;
-	durationMs: number;
-	runningToolCount: number;
-	otherRunningCount: number;
-}
-
-export interface ToolStatusSummaryEvent extends ToolStatusBaseEvent {
-	type: "tool_status_summary";
-	items: Array<ToolDisplay & { status: Exclude<ToolRunStatus, "running">; summary: string | null }>;
-	remainingRunningCount: number;
-}
-
-export interface AssistantTextDeltaEvent extends ToolStatusBaseEvent {
-	type: "assistant_text_delta";
-	delta: string;
-}
-
-export interface AssistantDoneEvent extends ToolStatusBaseEvent {
-	type: "assistant_done";
-}
-
-export interface AssistantCancelledEvent extends ToolStatusBaseEvent {
-	type: "assistant_cancelled";
-	reason: string;
-}
-
-export interface AssistantErrorEvent extends ToolStatusBaseEvent {
-	type: "assistant_error";
-	error: string;
-}
-
-export type ToolStatusContractEvent =
-	| AssistantTextDeltaEvent
-	| ToolStatusStartEvent
-	| ToolStatusUpdateEvent
-	| ToolStatusEndEvent
-	| ToolStatusSummaryEvent
-	| AssistantDoneEvent
-	| AssistantCancelledEvent
-	| AssistantErrorEvent;
+export type ToolStatusContractEvent = Exclude<PromptSseEvent, { type: "artifact_created" }>;
 
 // ============= API =============
 // health、config/auth 和 knowledge-bases/active context 已迁移到 ./api/<domain>。
@@ -297,20 +236,11 @@ export function createNewConversation(kbPath: string): Promise<ActiveContext> {
 
 // ============= Prompt =============
 
-export async function streamPrompt(
+export function streamPrompt(
 	message: string,
 	signal?: AbortSignal,
-): Promise<AsyncGenerator<SSEMessage, void, undefined>> {
-	const res = await fetch("/api/prompt", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ message }),
-		signal,
-	});
-	if (!res.ok || !res.body) {
-		throw new Error(`HTTP ${res.status} ${res.statusText}`);
-	}
-	return parseSSE(res.body);
+): Promise<AsyncGenerator<PromptSseEvent, void, undefined>> {
+	return streamPromptMigrated(message, signal);
 }
 
 // ============= 阶段二：命令与认证 =============
@@ -372,19 +302,12 @@ export function readPage(kbPath: string, relPath: string): Promise<string> {
 	return readPageMigrated(kbPath, relPath);
 }
 
-function kbQuery(kbPath: string): string {
-	return `kb=${encodeURIComponent(kbPath)}`;
-}
-
 export function getGraphData(kbPath: string): Promise<GraphApiResult> {
 	return getGraphDataMigrated(kbPath);
 }
 
-export async function rebuildGraph(kbPath: string): Promise<"started" | "queued"> {
-	const res = await fetch(`/api/graph/rebuild?${kbQuery(kbPath)}`, { method: "POST" });
-	const json = (await res.json()) as { ok: true; status: "started" | "queued" } | { ok: false; error?: string };
-	if (!res.ok || !json.ok) throw new Error(("error" in json && json.error) || `HTTP ${res.status}`);
-	return json.status;
+export function rebuildGraph(kbPath: string): Promise<"started" | "queued"> {
+	return rebuildGraphMigrated(kbPath);
 }
 
 export function getGraphLayout(kbPath: string): Promise<GraphLayoutApiResult> {

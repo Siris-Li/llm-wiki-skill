@@ -2,27 +2,17 @@ import { homedir } from "node:os";
 
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 
+import {
+  type ArtifactKind,
+  type PromptSseEvent,
+  type WorkbenchErrorCode,
+} from "@llm-wiki/workbench-contracts";
+
 export const TOOL_STATUS_SCHEMA_VERSION = 1;
 
-export type ToolStatusKind =
-	| "assistant_text_delta"
-	| "tool_status_start"
-	| "tool_status_update"
-	| "tool_status_end"
-	| "tool_status_summary"
-	| "assistant_done"
-	| "assistant_cancelled"
-	| "assistant_error";
+export type ToolStatusKind = PromptSseEvent["type"];
 
 export type ToolRunStatus = "running" | "done" | "failed" | "cancelled";
-
-export interface ToolStatusBaseEvent {
-	schemaVersion: 1;
-	type: ToolStatusKind;
-	runId: string;
-	messageId: string;
-	seq: number;
-}
 
 export interface ToolDisplay {
 	toolCallId: string;
@@ -31,68 +21,46 @@ export interface ToolDisplay {
 	target: string;
 }
 
-export interface ToolStatusStartEvent extends ToolStatusBaseEvent, ToolDisplay {
-	type: "tool_status_start";
-	status: "running";
-	args: Record<string, unknown>;
-	runningToolCount: number;
-	otherRunningCount: number;
-}
+export type ToolStatusStartEvent = Extract<
+  PromptSseEvent,
+  { type: "tool_status_start" }
+>;
+export type ToolStatusUpdateEvent = Extract<
+  PromptSseEvent,
+  { type: "tool_status_update" }
+>;
+export type ToolStatusEndEvent = Extract<
+  PromptSseEvent,
+  { type: "tool_status_end" }
+>;
+export type ToolStatusSummaryEvent = Extract<
+  PromptSseEvent,
+  { type: "tool_status_summary" }
+>;
+export type AssistantTextDeltaEvent = Extract<
+  PromptSseEvent,
+  { type: "assistant_text_delta" }
+>;
+export type AssistantDoneEvent = Extract<
+  PromptSseEvent,
+  { type: "assistant_done" }
+>;
+export type AssistantCancelledEvent = Extract<
+  PromptSseEvent,
+  { type: "assistant_cancelled" }
+>;
+export type AssistantErrorEvent = Extract<
+  PromptSseEvent,
+  { type: "assistant_error" }
+>;
 
-export interface ToolStatusUpdateEvent extends ToolStatusBaseEvent, ToolDisplay {
-	type: "tool_status_update";
-	status: "running";
-	args: Record<string, unknown>;
-	detail: unknown;
-	runningToolCount: number;
-	otherRunningCount: number;
-}
-
-export interface ToolStatusEndEvent extends ToolStatusBaseEvent, ToolDisplay {
-	type: "tool_status_end";
-	status: Exclude<ToolRunStatus, "running">;
-	result: unknown;
-	summary: string | null;
-	error: string | null;
-	durationMs: number;
-	runningToolCount: number;
-	otherRunningCount: number;
-}
-
-export interface ToolStatusSummaryEvent extends ToolStatusBaseEvent {
-	type: "tool_status_summary";
-	items: Array<ToolDisplay & { status: Exclude<ToolRunStatus, "running">; summary: string | null }>;
-	remainingRunningCount: number;
-}
-
-export interface AssistantTextDeltaEvent extends ToolStatusBaseEvent {
-	type: "assistant_text_delta";
-	delta: string;
-}
-
-export interface AssistantDoneEvent extends ToolStatusBaseEvent {
-	type: "assistant_done";
-}
-
-export interface AssistantCancelledEvent extends ToolStatusBaseEvent {
-	type: "assistant_cancelled";
-	reason: string;
-}
-
-export interface AssistantErrorEvent extends ToolStatusBaseEvent {
-	type: "assistant_error";
-	error: string;
-}
-
-export type ToolStatusContractEvent =
-	| AssistantTextDeltaEvent
-	| ToolStatusStartEvent
-	| ToolStatusUpdateEvent
-	| ToolStatusEndEvent
-	| ToolStatusSummaryEvent
-	| AssistantDoneEvent
-	| AssistantCancelledEvent
-	| AssistantErrorEvent;
+/**
+ * prompt SSE 事件集合（不含 artifact_created，artifact 由 adapter.artifactCreated 单独构造）。
+ */
+export type ToolStatusContractEvent = Exclude<
+  PromptSseEvent,
+  { type: "artifact_created" }
+>;
 
 type ToolStatusEventDraft = ToolStatusContractEvent extends infer Event
 	? Event extends ToolStatusContractEvent
@@ -122,7 +90,10 @@ interface CompletedToolState extends ToolDisplay {
 
 type ToolExecutionEvent = Extract<
 	AgentEvent,
-	{ type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end" }
+  {
+    type:
+      "tool_execution_start" | "tool_execution_update" | "tool_execution_end";
+  }
 >;
 
 export interface ToolStatusStartInput {
@@ -155,12 +126,15 @@ export class OrderedSseWriter {
 
 	constructor(private readonly writePayload: SsePayloadWriter) {}
 
-	writeContract(event: ToolStatusContractEvent): Promise<void> {
+  writeContract(event: PromptSseEvent): Promise<void> {
 		return this.write({ event: event.type, data: JSON.stringify(event) });
 	}
 
 	writeNamed(event: string, data: unknown): Promise<void> {
-		return this.write({ event, data: typeof data === "string" ? data : JSON.stringify(data) });
+    return this.write({
+      event,
+      data: typeof data === "string" ? data : JSON.stringify(data),
+    });
 	}
 
 	write(payload: SsePayload): Promise<void> {
@@ -191,7 +165,8 @@ export class PromptRunRegistry {
 	}
 
 	end(sessionId: string, runId: string): void {
-		if (this.activeRunIds.get(sessionId) === runId) this.activeRunIds.delete(sessionId);
+    if (this.activeRunIds.get(sessionId) === runId)
+      this.activeRunIds.delete(sessionId);
 	}
 
 	get(sessionId: string): string | null {
@@ -205,6 +180,8 @@ export class ToolStatusEventAdapter {
 	private readonly redaction: RedactionOptions;
 	private readonly runningTools = new Map<string, RunningToolState>();
 	private readonly completedTools: CompletedToolState[] = [];
+  /** 是否已生成 terminal 事件（assistant_done/cancelled/error）。terminal 后不再生成任何事件。 */
+  private terminalEmitted = false;
 
 	constructor(private readonly options: ToolStatusAdapterOptions) {
 		this.seq = options.startSeq ?? 0;
@@ -212,21 +189,55 @@ export class ToolStatusEventAdapter {
 		this.redaction = { homeDir: options.homeDir ?? homedir() };
 	}
 
+  get isFinished(): boolean {
+    return this.terminalEmitted;
+  }
+
 	adapt(event: unknown): ToolStatusContractEvent[] {
+    if (this.terminalEmitted) return [];
 		if (isAgentEventType(event, "message_update")) {
 			const inner = event.assistantMessageEvent;
 			if (inner.type === "text_delta") {
-				return [this.makeEvent({ type: "assistant_text_delta", delta: inner.delta })];
+        return [
+          this.makeEvent({ type: "assistant_text_delta", delta: inner.delta }),
+        ];
 			}
 			return [];
 		}
-		if (isAgentEventType(event, "tool_execution_start")) return [this.toolStart(event)];
-		if (isAgentEventType(event, "tool_execution_update")) return [this.toolUpdate(event)];
-		if (isAgentEventType(event, "tool_execution_end")) return [this.toolEnd(event)];
+    if (isAgentEventType(event, "tool_execution_start"))
+      return [this.toolStart(event)];
+    if (isAgentEventType(event, "tool_execution_update"))
+      return [this.toolUpdate(event)];
+    if (isAgentEventType(event, "tool_execution_end"))
+      return [this.toolEnd(event)];
 		return [];
 	}
 
-	startTool(input: ToolStatusStartInput): ToolStatusStartEvent {
+  /**
+   * 构造 artifact_created 共享事件，纳入同一 run 的 seq 序列。
+   * terminal 后返回 null（artifact 不允许在结束事件后追加）。
+   */
+  artifactCreated(input: {
+    id: string;
+    kind: ArtifactKind;
+    title: string;
+  }): Extract<PromptSseEvent, { type: "artifact_created" }> | null {
+    if (this.terminalEmitted) return null;
+    this.seq += 1;
+    return {
+      schemaVersion: TOOL_STATUS_SCHEMA_VERSION,
+      type: "artifact_created",
+      runId: this.options.runId,
+      messageId: this.options.messageId,
+      seq: this.seq,
+      id: input.id,
+      kind: input.kind,
+      title: input.title,
+    };
+  }
+
+  startTool(input: ToolStatusStartInput): ToolStatusStartEvent | null {
+    if (this.terminalEmitted) return null;
 		return this.toolStart({
 			type: "tool_execution_start",
 			toolCallId: input.toolCallId,
@@ -235,7 +246,8 @@ export class ToolStatusEventAdapter {
 		});
 	}
 
-	updateTool(input: ToolStatusUpdateInput): ToolStatusUpdateEvent {
+  updateTool(input: ToolStatusUpdateInput): ToolStatusUpdateEvent | null {
+    if (this.terminalEmitted) return null;
 		return this.toolUpdate({
 			type: "tool_execution_update",
 			toolCallId: input.toolCallId,
@@ -245,7 +257,8 @@ export class ToolStatusEventAdapter {
 		});
 	}
 
-	endTool(input: ToolStatusEndInput): ToolStatusEndEvent {
+  endTool(input: ToolStatusEndInput): ToolStatusEndEvent | null {
+    if (this.terminalEmitted) return null;
 		return this.toolEnd({
 			type: "tool_execution_end",
 			toolCallId: input.toolCallId,
@@ -256,6 +269,7 @@ export class ToolStatusEventAdapter {
 	}
 
 	finishAssistant(): ToolStatusContractEvent[] {
+    if (this.terminalEmitted) return [];
 		const events: ToolStatusContractEvent[] = [];
 		if (this.completedTools.length > 0 || this.runningTools.size > 0) {
 			events.push(
@@ -270,18 +284,30 @@ export class ToolStatusEventAdapter {
 		return events;
 	}
 
+  /**
+   * 生成稳定的 assistant_error：code + 中文 message + 可选 typed details。
+   * 原始异常只用于内部判别，绝不把 raw message / stack / 路径写入公开事件。
+   * terminal 已生成后返回空数组（错误事件唯一）。
+   */
 	failAssistant(error: unknown): ToolStatusContractEvent[] {
-		return [this.makeEvent({ type: "assistant_error", error: normalizeError(error, this.redaction) })];
+    if (this.terminalEmitted) return [];
+    const { code, message } = classifyPromptError(error, this.redaction);
+    return [this.makeEvent({ type: "assistant_error", code, message })];
 	}
 
 	cancelAssistant(reason = "cancelled"): ToolStatusContractEvent[] {
+    if (this.terminalEmitted) return [];
 		return [
 			...this.cancelActiveTools(reason),
-			this.makeEvent({ type: "assistant_cancelled", reason: redactText(reason, this.redaction, 160) }),
+      this.makeEvent({
+        type: "assistant_cancelled",
+        reason: redactText(reason, this.redaction, 160),
+      }),
 		];
 	}
 
 	cancelActiveTools(reason = "cancelled"): ToolStatusEndEvent[] {
+    if (this.terminalEmitted) return [];
 		const events: ToolStatusEndEvent[] = [];
 		for (const tool of [...this.runningTools.values()]) {
 			this.runningTools.delete(tool.toolCallId);
@@ -308,17 +334,26 @@ export class ToolStatusEventAdapter {
 	}
 
 	getRunningTools(): ToolDisplay[] {
-		return [...this.runningTools.values()].map(({ toolCallId, toolName, action, target }) => ({
+    return [...this.runningTools.values()].map(
+      ({ toolCallId, toolName, action, target }) => ({
 			toolCallId,
 			toolName,
 			action,
 			target,
-		}));
+      }),
+    );
 	}
 
-	private toolStart(event: Extract<ToolExecutionEvent, { type: "tool_execution_start" }>): ToolStatusStartEvent {
+  private toolStart(
+    event: Extract<ToolExecutionEvent, { type: "tool_execution_start" }>,
+  ): ToolStatusStartEvent {
 		const args = sanitizeRecord(event.args, this.redaction);
-		const display = formatToolDisplay(event.toolName, args, undefined, this.redaction);
+    const display = formatToolDisplay(
+      event.toolName,
+      args,
+      undefined,
+      this.redaction,
+    );
 		this.runningTools.set(event.toolCallId, {
 			toolCallId: event.toolCallId,
 			toolName: event.toolName,
@@ -338,10 +373,17 @@ export class ToolStatusEventAdapter {
 		});
 	}
 
-	private toolUpdate(event: Extract<ToolExecutionEvent, { type: "tool_execution_update" }>): ToolStatusUpdateEvent {
+  private toolUpdate(
+    event: Extract<ToolExecutionEvent, { type: "tool_execution_update" }>,
+  ): ToolStatusUpdateEvent {
 		const args = sanitizeRecord(event.args, this.redaction);
 		const detail = sanitizeValue(event.partialResult, this.redaction);
-		const display = formatToolDisplay(event.toolName, args, detail, this.redaction);
+    const display = formatToolDisplay(
+      event.toolName,
+      args,
+      detail,
+      this.redaction,
+    );
 		const existing = this.runningTools.get(event.toolCallId);
 		this.runningTools.set(event.toolCallId, {
 			toolCallId: event.toolCallId,
@@ -363,11 +405,12 @@ export class ToolStatusEventAdapter {
 		});
 	}
 
-	private toolEnd(event: Extract<ToolExecutionEvent, { type: "tool_execution_end" }>): ToolStatusEndEvent {
+  private toolEnd(
+    event: Extract<ToolExecutionEvent, { type: "tool_execution_end" }>,
+  ): ToolStatusEndEvent {
 		const existing = this.runningTools.get(event.toolCallId);
 		const result = sanitizeValue(event.result, this.redaction);
-		const display =
-			existing ?? {
+    const display = existing ?? {
 				toolCallId: event.toolCallId,
 				toolName: event.toolName,
 				...formatToolDisplay(event.toolName, {}, result, this.redaction),
@@ -377,7 +420,8 @@ export class ToolStatusEventAdapter {
 		this.runningTools.delete(event.toolCallId);
 		const status = event.isError ? "failed" : "done";
 		const summary = summarizeResult(result, this.redaction);
-		const error = status === "failed" ? normalizeError(result, this.redaction) : null;
+    const error =
+      status === "failed" ? normalizeError(result, this.redaction) : null;
 		this.completedTools.push({
 			toolCallId: display.toolCallId,
 			toolName: display.toolName,
@@ -405,6 +449,13 @@ export class ToolStatusEventAdapter {
 	private makeEvent<T extends ToolStatusEventDraft>(
 		event: T,
 	): Extract<ToolStatusContractEvent, { type: T["type"] }> {
+    if (
+      event.type === "assistant_done" ||
+      event.type === "assistant_cancelled" ||
+      event.type === "assistant_error"
+    ) {
+      this.terminalEmitted = true;
+    }
 		this.seq += 1;
 		const fullEvent = {
 			schemaVersion: TOOL_STATUS_SCHEMA_VERSION,
@@ -413,7 +464,10 @@ export class ToolStatusEventAdapter {
 			seq: this.seq,
 			...event,
 		};
-		return fullEvent as unknown as Extract<ToolStatusContractEvent, { type: T["type"] }>;
+    return fullEvent as unknown as Extract<
+      ToolStatusContractEvent,
+      { type: T["type"] }
+    >;
 	}
 }
 
@@ -437,29 +491,68 @@ export function formatToolDisplay(
 		"absolutePath",
 		"relativePath",
 	]);
-	const queryTarget = firstString(merged, ["query", "pattern", "search", "term", "needle"]);
+  const queryTarget = firstString(merged, [
+    "query",
+    "pattern",
+    "search",
+    "term",
+    "needle",
+  ]);
 	const commandTarget = firstString(merged, ["command", "cmd", "script"]);
-	const skillTarget = firstString(merged, ["skill", "skillName", "name", "slug", "command"]);
+  const skillTarget = firstString(merged, [
+    "skill",
+    "skillName",
+    "name",
+    "slug",
+    "command",
+  ]);
 
 	if (lower.includes("read")) {
 		return { action: "读取", target: redactPathTarget(pathTarget, redaction) };
 	}
 	if (lower.includes("write") || lower.includes("edit")) {
-		return { action: lower.includes("edit") ? "编辑" : "写入", target: redactPathTarget(pathTarget, redaction) };
+    return {
+      action: lower.includes("edit") ? "编辑" : "写入",
+      target: redactPathTarget(pathTarget, redaction),
+    };
 	}
-	if (lower.includes("bash") || lower.includes("shell") || lower.includes("command")) {
-		return { action: "运行命令", target: redactCommandTarget(commandTarget ?? pathTarget, redaction) };
+  if (
+    lower.includes("bash") ||
+    lower.includes("shell") ||
+    lower.includes("command")
+  ) {
+    return {
+      action: "运行命令",
+      target: redactCommandTarget(commandTarget ?? pathTarget, redaction),
+    };
 	}
-	if (lower.includes("search") || lower.includes("grep") || lower.includes("find")) {
-		const target = queryTarget && pathTarget ? `${queryTarget} in ${pathTarget}` : queryTarget ?? pathTarget;
-		return { action: "搜索", target: redactText(target ?? "未知目标", redaction, 96) };
+  if (
+    lower.includes("search") ||
+    lower.includes("grep") ||
+    lower.includes("find")
+  ) {
+    const target =
+      queryTarget && pathTarget
+        ? `${queryTarget} in ${pathTarget}`
+        : (queryTarget ?? pathTarget);
+    return {
+      action: "搜索",
+      target: redactText(target ?? "当前知识库", redaction, 96),
+    };
 	}
 	if (lower.includes("skill")) {
-		return { action: "调用 Skill", target: redactText(skillTarget ?? "未知 Skill", redaction, 96) };
+    return {
+      action: "调用 Skill",
+      target: redactText(skillTarget ?? "未知 Skill", redaction, 96),
+    };
 	}
 	return {
 		action: `运行 ${toolName}`,
-		target: redactText(pathTarget ?? queryTarget ?? commandTarget ?? skillTarget ?? "未知目标", redaction, 96),
+    target: redactText(
+      pathTarget ?? queryTarget ?? commandTarget ?? skillTarget ?? "未知目标",
+      redaction,
+      96,
+    ),
 	};
 }
 
@@ -482,7 +575,10 @@ export function buildToolStatusContractFixture(): ToolStatusContractEvent[] {
 				type: "text_delta",
 				contentIndex: 0,
 				delta: "我来检查。",
-				partial: { role: "assistant", content: [{ type: "text", text: "我来检查。" }] },
+        partial: {
+          role: "assistant",
+          content: [{ type: "text", text: "我来检查。" }],
+        },
 			},
 		} as unknown as AgentEvent),
 		...adapter.adapt({
@@ -496,48 +592,80 @@ export function buildToolStatusContractFixture(): ToolStatusContractEvent[] {
 			toolCallId: "read-1",
 			toolName: "read",
 			args: { path: "/Users/example/projects/private/source.md" },
-			partialResult: { details: { bytes: 128, path: "/Users/example/projects/private/source.md" } },
+      partialResult: {
+        details: {
+          bytes: 128,
+          path: "/Users/example/projects/private/source.md",
+        },
+      },
 		}),
 		...adapter.adapt({
 			type: "tool_execution_end",
 			toolCallId: "read-1",
 			toolName: "read",
-			result: { content: [{ type: "text", text: "ok /Users/example/projects/private/source.md" }] },
+      result: {
+        content: [
+          {
+            type: "text",
+            text: "ok /Users/example/projects/private/source.md",
+          },
+        ],
+      },
 			isError: false,
 		}),
 		...adapter.finishAssistant(),
 	];
 }
 
-function sanitizeRecord(value: unknown, redaction: RedactionOptions): Record<string, unknown> {
+function sanitizeRecord(
+  value: unknown,
+  redaction: RedactionOptions,
+): Record<string, unknown> {
 	const sanitized = sanitizeValue(value, redaction);
 	return toRecord(sanitized);
 }
 
 function sanitizeValue(value: unknown, redaction: RedactionOptions): unknown {
 	if (typeof value === "string") return redactText(value, redaction, 300);
-	if (Array.isArray(value)) return value.map((item) => sanitizeValue(item, redaction));
+  if (Array.isArray(value))
+    return value.map((item) => sanitizeValue(item, redaction));
 	if (!value || typeof value !== "object") return value;
 	const result: Record<string, unknown> = {};
 	for (const [key, raw] of Object.entries(value)) {
 		const max = /command|cmd|script/i.test(key) ? 140 : 300;
-		result[key] = typeof raw === "string" ? redactText(raw, redaction, max) : sanitizeValue(raw, redaction);
+    result[key] =
+      typeof raw === "string"
+        ? redactText(raw, redaction, max)
+        : sanitizeValue(raw, redaction);
 	}
 	return result;
 }
 
-function redactPathTarget(value: string | undefined, redaction: RedactionOptions): string {
+function redactPathTarget(
+  value: string | undefined,
+  redaction: RedactionOptions,
+): string {
 	if (!value?.trim()) return "未知路径";
 	return compactPath(redactHome(value, redaction), 96);
 }
 
-function redactCommandTarget(value: string | undefined, redaction: RedactionOptions): string {
+function redactCommandTarget(
+  value: string | undefined,
+  redaction: RedactionOptions,
+): string {
 	if (!value?.trim()) return "未知命令";
 	return redactText(value, redaction, 120);
 }
 
-function redactText(value: string, redaction: RedactionOptions, maxLength: number): string {
-	const redacted = redactHome(value, redaction).replace(/\/Users\/[^/\s]+/g, "/Users/<user>");
+function redactText(
+  value: string,
+  redaction: RedactionOptions,
+  maxLength: number,
+): string {
+  const redacted = redactHome(value, redaction).replace(
+    /\/Users\/[^/\s]+/g,
+    "/Users/<user>",
+  );
 	if (redacted.length <= maxLength) return redacted;
 	const keep = Math.max(20, maxLength - 3);
 	return `${redacted.slice(0, Math.ceil(keep * 0.6))}...${redacted.slice(-Math.floor(keep * 0.4))}`;
@@ -553,12 +681,19 @@ function compactPath(value: string, maxLength: number): string {
 	if (value.length <= maxLength) return value;
 	const parts = value.split("/").filter(Boolean);
 	if (parts.length <= 3) return redactText(value, { homeDir: "" }, maxLength);
-	const prefix = value.startsWith("~/") ? "~/" : value.startsWith("/") ? "/" : "";
+  const prefix = value.startsWith("~/")
+    ? "~/"
+    : value.startsWith("/")
+      ? "/"
+      : "";
 	const tail = parts.slice(-3).join("/");
 	return `${prefix}.../${tail}`;
 }
 
-function summarizeResult(result: unknown, redaction: RedactionOptions): string | null {
+function summarizeResult(
+  result: unknown,
+  redaction: RedactionOptions,
+): string | null {
 	if (!result) return null;
 	if (typeof result === "string") return redactText(result, redaction, 160);
 	const record = toRecord(result);
@@ -575,7 +710,8 @@ function summarizeResult(result: unknown, redaction: RedactionOptions): string |
 	}
 	for (const key of ["summary", "message", "error", "stderr", "stdout"]) {
 		const value = record[key];
-		if (typeof value === "string" && value.trim()) return redactText(value, redaction, 160);
+    if (typeof value === "string" && value.trim())
+      return redactText(value, redaction, 160);
 	}
 	return null;
 }
@@ -586,17 +722,35 @@ function normalizeError(error: unknown, redaction: RedactionOptions): string {
 	const record = toRecord(error);
 	for (const key of ["error", "message", "stderr"]) {
 		const value = record[key];
-		if (typeof value === "string" && value.trim()) return redactText(value, redaction, 200);
+    if (typeof value === "string" && value.trim())
+      return redactText(value, redaction, 200);
 	}
 	const summary = summarizeResult(error, redaction);
 	return summary ?? "工具执行失败";
+}
+
+/**
+ * 把任意 prompt 执行错误映射为公开 assistant_error 的稳定 code + 中文 message。
+ * 只用稳定的、可对外的判别；原始异常文本、stack、路径绝不进入公开事件。
+ */
+function classifyPromptError(
+  _error: unknown,
+  _redaction: RedactionOptions,
+): { code: WorkbenchErrorCode; message: string } {
+  // 当前所有 prompt 运行期失败统一映射为 INTERNAL_ERROR + 稳定中文文案。
+  // 若未来需要区分可公开的 code（如 NO_ACTIVE_KB 已在 pre-stream 处理），
+  // 在此扩展，details 也只放白名单字段。
+  return { code: "INTERNAL_ERROR", message: "生成回复时发生错误，请重试" };
 }
 
 function toRecord(value: unknown): Record<string, unknown> {
 	return isRecord(value) ? value : {};
 }
 
-function firstString(record: Record<string, unknown>, keys: string[]): string | undefined {
+function firstString(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
 	for (const key of keys) {
 		const value = record[key];
 		if (typeof value === "string" && value.trim()) return value.trim();
