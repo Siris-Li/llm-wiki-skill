@@ -342,7 +342,7 @@ function reduceError(state: ToolStatusState, event: AssistantErrorEvent): ToolSt
 		pendingUpdates: {},
 		pendingUpdateCount: 0,
 		isDone: true,
-		error: event.error,
+		error: event.message,
 	};
 }
 
