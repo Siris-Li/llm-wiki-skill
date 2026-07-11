@@ -1,10 +1,17 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as ts from "typescript";
 
 import { ENDPOINT_REGISTRY } from "../../packages/workbench-contracts/src/endpoints.ts";
 
 const WEB_FETCH_FILES = new Set([
+	"workbench/web/src/lib/api/client.ts",
+	"workbench/web/src/lib/api/prompt.ts",
+	"workbench/web/src/lib/api/batch-digest.ts",
+	"workbench/web/src/lib/api/legacy.ts",
+]);
+const WEB_RESPONSE_PARSER_FILES = new Set([
 	"workbench/web/src/lib/api/client.ts",
 	"workbench/web/src/lib/api/prompt.ts",
 	"workbench/web/src/lib/api/batch-digest.ts",
@@ -57,6 +64,72 @@ function within(target, directory) {
 	return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+function resolveWebImport(file, specifier, webRoot) {
+	if (specifier.startsWith("@/")) {
+		return path.resolve(webRoot, specifier.slice(2));
+	}
+	return specifier.startsWith(".")
+		? path.resolve(path.dirname(file), specifier)
+		: null;
+}
+
+function propertyName(property) {
+	if (!property.name) return null;
+	if (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) {
+		return property.name.text;
+	}
+	return null;
+}
+
+function unwrapExpression(expression) {
+	let current = expression;
+	while (
+		ts.isAsExpression(current) ||
+		ts.isTypeAssertionExpression(current) ||
+		ts.isParenthesizedExpression(current)
+	) {
+		current = current.expression;
+	}
+	return current;
+}
+
+function containsLegacyErrorEnvelope(source, file) {
+	const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+	const sourceFile = ts.createSourceFile(
+		file,
+		source,
+		ts.ScriptTarget.Latest,
+		true,
+		kind,
+	);
+	let found = false;
+	const visit = (node) => {
+		if (found) return;
+		if (ts.isObjectLiteralExpression(node)) {
+			let hasFalseOk = false;
+			let hasError = false;
+			for (const property of node.properties) {
+				const name = propertyName(property);
+				if (name === "error") hasError = true;
+				if (
+					name === "ok" &&
+					ts.isPropertyAssignment(property) &&
+					unwrapExpression(property.initializer).kind === ts.SyntaxKind.FalseKeyword
+				) {
+					hasFalseOk = true;
+				}
+			}
+			if (hasFalseOk && hasError) {
+				found = true;
+				return;
+			}
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(sourceFile);
+	return found;
+}
+
 export async function checkWorkbenchBoundaries(
 	root,
 	{ endpointRegistry = ENDPOINT_REGISTRY } = {},
@@ -70,6 +143,10 @@ export async function checkWorkbenchBoundaries(
 	const webRoot = path.join(absoluteRoot, "workbench/web/src");
 	const webPackageRoot = path.join(absoluteRoot, "workbench/web");
 	const serverRoot = path.join(absoluteRoot, "workbench/server");
+	const contractsPackageRoot = path.join(
+		absoluteRoot,
+		"packages/workbench-contracts",
+	);
 	const webFiles = await sourceFiles(webPackageRoot);
 	const webSourceFiles = webFiles.filter((file) => within(file, webRoot));
 	const legacyFacadeFile = path.join(webRoot, "lib/api.ts");
@@ -88,9 +165,8 @@ export async function checkWorkbenchBoundaries(
 		}
 		if (
 			relative.startsWith("workbench/web/src/lib/api/") &&
-			relative !== "workbench/web/src/lib/api/legacy.ts" &&
-			(/\bas\s*\{[^}]{0,400}\bok\??\s*:\s*boolean[^}]{0,400}\b(?:items|error)\??\s*:/s.test(source) ||
-				/\bjson\.(?:items|error)\b/.test(source))
+			!WEB_RESPONSE_PARSER_FILES.has(relative) &&
+			/\.\s*json\s*\(/.test(source)
 		) {
 			report("web-legacy-response-parser", file, "migrated API modules cannot parse legacy items/error responses");
 		}
@@ -99,9 +175,7 @@ export async function checkWorkbenchBoundaries(
 	for (const file of webFiles) {
 		const source = await readFile(file, "utf8");
 		for (const specifier of importSpecifiers(source)) {
-			const resolved = specifier.startsWith(".")
-				? path.resolve(path.dirname(file), specifier)
-				: null;
+			const resolved = resolveWebImport(file, specifier, webRoot);
 			if (
 				specifier.includes("workbench/server") ||
 				specifier.includes("@llm-wiki-agent/server") ||
@@ -112,6 +186,9 @@ export async function checkWorkbenchBoundaries(
 		}
 	}
 	const legacyClientFile = path.join(webRoot, "lib/api/legacy.ts");
+	const registryByEndpoint = new Map(
+		endpointRegistry.map((entry) => [`${entry.method} ${entry.path}`, entry]),
+	);
 	try {
 		const legacyClient = await readFile(legacyClientFile, "utf8");
 		for (const match of legacyClient.matchAll(/\bfetch\s*\(\s*["'`](\/api\/[^"'`$?]*)/g)) {
@@ -120,7 +197,11 @@ export async function checkWorkbenchBoundaries(
 			const callPrefix = legacyClient.slice(callStart, callStart + 200);
 			const method = callPrefix.match(/\bmethod\s*:\s*["']([A-Z]+)["']/)?.[1] ?? "GET";
 			const endpoint = `${method} ${apiPath}`;
-			if (!REMAINING_LEGACY_PATHS.has(apiPath) || !REMAINING_LEGACY_ENDPOINTS.has(endpoint)) {
+			if (
+				!REMAINING_LEGACY_PATHS.has(apiPath) ||
+				!REMAINING_LEGACY_ENDPOINTS.has(endpoint) ||
+				registryByEndpoint.get(endpoint)?.kind !== "legacy"
+			) {
 				report(
 					"web-legacy-endpoint-not-allowed",
 					legacyClientFile,
@@ -135,7 +216,7 @@ export async function checkWorkbenchBoundaries(
 	const routesRoot = path.join(absoluteRoot, "workbench/server/src/routes");
 	for (const file of await sourceFiles(routesRoot)) {
 		const source = await readFile(file, "utf8");
-		if (/\{\s*ok\s*:\s*false\s*,[\s\S]{0,240}?\berror\s*:/.test(source)) {
+		if (containsLegacyErrorEnvelope(source, file)) {
 			report("server-route-legacy-error-envelope", file, "route modules must use code/message/details failure envelopes");
 		}
 	}
@@ -144,16 +225,20 @@ export async function checkWorkbenchBoundaries(
 	for (const file of [...webFiles, ...serverFiles]) {
 		const source = await readFile(file, "utf8");
 		for (const specifier of importSpecifiers(source)) {
+			const resolved = specifier.startsWith(".")
+				? path.resolve(path.dirname(file), specifier)
+				: null;
 			if (
 				specifier.startsWith("@llm-wiki/workbench-contracts/") ||
-				specifier.includes("workbench-contracts/src")
+				specifier.includes("workbench-contracts/src") ||
+				(resolved && within(resolved, contractsPackageRoot))
 			) {
 				report("contracts-root-entrypoint-only", file, `contracts must be imported from the package root: ${specifier}`);
 			}
 		}
 	}
 
-	const contractsRoot = path.join(absoluteRoot, "packages/workbench-contracts/src");
+	const contractsRoot = path.join(contractsPackageRoot, "src");
 	for (const file of await sourceFiles(contractsRoot)) {
 		const source = await readFile(file, "utf8");
 		for (const specifier of importSpecifiers(source)) {
@@ -185,6 +270,15 @@ export async function checkWorkbenchBoundaries(
 	}
 
 	const registryFile = path.join(contractsRoot, "endpoints.ts");
+	for (const expected of REMAINING_LEGACY_ENDPOINTS) {
+		if (registryByEndpoint.get(expected)?.kind !== "legacy") {
+			report(
+				"registry-missing-legacy-endpoint",
+				registryFile,
+				`legacy policy and registry disagree: ${expected}`,
+			);
+		}
+	}
 	for (const entry of endpointRegistry) {
 		if (entry.kind !== "legacy") continue;
 		const key = `${entry.method} ${entry.path}`;

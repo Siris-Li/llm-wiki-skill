@@ -6,6 +6,16 @@ import test from "node:test";
 
 import { checkWorkbenchBoundaries } from "./check-workbench-boundaries.mjs";
 
+const remainingLegacyEndpoints = [
+	{ method: "POST", path: "/api/echo", kind: "legacy" },
+	{ method: "POST", path: "/api/knowledge-bases/new", kind: "legacy" },
+	{ method: "POST", path: "/api/knowledge-bases/init-existing", kind: "legacy" },
+	{ method: "GET", path: "/api/commands", kind: "legacy" },
+	{ method: "POST", path: "/api/system/choose-directory", kind: "legacy" },
+	{ method: "POST", path: "/api/auth/set", kind: "legacy" },
+	{ method: "POST", path: "/api/auth/test", kind: "legacy" },
+];
+
 async function fixture(files) {
 	const root = await mkdtemp(path.join(os.tmpdir(), "workbench-boundaries-"));
 	for (const [relativePath, content] of Object.entries(files)) {
@@ -22,12 +32,12 @@ test("reports every forbidden workbench contract boundary", async (t) => {
 			'fetch("/api/health");',
 		].join("\n"),
 		"workbench/web/test/bad.test.ts":
-			'import { createApp } from "../../server/src/app";',
+			'import { createApp } from "@/../../server/src/app";',
 		"workbench/web/vite.config.ts":
-			'import { HealthDataSchema } from "@llm-wiki/workbench-contracts/health";',
+			'import { HealthDataSchema } from "../../packages/workbench-contracts/dist/health.js";',
 		"workbench/web/src/lib/api/domain.ts": [
-			'const payload = (await response.json()) as { ok: boolean; items?: unknown[]; error?: string };',
-			"export default payload.items ?? [];",
+			'const payload = (await response.json()) as { error?: string; ok: boolean };',
+			"export default payload.error;",
 		].join("\n"),
 		"workbench/web/src/lib/api.ts":
 			'export * from "./api/health";',
@@ -36,7 +46,7 @@ test("reports every forbidden workbench contract boundary", async (t) => {
 			'const json = (await response.json()) as { ok: boolean; error?: string };',
 		].join("\n"),
 		"workbench/server/src/routes/bad.ts":
-			'return c.json({ ok: false, error: "broken" }, 400);',
+			'return c.json({ error: "broken", details: { note: "x".repeat(400) }, ok: false }, 400);',
 		"packages/workbench-contracts/src/bad.ts": [
 			'import { Hono } from "hono";',
 			'import { readFile } from "node:fs/promises";',
@@ -65,10 +75,30 @@ test("reports every forbidden workbench contract boundary", async (t) => {
 		"contracts-forbidden-import",
 		"contracts-package-root-export-only",
 		"contracts-root-entrypoint-only",
+		"registry-missing-legacy-endpoint",
 		"registry-unexpected-legacy-endpoint",
 	]) {
 		assert.ok(rules.has(rule), `missing finding for ${rule}`);
 	}
+});
+
+test("legacy client calls must still be legacy in the endpoint registry", async (t) => {
+	const root = await fixture({
+		"workbench/web/src/lib/api/legacy.ts": [
+			'const response = await fetch("/api/commands");',
+			'const payload = (await response.json()) as { error?: string; ok: boolean };',
+		].join("\n"),
+	});
+	t.after(() => rm(root, { recursive: true, force: true }));
+
+	const findings = await checkWorkbenchBoundaries(root, {
+		endpointRegistry: [
+			{ method: "GET", path: "/api/commands", kind: "migrated-json" },
+		],
+	});
+	assert.ok(
+		findings.some((finding) => finding.rule === "web-legacy-endpoint-not-allowed"),
+	);
 });
 
 test("allows the narrow client, SSE, file download, and remaining legacy seams", async (t) => {
@@ -100,8 +130,6 @@ test("allows the narrow client, SSE, file download, and remaining legacy seams",
 	t.after(() => rm(root, { recursive: true, force: true }));
 
 	assert.deepEqual(await checkWorkbenchBoundaries(root, {
-		endpointRegistry: [
-			{ method: "GET", path: "/api/commands", kind: "legacy" },
-		],
+		endpointRegistry: remainingLegacyEndpoints,
 	}), []);
 });
