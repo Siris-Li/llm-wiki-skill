@@ -66,7 +66,9 @@ test(
 		const parentOutsideMarker = join(sandbox, "parent-outside-home.txt");
 		const externalProbeHost = nonLoopbackIpv4();
 		const externalProbeSockets = new Set<Socket>();
+		let externalProbeConnections = 0;
 		const externalProbeServer = createServer((socket) => {
+			externalProbeConnections++;
 			externalProbeSockets.add(socket);
 			socket.once("close", () => externalProbeSockets.delete(socket));
 			socket.end("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK");
@@ -78,6 +80,7 @@ test(
 		const externalProbeControl = await fetch(externalProbeUrl);
 		assert.equal(externalProbeControl.status, 200);
 		assert.equal(await externalProbeControl.text(), "OK");
+		assert.equal(externalProbeConnections, 1);
 		const port = await availablePort();
 		let running: RunningServer | undefined;
 		let vite: SpawnedServer | undefined;
@@ -131,9 +134,11 @@ sleep 30
 
 		const environment = isolatedEnvironment(home, port, testBin, childSandboxProfile, {
 			deniedReads: [realAppConfig, realModelCredentials],
+			externalProbeUrl,
 			outsideMarker: parentOutsideMarker,
 			probeFile: parentProbeFile,
 		});
+		assert.equal(externalProbeConnections, 1);
 		assert.equal(environment.OPENAI_API_KEY, undefined);
 		assert.equal(environment.ANTHROPIC_API_KEY, undefined);
 		assert.equal(environment.PI_CONFIG_DIR, undefined);
@@ -223,6 +228,7 @@ sleep 30
 			"outside_write=BLOCKED",
 			"external_network=BLOCKED",
 		]);
+		assert.equal(externalProbeConnections, 1);
 		await assert.rejects(stat(childOutsideMarker));
 		const rebuildPid = Number((await readFile(rebuildPidFile, "utf8")).trim());
 		assert.equal(processExists(rebuildPid), true);
@@ -275,7 +281,7 @@ function isolatedEnvironment(
 	port: number,
 	testBin: string,
 	childSandboxProfile: string,
-	probe: { deniedReads: string[]; outsideMarker: string; probeFile: string },
+	probe: { deniedReads: string[]; externalProbeUrl: string; outsideMarker: string; probeFile: string },
 ): NodeJS.ProcessEnv {
 	const environment: NodeJS.ProcessEnv = {
 		HOME: home,
@@ -286,6 +292,7 @@ function isolatedEnvironment(
 		LANG: "C.UTF-8",
 		LLM_WIKI_ISOLATED_WRITE_ROOT: home,
 		LLM_WIKI_ISOLATED_DENIED_READS: JSON.stringify(probe.deniedReads),
+		LLM_WIKI_ISOLATED_PROBE_NETWORK: probe.externalProbeUrl,
 		LLM_WIKI_ISOLATED_PROBE_FILE: probe.probeFile,
 		LLM_WIKI_ISOLATED_PROBE_OUTSIDE: probe.outsideMarker,
 		NODE_OPTIONS: `--import=${join(import.meta.dirname, "support/isolation-guard.mjs")}`,

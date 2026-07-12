@@ -13,10 +13,12 @@ const deniedReads = new Set(
 );
 const probeFile = process.env.LLM_WIKI_ISOLATED_PROBE_FILE;
 const probeOutside = process.env.LLM_WIKI_ISOLATED_PROBE_OUTSIDE;
+const probeNetwork = process.env.LLM_WIKI_ISOLATED_PROBE_NETWORK;
 const childSandboxProfile = process.env.LLM_WIKI_ISOLATED_CHILD_PROFILE;
 delete process.env.LLM_WIKI_ISOLATED_DENIED_READS;
 delete process.env.LLM_WIKI_ISOLATED_PROBE_FILE;
 delete process.env.LLM_WIKI_ISOLATED_PROBE_OUTSIDE;
+delete process.env.LLM_WIKI_ISOLATED_PROBE_NETWORK;
 delete process.env.LLM_WIKI_ISOLATED_CHILD_PROFILE;
 
 function assertReadablePath(value) {
@@ -132,10 +134,10 @@ function wrapOpen(target, name) {
 }
 
 function runIsolationProbes() {
-	if (!probeFile || !probeOutside || deniedReads.size < 2) return;
+	if (!probeFile || !probeOutside || !probeNetwork || deniedReads.size < 2) return;
 	const [realAppPath, realCredentialsPath] = deniedReads;
 	const result = {
-		externalNetwork: probeExternalNetwork(),
+		externalNetwork: probeExternalNetwork(probeNetwork),
 		outsideWrite: probeOperation(() => fs.writeFileSync(probeOutside, "forbidden")),
 		realAppRead: probeOperation(() => fs.readFileSync(realAppPath)),
 		realCredentialsRead: probeOperation(() => fs.readFileSync(realCredentialsPath)),
@@ -143,10 +145,11 @@ function runIsolationProbes() {
 	fs.writeFileSync(probeFile, JSON.stringify(result));
 }
 
-function probeExternalNetwork() {
+function probeExternalNetwork(target) {
+	const url = new URL(target);
 	const socket = new net.Socket();
 	try {
-		socket.connect({ host: "github.com", port: 443 });
+		socket.connect({ host: url.hostname, port: Number(url.port) });
 		socket.destroy();
 		return "ALLOWED";
 	} catch {
