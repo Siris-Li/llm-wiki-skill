@@ -8,6 +8,7 @@ import {
 	shutdownAgent,
 } from "./agent.js";
 import {
+	stopActiveGraphRebuilds,
 	stopKnowledgeBaseGraphWatcher,
 	watchKnowledgeBaseGraph,
 } from "./graph.js";
@@ -84,6 +85,7 @@ async function closeWorkbenchServer(
 	stopKnowledgeBaseGraphWatcher();
 	await Promise.all([
 		closeHttpServer(server),
+		stopActiveGraphRebuilds(),
 		shutdownAgent(),
 	]);
 }
