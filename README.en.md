@@ -10,7 +10,7 @@ Based on [Andrej Karpathy](https://karpathy.ai/)'s [llm-wiki methodology](https:
 
 Turn scattered information into a growing, interconnected knowledge base
 
-[![version](https://img.shields.io/badge/v3.6.43-Local%20access%20protection-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.44-Reliable%20startup-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-multi--platform-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -92,6 +92,7 @@ The key difference: knowledge is **compiled once, maintained continuously** — 
 | 🧭 | **Community Close-up Map** | Entering a community now feels like zooming into the same region from the global graph; positions, tiers, labels, and return highlights stay stable, then fade after the global view settles |
 | 🧩 | **Global Intent Feedback** | Hovering a global node lightly previews first-order real relationships; clicking fixes that emphasis with the summary drawer; selecting a community reveals only a small internal and bridge preview instead of full reading |
 | 🔒 | **Local Workbench Access Protection** | Local settings, conversations, pages, graph events, files, and state changes require both a trusted source and the current startup credential |
+| ✅ | **Reliable Workbench Startup** | The server listens locally, rotates its access credential on restart, restores the last knowledge base, and releases processes and ports on exit; automated checks use a disposable user environment |
 
 ---
 
@@ -140,6 +141,7 @@ Each platform has its own setup guide:
 - **Batch Digestion** — Give a folder path, process all files at once
 - **Reliable Workbench Event Streams** — Batch progress and live graph updates now have explicit ordering and lifecycle rules; per-file failures can continue, overall failure or cancellation closes cleanly, and damaged connections stop or reconnect safely
 - **Local Workbench Access Protection** — Local content and state changes require both source and startup-credential checks, so untrusted web pages cannot read or alter them
+- **Reliable Workbench Startup** — Formal launches and automated checks share the same restore and shutdown flow; restarts rotate credentials and restore the last knowledge base without reading real user data or model keys
 - **Knowledge Base Health Check** — Scripts detect orphan pages, broken links, index consistency; plus AI-level contradiction and cross-reference checks
 - **Ingest Privacy Check** — First-time ingestion reminds you to check for phone numbers, API keys, etc.
 - **Graph Relationship Vocabulary** — Optional manual annotation vocabulary for more precise graph diagrams

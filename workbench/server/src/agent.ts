@@ -487,6 +487,11 @@ export async function clearActive(): Promise<void> {
 	});
 }
 
+/** Release the active session during process shutdown without changing saved state. */
+export async function shutdownAgent(): Promise<void> {
+	await runActiveMutation(disposeActive);
+}
+
 /**
  * 启动时自动恢复 config.lastUsedKbPath 指向的 KB（PRODUCT.md §5.1.1）。
  * 失败（路径已删除等）不抛错，仅记 warn。
