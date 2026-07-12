@@ -1,7 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildToolStatusContractFixture } from "../../server/src/tool-status-events";
+import type {
+	ToolStatusEndEvent,
+	ToolStatusStartEvent,
+	ToolStatusSummaryEvent,
+	ToolStatusUpdateEvent,
+} from "@llm-wiki/workbench-contracts";
 import {
 	cancelActiveToolStatus,
 	createToolStatusState,
@@ -9,20 +14,51 @@ import {
 	reduceToolStatusEvent,
 	reduceToolStatusEvents,
 } from "../src/lib/tool-status-model";
-import type {
-	ToolStatusContractEvent,
-	ToolStatusEndEvent,
-	ToolStatusStartEvent,
-	ToolStatusSummaryEvent,
-	ToolStatusUpdateEvent,
-} from "../src/lib/api";
+import type { ToolStatusContractEvent } from "../src/lib/tool-status-types";
 
 const runId = "run-1";
 const messageId = "message-1";
 
 describe("tool status model", () => {
-	it("reuses the backend contract fixture and rejects contract drift", () => {
-		const fixture = buildToolStatusContractFixture();
+	it("validates representative shared-contract events without server imports", () => {
+		const fixture: ToolStatusContractEvent[] = [
+			{
+				schemaVersion: 1,
+				type: "assistant_text_delta",
+				runId,
+				messageId,
+				seq: 1,
+				delta: "我来检查。",
+			},
+			start("read-1", "read", 2, { path: "source.md" }),
+			update("read-1", "read", 3, { bytes: 128 }),
+			end("read-1", "read", 4, "done", "读取完成"),
+			{
+				schemaVersion: 1,
+				type: "tool_status_summary",
+				runId,
+				messageId,
+				seq: 5,
+				items: [
+					{
+						toolCallId: "read-1",
+						toolName: "read",
+						action: "read",
+						target: "target",
+						status: "done",
+						summary: "读取完成",
+					},
+				],
+				remainingRunningCount: 0,
+			},
+			{
+				schemaVersion: 1,
+				type: "assistant_done",
+				runId,
+				messageId,
+				seq: 6,
+			},
+		];
 		const expectedKeys: Record<ToolStatusContractEvent["type"], string[]> = {
 			assistant_text_delta: ["delta", "messageId", "runId", "schemaVersion", "seq", "type"],
 			tool_status_start: [
@@ -85,7 +121,7 @@ describe("tool status model", () => {
 			fixture.map((event) => ({ type: event.type, keys: expectedKeys[event.type] })),
 		);
 
-		const state = reduceToolStatusEvents(createToolStatusState("fixture-run", "fixture-message"), fixture, {
+		const state = reduceToolStatusEvents(createToolStatusState(runId, messageId), fixture, {
 			nowMs: 1_000,
 		});
 

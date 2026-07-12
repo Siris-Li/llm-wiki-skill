@@ -10,7 +10,7 @@ Based on [Andrej Karpathy](https://karpathy.ai/)'s [llm-wiki methodology](https:
 
 Turn scattered information into a growing, interconnected knowledge base
 
-[![version](https://img.shields.io/badge/v3.6.38-Active%20map%20workflow-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.41-Streaming%20event%20contracts-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-multi--platform-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -137,6 +137,7 @@ Each platform has its own setup guide:
 - **Community Node Reading Accommodation** — Clicking a node inside community reading opens the right reader drawer while the canvas and camera make room continuously; widescreen layouts keep the node comfortable in the remaining canvas, while overlay and fullscreen drawers avoid forced camera movement
 - **Query Persistence** — Save valuable comprehensive answers back to the knowledge base
 - **Batch Digestion** — Give a folder path, process all files at once
+- **Reliable Workbench Event Streams** — Batch progress and live graph updates now have explicit ordering and lifecycle rules; per-file failures can continue, overall failure or cancellation closes cleanly, and damaged connections stop or reconnect safely
 - **Knowledge Base Health Check** — Scripts detect orphan pages, broken links, index consistency; plus AI-level contradiction and cross-reference checks
 - **Ingest Privacy Check** — First-time ingestion reminds you to check for phone numbers, API keys, etc.
 - **Graph Relationship Vocabulary** — Optional manual annotation vocabulary for more precise graph diagrams

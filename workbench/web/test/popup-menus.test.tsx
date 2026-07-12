@@ -6,7 +6,8 @@ import { resolve } from "node:path";
 
 import { CommandMenu } from "../src/components/CommandMenu";
 import { RefMenu } from "../src/components/RefMenu";
-import type { CommandItem, PageRef } from "../src/lib/api";
+import type { PageRef } from "@llm-wiki/workbench-contracts";
+import type { CommandItem } from "../src/lib/api/legacy";
 import { render, screen } from "./render";
 
 describe("Paper popup menus", () => {

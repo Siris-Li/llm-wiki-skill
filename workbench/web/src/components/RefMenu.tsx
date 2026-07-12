@@ -1,4 +1,4 @@
-import type { PageRef } from "../lib/api";
+import type { PageRef } from "@llm-wiki/workbench-contracts";
 import { cn } from "../lib/utils";
 
 interface Props {

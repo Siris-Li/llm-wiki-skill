@@ -1,4 +1,6 @@
-import type { ModelInfo, ModelRef } from "./api";
+import type { ActiveContext, ModelRef } from "@llm-wiki/workbench-contracts";
+
+export type ModelInfo = NonNullable<ActiveContext["model"]>;
 
 export function modelRefToValue(ref?: ModelRef | null): string {
 	return ref ? `${ref.provider}/${ref.modelId}` : "";

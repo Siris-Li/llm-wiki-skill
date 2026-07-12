@@ -2,19 +2,20 @@ import { z } from "zod";
 
 import { ArtifactKindSchema } from "./artifacts.js";
 import { ErrorDetailsSchema, WorkbenchErrorCodeSchema } from "./errors.js";
+import {
+	RunSseEventIdentitySchema,
+	WORKBENCH_SSE_SCHEMA_VERSION,
+} from "./sse.js";
 
-export const PROMPT_SSE_SCHEMA_VERSION = 1 as const;
+export const PROMPT_SSE_SCHEMA_VERSION = WORKBENCH_SSE_SCHEMA_VERSION;
 
 export const PromptRequestBodySchema = z.object({
 	message: z.string().trim().min(1),
 }).strict();
 export type PromptRequestBody = z.infer<typeof PromptRequestBodySchema>;
 
-const PromptEventIdentitySchema = z.object({
-	schemaVersion: z.literal(PROMPT_SSE_SCHEMA_VERSION),
-	runId: z.string().min(1),
+const PromptEventIdentitySchema = RunSseEventIdentitySchema.extend({
 	messageId: z.string().min(1),
-	seq: z.number().int().positive(),
 });
 
 const ToolDisplaySchema = z.object({
@@ -131,19 +132,23 @@ export const PROMPT_SSE_EVENT_TYPES = PromptSseEventSchema.options.map(
 	(schema) => schema.shape.type.value,
 );
 
-const PROMPT_TERMINAL_EVENT_TYPES = new Set<PromptSseEvent["type"]>([
+export const PROMPT_SSE_TERMINAL_EVENT_TYPES = [
 	"assistant_done",
 	"assistant_cancelled",
 	"assistant_error",
-]);
+] as const satisfies readonly PromptSseEvent["type"][];
+
+const PROMPT_TERMINAL_EVENT_TYPE_SET = new Set<PromptSseEvent["type"]>(
+	PROMPT_SSE_TERMINAL_EVENT_TYPES,
+);
 
 export type PromptTerminalEvent = Extract<
 	PromptSseEvent,
-	{ type: "assistant_done" | "assistant_cancelled" | "assistant_error" }
+	{ type: (typeof PROMPT_SSE_TERMINAL_EVENT_TYPES)[number] }
 >;
 
 export function isPromptTerminalEvent(
 	event: Pick<PromptSseEvent, "type">,
 ): event is PromptTerminalEvent {
-	return PROMPT_TERMINAL_EVENT_TYPES.has(event.type);
+	return PROMPT_TERMINAL_EVENT_TYPE_SET.has(event.type);
 }

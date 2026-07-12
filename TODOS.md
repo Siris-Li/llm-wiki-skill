@@ -1,5 +1,19 @@
 # TODOs
 
+## Workbench Test Infrastructure
+
+### Make the Paper visual regression portable
+
+**What:** Remove the machine-specific prototype path from the existing Paper screenshot runner and give it a portable reference or baseline strategy.
+
+**Why:** The current runner is useful for local visual checks, but another machine or GitHub cannot reproduce its default reference without extra private files.
+
+**Context:** This is separate from #190. The #158 closeout will add a new functional Playwright suite that uses a real frontend, real HTTP, and real backend handling; the current `visual:paper` runner continues to serve visual regression only because it mocks all `/api/**` traffic. Start by deciding whether reference images belong in the repository or the runner should require an explicit reference URL, then remove the local default path and verify the documented workflow on a clean machine.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** A decision on committed visual baselines versus an explicitly supplied reference URL.
+
 ## Live Map Reading Workflow: User-Facing Improvements
 
 - **What:** After the internal active-map reading workflow consolidation lands, improve the visible reading experience for node selection, community entry, right-drawer behavior, and sending a map selection back into the conversation.

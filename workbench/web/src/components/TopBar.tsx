@@ -11,18 +11,25 @@ import {
 	XCircle,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
+import type {
+	AvailableModelInfo,
+	KnowledgeBaseInfo,
+} from "@llm-wiki/workbench-contracts";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import {
 	fetchAvailableModels,
 	getConfig,
 	setConfig,
-	type AvailableModelInfo,
-	type KnowledgeBaseInfo,
-	type ModelInfo,
-} from "../lib/api";
+} from "../lib/api/config";
 import type { ThemeMode } from "../lib/appearance";
-import { modelInfoToValue, modelRefToValue, modelValueLabel, valueToModelRef } from "../lib/model-roles";
+import {
+	modelInfoToValue,
+	modelRefToValue,
+	modelValueLabel,
+	valueToModelRef,
+	type ModelInfo,
+} from "../lib/model-roles";
 import { cn } from "../lib/utils";
 import type { ChatStatusSnapshot, GraphStatusSnapshot } from "../lib/view-status";
 

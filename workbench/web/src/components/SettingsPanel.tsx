@@ -1,5 +1,9 @@
 import { CheckCircle2, KeyRound, Loader2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import type {
+	AuthStatusData as AuthStatus,
+	AvailableModelInfo,
+} from "@llm-wiki/workbench-contracts";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,17 +14,13 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { getAuthStatus } from "@/lib/api/auth";
+import { fetchAvailableModels, getConfig, setConfig } from "@/lib/api/config";
 import {
-	type AuthStatus,
-	type AvailableModelInfo,
-	fetchAvailableModels,
-	getAuthStatus,
-	getConfig,
 	listCommands,
 	setAuthKey,
-	setConfig,
 	testAuthConnection,
-} from "@/lib/api";
+} from "@/lib/api/legacy";
 import { modelRefToValue, valueToModelRef } from "@/lib/model-roles";
 
 const PROVIDERS = [

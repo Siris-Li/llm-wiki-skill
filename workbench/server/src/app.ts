@@ -11,6 +11,16 @@ import { createArtifactRoutes, defaultArtifactRouteService, type ArtifactRouteSe
 import { createAuthRoutes, defaultAuthRouteService, type AuthRouteService } from "./routes/auth.js";
 import { createConfigRoutes, createModelRoutes, defaultConfigRouteService, type ConfigRouteService } from "./routes/config.js";
 import { createConversationRoutes, defaultConversationRouteService, type ConversationRouteService } from "./routes/conversations.js";
+import {
+	createBatchDigestRoutes,
+	defaultBatchDigestRouteService,
+	type BatchDigestRouteService,
+} from "./routes/batch-digest.js";
+import {
+	createGraphEventsRoutes,
+	defaultGraphEventsRouteService,
+	type GraphEventsRouteService,
+} from "./routes/events.js";
 import { createHealthRoutes } from "./routes/health.js";
 import { createGraphRoutes, defaultGraphRouteService, type GraphRouteService } from "./routes/graph.js";
 import { createKnowledgeBaseRoutes, defaultKnowledgeBaseRouteService, type KnowledgeBaseRouteService } from "./routes/knowledge-bases.js";
@@ -56,6 +66,10 @@ export interface WorkbenchAppDeps {
 	artifactService?: ArtifactRouteService;
 	/** prompt 启动 + assistant/tool/artifact SSE route 依赖。 */
 	promptService?: PromptRouteService;
+	/** batch digest 启动 + 进度 SSE route 依赖。 */
+	batchDigestService?: BatchDigestRouteService;
+	/** 只读 graph events EventSource route 依赖。 */
+	graphEventsService?: GraphEventsRouteService;
 }
 
 /**
@@ -124,6 +138,18 @@ export function createApp(deps: WorkbenchAppDeps = {}): Hono {
 	app.route(
 		"/api",
 		createPromptRoutes(deps.promptService ?? defaultPromptRouteService),
+	);
+	app.route(
+		"/api",
+		createBatchDigestRoutes(
+			deps.batchDigestService ?? defaultBatchDigestRouteService,
+		),
+	);
+	app.route(
+		"/api",
+		createGraphEventsRoutes(
+			deps.graphEventsService ?? defaultGraphEventsRouteService,
+		),
 	);
 
 	return app;

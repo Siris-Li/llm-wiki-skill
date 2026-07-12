@@ -1,4 +1,4 @@
-import type { CommandItem as CommandItemType } from "../lib/api";
+import type { CommandItem as CommandItemType } from "../lib/api/legacy";
 import { cn } from "../lib/utils";
 
 interface Props {

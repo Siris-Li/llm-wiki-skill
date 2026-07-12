@@ -13,7 +13,7 @@ import {
  * 只服务已迁移到统一 JSON envelope（`{ ok:true, data } | { ok:false, code,
  * message, details? }`）的 endpoint（migrated-json）。不吞旧响应格式：遇到旧
  * 格式（无 ok 字段、`{ ok:true, items }` 等）一律判为契约不符并抛
- * ContractMismatchError。未迁移 endpoint 继续走 legacy api.ts，互不污染。
+ * ContractMismatchError。未迁移 endpoint 继续走 legacy.ts，互不污染。
  */
 
 /** 后端失败 envelope 抛出的错误。业务逻辑用 code 判断，不依赖 message。 */
@@ -64,7 +64,7 @@ export interface RequestOptions<T> {
  * `path` 类型为 MigratedJsonPath（派生自 @llm-wiki/workbench-contracts 的
  * endpoint registry）：编译期锁死，业务代码只能用本 client 调已迁移 endpoint，
  * 误调 legacy endpoint 会被 `npm run typecheck` 拒绝（静态检查）。未迁移
- * endpoint 继续走 legacy api.ts，互不污染。
+ * endpoint 继续走 legacy.ts，互不污染。
  */
 export async function request<T>(
 	path: MigratedJsonPath,

@@ -8,7 +8,7 @@ import type {
 	GraphUnavailableObjectPayload,
 	Selection,
 } from "@llm-wiki/graph-engine";
-import type { ArtifactManifest } from "@/lib/api";
+import type { ArtifactManifest } from "@llm-wiki/workbench-contracts";
 
 interface PageState {
 	content?: string;

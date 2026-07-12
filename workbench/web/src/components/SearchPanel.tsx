@@ -1,7 +1,7 @@
 import { ExternalLink, Link2, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { PageRef } from "../lib/api";
+import type { PageRef } from "@llm-wiki/workbench-contracts";
 import { filterPageRefs } from "../lib/search-filter";
 import { cn } from "../lib/utils";
 

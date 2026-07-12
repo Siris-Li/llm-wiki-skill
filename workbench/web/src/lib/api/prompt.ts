@@ -6,23 +6,24 @@ import {
 	FailureEnvelopeSchema,
 	PROMPT_SSE_EVENT_TYPES,
 	PROMPT_SSE_SCHEMA_VERSION,
+	PROMPT_SSE_TERMINAL_EVENT_TYPES,
 	PromptRequestBodySchema,
 	ToolStatusEndEventSchema,
 	ToolStatusStartEventSchema,
 	ToolStatusSummaryEventSchema,
 	ToolStatusUpdateEventSchema,
-	isPromptTerminalEvent,
 	type PromptSseEvent,
 } from "@llm-wiki/workbench-contracts";
 
 import { parseSSE } from "../sse";
 import { ApiError } from "./client";
+import {
+	parseSseJson,
+	RecoverableSseProtocolError,
+	SseLifecycleGuard,
+} from "./sse-contract";
 
-const PROMPT_EVENT_TYPES = new Set<string>(PROMPT_SSE_EVENT_TYPES);
-
-export class PromptProtocolError extends Error {
-	readonly recoverable = true;
-
+export class PromptProtocolError extends RecoverableSseProtocolError {
 	constructor(message: string) {
 		super(message);
 		this.name = "PromptProtocolError";
@@ -63,56 +64,25 @@ export async function streamPrompt(
 export async function* parsePromptEvents(
 	stream: ReadableStream<Uint8Array>,
 ): AsyncGenerator<PromptSseEvent, void, undefined> {
-	let expectedSeq = 1;
-	let runId: string | null = null;
-	let messageId: string | null = null;
-	let terminalSeen = false;
+	const guard = new SseLifecycleGuard({
+		schemaVersion: PROMPT_SSE_SCHEMA_VERSION,
+		eventTypes: PROMPT_SSE_EVENT_TYPES,
+		identityFields: ["runId", "messageId"],
+		terminalEventTypes: PROMPT_SSE_TERMINAL_EVENT_TYPES,
+		requireTerminal: true,
+		eventName: "matches-type",
+		error: promptProtocolError,
+	});
 
 	for await (const message of parseSSE(stream)) {
-		if (terminalSeen) throw new PromptProtocolError("回复流在结束事件后仍包含事件");
-
-		let value: unknown;
-		try {
-			value = JSON.parse(message.data);
-		} catch {
-			throw new PromptProtocolError("回复流包含无法解析的事件数据");
-		}
-		const event = parsePromptEvent(value, message.event);
-		if (event.seq !== expectedSeq) {
-			throw new PromptProtocolError(`回复流序号不连续：期待 ${expectedSeq}，收到 ${event.seq}`);
-		}
-		if (runId === null) {
-			runId = event.runId;
-			messageId = event.messageId;
-		} else if (event.runId !== runId || event.messageId !== messageId) {
-			throw new PromptProtocolError("回复流事件身份在同一请求中发生变化");
-		}
-		expectedSeq += 1;
-		terminalSeen = isPromptTerminalEvent(event);
-		yield event;
+		const value = parseSseJson(message.data, promptProtocolError);
+		const record = guard.accept(value, message.event);
+		yield parsePromptEvent(record);
 	}
-
-	if (!terminalSeen) throw new PromptProtocolError("回复流提前结束，缺少结束事件");
+	guard.finish();
 }
 
-function parsePromptEvent(value: unknown, eventName: string): PromptSseEvent {
-	if (!isRecord(value)) throw new PromptProtocolError("回复流事件必须是 JSON 对象");
-	if (value.schemaVersion !== PROMPT_SSE_SCHEMA_VERSION) {
-		throw new PromptProtocolError("回复流事件 schemaVersion 不受支持");
-	}
-	if (typeof value.type !== "string" || !PROMPT_EVENT_TYPES.has(value.type)) {
-		throw new PromptProtocolError("回复流包含未知事件类型");
-	}
-	if (value.type !== eventName) throw new PromptProtocolError("回复流事件名称与 data.type 不一致");
-	if (typeof value.runId !== "string" || value.runId.length === 0) {
-		throw new PromptProtocolError("回复流事件缺少 runId");
-	}
-	if (typeof value.messageId !== "string" || value.messageId.length === 0) {
-		throw new PromptProtocolError("回复流事件缺少 messageId");
-	}
-	if (!Number.isInteger(value.seq) || (value.seq as number) < 1) {
-		throw new PromptProtocolError("回复流事件 seq 无效");
-	}
+function parsePromptEvent(value: Record<string, unknown>): PromptSseEvent {
 	if (value.type === "assistant_text_delta") {
 		if (typeof value.delta !== "string") {
 			throw new PromptProtocolError("文本增量事件缺少 delta");
@@ -150,6 +120,6 @@ function promptEventSchema(type: Exclude<PromptSseEvent["type"], "assistant_text
 	}
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+function promptProtocolError(message: string): PromptProtocolError {
+	return new PromptProtocolError(message);
 }

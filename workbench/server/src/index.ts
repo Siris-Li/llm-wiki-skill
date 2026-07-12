@@ -20,7 +20,6 @@
  */
 
 import { serve } from "@hono/node-server";
-import { streamSSE } from "hono/streaming";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -32,11 +31,7 @@ import {
 } from "./agent.js";
 import { setAuthKey, testAuthConnection } from "./auth.js";
 import { loadConfig } from "./config.js";
-import { runBatchDigest } from "./digest/batch.js";
 import {
-	resumeGraphWatcher,
-	subscribeGraphEvents,
-	suspendGraphWatcher,
 	watchKnowledgeBaseGraph,
 } from "./graph.js";
 import { localHostOnly } from "./security/host.js";
@@ -66,28 +61,6 @@ const app = createApp({
 		token: capabilityToken,
 		trustedOrigins,
 	}),
-});
-
-app.get("/api/events", (c) => {
-	return streamSSE(c, async (stream) => {
-		const unsubscribe = subscribeGraphEvents((event) => {
-			void stream.writeSSE({
-				event: event.type,
-				data: JSON.stringify(event),
-			}).catch(() => {
-				stream.abort();
-			});
-		});
-		stream.onAbort(unsubscribe);
-		await stream.writeSSE({
-			event: "ready",
-			data: JSON.stringify({ ok: true, timestamp: Date.now() }),
-		});
-		await new Promise<void>((resolve) => {
-			stream.onAbort(() => resolve());
-		});
-		unsubscribe();
-	});
 });
 
 app.post("/api/echo", async (c) => {
@@ -236,72 +209,6 @@ app.post("/api/system/choose-directory", async (c) => {
 		}
 		return c.json({ ok: false, error: message }, 500);
 	}
-});
-
-app.post("/api/knowledge-bases/batch-digest", async (c) => {
-	let body: {
-		kbPath?: unknown;
-		filePaths?: unknown;
-		concurrency?: unknown;
-		sourceScanId?: unknown;
-		digestModel?: unknown;
-	};
-	try {
-		body = await c.req.json();
-	} catch {
-		return c.json({ ok: false, error: "Invalid JSON body" }, 400);
-	}
-	if (typeof body.kbPath !== "string") {
-		return c.json({ ok: false, error: "Missing 'kbPath'" }, 400);
-	}
-	if (!Array.isArray(body.filePaths) || !body.filePaths.every((item) => typeof item === "string")) {
-		return c.json({ ok: false, error: "Missing or invalid 'filePaths'" }, 400);
-	}
-	const concurrency = body.concurrency === undefined ? 3 : Number(body.concurrency);
-	if (![1, 3, 5].includes(concurrency)) {
-		return c.json({ ok: false, error: "concurrency 只能是 1、3 或 5" }, 400);
-	}
-	const sourceScanId = typeof body.sourceScanId === "string" ? body.sourceScanId : undefined;
-	const digestModel =
-		typeof body.digestModel === "object" &&
-		body.digestModel !== null &&
-		typeof (body.digestModel as { provider?: unknown }).provider === "string" &&
-		typeof (body.digestModel as { modelId?: unknown }).modelId === "string"
-			? {
-					provider: (body.digestModel as { provider: string }).provider,
-					modelId: (body.digestModel as { modelId: string }).modelId,
-				}
-			: null;
-
-	return streamSSE(c, async (stream) => {
-		suspendGraphWatcher(body.kbPath as string);
-		let completed = false;
-		try {
-			await runBatchDigest(
-				{
-					kbPath: body.kbPath as string,
-					filePaths: body.filePaths as string[],
-					concurrency,
-					...(sourceScanId ? { sourceScanId } : {}),
-					...(digestModel ? { digestModel } : {}),
-				},
-				async (event) => {
-					await stream.writeSSE({
-						event: event.type,
-						data: JSON.stringify(event),
-					});
-				},
-			);
-			completed = true;
-		} catch (err) {
-			await stream.writeSSE({
-				event: "error",
-				data: JSON.stringify({ message: err instanceof Error ? err.message : String(err) }),
-			});
-		} finally {
-			resumeGraphWatcher(body.kbPath as string, { trigger: completed });
-		}
-	});
 });
 
 // ============= 模型认证 =============

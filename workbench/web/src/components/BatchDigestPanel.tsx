@@ -1,5 +1,5 @@
 import { ExternalLink, X } from "lucide-react";
-import type { BatchDigestEvent } from "../lib/api";
+import type { BatchDigestSseEvent as BatchDigestEvent } from "@llm-wiki/workbench-contracts";
 import { cn } from "../lib/utils";
 
 export interface BatchDigestJob {
