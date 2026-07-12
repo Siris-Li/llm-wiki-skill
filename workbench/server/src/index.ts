@@ -23,6 +23,8 @@ import { serve } from "@hono/node-server";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { DEV_WORKBENCH_ORIGINS } from "@llm-wiki/workbench-contracts";
+
 import { createApp } from "./app.js";
 import {
 	bootstrapFromConfig,
@@ -51,11 +53,12 @@ await writeCapabilityToken(capabilityToken);
 
 // 可信来源 Origin（辅助信号）：dev web origin。桌面壳 origin 待桌面安装版落地时
 // 在此追加。origin 仅作辅助 deny，会改状态 endpoint 仍必须带 token（见 middleware）。
-const trustedOrigins = new Set(["http://localhost:5180", "http://127.0.0.1:5180"]);
+const trustedOrigins = new Set(DEV_WORKBENCH_ORIGINS);
 
 // createApp 组装统一 middleware / 错误兜底 / 已迁移 route module（health）。
 // 未迁移的 legacy route 继续挂在这个 app 上，等后续 issue 逐个迁移。
-// security 中间件挂在所有 /api/* 之前：read-only 白名单豁免，state-changing 强制 token + 可信来源。
+// security 中间件挂在所有 /api/* 之前：仅 health 公开，其余本地读取和操作
+// 都强制 token + 可信来源。
 const app = createApp({
 	security: createSecurityMiddleware({
 		token: capabilityToken,
