@@ -40,7 +40,6 @@ export async function startWorkbenchServer(
 	const host = localHostOnly(options.host ?? process.env.HOST);
 	const port = options.port ?? Number(process.env.PORT ?? 8787);
 	const capabilityToken = generateCapabilityToken();
-	await writeCapabilityToken(capabilityToken);
 	const app = options.createApplication(capabilityToken);
 
 	let server: ReturnType<typeof serve> | undefined;
@@ -58,7 +57,8 @@ export async function startWorkbenchServer(
 			);
 			server = candidate;
 			candidate.once("error", reject);
-		});
+			});
+		await writeCapabilityToken(capabilityToken);
 		console.log(
 			`[llm-wiki-agent/server] listening on http://${host}:${listeningPort}`,
 		);
