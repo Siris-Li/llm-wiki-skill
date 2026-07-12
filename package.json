@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "check:boundaries": "node --import tsx workbench/scripts/check-workbench-boundaries.mjs",
+    "check:route-registry": "node --import tsx --test workbench/server/test/route-registry-parity.test.ts",
     "dev": "concurrently -n server,web -c blue,magenta --kill-others-on-fail \"npm run dev:server\" \"npm run dev:web\"",
     "dev:server": "npm run dev --workspace=@llm-wiki-agent/server",
     "dev:web": "npm run dev --workspace=@llm-wiki-agent/web",
