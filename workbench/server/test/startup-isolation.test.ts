@@ -12,8 +12,8 @@ import {
 	stat,
 	writeFile,
 } from "node:fs/promises";
-import { createServer } from "node:net";
-import { homedir, tmpdir } from "node:os";
+import { createServer, type Socket } from "node:net";
+import { homedir, networkInterfaces, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 
@@ -53,11 +53,31 @@ test(
 		const rebuildPidFile = join(home, "rebuild-child.pid");
 		const childProbeFile = join(home, "child-isolation-probe.txt");
 		const childOutsideMarker = join(sandbox, "child-outside-home.txt");
-		const realAppConfig = join(homedir(), ".llm-wiki-agent", "config.json");
-		const realModelCredentials = join(homedir(), ".pi", "agent", "auth.json");
+		const realAppConfig = await existingSensitivePathOrSentinel(
+			join(homedir(), ".llm-wiki-agent", "config.json"),
+			join(sandbox, "real-app-config-sentinel.json"),
+		);
+		const realModelCredentials = await existingSensitivePathOrSentinel(
+			join(homedir(), ".pi", "agent", "auth.json"),
+			join(sandbox, "real-model-credentials-sentinel.json"),
+		);
 		const childSandboxProfile = join(home, "child-isolation.sb");
 		const parentProbeFile = join(home, "parent-isolation-probe.json");
 		const parentOutsideMarker = join(sandbox, "parent-outside-home.txt");
+		const externalProbeHost = nonLoopbackIpv4();
+		const externalProbeSockets = new Set<Socket>();
+		const externalProbeServer = createServer((socket) => {
+			externalProbeSockets.add(socket);
+			socket.once("close", () => externalProbeSockets.delete(socket));
+			socket.end("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK");
+		});
+		await listenOnHost(externalProbeServer, 0, externalProbeHost);
+		const externalProbeAddress = externalProbeServer.address();
+		assert(externalProbeAddress && typeof externalProbeAddress === "object");
+		const externalProbeUrl = `http://${externalProbeHost}:${externalProbeAddress.port}`;
+		const externalProbeControl = await fetch(externalProbeUrl);
+		assert.equal(externalProbeControl.status, 200);
+		assert.equal(await externalProbeControl.text(), "OK");
 		const port = await availablePort();
 		let running: RunningServer | undefined;
 		let vite: SpawnedServer | undefined;
@@ -75,7 +95,7 @@ test(
 	if /bin/cat ${shellQuote(realAppConfig)} >/dev/null 2>&1; then echo real_app_read=ALLOWED; else echo real_app_read=BLOCKED; fi
 	if /bin/cat ${shellQuote(realModelCredentials)} >/dev/null 2>&1; then echo real_credentials_read=ALLOWED; else echo real_credentials_read=BLOCKED; fi
 	if echo forbidden > ${shellQuote(childOutsideMarker)} 2>/dev/null; then echo outside_write=ALLOWED; else echo outside_write=BLOCKED; fi
-	code=$(/usr/bin/curl -L -sS -o /dev/null -w '%{http_code}' --max-time 8 https://github.com 2>/dev/null || true)
+	code=$(/usr/bin/curl -L -sS -o /dev/null -w '%{http_code}' --max-time 8 ${shellQuote(externalProbeUrl)} 2>/dev/null || true)
 	if [ "$code" = 200 ]; then echo external_network=ALLOWED; else echo external_network=BLOCKED; fi
 } > ${shellQuote(childProbeFile)}
 echo $$ > ${shellQuote(rebuildPidFile)}
@@ -104,6 +124,8 @@ sleep 30
 		t.after(async () => {
 			if (vite) await stopSpawnedProcess(vite).catch(() => undefined);
 			if (running) await running.stop().catch(() => undefined);
+			for (const socket of externalProbeSockets) socket.destroy();
+			await closeServer(externalProbeServer).catch(() => undefined);
 			await rm(sandbox, { recursive: true, force: true });
 		});
 
@@ -195,15 +217,13 @@ sleep 30
 			throw new Error(`${String(error)}\n${running?.output() ?? ""}`);
 		});
 		await waitForFile(childProbeFile, START_TIMEOUT_MS);
-		if (process.platform === "darwin") {
-			assert.deepEqual((await readFile(childProbeFile, "utf8")).trim().split("\n"), [
-				"real_app_read=BLOCKED",
-				"real_credentials_read=BLOCKED",
-				"outside_write=BLOCKED",
-				"external_network=BLOCKED",
-			]);
-			await assert.rejects(stat(childOutsideMarker));
-		}
+		assert.deepEqual((await readFile(childProbeFile, "utf8")).trim().split("\n"), [
+			"real_app_read=BLOCKED",
+			"real_credentials_read=BLOCKED",
+			"outside_write=BLOCKED",
+			"external_network=BLOCKED",
+		]);
+		await assert.rejects(stat(childOutsideMarker));
 		const rebuildPid = Number((await readFile(rebuildPidFile, "utf8")).trim());
 		assert.equal(processExists(rebuildPid), true);
 		await running.stop();
@@ -225,7 +245,7 @@ sleep 30
 			await running.stop();
 		} finally {
 			eventsController.abort();
-			await eventsReader.cancel().catch(() => undefined);
+			void eventsReader.cancel().catch(() => undefined);
 		}
 		running = undefined;
 		await assertPortReleased(port);
@@ -483,9 +503,17 @@ async function availablePort(): Promise<number> {
 }
 
 async function listen(server: ReturnType<typeof createServer>, port: number): Promise<void> {
+	return listenOnHost(server, port, "127.0.0.1");
+}
+
+async function listenOnHost(
+	server: ReturnType<typeof createServer>,
+	port: number,
+	host: string,
+): Promise<void> {
 	await new Promise<void>((resolvePromise, reject) => {
 		server.once("error", reject);
-		server.listen(port, "127.0.0.1", resolvePromise);
+		server.listen(port, host, resolvePromise);
 	});
 }
 
@@ -556,6 +584,29 @@ function signalProcess(child: ChildProcess, signal: NodeJS.Signals): void {
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
 	}
+}
+
+function nonLoopbackIpv4(): string {
+	for (const addresses of Object.values(networkInterfaces())) {
+		for (const address of addresses ?? []) {
+			if (address.family === "IPv4" && !address.internal) return address.address;
+		}
+	}
+	throw new Error("startup isolation check requires a non-loopback IPv4 interface");
+}
+
+async function existingSensitivePathOrSentinel(
+	candidate: string,
+	sentinel: string,
+): Promise<string> {
+	try {
+		const info = await stat(candidate);
+		if (info.isFile()) return candidate;
+	} catch {
+		// A missing or unreadable real file still needs an existing denied-read target.
+	}
+	await writeFile(sentinel, "test-only-sensitive-placeholder");
+	return sentinel;
 }
 
 async function snapshotTree(root: string): Promise<Record<string, string>> {
