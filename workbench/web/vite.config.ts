@@ -11,6 +11,7 @@ import {
 } from "@llm-wiki/workbench-contracts";
 
 import {
+	assertLoopbackDevServerHost,
 	createDevApiRequestGuard,
 	shouldInjectCapabilityToken,
 } from "./dev-api-security";
@@ -59,6 +60,9 @@ export default defineConfig({
 	plugins: [
 		{
 			name: "llm-wiki-dev-api-security",
+			configResolved(config) {
+				assertLoopbackDevServerHost(config.server.host);
+			},
 			configureServer(server) {
 				const guard = createDevApiRequestGuard(trustedOrigins);
 				server.middlewares.use((request, response, next) => {
@@ -77,6 +81,7 @@ export default defineConfig({
 	},
 	server: {
 		// 用 5180 避开 Vite 默认 5173（其他项目可能占用）；strictPort 让冲突时直接报错，避免静默漂移
+		host: "127.0.0.1",
 		port: 5180,
 		strictPort: true,
 		hmr: disableHmr ? false : undefined,

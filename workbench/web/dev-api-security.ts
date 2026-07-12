@@ -11,6 +11,18 @@ import {
 
 type Next = (error?: unknown) => void;
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+/** 带凭证注入能力的开发服务不得被 CLI 参数改成对外监听。 */
+export function assertLoopbackDevServerHost(
+	host: string | boolean | undefined,
+): void {
+	if (typeof host === "string" && LOOPBACK_HOSTS.has(host.trim().toLowerCase())) {
+		return;
+	}
+	throw new Error("工作台开发服务只能绑定本机地址");
+}
+
 function requestPath(request: IncomingMessage): string {
 	return new URL(request.url ?? "/", "http://localhost").pathname;
 }

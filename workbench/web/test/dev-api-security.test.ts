@@ -8,9 +8,24 @@ import test from "node:test";
 import { CAPABILITY_TOKEN_HEADER } from "@llm-wiki/workbench-contracts";
 import { createServer as createViteServer, type UserConfig } from "vite";
 
-import { createDevApiRequestGuard } from "../dev-api-security";
+import {
+	assertLoopbackDevServerHost,
+	createDevApiRequestGuard,
+} from "../dev-api-security";
 
 const TRUSTED_ORIGINS = new Set(["http://localhost:5180", "http://127.0.0.1:5180"]);
+
+test("带凭证注入能力的开发服务只允许绑定本机", async () => {
+	for (const host of ["localhost", "127.0.0.1", "::1", "[::1]"]) {
+		assert.doesNotThrow(() => assertLoopbackDevServerHost(host));
+	}
+	for (const host of [undefined, true, false, "0.0.0.0", "192.168.1.10"]) {
+		assert.throws(
+			() => assertLoopbackDevServerHost(host),
+			/只能绑定本机地址/,
+		);
+	}
+});
 
 async function startGuardServer() {
 	const guard = createDevApiRequestGuard(TRUSTED_ORIGINS);
