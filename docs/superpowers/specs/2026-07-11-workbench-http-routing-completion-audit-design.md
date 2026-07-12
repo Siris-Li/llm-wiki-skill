@@ -604,7 +604,7 @@ spec merge -> #191 -> #192 -> #193 -> #197 -> #198 -> #194 --+
 - Performance Review: 2 issues found and resolved.
 - NOT in scope: written and tightened around containers, caching, read-only auth redesign and private-evidence infrastructure.
 - What already exists: retained as the reuse source for contracts, `createApp`, Node tests, Playwright and boundary checks.
-- TODOS.md updates: 0 new items; the existing portable Paper visual-regression item remains separate.
+- TODOS.md updates: 0 new items in this review pass; this specification branch already added one portable Paper visual-regression item and keeps it separate.
 - Failure modes: 0 silent critical gaps remain after route census, environment scrubbing, bounded cleanup and final-environment pinning.
 - Outside voice: Codex ran; 8 additional findings were individually accepted and integrated.
 - Parallelization: startup is sequential first; route and browser foundations then form 2 parallel lanes; 3 independent repair lanes may run after protection.
