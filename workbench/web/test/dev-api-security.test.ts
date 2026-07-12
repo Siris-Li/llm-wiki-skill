@@ -113,9 +113,11 @@ test("Vite 开发代理为所有可信本地内容请求附带 capability token"
 	const previousOrigin = process.env.LLM_WIKI_AGENT_API_ORIGIN;
 	process.env.HOME = home;
 	process.env.LLM_WIKI_AGENT_API_ORIGIN = `http://127.0.0.1:${backendAddress.port}`;
-	let vite: Awaited<ReturnType<typeof createViteServer>> | undefined;
+	const resources: {
+		vite?: Awaited<ReturnType<typeof createViteServer>>;
+	} = {};
 	t.after(async () => {
-		if (vite) await vite.close();
+		if (resources.vite) await resources.vite.close();
 		backend.closeAllConnections();
 		await new Promise<void>((resolve, reject) =>
 			backend.close((error) => error ? reject(error) : resolve()),
@@ -129,13 +131,13 @@ test("Vite 开发代理为所有可信本地内容请求附带 capability token"
 
 	const imported = await import(`../vite.config.ts?security-test=${Date.now()}`);
 	const config = imported.default as UserConfig;
-	vite = await createViteServer({
+	resources.vite = await createViteServer({
 		...config,
 		configFile: false,
 		server: { ...config.server, port: 0, strictPort: false },
 	});
-	await vite.listen();
-	const baseUrl = vite.resolvedUrls?.local[0];
+	await resources.vite.listen();
+	const baseUrl = resources.vite.resolvedUrls?.local[0];
 	assert.ok(baseUrl);
 
 	const publicHealth = await fetch(new URL("/api/health", baseUrl));
