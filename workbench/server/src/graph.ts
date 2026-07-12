@@ -31,7 +31,7 @@ export type GraphEvent =
 	  };
 
 type RebuildQueueOptions = {
-	run: () => Promise<void>;
+	run: (signal: AbortSignal) => Promise<void>;
 	onError: (err: unknown) => void;
 	onIdle?: () => void;
 };
@@ -136,13 +136,18 @@ export function stopKnowledgeBaseGraphWatcher(): void {
 }
 
 export async function stopActiveGraphRebuilds(): Promise<void> {
-	for (const queue of rebuilds.values()) queue.stop();
+	const queues = Array.from(rebuilds.values());
+	for (const queue of queues) queue.stop();
 	const running = Array.from(activeGraphBuilds.keys());
 	for (const child of running) signalGraphBuildTree(child, "SIGTERM");
 	await waitForGraphBuilds(running, GRAPH_BUILD_STOP_TIMEOUT_MS);
 	const remaining = running.filter((child) => activeGraphBuilds.has(child));
 	for (const child of remaining) signalGraphBuildTree(child, "SIGKILL");
 	await waitForGraphBuilds(remaining, GRAPH_BUILD_STOP_TIMEOUT_MS);
+	await Promise.race([
+		Promise.allSettled(queues.map((queue) => queue.waitForIdle())),
+		new Promise<void>((resolve) => setTimeout(resolve, GRAPH_BUILD_STOP_TIMEOUT_MS)),
+	]);
 	rebuilds.clear();
 }
 
@@ -171,6 +176,7 @@ export class GraphRebuildQueue {
 	private running = false;
 	private pending = false;
 	private stopping = false;
+	private activeRun: AbortController | null = null;
 	private idleResolvers: Array<() => void> = [];
 
 	constructor(private readonly options: RebuildQueueOptions) {}
@@ -188,6 +194,7 @@ export class GraphRebuildQueue {
 	stop(): void {
 		this.stopping = true;
 		this.pending = false;
+		this.activeRun?.abort();
 	}
 
 	waitForIdle(): Promise<void> {
@@ -199,10 +206,14 @@ export class GraphRebuildQueue {
 		try {
 			do {
 				this.pending = false;
+				const controller = new AbortController();
+				this.activeRun = controller;
 				try {
-					await this.options.run();
+					await this.options.run(controller.signal);
 				} catch (err) {
-					this.options.onError(err);
+					if (!controller.signal.aborted) this.options.onError(err);
+				} finally {
+					if (this.activeRun === controller) this.activeRun = null;
 				}
 			} while (this.pending && !this.stopping);
 		} finally {
@@ -281,10 +292,12 @@ export class KnowledgeBaseGraphWatcher {
 	}
 }
 
-async function rebuildGraph(kbPath: string): Promise<void> {
+async function rebuildGraph(kbPath: string, signal: AbortSignal): Promise<void> {
 	const repoRoot = await findRepoRoot();
+	signal.throwIfAborted();
 	const script = path.join(repoRoot, "scripts", "build-graph-data.sh");
 	await access(script);
+	signal.throwIfAborted();
 	let child: ChildProcess;
 	const completion = new Promise<void>((resolve, reject) => {
 		child = spawn(
@@ -303,10 +316,13 @@ async function rebuildGraph(kbPath: string): Promise<void> {
 			else reject(new Error(`graph rebuild exited with ${signal ?? `code ${code}`}`));
 		});
 	});
+	const stopChild = () => signalGraphBuildTree(child, "SIGTERM");
+	signal.addEventListener("abort", stopChild, { once: true });
 	activeGraphBuilds.set(child!, completion);
 	try {
 		await completion;
 	} finally {
+		signal.removeEventListener("abort", stopChild);
 		activeGraphBuilds.delete(child!);
 	}
 }
@@ -356,10 +372,13 @@ function emitGraphEvent(event: GraphEvent): void {
 
 function createDefaultRebuildQueue(kbPath: string): GraphRebuildQueue {
 	return new GraphRebuildQueue({
-		run: async () => {
+		run: async (signal) => {
 			const previous = await readGraphData(kbPath).catch(() => null);
-			await rebuildGraph(kbPath);
+			signal.throwIfAborted();
+			await rebuildGraph(kbPath, signal);
+			signal.throwIfAborted();
 			const graph = await readGraphData(kbPath);
+			signal.throwIfAborted();
 			if (graph.needsBuild) return;
 			emitGraphEvent({
 				type: "graph_updated",
