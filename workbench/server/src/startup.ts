@@ -94,5 +94,6 @@ async function closeHttpServer(
 	if (!server || !server.listening) return;
 	await new Promise<void>((resolve, reject) => {
 		server.close((error) => (error ? reject(error) : resolve()));
+		if ("closeAllConnections" in server) server.closeAllConnections();
 	});
 }
