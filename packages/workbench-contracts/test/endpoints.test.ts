@@ -6,10 +6,14 @@ import {
 	EndpointKindSchema,
 	EndpointSafetySchema,
 	ENDPOINT_REGISTRY,
+	DEV_WORKBENCH_ORIGINS,
 	findEndpoint,
+	hasTrustedBrowserSource,
+	isExplicitlyUntrustedSource,
 	isMigratedJsonPath,
 	MIGRATED_JSON_PATHS,
 	requiresCapabilityToken,
+	requiresTrustedSource,
 } from "../src/index.js";
 
 test("ENDPOINT_REGISTRY 每条 entry 形状合法", () => {
@@ -36,7 +40,7 @@ test("registry 覆盖四类 endpoint kind", () => {
 	}
 });
 
-test("registry 覆盖两类 safety 分类", () => {
+test("registry 覆盖公开、可信只读、状态变更三类 safety 分类", () => {
 	const safeties = new Set(ENDPOINT_REGISTRY.map((e) => e.safety));
 	for (const expected of EndpointSafetySchema.options) {
 		assert.ok(safeties.has(expected), `missing safety ${expected}`);
@@ -93,7 +97,7 @@ test("health 与设置/模型/auth status 是 migrated-json endpoint", () => {
 		(e) => e.method === "GET" && e.path === "/api/health",
 	);
 	assert.equal(health?.kind, "migrated-json");
-	assert.equal(health?.safety, "read-only");
+	assert.equal(health?.safety, "public");
 });
 
 test("isMigratedJsonPath 接受 migrated-json、拒绝 legacy path", () => {
@@ -123,7 +127,7 @@ test("config / models / auth status 已迁移为 migrated-json，并保持安全
 		assert.equal(isMigratedJsonPath(item.path), true, item.path);
 		assert.equal(
 			requiresCapabilityToken(item.method, item.path),
-			item.safety === "state-changing",
+			true,
 			`${item.method} ${item.path}`,
 		);
 	}
@@ -166,7 +170,7 @@ test("knowledge bases 与 active context 路由已迁移并保持安全分类", 
 		assert.equal(isMigratedJsonPath(item.path), true, item.path);
 		assert.equal(
 			requiresCapabilityToken(item.method, item.path),
-			item.safety === "state-changing",
+			true,
 			`${item.method} ${item.path}`,
 		);
 	}
@@ -193,7 +197,7 @@ test("conversations 路由已迁移并保持安全分类", () => {
 		assert.equal(isMigratedJsonPath(item.path), true, item.path);
 		assert.equal(
 			requiresCapabilityToken(item.method, item.path),
-			item.safety === "state-changing",
+			true,
 			`${item.method} ${item.path}`,
 		);
 	}
@@ -202,15 +206,9 @@ test("conversations 路由已迁移并保持安全分类", () => {
 // ============= #166 安全边界查询 =============
 
 test("禁止 GET 产生副作用：registry 里没有任何 GET 被标记为 state-changing", () => {
-	// spec §9：禁止 GET 产生副作用。数据层护栏——所有 GET 必须是只读白名单。
-	// 这条不变量保证安全中间件只要把 read-only 放行，就绝不会漏放一个会改状态的 GET。
 	for (const entry of ENDPOINT_REGISTRY) {
 		if (entry.method === "GET") {
-			assert.equal(
-				entry.safety,
-				"read-only",
-				`GET ${entry.path} 不允许标记为 state-changing`,
-			);
+			assert.notEqual(entry.safety, "state-changing", `GET ${entry.path} 不允许产生副作用`);
 		}
 	}
 });
@@ -228,19 +226,60 @@ test("findEndpoint 命中静态 path 与动态段 path", () => {
 	assert.equal(findEndpoint("get", "/api/health")?.path, "/api/health");
 });
 
-test("requiresCapabilityToken：state-changing 需要、read-only 豁免、未登记 fail closed", () => {
-	// read-only 白名单豁免 token
+test("requiresCapabilityToken：只有 public 豁免，本地读取和未登记入口 fail closed", () => {
 	assert.equal(requiresCapabilityToken("GET", "/api/health"), false);
-	assert.equal(requiresCapabilityToken("GET", "/api/events"), false); // 只读 SSE
+	assert.equal(requiresCapabilityToken("GET", "/api/events"), true);
 	assert.equal(
 		requiresCapabilityToken("GET", "/api/artifacts/x/files/y.md"),
-		false,
-	); // 文件下载
-	// state-changing 需要 token
+		true,
+	);
 	assert.equal(requiresCapabilityToken("POST", "/api/prompt"), true);
 	assert.equal(requiresCapabilityToken("POST", "/api/knowledge-bases/new"), true);
 	assert.equal(requiresCapabilityToken("PUT", "/api/graph/layout"), true);
 	assert.equal(requiresCapabilityToken("DELETE", "/api/knowledge-base"), true);
 	// 未登记 endpoint 安全默认：需要 token（避免漏网的新增状态改写路由）
 	assert.equal(requiresCapabilityToken("POST", "/api/unknown-new-route"), true);
+});
+
+test("只有 health 对不可信来源公开，本地内容读取仍要求可信来源", () => {
+	assert.equal(findEndpoint("GET", "/api/health")?.safety, "public");
+	assert.equal(requiresTrustedSource("GET", "/api/health"), false);
+	for (const path of [
+		"/api/config",
+		"/api/conversations",
+		"/api/page",
+		"/api/events",
+		"/api/artifacts/x/files/y.md",
+	]) {
+		assert.equal(findEndpoint("GET", path)?.safety, "read-only", path);
+		assert.equal(requiresTrustedSource("GET", path), true, path);
+	}
+	assert.equal(requiresTrustedSource("GET", "/api/unknown-new-route"), true);
+});
+
+test("可信开发来源和浏览器来源信号由共享契约统一判定", () => {
+	const trustedOrigins = new Set(DEV_WORKBENCH_ORIGINS);
+	assert.equal(
+		hasTrustedBrowserSource({ origin: "http://localhost:5180" }, trustedOrigins),
+		true,
+	);
+	assert.equal(
+		hasTrustedBrowserSource({ fetchSite: "same-origin" }, trustedOrigins),
+		true,
+	);
+	assert.equal(
+		hasTrustedBrowserSource({ origin: "null", fetchSite: "same-origin" }, trustedOrigins),
+		false,
+	);
+	assert.equal(
+		isExplicitlyUntrustedSource({ origin: "https://evil.example" }, trustedOrigins),
+		true,
+	);
+	assert.equal(
+		isExplicitlyUntrustedSource(
+			{ origin: "http://localhost:5180", fetchSite: "cross-site" },
+			trustedOrigins,
+		),
+		true,
+	);
 });

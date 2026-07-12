@@ -62,9 +62,9 @@ function headers(overrides: Record<string, string> = {}): Record<string, string>
 	return overrides;
 }
 
-// ============= read-only 白名单 =============
+// ============= public / trusted read-only =============
 
-test("read-only GET 白名单：无需 token / 来源即放行", async () => {
+test("public health：无需 token / 来源即放行", async () => {
 	const app = buildApp();
 	const res = await app.request("/api/health");
 	assert.equal(res.status, 200);
@@ -72,7 +72,7 @@ test("read-only GET 白名单：无需 token / 来源即放行", async () => {
 	assert.equal(json.ok, true);
 });
 
-test("read-only GET 即便来源不可信也放行（无副作用白名单）", async () => {
+test("public health 即便来源不可信也放行", async () => {
 	const app = buildApp();
 	const res = await app.request("/api/health", {
 		headers: headers({ origin: "http://evil.example" }),
@@ -80,37 +80,95 @@ test("read-only GET 即便来源不可信也放行（无副作用白名单）", 
 	assert.equal(res.status, 200);
 });
 
-test("POST 不等于需要 token：read-only 的 POST /api/echo 无 token 放行", async () => {
-	// 证明判据是 endpoint 的 safety，不是 HTTP method
+test("trusted read-only POST /api/echo：可信来源仍需 token", async () => {
 	const app = buildApp();
-	const res = await app.request("/api/echo", { method: "POST" });
-	assert.equal(res.status, 200);
+	const denied = await app.request("/api/echo", {
+		method: "POST",
+		headers: headers({ origin: TRUSTED_ORIGIN }),
+	});
+	assert.equal(denied.status, 403);
+	const allowed = await app.request("/api/echo", {
+		method: "POST",
+		headers: headers({ origin: TRUSTED_ORIGIN, [CAPABILITY_TOKEN_HEADER]: TOKEN }),
+	});
+	assert.equal(allowed.status, 200);
 });
 
-test("文件下载 GET 无 token / 来源即放行", async () => {
+test("文件下载 GET：可信来源和 token 缺一不可", async () => {
 	const app = buildApp();
+	const path = "/api/artifacts/11111111-1111-4111-8111-111111111111/files/report.md";
+	const denied = await app.request(path, { headers: headers({ origin: TRUSTED_ORIGIN }) });
+	assert.equal(denied.status, 403);
 	const res = await app.request(
-		"/api/artifacts/11111111-1111-4111-8111-111111111111/files/report.md",
+		path,
+		{ headers: headers({ origin: TRUSTED_ORIGIN, [CAPABILITY_TOKEN_HEADER]: TOKEN }) },
 	);
 	assert.equal(res.status, 200);
 });
 
-test("只读 graph EventSource GET 无 token / 来源即放行", async () => {
+test("只读 graph EventSource GET：不可信来源不能观察本地事件", async () => {
 	const app = buildApp();
 	const res = await app.request("/api/events", {
 		headers: headers({ origin: "http://evil.example" }),
 	});
-	assert.equal(res.status, 200);
-	assert.equal(res.headers.get("content-type")?.includes("text/event-stream"), true);
-	await res.body?.cancel();
+	assert.equal(res.status, 403);
+	assert.equal(((await res.json()) as EnvelopeJson).code, "FORBIDDEN_ORIGIN");
 });
 
-test("#168 migrated-json read-only GET 无 token 放行", async () => {
+test("migrated-json read-only GET：可信来源和 token 同时正确才放行", async () => {
 	const app = buildApp();
 	for (const path of ["/api/config", "/api/models", "/api/auth/status"]) {
-		const res = await app.request(path);
+		const denied = await app.request(path, { headers: headers({ origin: TRUSTED_ORIGIN }) });
+		assert.equal(denied.status, 403, path);
+		const res = await app.request(path, {
+			headers: headers({ origin: TRUSTED_ORIGIN, [CAPABILITY_TOKEN_HEADER]: TOKEN }),
+		});
 		assert.equal(res.status, 200, path);
 	}
+});
+
+test("浏览器同源 Fetch Metadata 仍需 token 才能读取本地内容", async () => {
+	const app = buildApp();
+	const denied = await app.request("/api/config", {
+		headers: headers({ "sec-fetch-site": "same-origin" }),
+	});
+	assert.equal(denied.status, 403);
+	const res = await app.request("/api/config", {
+		headers: headers({
+			"sec-fetch-site": "same-origin",
+			[CAPABILITY_TOKEN_HEADER]: TOKEN,
+		}),
+	});
+	assert.equal(res.status, 200);
+});
+
+test("本地内容读取：不可信或来源缺失均拒绝", async () => {
+	const app = buildApp();
+	for (const requestHeaders of [undefined, headers({ origin: "http://evil.example" })]) {
+		const res = await app.request("/api/config", { headers: requestHeaders });
+		assert.equal(res.status, 403);
+		assert.ok(
+			["FORBIDDEN_ORIGIN", "FORBIDDEN_LOCAL_API"].includes(
+				((await res.json()) as EnvelopeJson).code ?? "",
+			),
+		);
+	}
+});
+
+test("null origin 不能用 same-origin Fetch Metadata 绕过 token", async () => {
+	const app = buildApp();
+	const denied = await app.request("/api/config", {
+		headers: headers({ origin: "null", "sec-fetch-site": "same-origin" }),
+	});
+	assert.equal(denied.status, 403);
+	const allowed = await app.request("/api/config", {
+		headers: headers({
+			origin: "null",
+			"sec-fetch-site": "same-origin",
+			[CAPABILITY_TOKEN_HEADER]: TOKEN,
+		}),
+	});
+	assert.equal(allowed.status, 200);
 });
 
 test("#168 migrated-json state-changing POST /api/config 缺 token -> 403 FORBIDDEN_LOCAL_API", async () => {
@@ -231,6 +289,20 @@ test("不可信来源即便带正确 token -> 403 FORBIDDEN_ORIGIN", async () =>
 	assert.equal(json.code, "FORBIDDEN_ORIGIN");
 });
 
+test("明确的跨站请求即便伪装可信 Origin 并带 token 仍拒绝", async () => {
+	const app = buildApp();
+	const res = await app.request("/api/knowledge-bases/new", {
+		method: "POST",
+		headers: headers({
+			origin: TRUSTED_ORIGIN,
+			"sec-fetch-site": "cross-site",
+			[CAPABILITY_TOKEN_HEADER]: TOKEN,
+		}),
+	});
+	assert.equal(res.status, 403);
+	assert.equal(((await res.json()) as EnvelopeJson).code, "FORBIDDEN_ORIGIN");
+});
+
 test("null origin（桌面 WebView）不单独放行：仍需 token（#9）", async () => {
 	const app = buildApp();
 	// null + 无 token -> 拒（不能因 null 就放行）
@@ -254,7 +326,7 @@ test("null origin（桌面 WebView）不单独放行：仍需 token（#9）", as
 	assert.equal(allowed.status, 200);
 });
 
-test("缺省 origin（非浏览器可信客户端 / 同源）带 token 放行", async () => {
+test("缺省 origin 的本地客户端必须用正确 token 证明可信", async () => {
 	const app = buildApp();
 	const res = await app.request("/api/knowledge-bases/new", {
 		method: "POST",
