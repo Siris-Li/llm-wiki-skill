@@ -18,7 +18,7 @@ GitHub Issue: https://github.com/sdyckjq-lab/llm-wiki-skill/issues/190
 
 本规格有两个不同的“完成”定义：
 
-1. **当前规格分支完成**：只更新并发布本文档和独立待办，不执行审查、不修改工作台、不改变 GitHub 设置，也不更新或关闭 #158 及其子任务。
+1. **当前规格分支完成**：只更新并发布本文档、独立待办和任务关系；允许给 #158 追加当前审查说明并标明等待 #190，但不执行审查、不修改工作台、不改变主线保护、不改写旧任务正文或勾选，也不关闭任何审查对象。
 2. **#190 执行完成**：五个阶段全部通过，确认的问题已经分批修复，最终候选版本的全部证据齐全，#158 和 12 个子任务的记录完成收口。
 
 #190 是统筹任务，不是一张实现票，也不对应一个包含全部改动的大分支或大合并请求。它只记录阶段、关卡、关联问题、正式报告和最终结论。
@@ -67,6 +67,7 @@ GitHub Issue: https://github.com/sdyckjq-lab/llm-wiki-skill/issues/190
 
 **开始条件**
 
+- 本规格已经合入主线；合入前 #191 不得标为 `ready-for-agent`。
 - 记录审查开始时的主线完整版本号、时间、Node 版本和操作系统。
 - 重新确认执行者仍有 GitHub 管理权限，可以维护父子关系、任务状态、自动检查和主线保护。
 - 固定原始设计、父任务、12 个子任务、12 个合并请求、开工时被引用的 PRODUCT/ADR、当前产品约定和相关决策记录。
@@ -75,6 +76,8 @@ GitHub Issue: https://github.com/sdyckjq-lab/llm-wiki-skill/issues/190
 
 - 读取历史、代码、测试、任务修改记录和 GitHub 设置。
 - 在隔离环境中运行不会改变仓库和任务状态的验证。
+- 在冻结初次报告前完成一次只读入口清点，把实际运行入口、启动阶段另外挂载的入口和官方登记逐项对齐；此处只固定现状，不修入口。
+- 所有自动或半自动验证只传入明确允许的基础环境变量，主动清除模型密钥和外部配置。
 - 在仓库外保存受限的敏感安全证据。
 - 在独立审查文档分支中创建并提交初次报告；“只读”针对产品代码、原任务正文和 GitHub 状态，不禁止写审查产物。
 
@@ -85,13 +88,14 @@ GitHub Issue: https://github.com/sdyckjq-lab/llm-wiki-skill/issues/190
 
 **必须产物**
 
+- `docs/audits/issue-158-baseline.md`：带版本、时间和校验结果的正式基线记录，包含来源版本、GitHub 状态和只读入口清点结果；#190 永久记录其固定提交和入口。
 - `docs/audits/issue-158-initial-audit.md`：不可改写的初次审查报告，包含逐条证据矩阵、全部实际请求入口、设计变更、合并前审查意见和初次结论。
 - 每条要求和入口都有稳定编号；每个结论都有适合该要求的证据，或明确标为暂时无法验证。
 - 安全问题在公开报告中只使用匿名证据编号，完整材料留在仓库外。
 
 **退出关卡**
 
-- 原始范围全部追踪完毕；初次报告已经固定，后续只能引用，不能把“未落实”直接改成“已落实”。
+- 原始范围和只读清点得到的全部入口均已追踪；初次报告的固定提交和校验结果已经登记，后续只能引用，不能把“未落实”直接改成“已落实”。
 - 所有发现已分级并标明是否阻止关闭，即使尚未修复也不能漏项。
 
 ### Phase 2: 问题分流与 GitHub 整理
@@ -101,7 +105,8 @@ GitHub Issue: https://github.com/sdyckjq-lab/llm-wiki-skill/issues/190
 - 原子任务原本承诺却未完成时，重新打开对应的 #165 至 #176。
 - 审查中新发现的问题，新建任务并关联 #158 和 #190。
 - 建立 #165 至 #176 与 #158 的正式父子关系，清理与当前状态矛盾的标签。
-- T4 至 T7 等任何会修改代码或 GitHub 设置的工作，必须先建立独立关联任务；#190 不能直接作为代码分支或合并请求的实现票。
+- 给 #158 追加带日期的当前审查说明并建立 `#158 blocked by #190`，不改写旧正文或旧勾选。
+- 任何会修改代码或 GitHub 设置的工作，必须先建立独立关联任务；#190 不能直接作为代码分支或合并请求的实现票。
 
 **记录规则**
 
@@ -109,46 +114,60 @@ GitHub Issue: https://github.com/sdyckjq-lab/llm-wiki-skill/issues/190
 - GitHub 任务只放简明结论和正式报告入口，不复制完整证据。
 - 严重安全问题的公开任务只描述影响和安全处理状态，不公开可直接利用的细节。
 - 每个获准保留的旧入口例外都必须有稳定编号、明确的不阻塞理由，以及关联的后续任务或“永久保留”批准记录。
+- 每个发现必须归入四类之一：阻止基础检查建立、基础检查生效后修复、非阻塞后续、用户明确永久接受。前两类中新建的修复任务成为 #190 的正式子任务；重新打开的 #165 至 #176 作为 #158 的原子任务。两者都必须真实阻止对应后续任务；非阻塞后续只普通关联。
+- 阻止基础检查建立的问题先修，并阻塞受影响的地基任务和 #196；其他阻塞修复必须等待 #196 生效后再开始，并全部阻塞 #200。
+- 任何晚发现的重要问题都重新打开 #193 并立即阻塞 #200；若影响程序、配置或检查方式，已经固定的最终候选同时失效。
+- `ready-for-agent` 只放在当前没有未完成前置项的任务上；任务完成后由 #190 把标签交给全部新进入可执行状态的下一任务。
 
 **退出关卡**
 
-- 每个初次发现都有唯一处理去向、严重程度、是否阻塞、关联任务和预期验证。
+- 每个初次发现都有唯一处理去向、严重程度、是否阻塞、是否妨碍基础检查、关联任务和预期验证。
+- #200 已被 #193、#196 和全部阻止关闭的修复任务共同阻塞；重新打开 #193 会自动停止最终验收。
 - #190 页面能够直接看见五阶段状态，但不承载具体修复实现。
 
 ### Phase 3: 建立自动检查、浏览器地基和主线保护
 
 **实施顺序**
 
-1. 在独立基础设施分支中建立两项稳定检查：`quality-and-tests` 与 `browser-main-flows`。
-2. 两项检查在主线成功产生记录后，再启用主线保护并把它们设为必过。
-3. Phase 3 先用 GitHub 返回的生效规则完成配置验收；进入 Phase 4 后，再用第一个真实修复合并请求记录“检查未完成时不能合并、全部通过后才允许合并”的实际证据，不制造专门的失败任务。
+1. #197 建立真实启动、重启和隔离地基；#198 建立运行时入口与官方清单的长期一致性检查；#199 在 #197 上建立真实前后台浏览器地基。
+2. #194 把 #197、#198 和现有项目检查组合成 `quality-and-tests`；#195 在 #199 上建立七类用户旅程并产生 `browser-main-flows`。
+3. 所有“阻止基础检查建立”的问题先用独立任务修复；地基任务本身不顺手修产品问题。
+4. 两项检查在主线成功产生记录后，由 #196 启用主线保护并把它们设为必过。
+5. #196 只验收当时已经存在的成功记录和生效规则；真实拦截证据由第一张修复请求取得。若没有修复，#200 自己创建一张只追加候选版本验收证据的文档请求取得该证据；这不是由 #201 封存和发布的最终报告请求。
 
 **防止修复被锁死**
 
 - Phase 3 先保护现有稳定检查、真实浏览器框架和通用安全规则。
 - 已知问题的专门防退化检查与该问题的修复放在同一个合并请求中，不把所有必然失败的检查提前设为必过。
+- 当前已知旧入口可以作为带稳定编号和处理任务的临时例外进入地基检查，但例外不能增加；最终关闭前，未获用户明确批准的例外必须归零。
 - 不允许为了让基线变绿而把错误行为写成正确预期；初次报告继续保留该缺口，直到对应修复和专门检查一起合入。
 
 **退出关卡**
 
 - 两项检查都能在 Linux 干净环境中从零安装和运行。
-- 主线保护配置已经生效，规则明确禁止直接写入主线和未通过检查的合并绕过；真实修复请求上的实际拦截证据在 Phase 4 补齐，并作为 Phase 5 的必过条件。
-- 浏览器检查连接真实前台、真实 HTTP 和真实后台请求处理，只替换模型调用和系统文件夹选择器等不可控外部边界。
+- 主线保护配置已经生效，规则明确禁止直接写入主线和未通过检查的合并绕过；#196 不等待未来修复，实际拦截证据作为 #200 的必过条件。
+- 正式启动与测试启动共用同一个启动核心；测试替身只存在于测试范围，不进入正式构建，普通启动也没有切换开关。
+- 自动检查只传入最小允许环境，主动清除所有模型密钥和外部配置；任何真实外部请求都会失败。
+- 浏览器检查连接真实前台、真实 HTTP 和真实后台请求处理，只在外部模型和系统文件夹选择器边界使用测试替身，不拦截并伪造全部 `/api/**`。
+- 每项操作、单项检查和整项任务都有明确最长时间；无论成功失败都关闭前台、后台和浏览器并释放端口，不用自动重跑掩盖程序问题。
 - 失败时仅上传处理过的日志、截图和操作记录，保存 7 天；成功时不上传这些材料。
 
 ### Phase 4: 独立分支逐项修复
 
 **分支规则**
 
+- 只有阻止基础检查建立的问题可以在 #196 前修复，并且必须由 #193 明确分类；其他阻塞修复均被 #196 阻塞。
 - 每个已确认问题使用独立且大小合适的任务、分支和合并请求。
 - 所有代码和 GitHub 设置改动都从 Phase 2 创建的关联任务开分支；#190 只更新阶段状态、任务链接和结论。
 - 同一根因影响多条证据记录时，可以由同一个问题和修复处理，但必须列出全部稳定编号；不能为每一行表格机械创建一个合并请求。
 - 每个修复在同一合并请求中加入针对该问题的防退化检查，并通过 Phase 3 的两项必过检查。
+- 第一张真实修复请求记录“检查未完成时不能合并、全部通过后才允许合并”的实际结果；后续修复复用这份规则证据。
 - 如果修复改变用户行为或新增功能，照常更新 CHANGELOG、README 和版本号；纯审查文档不触发这些更新。
 
 **退出关卡**
 
 - 所有阻塞问题均已合入主线，初次报告中的每个阻塞发现都能对应到处理决定、任务、修复和验证。
+- #200 的全部动态阻塞关系已经解除；非阻塞后续不会拖住最终验收。
 - 不允许用修改原始设计或旧任务文字代替修复。
 
 ### Phase 5: 同版本最终复验与关闭
@@ -157,6 +176,7 @@ GitHub Issue: https://github.com/sdyckjq-lab/llm-wiki-skill/issues/190
 
 - 所有修复合入后固定一个 `FINAL_CANDIDATE_SHA`。
 - 本地确定性检查、真实启动检查、浏览器主流程、真实模型对话和 GitHub 检查都必须针对这个版本。
+- 同时固定验收环境清单：操作系统、Node、依赖锁、浏览器、检查命令、测试数据、GitHub 运行记录与保护规则，以及真实模型的服务商、模型名、时间和实际请求次数。
 - 之后只允许增加审查报告和任务记录等不影响程序的证据提交，并保存差异证明；任何程序、配置或检查方式变化都会使候选失效，必须重新验证。
 
 **必须产物**
@@ -165,13 +185,16 @@ GitHub Issue: https://github.com/sdyckjq-lab/llm-wiki-skill/issues/190
 - 本地与 GitHub 的阶段关卡、最终检查摘要永久进入正式报告；普通日常检查和详细日志按 GitHub 自身期限保留。
 - #165 至 #176 追加带日期的最终验收记录，保留原任务正文和原勾选状态。
 - #158 更新简明结论、正式报告入口、最终候选版本和关闭依据。
-- #158 关闭后，#190 更新五阶段完成摘要并关闭；安全证据的 30 天清理由独立的无敏感细节清理任务跟踪，不让 #190 长期充当实施票。
+- 若存在无法同时满足的历史要求，执行者必须先用简单语言说明影响和推荐；只有用户可以批准降低原始承诺，决定前不得关闭。
+- 所有记录完成后，执行者按 #201、#190、#158 的顺序关闭，并再次核对三者状态和等待关系。
+- 若产生私密安全证据，由独立的无敏感细节清理任务跟踪最迟关闭后 30 天的本机删除，不让 #190 长期充当实施票。
 
 **退出关卡**
 
 - 所有阻塞要求为“已落实”或“已接受的等效落实”。
 - 两项 GitHub 必过检查成功，主线保护的实际拦截证据成立。
-- 最终本机验收、一次真实模型对话、父子关系和子任务证据全部完成。
+- 最终本机验收、最多一次真正发往模型服务的请求、父子关系和子任务证据全部完成；无法确认请求是否送达时视为额度已使用且不自动重试。
+- #200 与 #201 均已完成，初次报告固定版本和校验结果再次确认未被改写。
 - 只有满足全部条件，执行者才直接更新并关闭 #158。
 
 ## Authority and Baseline
@@ -185,7 +208,7 @@ GitHub Issue: https://github.com/sdyckjq-lab/llm-wiki-skill/issues/190
 - 父任务和子任务在该时间点已有的验收要求。
 - 开工前已存在且被设计或任务明确引用的 PRODUCT 与 ADR 固定版本；它们属于原始承诺的约束来源。
 
-如果这些来源互相冲突，必须进入设计变更表，不得静默选一个覆盖另一个。
+如果这些来源互相冲突，必须进入设计变更表，不得静默选一个覆盖另一个。能同时满足时取并集；确实不能同时满足时，执行者先采用更保护用户、安全、隐私和数据边界的一边，并用简单语言说明影响和推荐。执行者无权自行降低原始承诺，只有用户留下带日期的明确批准后才能接受取舍；决定前 #158 保持打开。
 
 ### 后来规则怎样使用
 
@@ -257,12 +280,11 @@ Phase 1 之后若发现漏掉的入口或问题，不得回写初次报告。使
 
 ### 敏感安全证据
 
-- 完整材料保存在仓库外的 `~/.llm-wiki-audit/158/`，目录和文件仅当前账户可读。
+- 只保存证明问题和修复所必需的最少材料，放在仓库外的 `~/.llm-wiki-audit/158/`；目录权限 0700、文件权限 0600，仅当前账户可读。
 - 公开报告只写匿名证据编号、安全影响和处理状态。
-- 敏感材料从创建起就放在加密容器中；每份材料记录完整性校验值，解密信息与档案分开保存。
-- 不主动增加云端副本；已有加密系统备份可以覆盖该目录。
+- 不主动复制、上传或增加云端副本；每份保留材料记录负责人、创建时间、必要理由和完整性校验值。
 - #190 执行者在最终报告中登记“#158 关闭后 30 天”的清理日期，并创建不含敏感内容的独立清理任务。
-- 到期后删除本机加密档案和独立解密信息，记录完成时间、档案编号和验证结果；如果系统备份不能同步清除，删除独立解密信息，使备份中的加密档案不可恢复，并等待备份按正常期限过期。
+- 到期后删除本机材料并记录完成时间、档案编号和验证结果；如果系统正常备份不能同步清除，只如实记录它将按系统期限过期，不声称能够立即彻底抹除。
 
 ## User Stories
 
@@ -350,28 +372,33 @@ Prompt 与工具事件流                 已有        已有        新增    
 ### 请求、合同和前台测试
 
 - 对每个真实入口核对请求方式、地址、官方登记、安全分类、前台调用和返回规则。
-- 后台运行时实际入口必须与 `ENDPOINT_REGISTRY` 完全一致；启动文件不得在统一组装位置之外新增入口。
+- 后台运行时实际入口必须与 `ENDPOINT_REGISTRY` 在请求方式和地址上完全一致。统一组装位置之外的当前入口只能作为带稳定编号和处理任务的临时例外，不能增加；最终关闭前未获用户批准的例外必须归零。
 - 覆盖错误 JSON、缺字段、字段类型错误、无当前知识库、知识库未登记或失效、路径禁止、来源禁止、访问凭证错误、资源不存在、冲突、不支持平台、任务繁忙和内部错误脱敏。
 - Prompt、批量消化和图谱事件覆盖正常完成、取消、断线、无法解析、未知版本、字段缺失、顺序倒退、重复结束、缺少结束和结束后追加事件。
-- 所有只读豁免入口都检查实际行为，证明不会写文件、改配置、触发模型或泄露用户内容。
+- 所有只读豁免入口都检查实际行为，证明不会写文件、改配置或触发模型；正常工作台可以读取所需内容，但陌生网页不能读取响应内容，响应也不得开放不受信任的跨站读取。
 
 ### 真实进程与隔离
 
 - 正式自动验收运行在一次性 Linux 干净环境中，真实知识库、应用数据和模型凭证根本不存在；`HOME` 仍指向临时目录。
+- 正式启动与测试启动共用同一个启动核心；测试替身只在测试范围注入，不进入正式构建，普通启动没有测试切换开关。
+- 自动进程和它启动的全部子进程只继承最小允许环境，明确清除模型密钥和外部配置；任何真实外部请求都会使检查失败。
 - 单独启动真实后台进程，验证只绑定本机地址、启动凭证权限、原子替换、重启换新凭证、启动恢复和不向临时目录之外写入。
+- 启动、操作和整项检查都有最长时间；所有退出路径都关闭子进程并释放端口，不用自动重跑掩盖程序问题。
 - 本机临时目录测试只作补充，不再用“运行前后没变化”证明没有读取真实资料。
 
 ### 浏览器关键旅程
 
-浏览器使用真实前台、真实端口、真实 HTTP/SSE 和真实后台处理。不得用 Playwright 拦截并伪造全部 `/api/**`；只在后台依赖边界替换真实模型和系统目录选择器。
+浏览器使用真实前台、真实端口、真实 HTTP/SSE 和共用启动核心的真实后台处理。不得用 Playwright 拦截并伪造全部 `/api/**`；只在后台依赖边界替换真实模型和系统目录选择器，替身不能进入正式构建或普通启动路径。
 
 至少覆盖：
 
-- 两个临时知识库和两个对话之间切换，页面、图谱、消息和产出物不串数据。
-- 选择、清除和恢复知识库；新建与切换对话；未发送消息的新对话保持正确。
-- 读取 wiki 页面和引用；查看与重建图谱；处理繁忙和失败恢复。
-- 发送可控消息、生成中重复发送、取消、断线恢复和最终稳定状态。
-- 查看产出物、预览和文件下载；验证不存在资源的可恢复提示。
+- 知识库：选择、清除和重启恢复，并验证两个临时知识库之间的页面、图谱、消息和产出物不串数据。
+- 对话：新建、切换、刷新后保持正确，未发送消息的空对话也不会丢失。
+- 页面：读取 wiki 页面和引用，并能从页面不存在的情况恢复。
+- 图谱：查看与重建图谱，覆盖繁忙、失败恢复和事件更新。
+- 消息：发送可控消息、生成中重复发送、取消、断线恢复和最终稳定状态。
+- 产出物：查看、预览和文件下载，并验证不存在资源的可恢复提示。
+- 设置与模型：保存设置、读取模型列表和查看脱敏认证状态。
 
 大量错误排列由请求和合同测试完整覆盖，不在浏览器重复所有组合。
 
@@ -383,10 +410,10 @@ Prompt 与工具事件流                 已有        已有        新增    
 
 ### 两项 GitHub 必过检查
 
-1. `quality-and-tests`：干净安装、边界检查及其自测、合同测试、后台测试、前台普通与页面测试、图谱引擎测试、类型检查、前台规范检查和构建。共享产物按确定顺序生成，避免重复构建竞态。
-2. `browser-main-flows`：安装 Playwright Chromium，启动真实前后台，运行代表性用户旅程。
+1. `quality-and-tests`：本机和 GitHub 共用一条统一命令，从干净安装开始运行边界检查及其自测、合同测试、后台测试、前台普通与页面测试、图谱引擎测试、类型检查、前台规范检查和构建。每个独立环境只按确定顺序生成一次共享产物，后续检查复用结果。
+2. `browser-main-flows`：安装 Playwright Chromium，启动真实前后台，运行上述七类用户旅程。
 
-两项检查并行运行。当前全模拟的 `visual:paper` 继续作为本机视觉回归，不作为真实前后台证据，也不在完成可移植性改造前成为必过项。
+两项检查在两个独立干净环境中并行运行；每项都在拉取请求和主线更新时运行，不使用会漏掉工作台影响的路径过滤，权限保持最小。单项与整项均有最长时间，失败时清理全部进程。当前全模拟的 `visual:paper` 继续作为本机视觉回归，不作为真实前后台证据，也不在完成可移植性改造前成为必过项。
 
 ### 失败材料与长期记录
 
@@ -397,11 +424,11 @@ Prompt 与工具事件流                 已有        已有        新增    
 
 ### 最终真实模型验收
 
-- 只在所有修复完成后的 `FINAL_CANDIDATE_SHA` 上调用一次当前已配置模型。
+- 只在所有修复完成后的 `FINAL_CANDIDATE_SHA` 上，最多发出一次真正到当前模型服务的请求；“一次用户消息”不能代替实际请求次数限制。
 - 使用临时知识库和无敏感内容的最小问题，从页面发送，收到有效结束事件并显示完整答复，刷新后对话仍存在。
 - 开始前再次取得明确授权，只读一次真实 `auth.json`，载入内存认证存储；不复制到磁盘、不写日志、不进报告。
 - 验收前后比较原凭证文件的权限和完整性，证明没有修改；进程结束后内存凭证消失。
-- 若请求在到达模型前失败，不计入一次调用；若模型已经收到请求但外部服务失败，记录为无法验证并等待用户决定是否重试。
+- 只有能够证明请求未离开本机时才不计入额度；无法确认是否送达或模型已经收到后失败，都视为额度已使用，记录为无法验证且不自动重试，只有用户可以再次授权。
 
 ## Failure Modes
 
@@ -409,103 +436,123 @@ Prompt 与工具事件流                 已有        已有        新增    
 |---|---|---|
 | 事后文字覆盖开工承诺 | 固定完整版本和任务修改记录 | 报告明确列出原要求与后来变更 |
 | 初次发现被修复状态覆盖 | 初次报告与最终报告分开 | 可同时看到“原来怎样”和“后来怎样” |
+| 初次报告冻结前漏掉实际入口 | #191 先完成只读入口清点并固定结果 | #192 不接受缺少来源或入口的报告 |
 | 实际入口未进入官方清单 | 运行时入口与 registry 自动一一比对 | 检查直接报出多出或缺失的入口 |
 | 自动检查提前锁死修复 | 通用检查先必过，问题检查随修复加入 | 每个修复仍可独立合并 |
-| 自动验收读取真实资料 | 一次性干净环境中不存在真实目录 | 检查失败而不是静默接触用户数据 |
+| 自动验收读取真实资料或环境密钥 | 一次性目录加最小环境白名单，主动清除密钥和外部配置 | 检查失败而不是静默接触用户数据或真实服务 |
+| 测试启动与正式启动逐渐漂移 | 两个入口共用启动核心，替身只存在于测试范围 | 浏览器证据始终覆盖正式启动步骤 |
 | 浏览器仍在模拟全部后台 | 禁止拦截 `/api/**`，断言真实 HTTP 请求 | 浏览器检查无法伪装成全链路通过 |
 | 临时模型替身与真实模型差异 | 最终候选只做一次真实模型主路径 | 最终报告明确真实链路是否成功 |
+| 真实模型内部产生多次费用 | 记录实际服务请求次数并硬限制为一次 | 无法确认送达时不自动重试，等待用户决定 |
 | 真实模型验收修改凭证 | 内存读取和前后完整性比较 | 任何变化都会阻止关闭 |
 | 日志或截图泄露内容 | 虚构数据、清理、仅失败上传、7 天删除 | 敏感材料不会进入公开记录 |
+| 前后台或事件流卡住 | 分层时限、所有退出路径清理进程、禁止用重试掩盖 | 检查及时失败并留下已清理证据 |
 | 主线保护只写了设置却未生效 | GitHub 规则记录加真实修复任务等待/通过状态 | 合并按钮实际受检查结果控制 |
-| 多种验证来自不同版本 | 固定 `FINAL_CANDIDATE_SHA` | 报告拒绝拼接不同版本的成功结果 |
+| 多种验证来自不同版本或环境 | 固定 `FINAL_CANDIDATE_SHA` 和验收环境清单 | 报告拒绝拼接不同版本或未记录条件的成功结果 |
+| 历史要求冲突被执行者擅自取舍 | 记录影响，只有用户可以批准降低原承诺 | 决定前 #158 保持打开 |
 | 子任务事后勾选改写历史 | 保留原正文，只追加带日期记录 | 能区分原关闭状态与本次补验 |
 | 并行修复同时改共享入口文件 | 共享集成通道串行合入 | 冲突在合并前显式处理，不静默覆盖 |
-| 私有安全证据损坏或久留 | 完整性校验、加密、关闭后 30 天删除 | 缺证会阻止安全结论，过期材料会清理 |
+| 私有安全证据损坏、扩散或久留 | 最少留存、权限限制、负责人、校验和关闭后 30 天内删除 | 缺证会阻止安全结论，过期本机材料会清理并如实记录备份限制 |
 
 本规格已经为上述新路径安排验证和明确失败结果，没有“无检查、无错误处理且静默失败”的已知关键缺口。
 
 ## Worktree Parallelization
 
-五阶段关卡本身必须顺序推进；只有 Phase 4 中互不共享模块的修复可以并行。
+五阶段关卡本身必须顺序推进；地基任务只在不共享写入区域时并行，Phase 4 中互不共享模块的修复可以并行。
 
 | 工作流 | 主要区域 | 依赖 |
 |---|---|---|
-| 冻结基线与初次报告 | `docs/audits/`、GitHub 只读数据 | 无 |
+| 冻结基线与初次报告 | `docs/audits/`、GitHub 只读数据 | 规格合入主线 |
 | 问题分流与任务关系 | GitHub Issues | 初次报告 |
-| 自动检查与测试地基 | `.github/`、`workbench/web/test/`、`workbench/server/` | 问题分流 |
-| 知识库类修复 | contracts、server knowledge-base、web API | 自动检查地基 |
-| 认证与设置类修复 | server auth/config、web API | 自动检查地基 |
-| 诊断、命令与系统能力修复 | server routes、web API | 自动检查地基 |
+| 真实启动与隔离 | `workbench/server/` | 问题分流 |
+| 入口一致性 | contracts、server、边界检查 | 真实启动与隔离 |
+| 浏览器地基 | `workbench/web/test/`、server 测试边界 | 真实启动与隔离 |
+| 统一质量检查 | `.github/`、根命令 | 入口一致性 |
+| 七类浏览器主流程 | `workbench/web/test/` | 浏览器地基 |
+| 主线保护 | GitHub 设置 | 两项检查和启用保护前修复 |
+| 知识库类修复 | contracts、server knowledge-base、web API | 主线保护（启用保护前修复除外） |
+| 认证与设置类修复 | server auth/config、web API | 主线保护（启用保护前修复除外） |
+| 诊断、命令与系统能力修复 | server routes、web API | 主线保护（启用保护前修复除外） |
 | 共享入口集成 | contracts registry、server app/startup、边界检查 | 各领域修复 |
 | 最终复验与收口 | `docs/audits/`、GitHub Issues/设置 | 所有修复 |
 
 ```text
-Core: Phase 1 -> Phase 2 -> Phase 3 ---------------------------> Phase 5
-                                  |
-                                  +-> Lane B: 知识库类修复 ----+
-                                  +-> Lane C: 认证设置修复 -----+-> Integration
-                                  +-> Lane D: 其他入口修复 -----+
+#191 -> #192 -> #193 -> #197 -> #198 -> #194 --+
+                            \-> #199 -> #195 --+-> #196
+                                                     |
+                                                     +-> repair lanes -> integration
+                                                     |
+                  #193 + #196 + all blocking repairs -> #200 -> #201 -> #190 -> #158
 ```
 
-- Phase 3 通过后，Lane B、C、D 可以在独立 worktree 并行。
+- #197 先固定共享启动核心；随后 #198 与 #199 可以在独立 worktree 并行，#194 与 #195 分别承接它们。
+- Phase 3 通过后，知识库、认证设置和其他入口修复可以在独立 worktree 并行。
 - 任何同时修改 registry、`createApp`、启动入口或边界检查的工作都进入 Integration，按顺序合入。
 - 实际分组以 Phase 2 的确认问题为准；没有独立问题时不为了并行机械拆票。
 
 ## Implementation Decisions
 
-- 当前规格分支只交付文档和待办，不执行 #190。
+- 当前规格分支只交付文档和任务管理同步，不执行 #190 的实际审查、检查建设或修复。
 - #190 只统筹；任何代码、测试或 GitHub 设置改动都必须先成为独立关联任务。
 - 使用已有 Node 测试、Testing Library、Playwright、GitHub Actions 和 GitHub 主线保护，不引入新测试框架或外部自动检查平台。
-- 复用 `createApp(deps)`；不新增生产服务。测试地基最多增加一个浏览器启动帮助入口和一个真实进程隔离帮助入口。
-- 旧入口是否必须迁移由初次审查逐项裁定，但所有实际入口最终都必须进入统一组装和运行时清单比对。
+- 复用 `createApp(deps)`；不新增生产服务。正式与测试启动共用一个启动核心；测试范围最多增加一个真实进程启动帮助入口和一个浏览器帮助入口，假模型与假选择器不进入正式构建。
+- 本机与 GitHub 共用一条完整质量命令；两个 GitHub 检查使用独立干净环境并行，每个环境内部只生成一次共享产物。
+- 旧入口是否必须迁移由初次审查逐项裁定，但所有实际入口都必须进入运行时清单比对。原则上它们也必须进入统一组装；只有用户明确批准的辅助入口可以作为永久例外，并且必须有稳定编号、批准记录和专门的边界检查。
 - 修复按确认问题分支推进，不能把审查、全部修复、自动检查和关闭操作放进一个合并请求。
 - 每个修复先跑针对性验证；全部修复完成后只在最终候选版本上跑一次完整复验和真实模型调用。
+- 历史要求冲突不能由执行者自行删减；只有用户可以批准降低原始承诺。
+- `ready-for-agent` 随当前可执行边界移动；规格未合入主线前 #191 不可领取。
 - 提示文字不要求逐字不变，只要求含义、影响、恢复方式和下一步行动不退化。
 
 ## Implementation Tasks
 
-Synthesized from this review's findings. Before implementation, each task must become an independent issue linked from #190; #190 only orchestrates them, and the current specification branch executes none of them.
+This is the only authoritative execution list. GitHub issue numbers, native parent-child links, and native blocking links carry the live state; #190 only orchestrates them. The current specification branch executes none of these tasks.
 
-- [ ] **T1 (P1, human: ~4h / CC: ~45min)** - Audit baseline - Freeze design, issue, PR, product, and GitHub-permission snapshots
-  - Surfaced by: Architecture and outside review - later edits could overwrite the historical promise.
-  - Files: `docs/audits/`, GitHub #158 and #165-#176 edit history
-  - Verify: every source has a full version, timestamp, and pre-implementation cutoff.
-- [ ] **T2 (P1, human: ~1d / CC: ~2h)** - Initial audit - Produce the immutable bidirectional evidence matrix
-  - Surfaced by: Architecture and code-quality review - requirements and actual endpoints need stable IDs and one complete source.
-  - Files: `docs/audits/issue-158-initial-audit.md`
-  - Verify: the report opens with a plain-language result and then gives every original requirement, endpoint, and unresolved review comment evidence, verdict, and blocker status.
-- [ ] **T3 (P1, human: ~4h / CC: ~45min)** - GitHub routing - Reopen original misses, create new findings, and establish parent-child records
-  - Surfaced by: Code-quality review - issue history must stay intact while later audit evidence remains visible.
-  - Files: GitHub #158, #165-#176, #190, and finding issues
-  - Verify: original checklists are unchanged; every finding points to one stable report ID.
-- [ ] **T4 (P1, human: ~1d / CC: ~2h)** - Route inventory - Compare runtime routes with the canonical registry
-  - Surfaced by: Outside review - manually synchronized lists can both omit the same endpoint.
-  - Files: `packages/workbench-contracts/`, `workbench/server/`, `workbench/scripts/`
-  - Verify: adding an unregistered runtime endpoint or a registry-only endpoint fails the boundary test.
-- [ ] **T5 (P1, human: ~1d / CC: ~2h)** - Required checks - Add two stable GitHub checks and main protection
-  - Surfaced by: Architecture and performance review - repair PRs need fast, stable, enforceable protection.
-  - Files: `.github/workflows/`, root/workspace scripts, GitHub repository settings
-  - Verify: `quality-and-tests` and `browser-main-flows` pass on main and are required before merge.
-- [ ] **T6 (P1, human: ~2d / CC: ~4h)** - Browser acceptance - Add real frontend/backend representative journeys
-  - Surfaced by: Test review - the existing visual runner mocks every API request.
-  - Files: `workbench/web/test/`, `workbench/server/` test dependencies
-  - Verify: two knowledge bases, two conversations, page, graph, prompt, cancellation, artifact, and download journeys pass without `/api/**` interception.
-- [ ] **T7 (P1, human: ~1d / CC: ~2h)** - Startup isolation - Test the real process in a disposable environment
-  - Surfaced by: Test and outside review - `createApp` tests do not prove bootstrap, token, binding, restart, or disk behavior.
-  - Files: `workbench/server/` startup and security tests
-  - Verify: local-only binding, token mode/rotation, recovery, and no writes outside temporary data all pass.
-- [ ] **T8 (P1, human: variable / CC: variable)** - Repairs - Fix each confirmed blocker with its own regression proof
-  - Surfaced by: Phase 1 evidence matrix.
-  - Files: determined by each routed finding; shared registry/startup changes merge through the integration lane.
-  - Verify: targeted test first, then both required GitHub checks.
-- [ ] **T9 (P1, human: ~1d / CC: ~2h)** - Final candidate - Run all deterministic, process, browser, Mac, and one-model acceptance
-  - Surfaced by: Test and outside review - evidence from different versions cannot be combined.
-  - Files: `docs/audits/issue-158-closeout.md`, final candidate checkout
-  - Verify: all evidence names one `FINAL_CANDIDATE_SHA`; any runtime-relevant diff invalidates it.
-- [ ] **T10 (P1, human: ~4h / CC: ~45min)** - Closeout - Publish final evidence and close #158 only when every gate passes
-  - Surfaced by: Code-quality review - final verdict needs deterministic rollup and non-duplicated evidence.
-  - Files: `docs/audits/issue-158-closeout.md`, GitHub #158, #165-#176, #190
-  - Verify: the report opens with a plain-language close decision; every blocking row is “已落实” or “换一种方式落实”; all issue records are appended and the security-evidence cleanup task is recorded.
+- [ ] **[#191](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/191) (P1, human: ~4h / CC: ~45min)** - 固定正式基线并完成冻结前的只读入口清点。
+  - Blocked by: reviewed specification merged into main.
+  - Verify: versioned baseline, source versions, route census, environment and GitHub state are pinned and linked from #190.
+- [ ] **[#192](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/192) (P1, human: ~1d / CC: ~2h)** - 只使用 #191 基线完成并冻结初次审查。
+  - Blocked by: #191.
+  - Verify: every requirement, runtime endpoint and unresolved review comment appears exactly once with a stable ID, evidence, verdict and blocker status.
+- [ ] **[#193](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/193) (P1, human: ~4h / CC: ~45min)** - 分流发现、维护任务关系并区分启用保护前后修复。
+  - Blocked by: #192.
+  - Verify: every finding has one route; each blocking item is either a new #190 child or a reopened original #158 child, and blocks the correct downstream task.
+- [ ] **[#197](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/197) (P1, human: ~1d / CC: ~2h)** - 建立共用启动核心、真实进程隔离和最小环境安全检查。
+  - Blocked by: #193.
+  - Verify: local-only binding, token permissions and rotation, untrusted-page data isolation, restart, environment scrubbing, disk isolation, timeouts and cleanup all pass.
+- [ ] **[#198](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/198) (P1, human: ~1d / CC: ~2h)** - 建立实际入口与官方清单的一致性检查。
+  - Blocked by: #197.
+  - Verify: runtime-only and registry-only negative controls fail; numbered temporary exceptions cannot grow.
+- [ ] **[#199](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/199) (P1, human: ~1d / CC: ~2h)** - 建立真实前后台浏览器测试地基。
+  - Blocked by: #197.
+  - Verify: real HTTP/SSE runs with test-only model and picker injection, no full API interception, no real keys, bounded cleanup, and no production test toggle.
+- [ ] **[#194](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/194) (P1, human: ~1d / CC: ~2h)** - 建立本机与 GitHub 共用的 `quality-and-tests`。
+  - Blocked by: #198 and any routed pre-protection blocker that prevents it from passing.
+  - Verify: one command runs the complete quality list, prepares shared outputs once, and produces a stable main/PR check.
+- [ ] **[#195](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/195) (P1, human: ~2d / CC: ~4h)** - 建立七类真实前后台旅程和 `browser-main-flows`。
+  - Blocked by: #199 and any routed pre-protection blocker that prevents it from passing.
+  - Verify: knowledge base, conversation, page, graph, prompt, artifact, and settings/model/auth journeys pass with explicit recovery paths.
+- [ ] **[#196](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/196) (P1, human: ~4h / CC: ~45min)** - 两项检查在 main 成功后启用主线保护。
+  - Blocked by: #194, #195 and all pre-protection repairs.
+  - Verify: GitHub reports effective required checks, PR-only updates and no bypass; future repair evidence is not falsely claimed here.
+- [ ] **动态阻塞修复 (P1, human / CC: variable)** - #193 只根据确认发现创建大小合适的修复任务。
+  - Blocked by: #196, except explicitly classified pre-protection repairs.
+  - Verify: each repair includes its targeted regression proof and both required checks; every blocking repair blocks #200.
+- [ ] **[#200](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/200) (P1, human: ~1d / CC: ~2h)** - 在同一最终版本和记录环境中完成全部验收。
+  - Blocked by: #193, #196 and every blocking repair.
+  - Verify: deterministic, process, browser, Mac, one-provider-request, GitHub and issue evidence all name the same final candidate and environment manifest; when no repair PR exists, #200's own evidence-only PR supplies the protection proof before #201 starts.
+- [ ] **[#201](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/201) (P1, human: ~4h / CC: ~45min)** - 发布最终报告并完成 #201、#190、#158 的关闭顺序。
+  - Blocked by: #200.
+  - Verify: the initial report hash is unchanged, every blocking row is accepted or implemented, all issue records are appended, and final states are re-read from GitHub.
+
+```text
+spec merge -> #191 -> #192 -> #193 -> #197 -> #198 -> #194 --+
+                                           \-> #199 -> #195 --+-> #196
+                                                                    |
+                                                                    +-> routed repairs
+                                                                    |
+                       #193 + #196 + all blocking repairs -> #200 -> #201 -> #190 -> #158
+```
 
 ## Out of Scope
 
@@ -519,6 +566,9 @@ Synthesized from this review's findings. Before implementation, each task must b
 - 不把现有全模拟的 `visual:paper` 当成真实前后台证明；其可移植性改造单独进入 `TODOS.md`。
 - 不永久归档每次普通自动检查的详细日志，只永久保存阶段关卡和最终关闭摘要。
 - 不新增“每次合并必须由另一位真人批准”的规则。
+- 不为了本次验收把全部环境封装成新容器，也不在没有实际耗时数据前增加依赖缓存平台。
+- 不新建长期加密档案或备份管理系统；私密安全证据只按最少留存、权限限制和可验证本机删除处理。
+- 不在审查规格中预先要求所有只读入口改为携带访问凭证；先验证正常工作台可读、陌生网页不可读和只读无副作用。
 - 不公开尚可利用的严重安全复现细节，也不把敏感证据提交到任何分支。
 - 不通过修改开工时设计或旧任务正文让当前结果显得合格。
 
@@ -530,61 +580,40 @@ Synthesized from this review's findings. Before implementation, each task must b
 - 当前账号在规格审查时拥有 GitHub ADMIN 权限，但 Phase 1 仍要重新检查，避免执行时权限已经变化。
 - 当前没有 GitHub workflow、主线保护或 ruleset；Phase 3 使用 GitHub 原生能力补齐。
 - 6 条未标记解决的合并前审查意见、7 个旧入口、子任务未逐项补证和实施后设计修改都只是审查线索，不是预先认定的问题。
-- `ready-for-agent` 只放在当前执行入口 #191；#190 只统筹，不作为实现任务领取。
+- #158 已正式被 #190 阻塞，并追加了带日期的当前审查说明；旧正文和勾选保持不变。
+- 规格合入主线前没有任务带 `ready-for-agent`；合入后先交给 #191，以后由 #190 随当前可执行边界移交。
 - Phase 1 后的晚发现事项进入最终报告的追加区并退回 Phase 2，不修改已冻结的初次报告。
-
-## Published Ticket Map
-
-#190 只统筹；当前可以开始的唯一任务是 #191。#192 至 #196 已建立 GitHub 原生阻塞关系，只有前置任务完成后才进入可执行状态。
-
-| 顺序 | 任务 | 交付结果 | 阻塞于 | 发布标签 |
-|---|---|---|---|---|
-| 1 | [#191 固定 #158 完工审查基线](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/191) | 固定原始承诺、当前结果、环境和权限快照 | 无 | `enhancement`, `ready-for-agent` |
-| 2 | [#192 完成并冻结 #158 初次完工审查](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/192) | 产出不可改写的初次报告和双向证据矩阵 | #191 | `enhancement` |
-| 3 | [#193 分流审查发现并整理 GitHub 任务关系](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/193) | 让每个发现都有唯一去向，并按真实发现拆出修复与最终收口任务 | #192 | `enhancement` |
-| 4A | [#194 建立代码、请求入口与真实启动质量检查](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/194) | 建立 `quality-and-tests` | #193 | `enhancement` |
-| 4B | [#195 建立真实前后台浏览器主流程检查](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/195) | 建立 `browser-main-flows` | #193 | `enhancement` |
-| 5 | [#196 启用两项必过检查和主线保护](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/196) | 两项检查成功后启用不可绕过的主线保护 | #194, #195 | `enhancement` |
-
-```text
-#191 -> #192 -> #193 -> #194 --+
-                        \-> #195 --+-> #196
-```
-
-#190 已成为 #158 的正式子任务；#191 至 #196 已成为 #190 的正式子任务。#190 和所有子任务使用 `enhancement`，仅当前执行入口 #191 额外使用 `ready-for-agent`。
-
-Phase 4 的具体修复任务和 Phase 5 的最终同版本复验收口任务，要等 #192 的初次报告冻结后，由 #193 根据已确认发现再次拆分。当前不创建笼统的“修复全部问题”任务，也不为尚未确认的问题预设修复。
 
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |---|---|---|---:|---|---|
-| CEO Review | `/plan-ceo-review` | Scope and strategy | 0 | Not run | Not needed for this audit specification |
+| CEO Review | `/plan-ceo-review` | Scope and strategy | 0 | Not run | No product direction or user-facing feature change |
 | Codex Review | `/codex review` | Independent code review | 0 | Not run | No implementation diff exists |
-| Eng Review | `/plan-eng-review` | Architecture and tests | 1 | CLEAR | 18 issues or test gaps resolved, 0 critical gaps |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | Not run | No user-interface redesign is in scope |
+| Eng Review | `/plan-eng-review` | Architecture and tests | 2 | CLEAR | Current run resolved 14 section findings, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | Not run | No interface redesign is in scope |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | Not run | No separate developer-tooling product change |
-| Outside Voice | automatic Codex pass | Independent plan challenge | 1 | RESOLVED | 10 findings: 8 decisions accepted, 1 duplicate, 1 permission concern verified absent |
+| Outside Voice | automatic Codex pass | Independent plan challenge | 2 | RESOLVED | Current pass found 8 issues; all 8 decisions accepted and integrated |
 
 **COMPLETION SUMMARY:**
 
-- Step 0: complete scope retained and split into a five-phase orchestrator.
-- Architecture Review: 4 issues found and resolved.
-- Code Quality Review: 6 issues found and resolved.
-- Test Review: coverage diagram produced; 7 concrete gaps mapped to tasks.
-- Performance Review: 1 issue found and resolved with two parallel required checks.
-- NOT in scope: written.
-- What already exists: written.
-- TODOS.md updates: 1 item proposed and accepted.
-- Failure modes: 0 silent critical gaps remain in the specification.
-- Outside voice: Codex ran; all substantive findings were resolved.
-- Parallelization: 5 logical lanes; 3 repair lanes may run in parallel, phase gates and shared integration remain sequential.
-- Lake Score: 26/26 complete recommendations accepted.
+- Step 0: complete scope retained; oversized tickets were split without reducing #158 closeout coverage.
+- Architecture Review: 6 issues found and resolved.
+- Code Quality Review: 3 issues found and resolved.
+- Test Review: coverage diagram produced; 3 gaps found and resolved.
+- Performance Review: 2 issues found and resolved.
+- NOT in scope: written and tightened around containers, caching, read-only auth redesign and private-evidence infrastructure.
+- What already exists: retained as the reuse source for contracts, `createApp`, Node tests, Playwright and boundary checks.
+- TODOS.md updates: 0 new items; the existing portable Paper visual-regression item remains separate.
+- Failure modes: 0 silent critical gaps remain after route census, environment scrubbing, bounded cleanup and final-environment pinning.
+- Outside voice: Codex ran; 8 additional findings were individually accepted and integrated.
+- Parallelization: startup is sequential first; route and browser foundations then form 2 parallel lanes; 3 independent repair lanes may run after protection.
+- Lake Score: 24/24 completeness decisions chose the complete option.
 
-**CODEX:** The outside voice found a sequencing deadlock, historical-version gaps, isolation and credential risks, incomplete endpoint discovery, evidence-retention ambiguity, mixed-version proof risk, and private-evidence lifecycle gaps. All were resolved in the reviewed specification.
+**CODEX:** The second outside pass found pre-freeze route-discovery, inherited-secret, read-only security wording, real-model request-count, shared-startup, conflict-authority, final-environment and private-evidence gaps. All were resolved.
 
-**CROSS-MODEL:** The only material tension concerned when checks become mandatory. It was resolved by making stable general checks mandatory before repairs while adding each known problem's dedicated regression check with that repair.
+**CROSS-MODEL:** Three tensions were resolved in favor of stricter executable boundaries: scrub environment secrets in addition to temporary HOME, share one startup core while keeping fakes test-only, and simplify private evidence to minimum retention rather than an unverifiable backup-erasure system.
 
-**VERDICT:** ENG CLEARED. The reviewed specification is ready to begin Phase 1 after merge; no #190 implementation has started.
+**VERDICT:** ENG CLEARED. The task graph now continues through confirmed repairs, one final candidate, final evidence, #190 close and #158 close; implementation may begin only after this specification merges.
 
 NO UNRESOLVED DECISIONS
