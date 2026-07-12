@@ -530,8 +530,30 @@ Synthesized from this review's findings. Before implementation, each task must b
 - 当前账号在规格审查时拥有 GitHub ADMIN 权限，但 Phase 1 仍要重新检查，避免执行时权限已经变化。
 - 当前没有 GitHub workflow、主线保护或 ruleset；Phase 3 使用 GitHub 原生能力补齐。
 - 6 条未标记解决的合并前审查意见、7 个旧入口、子任务未逐项补证和实施后设计修改都只是审查线索，不是预先认定的问题。
-- `ready-for-agent` 表示 #190 可以开始 Phase 1，不表示可以把五阶段工作作为一次实现直接执行。
+- `ready-for-agent` 只放在当前执行入口 #191；#190 只统筹，不作为实现任务领取。
 - Phase 1 后的晚发现事项进入最终报告的追加区并退回 Phase 2，不修改已冻结的初次报告。
+
+## Published Ticket Map
+
+#190 只统筹；当前可以开始的唯一任务是 #191。#192 至 #196 已建立 GitHub 原生阻塞关系，只有前置任务完成后才进入可执行状态。
+
+| 顺序 | 任务 | 交付结果 | 阻塞于 | 发布标签 |
+|---|---|---|---|---|
+| 1 | [#191 固定 #158 完工审查基线](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/191) | 固定原始承诺、当前结果、环境和权限快照 | 无 | `enhancement`, `ready-for-agent` |
+| 2 | [#192 完成并冻结 #158 初次完工审查](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/192) | 产出不可改写的初次报告和双向证据矩阵 | #191 | `enhancement` |
+| 3 | [#193 分流审查发现并整理 GitHub 任务关系](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/193) | 让每个发现都有唯一去向，并按真实发现拆出修复与最终收口任务 | #192 | `enhancement` |
+| 4A | [#194 建立代码、请求入口与真实启动质量检查](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/194) | 建立 `quality-and-tests` | #193 | `enhancement` |
+| 4B | [#195 建立真实前后台浏览器主流程检查](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/195) | 建立 `browser-main-flows` | #193 | `enhancement` |
+| 5 | [#196 启用两项必过检查和主线保护](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/196) | 两项检查成功后启用不可绕过的主线保护 | #194, #195 | `enhancement` |
+
+```text
+#191 -> #192 -> #193 -> #194 --+
+                        \-> #195 --+-> #196
+```
+
+#190 已成为 #158 的正式子任务；#191 至 #196 已成为 #190 的正式子任务。#190 和所有子任务使用 `enhancement`，仅当前执行入口 #191 额外使用 `ready-for-agent`。
+
+Phase 4 的具体修复任务和 Phase 5 的最终同版本复验收口任务，要等 #192 的初次报告冻结后，由 #193 根据已确认发现再次拆分。当前不创建笼统的“修复全部问题”任务，也不为尚未确认的问题预设修复。
 
 ## GSTACK REVIEW REPORT
 
