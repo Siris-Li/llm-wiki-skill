@@ -10,7 +10,7 @@
 
 把碎片化的信息变成持续积累、互相链接的知识库
 
-[![version](https://img.shields.io/badge/v3.6.43-本地访问保护-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.44-可靠启动-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-多平台-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -97,6 +97,7 @@ bash install.sh --platform hermes
 | 🧰 | **工作台动态工具状态** | agent 执行工具时显示当前动作；完成后折叠成摘要，避免主对话被工具流水账刷屏 |
 | 🛡️ | **工作台安全流式对话** | prompt、工具状态、产物和终态使用统一流式契约；异常、乱序或中断的流会安全结束并恢复继续输入，公开状态不回显知识库路径或检索原文 |
 | 🔒 | **工作台本地访问保护** | 本地配置、对话、页面、图谱事件、文件和状态操作都只对同时通过来源与启动凭证检查的工作台开放 |
+| ✅ | **工作台可靠启动** | 后台只监听本机，重启会更换访问凭证并恢复上次知识库，退出时主动释放进程和端口；自动检查全程使用一次性用户环境 |
 
 ---
 
@@ -154,6 +155,7 @@ bash install.sh --platform claude --with-optional-adapters
 - **工作台对话自动跟随** — 发送消息和接收长回复时默认跟随最新内容，用户上翻阅读历史时暂停，并提供图标按钮回到底部
 - **工作台工具摘要** — `workbench/` 对话区采用 `omp` 风格动态工具状态，停止时显示取消状态，历史工具调用默认折叠为分组摘要
 - **工作台本地访问保护** — 本地内容和状态操作都要同时通过来源与启动凭证检查，陌生网页不能读取内容或改变工作台状态
+- **工作台可靠启动** — 正式启动和自动检查走同一套恢复与关闭流程；重启会换新访问凭证并恢复上次知识库，检查不会读取真实用户资料或模型密钥
 - **知识库健康检查** — 脚本检测孤立页面、断链、index 一致性；AI 层面检查矛盾和交叉引用
 - **ingest 隐私自查** — 首次消化素材时提醒检查手机号、API key 等敏感信息
 - **图谱关系词汇表** — 可选的手动标注词汇，让图谱表达更精确
