@@ -5,10 +5,19 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-import { CAPABILITY_TOKEN_HEADER } from "@llm-wiki/workbench-contracts";
+import {
+	CAPABILITY_TOKEN_HEADER,
+	DEV_WORKBENCH_ORIGINS,
+} from "@llm-wiki/workbench-contracts";
+
+import {
+	createDevApiRequestGuard,
+	shouldInjectCapabilityToken,
+} from "./dev-api-security";
 
 const apiOrigin = process.env.LLM_WIKI_AGENT_API_ORIGIN || "http://localhost:8787";
 const disableHmr = process.env.LLM_WIKI_AGENT_DISABLE_HMR === "1";
+const trustedOrigins = new Set(DEV_WORKBENCH_ORIGINS);
 
 // ============= 本地 capability token（#166） =============
 //
@@ -47,7 +56,20 @@ function readCapabilityTokenSync(): string | undefined {
 
 // https://vite.dev/config/
 export default defineConfig({
-	plugins: [react(), tailwindcss()],
+	plugins: [
+		{
+			name: "llm-wiki-dev-api-security",
+			configureServer(server) {
+				const guard = createDevApiRequestGuard(trustedOrigins);
+				server.middlewares.use((request, response, next) => {
+					if (!request.url?.startsWith("/api")) return next();
+					guard(request, response, next);
+				});
+			},
+		},
+		react(),
+		tailwindcss(),
+	],
 	resolve: {
 		alias: {
 			"@": resolve(import.meta.dirname, "./src"),
@@ -64,8 +86,9 @@ export default defineConfig({
 				target: apiOrigin,
 				changeOrigin: true,
 				configure: (proxy) => {
-					// 把 capability token 注入到每个转发到后端的 /api 请求头。
-					proxy.on("proxyReq", (proxyReq) => {
+					// 为已通过来源检查且访问本地内容的请求注入 capability token。
+					proxy.on("proxyReq", (proxyReq, request) => {
+						if (!shouldInjectCapabilityToken(request)) return;
 						const token = readCapabilityTokenSync();
 						if (token) proxyReq.setHeader(CAPABILITY_TOKEN_HEADER, token);
 					});

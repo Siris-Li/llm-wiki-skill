@@ -17,8 +17,9 @@ import { z } from "zod";
  *   - `sse`          启动请求 + 事件流按 SSE 契约处理。显式例外：不套 envelope。
  *
  * - `safety`：本地 API 信任边界分类（#166 消费，本包只提供 metadata 单一来源）。
- *   - `read-only`       无副作用，豁免 capability token（health、只读 graph
- *     events、文件下载、各类 list / read）。
+ *   - `public`          不接触用户内容的公开探活入口。
+ *   - `read-only`       无副作用但会读取本地内容，必须同时通过可信来源与
+ *     capability token（只读 graph events、文件下载、各类 list / read）。
  *   - `state-changing`  会读写文件、改配置、触发模型、启动 SSE、取消任务，必须
  *     带本次启动的 capability token。
  *
@@ -50,12 +51,49 @@ export const EndpointKindSchema = z.enum([
 export type EndpointKind = z.infer<typeof EndpointKindSchema>;
 
 /**
- * endpoint 本地 API 安全分类（#166 消费）。read-only 豁免 capability token；
- * state-changing 必须带 token。未登记 endpoint 默认按 state-changing 处理
- * （见 isReadOnly 的安全默认）。
+ * endpoint 本地 API 安全分类（#166 消费）。public 无需本地信任证明；
+ * read-only 与 state-changing 都要求可信来源和 token，二者区别是有无副作用。
+ * 未登记 endpoint 默认按 state-changing 处理。
  */
-export const EndpointSafetySchema = z.enum(["read-only", "state-changing"]);
+export const EndpointSafetySchema = z.enum([
+	"public",
+	"read-only",
+	"state-changing",
+]);
 export type EndpointSafety = z.infer<typeof EndpointSafetySchema>;
+
+/** 开发工作台的固定同源入口；server 与 Vite 代理共享，避免来源清单漂移。 */
+export const DEV_WORKBENCH_ORIGINS = [
+	"http://localhost:5180",
+	"http://127.0.0.1:5180",
+] as const;
+
+export interface RequestSourceSignals {
+	readonly origin?: string;
+	readonly fetchSite?: string;
+}
+
+/** 明确冲突的浏览器来源信号优先拒绝，即便另一个信号看似可信。 */
+export function isExplicitlyUntrustedSource(
+	signals: RequestSourceSignals,
+	trustedOrigins: ReadonlySet<string>,
+): boolean {
+	return (
+		signals.fetchSite === "cross-site" ||
+		(signals.origin !== undefined &&
+			signals.origin !== "null" &&
+			!trustedOrigins.has(signals.origin))
+	);
+}
+
+/** 显式 Origin 优先；`null` 不能借 same-origin 信号冒充可信浏览器来源。 */
+export function hasTrustedBrowserSource(
+	signals: RequestSourceSignals,
+	trustedOrigins: ReadonlySet<string>,
+): boolean {
+	if (signals.origin !== undefined) return trustedOrigins.has(signals.origin);
+	return signals.fetchSite === "same-origin";
+}
 
 // ============= endpoint entry =============
 
@@ -94,8 +132,8 @@ export const ENDPOINT_REGISTRY = [
 		method: "GET",
 		path: "/api/health",
 		kind: "migrated-json",
-		safety: "read-only",
-		description: "心跳，无副作用，豁免 token",
+		safety: "public",
+		description: "心跳，不读取本地内容，可公开探活",
 	},
 
 	// ---------- sse（显式例外：启动请求 + 事件流） ----------
@@ -419,14 +457,20 @@ export function findEndpoint(
 /**
  * 该请求是否需要本地 capability token（#166 安全中间件消费）。
  *
- * - 命中 `state-changing` endpoint → 需要 token。
- * - 命中 `read-only` endpoint → 豁免（显式白名单）。
+ * - 命中 `public` endpoint → 豁免 token。
+ * - 命中 `read-only` / `state-changing` endpoint → 需要 token。
  * - 未登记 endpoint → **安全默认：需要 token**（fail closed，避免漏网的新增状态改写路由）。
  */
 export function requiresCapabilityToken(method: string, path: string): boolean {
-	const entry = findEndpoint(method, path);
-	if (!entry) return true;
-	return entry.safety === "state-changing";
+	return findEndpoint(method, path)?.safety !== "public";
+}
+
+/**
+ * 该请求是否必须证明来自可信工作台来源。
+ * 只有显式登记为 public 的入口豁免；未登记入口默认关闭。
+ */
+export function requiresTrustedSource(method: string, path: string): boolean {
+	return findEndpoint(method, path)?.safety !== "public";
 }
 
 // ============= 静态自检（编译期护栏，被 typecheck 覆盖） =============
