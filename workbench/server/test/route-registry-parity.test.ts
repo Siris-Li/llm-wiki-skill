@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { Hono } from "hono";
+
 import {
 	ENDPOINT_REGISTRY,
 	type EndpointEntry,
@@ -43,6 +45,28 @@ test("只增加真实入口会失败", () => {
 	assert.throws(
 		() => assertRouteRegistryParity({ mounted, declared: RUNTIME_ENDPOINT_DECLARATIONS, registry: ENDPOINT_REGISTRY }),
 		/mounted only: GET \/api\/unregistered/,
+	);
+});
+
+test("真实 Hono 路由中的 ALL 和 /api 根入口不会被静默忽略", () => {
+	const assembled = new Hono();
+	const runtime = new Hono();
+	runtime.use("/api/*", async (_c, next) => next());
+	runtime.all("/api/all", (c) => c.text("ok"));
+	runtime.get("/api", (c) => c.text("ok"));
+
+	const mounted = collectMountedEndpoints({
+		assembledRoutes: assembled.routes,
+		runtimeRoutes: runtime.routes,
+	});
+
+	assert.deepEqual(mounted, [
+		{ method: "ALL", path: "/api/all", source: "startup" },
+		{ method: "GET", path: "/api", source: "startup" },
+	]);
+	assert.throws(
+		() => assertRouteRegistryParity({ mounted, declared: [], registry: [] }),
+		/mounted only: ALL \/api\/all[\s\S]*mounted only: GET \/api/,
 	);
 });
 
@@ -110,6 +134,21 @@ test("安全分类不一致会失败", () => {
 	);
 });
 
+test("后台声明与官方清单同时误把其他入口改为公开也会失败", () => {
+	const mounted = collectCurrentMountedEndpoints();
+	const declared = replaceDeclaration("GET", "/api/config", { safety: "public" });
+	const registry = ENDPOINT_REGISTRY.map((entry) =>
+		entry.method === "GET" && entry.path === "/api/config"
+			? { ...entry, safety: "public" as const }
+			: entry,
+	);
+
+	assert.throws(
+		() => assertRouteRegistryParity({ mounted, declared, registry }),
+		/unapproved public endpoint: GET \/api\/config/,
+	);
+});
+
 test("旧入口缺少稳定发现编号或处理任务会失败", () => {
 	const mounted = collectCurrentMountedEndpoints();
 	const declared = replaceDeclaration("POST", "/api/auth/set", {
@@ -124,6 +163,22 @@ test("旧入口缺少稳定发现编号或处理任务会失败", () => {
 		}),
 		/legacy exception metadata missing: POST \/api\/auth\/set/,
 	);
+});
+
+test("旧入口必须绑定自己的稳定发现编号和处理任务", () => {
+	const mounted = collectCurrentMountedEndpoints();
+	for (const [temporaryLegacyException, expected] of [
+		[{ finding: "FIND-999" as const, issue: 205 }, /legacy exception mismatch: POST \/api\/auth\/set/],
+		[{ finding: "FIND-001" as const, issue: 206 }, /legacy exception mismatch: POST \/api\/auth\/set/],
+	] as const) {
+		const declared = replaceDeclaration("POST", "/api/auth/set", {
+			temporaryLegacyException,
+		});
+		assert.throws(
+			() => assertRouteRegistryParity({ mounted, declared, registry: ENDPOINT_REGISTRY }),
+			expected,
+		);
+	}
 });
 
 test("旧入口例外数量不能超过当前七个", () => {
@@ -172,6 +227,35 @@ test("统一组装之外的新辅助入口没有批准和专门检查记录时�
 			registry,
 		}),
 		/auxiliary approval metadata missing: GET \/api\/auxiliary/,
+	);
+});
+
+test("伪造的辅助入口批准和检查记录不能通过", () => {
+	const extra: RuntimeEndpointDeclaration = {
+		method: "GET",
+		path: "/api/auxiliary",
+		kind: "migrated-json",
+		safety: "read-only",
+		source: "startup",
+		approvedAuxiliary: {
+			id: "AUX-001",
+			approval: "https://github.com/sdyckjq-lab/llm-wiki-skill/issues/198",
+			boundaryCheck: "not-a-real-check",
+		},
+	};
+	const mounted: readonly MountedEndpoint[] = [
+		...collectCurrentMountedEndpoints(),
+		{ method: extra.method, path: extra.path, source: extra.source },
+	];
+	const registry: readonly EndpointEntry[] = [...ENDPOINT_REGISTRY, extra];
+
+	assert.throws(
+		() => assertRouteRegistryParity({
+			mounted,
+			declared: [...RUNTIME_ENDPOINT_DECLARATIONS, extra],
+			registry,
+		}),
+		/unapproved auxiliary endpoint: GET \/api\/auxiliary/,
 	);
 });
 

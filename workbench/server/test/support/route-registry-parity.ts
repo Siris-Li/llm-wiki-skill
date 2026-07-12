@@ -50,9 +50,18 @@ interface AssertRouteRegistryParityOptions {
 	readonly registry: readonly EndpointEntry[];
 }
 
-const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]);
-const MAX_TEMPORARY_LEGACY_EXCEPTIONS = 7;
-const LEGACY_EXCEPTION_ISSUES = new Set([205, 206, 207]);
+const SECURITY_MIDDLEWARE_KEY = "ALL /api/*";
+const EXPECTED_PUBLIC_ENDPOINTS = new Set(["GET /api/health"]);
+const TEMPORARY_LEGACY_EXCEPTIONS = new Map<string, TemporaryLegacyException>([
+	["POST /api/echo", { finding: "FIND-001", issue: 207 }],
+	["POST /api/knowledge-bases/new", { finding: "FIND-001", issue: 206 }],
+	["POST /api/knowledge-bases/init-existing", { finding: "FIND-001", issue: 206 }],
+	["GET /api/commands", { finding: "FIND-001", issue: 207 }],
+	["POST /api/system/choose-directory", { finding: "FIND-001", issue: 206 }],
+	["POST /api/auth/set", { finding: "FIND-001", issue: 205 }],
+	["POST /api/auth/test", { finding: "FIND-001", issue: 205 }],
+]);
+const APPROVED_AUXILIARY_ENDPOINTS = new Map<string, ApprovedAuxiliaryEndpoint>();
 
 /**
  * Server-side declaration of route ownership and response/security intent.
@@ -101,11 +110,18 @@ export function collectMountedEndpoints(
 ): readonly MountedEndpoint[] {
 	const assembledKeys = new Set(
 		options.assembledRoutes
-		.filter((route) => isApiEndpoint(route.method, route.path))
+		.filter((route) => isApiPath(route.path))
 		.map(endpointKey),
 	);
-	return options.runtimeRoutes
-		.filter((route) => isApiEndpoint(route.method, route.path))
+	const runtimeApiRoutes = options.runtimeRoutes.filter((route) => isApiPath(route.path));
+	const securityMiddlewareCount = runtimeApiRoutes.filter(
+		(route) => endpointKey(route) === SECURITY_MIDDLEWARE_KEY,
+	).length;
+	if (securityMiddlewareCount !== 1) {
+		throw new Error(`expected exactly one ${SECURITY_MIDDLEWARE_KEY} middleware, found ${securityMiddlewareCount}`);
+	}
+	return runtimeApiRoutes
+		.filter((route) => endpointKey(route) !== SECURITY_MIDDLEWARE_KEY)
 		.map((route) => ({
 			method: route.method.toUpperCase(),
 			path: route.path,
@@ -151,27 +167,41 @@ export function assertRouteRegistryParity(
 	for (const key of registry.keys()) {
 		if (!declared.has(key)) errors.push(`registry only: ${key}`);
 	}
+	for (const [key, declaration] of declared) {
+		if (declaration.safety === "public" && !EXPECTED_PUBLIC_ENDPOINTS.has(key)) {
+			errors.push(`unapproved public endpoint: ${key}`);
+		}
+	}
+	for (const key of EXPECTED_PUBLIC_ENDPOINTS) {
+		if (declared.get(key)?.safety !== "public") {
+			errors.push(`expected public endpoint missing: ${key}`);
+		}
+	}
 
 	const legacy = options.declared.filter((entry) => entry.kind === "legacy");
 	for (const entry of options.declared) {
+		const key = endpointKey(entry);
 		const exception = entry.temporaryLegacyException;
 		if (entry.kind !== "legacy" && exception) {
 			errors.push(`legacy exception metadata on non-legacy endpoint: ${endpointKey(entry)}`);
 		}
 		if (entry.kind !== "legacy") continue;
 		if (!exception) {
-			errors.push(`legacy exception metadata missing: ${endpointKey(entry)}`);
+			errors.push(`legacy exception metadata missing: ${key}`);
 			continue;
 		}
-		if (!/^FIND-\d{3}$/.test(exception.finding)) {
-			errors.push(`invalid legacy finding: ${endpointKey(entry)} (${exception.finding})`);
-		}
-		if (!LEGACY_EXCEPTION_ISSUES.has(exception.issue)) {
-			errors.push(`invalid legacy issue: ${endpointKey(entry)} (#${exception.issue})`);
+		const expected = TEMPORARY_LEGACY_EXCEPTIONS.get(key);
+		if (!expected || exception.finding !== expected.finding || exception.issue !== expected.issue) {
+			errors.push(`legacy exception mismatch: ${key}`);
 		}
 	}
-	if (legacy.length > MAX_TEMPORARY_LEGACY_EXCEPTIONS) {
-		errors.push(`legacy exception count increased: ${legacy.length} > ${MAX_TEMPORARY_LEGACY_EXCEPTIONS}`);
+	if (legacy.length > TEMPORARY_LEGACY_EXCEPTIONS.size) {
+		errors.push(`legacy exception count increased: ${legacy.length} > ${TEMPORARY_LEGACY_EXCEPTIONS.size}`);
+	}
+	for (const key of TEMPORARY_LEGACY_EXCEPTIONS.keys()) {
+		if (declared.get(key)?.kind !== "legacy") {
+			errors.push(`stale legacy exception allowlist: ${key}`);
+		}
 	}
 
 	for (const entry of options.declared) {
@@ -185,14 +215,19 @@ export function assertRouteRegistryParity(
 			errors.push(`auxiliary approval metadata missing: ${endpointKey(entry)}`);
 			continue;
 		}
-		if (!/^AUX-\d{3}$/.test(approval.id)) {
-			errors.push(`invalid auxiliary id: ${endpointKey(entry)} (${approval.id})`);
+		const expected = APPROVED_AUXILIARY_ENDPOINTS.get(endpointKey(entry));
+		if (
+			!expected ||
+			approval.id !== expected.id ||
+			approval.approval !== expected.approval ||
+			approval.boundaryCheck !== expected.boundaryCheck
+		) {
+			errors.push(`unapproved auxiliary endpoint: ${endpointKey(entry)}`);
 		}
-		if (!/^https:\/\/github\.com\/sdyckjq-lab\/llm-wiki-skill\/(issues|pull)\/\d+/.test(approval.approval)) {
-			errors.push(`invalid auxiliary approval record: ${endpointKey(entry)}`);
-		}
-		if (approval.boundaryCheck.trim() === "") {
-			errors.push(`auxiliary boundary check missing: ${endpointKey(entry)}`);
+	}
+	for (const key of APPROVED_AUXILIARY_ENDPOINTS.keys()) {
+		if (!declared.get(key)?.approvedAuxiliary) {
+			errors.push(`stale auxiliary approval allowlist: ${key}`);
 		}
 	}
 
@@ -201,8 +236,8 @@ export function assertRouteRegistryParity(
 	}
 }
 
-function isApiEndpoint(method: string, path: string): boolean {
-	return HTTP_METHODS.has(method.toUpperCase()) && path.startsWith("/api/");
+function isApiPath(path: string): boolean {
+	return path === "/api" || path.startsWith("/api/");
 }
 
 function endpointKey(entry: { readonly method: string; readonly path: string }): string {

@@ -7,7 +7,7 @@ import { z } from "zod";
  *
  * - `kind`：迁移状态 + 响应形态。决定 endpoint 走哪条调用路径。
  *   - `legacy`        尚未迁移，继续由隔离的 legacy wrapper（web `lib/api/legacy.ts` /
- *     server `index.ts` 手写 handler）处理，返回旧 `{ ok, error }` /
+ *     server `runtime-app.ts` 手写 handler）处理，返回旧 `{ ok, error }` /
  *     `{ ok:true, items }` 形态。
  *   - `migrated-json` 已迁移到统一 JSON envelope
  *     `{ ok:true, data } | { ok:false, code, message, details? }`，只能由新
@@ -122,7 +122,7 @@ export const EndpointEntrySchema = z.object({
 
 // ============= registry（单一来源） =============
 //
-// 登记当前 workbench 后端全部 endpoint（见 server/src/index.ts 实际路由）。
+// 登记当前 workbench 后端全部 endpoint（见 server/src/runtime-app.ts 实际组装）。
 // 新增 / 迁移路由时在此同步：新增 entry，或把 legacy 改为 migrated-json。
 // 迁移完成后该 entry 不再保留 legacy 形态（由新 client 与统一 response helper 保证）。
 
