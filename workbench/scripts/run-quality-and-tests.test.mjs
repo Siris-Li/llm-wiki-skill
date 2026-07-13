@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
 	createMinimalEnvironment,
+	interruptedExitCode,
 	QUALITY_STEPS,
 	runInvocation,
 	sanitizeOutput,
@@ -100,6 +101,12 @@ test("quality children receive only the allowlisted environment", () => {
 	]);
 });
 
+test("interrupt signals preserve conventional exit codes", () => {
+	assert.equal(interruptedExitCode("SIGINT"), 130);
+	assert.equal(interruptedExitCode("SIGTERM"), 143);
+	assert.equal(interruptedExitCode(undefined), 1);
+});
+
 test("failure output removes local paths and token-shaped values", () => {
 	const cleaned = sanitizeOutput(
 		"/repo/private /sandbox/data /home/person sk-abcdefghijklmnop github_pat_abcdefghijklmnop",
@@ -118,12 +125,48 @@ test("timed out commands terminate their process group", { skip: process.platfor
 	const result = await runInvocation(
 		{ command: process.execPath, args: ["--input-type=module", "-e", script], cwd: process.cwd() },
 		createMinimalEnvironment(process.env, path.join(tmpdir(), "quality-timeout-home")),
-		50,
+		150,
 	);
 	assert.equal(result.timedOut, true);
 	const childPid = Number(result.output.trim());
 	assert.ok(Number.isInteger(childPid));
 	await assertProcessStops(childPid);
+});
+
+test("timed out commands terminate detached descendants", { skip: process.platform === "win32" }, async () => {
+	const result = await runInvocation(
+		detachedDescendantInvocation("setInterval(() => {}, 1000)"),
+		createMinimalEnvironment(process.env, path.join(tmpdir(), "quality-detached-timeout-home")),
+		500,
+	);
+	assert.equal(result.timedOut, true);
+	await assertProcessStopsWithCleanup(Number(result.output.trim()));
+});
+
+test("failed commands terminate detached descendants", { skip: process.platform === "win32" }, async () => {
+	const result = await runInvocation(
+		detachedDescendantInvocation("setTimeout(() => process.exit(7), 600)"),
+		createMinimalEnvironment(process.env, path.join(tmpdir(), "quality-detached-failure-home")),
+		2_000,
+	);
+	assert.equal(result.code, 7);
+	assert.equal(result.timedOut, false);
+	await assertProcessStopsWithCleanup(Number(result.output.trim()));
+});
+
+test("aborted commands terminate detached descendants", { skip: process.platform === "win32" }, async () => {
+	const controller = new AbortController();
+	setTimeout(() => controller.abort(), 500);
+	const result = await runInvocation(
+		detachedDescendantInvocation("setInterval(() => {}, 1000)"),
+		createMinimalEnvironment(process.env, path.join(tmpdir(), "quality-detached-abort-home")),
+		2_000,
+		() => undefined,
+		{ signal: controller.signal },
+	);
+	assert.equal(result.aborted, true);
+	assert.equal(result.timedOut, false);
+	await assertProcessStopsWithCleanup(Number(result.output.trim()));
 });
 
 test("GitHub quality check calls the shared entrypoint with minimal permissions", async () => {
@@ -152,6 +195,30 @@ async function assertProcessStops(pid) {
 		await new Promise((resolve) => setTimeout(resolve, 25));
 	}
 	assert.fail(`process ${pid} survived quality timeout in ${path.basename(process.cwd())}`);
+}
+
+async function assertProcessStopsWithCleanup(pid) {
+	assert.ok(Number.isInteger(pid) && pid > 1);
+	try {
+		await assertProcessStops(pid);
+	} catch (assertionError) {
+		try {
+			process.kill(pid, "SIGKILL");
+		} catch (error) {
+			if (error?.code !== "ESRCH") throw error;
+		}
+		throw assertionError;
+	}
+}
+
+function detachedDescendantInvocation(exitStatement) {
+	const script = [
+		'import { spawn } from "node:child_process";',
+		"const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 'ignore', 'ignore'] });",
+		"console.log(child.pid);",
+		exitStatement,
+	].join("\n");
+	return { command: process.execPath, args: ["--input-type=module", "-e", script], cwd: process.cwd() };
 }
 
 async function collectMatches(patterns) {
