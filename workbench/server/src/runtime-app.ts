@@ -8,25 +8,38 @@ import { listLoadedSkills } from "./agent.js";
 import { setAuthKey, testAuthConnection } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { createSecurityMiddleware } from "./security/middleware.js";
+import type { PromptRouteService } from "./routes/prompt.js";
 import { createWiki, InitConflictError, initExistingWiki } from "./wiki-init.js";
 
 const execFileAsync = promisify(execFile);
 
 const trustedOrigins = new Set(DEV_WORKBENCH_ORIGINS);
 
+export interface RuntimeApplicationOptions {
+	promptService?: PromptRouteService;
+	chooseDirectory?: () => Promise<string | null>;
+}
+
 /** Build the exact application served by the runtime without opening a port. */
-export function createRuntimeApplication(capabilityToken: string) {
+export function createRuntimeApplication(
+	capabilityToken: string,
+	options: RuntimeApplicationOptions = {},
+) {
 	const app = createApp({
 		security: createSecurityMiddleware({
 			token: capabilityToken,
 			trustedOrigins,
 		}),
+		...(options.promptService ? { promptService: options.promptService } : {}),
 	});
-	configureLegacyRoutes(app);
+	configureLegacyRoutes(app, options);
 	return app;
 }
 
-function configureLegacyRoutes(app: ReturnType<typeof createApp>): void {
+function configureLegacyRoutes(
+	app: ReturnType<typeof createApp>,
+	options: RuntimeApplicationOptions,
+): void {
 	app.post("/api/echo", async (c) => {
 		let body: unknown;
 		try {
@@ -155,19 +168,18 @@ function configureLegacyRoutes(app: ReturnType<typeof createApp>): void {
 	});
 
 	app.post("/api/system/choose-directory", async (c) => {
-		if (process.platform !== "darwin") {
-			return c.json({ ok: false, error: "当前系统暂不支持文件夹选择器" }, 501);
-		}
 		try {
-			const { stdout } = await execFileAsync("osascript", [
-				"-e",
-				'POSIX path of (choose folder with prompt "选择知识库文件夹")',
-			]);
-			const selectedPath = stdout.trim();
-			if (!selectedPath) return c.json({ ok: false, error: "没有选择文件夹" }, 400);
+			const selectedPath = await (options.chooseDirectory ?? chooseSystemDirectory)();
+			if (!selectedPath) return c.json({ ok: false, canceled: true });
 			return c.json({ ok: true, path: selectedPath });
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
+			if ((err as NodeJS.ErrnoException).code === "ENOTSUP") {
+				return c.json({ ok: false, error: message }, 501);
+			}
+			if ((err as NodeJS.ErrnoException).code === "EMPTY_SELECTION") {
+				return c.json({ ok: false, error: message }, 400);
+			}
 			if (message.includes("-128") || message.toLowerCase().includes("user canceled")) {
 				return c.json({ ok: false, canceled: true });
 			}
@@ -211,4 +223,23 @@ function configureLegacyRoutes(app: ReturnType<typeof createApp>): void {
 		const result = await testAuthConnection(body.provider);
 		return c.json(result);
 	});
+}
+
+async function chooseSystemDirectory(): Promise<string | null> {
+	if (process.platform !== "darwin") {
+		throw Object.assign(new Error("当前系统暂不支持文件夹选择器"), {
+			code: "ENOTSUP",
+		});
+	}
+	const { stdout } = await execFileAsync("osascript", [
+		"-e",
+		'POSIX path of (choose folder with prompt "选择知识库文件夹")',
+	]);
+	const selectedPath = stdout.trim();
+	if (!selectedPath) {
+		throw Object.assign(new Error("没有选择文件夹"), {
+			code: "EMPTY_SELECTION",
+		});
+	}
+	return selectedPath;
 }
