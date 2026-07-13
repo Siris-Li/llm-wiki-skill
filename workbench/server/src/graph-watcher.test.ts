@@ -172,6 +172,38 @@ test("graph rebuild queue runs a queued request after failure and then becomes i
 	await queue.waitForIdle();
 });
 
+test("graph rebuild queue aborts preparation and drops pending work when stopped", async () => {
+	const preparationStarted = deferred<void>();
+	const finishPreparation = deferred<void>();
+	const signals: AbortSignal[] = [];
+	let spawned = 0;
+	const errors: unknown[] = [];
+	const queue = new GraphRebuildQueue({
+		run: async (...args: unknown[]) => {
+			const signal = args[0];
+			preparationStarted.resolve();
+			assert.ok(signal instanceof AbortSignal);
+			signals.push(signal);
+			await finishPreparation.promise;
+			if (signal.aborted) return;
+			spawned++;
+		},
+		onError: (err) => errors.push(err),
+	});
+
+	assert.equal(queue.trigger().status, "started");
+	assert.equal(queue.trigger().status, "queued");
+	await preparationStarted.promise;
+	queue.stop();
+	finishPreparation.resolve();
+	await queue.waitForIdle();
+
+	assert.equal(signals.length, 1);
+	assert.equal(signals[0]?.aborted, true);
+	assert.equal(spawned, 0);
+	assert.deepEqual(errors, []);
+});
+
 class FakeWatchSource {
 	private onEvent: ((event: { eventType: string; filename: string | null }) => void) | null = null;
 

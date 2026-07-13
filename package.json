@@ -14,9 +14,11 @@
   ],
   "scripts": {
     "check:boundaries": "node --import tsx workbench/scripts/check-workbench-boundaries.mjs",
+    "check:route-registry": "npm run build -w @llm-wiki/workbench-contracts && npm run build -w @llm-wiki/graph-engine && node --import tsx --test workbench/server/test/route-registry-parity.test.ts",
     "dev": "concurrently -n server,web -c blue,magenta --kill-others-on-fail \"npm run dev:server\" \"npm run dev:web\"",
     "dev:server": "npm run dev --workspace=@llm-wiki-agent/server",
     "dev:web": "npm run dev --workspace=@llm-wiki-agent/web",
+    "quality-and-tests": "node workbench/scripts/run-quality-and-tests.mjs",
     "test:boundaries": "node --import tsx --test workbench/scripts/check-workbench-boundaries.test.mjs",
     "typecheck": "npm run check:boundaries && npm run typecheck --workspaces --if-present"
   },

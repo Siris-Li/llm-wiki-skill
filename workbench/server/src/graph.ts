@@ -1,14 +1,14 @@
-import { execFile } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { watch } from "node:fs";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 
 import { diffGraphData, normalizeGraphLayoutFile, type GraphData, type GraphDiff, type GraphLayoutFile } from "@llm-wiki/graph-engine";
 
-const execFileAsync = promisify(execFile);
+const GRAPH_BUILD_STOP_TIMEOUT_MS = 1_000;
+const GRAPH_BUILD_ABORT_GRACE_MS = 100;
 
 export type GraphReadResult =
 	| { ok: true; needsBuild: true; graphPath: string }
@@ -32,7 +32,7 @@ export type GraphEvent =
 	  };
 
 type RebuildQueueOptions = {
-	run: () => Promise<void>;
+	run: (signal: AbortSignal) => Promise<void>;
 	onError: (err: unknown) => void;
 	onIdle?: () => void;
 };
@@ -56,6 +56,7 @@ type WatcherOptions = {
 
 const eventBus = new EventEmitter();
 const rebuilds = new Map<string, GraphRebuildQueue>();
+const activeGraphBuilds = new Map<ChildProcess, Promise<void>>();
 let graphWatchController: KnowledgeBaseGraphWatcher | null = null;
 
 export function graphDataPath(kbPath: string): string {
@@ -135,6 +136,24 @@ export function stopKnowledgeBaseGraphWatcher(): void {
 	graphWatchController?.stop();
 }
 
+export async function stopActiveGraphRebuilds(): Promise<void> {
+	const queues = Array.from(rebuilds.values());
+	for (const queue of queues) queue.stop();
+	const running = Array.from(activeGraphBuilds.keys());
+	await waitForGraphBuilds(running, GRAPH_BUILD_ABORT_GRACE_MS);
+	const remainingAfterAbort = running.filter((child) => activeGraphBuilds.has(child));
+	for (const child of remainingAfterAbort) signalGraphBuildTree(child, "SIGTERM");
+	await waitForGraphBuilds(remainingAfterAbort, GRAPH_BUILD_STOP_TIMEOUT_MS);
+	const remainingAfterTerminate = remainingAfterAbort.filter((child) => activeGraphBuilds.has(child));
+	for (const child of remainingAfterTerminate) signalGraphBuildTree(child, "SIGKILL");
+	await waitForGraphBuilds(remainingAfterTerminate, GRAPH_BUILD_STOP_TIMEOUT_MS);
+	await Promise.race([
+		Promise.allSettled(queues.map((queue) => queue.waitForIdle())),
+		new Promise<void>((resolve) => setTimeout(resolve, GRAPH_BUILD_STOP_TIMEOUT_MS)),
+	]);
+	rebuilds.clear();
+}
+
 export function suspendGraphWatcher(kbPath: string): void {
 	graphWatchController?.suspend(kbPath);
 }
@@ -159,6 +178,8 @@ export function shouldIgnoreGraphWatchPath(filename: string | null): boolean {
 export class GraphRebuildQueue {
 	private running = false;
 	private pending = false;
+	private stopping = false;
+	private activeRun: AbortController | null = null;
 	private idleResolvers: Array<() => void> = [];
 
 	constructor(private readonly options: RebuildQueueOptions) {}
@@ -173,6 +194,12 @@ export class GraphRebuildQueue {
 		return { ok: true, status: "started" };
 	}
 
+	stop(): void {
+		this.stopping = true;
+		this.pending = false;
+		this.activeRun?.abort();
+	}
+
 	waitForIdle(): Promise<void> {
 		if (!this.running) return Promise.resolve();
 		return new Promise((resolve) => this.idleResolvers.push(resolve));
@@ -182,12 +209,16 @@ export class GraphRebuildQueue {
 		try {
 			do {
 				this.pending = false;
+				const controller = new AbortController();
+				this.activeRun = controller;
 				try {
-					await this.options.run();
+					await this.options.run(controller.signal);
 				} catch (err) {
-					this.options.onError(err);
+					if (!controller.signal.aborted) this.options.onError(err);
+				} finally {
+					if (this.activeRun === controller) this.activeRun = null;
 				}
-			} while (this.pending);
+			} while (this.pending && !this.stopping);
 		} finally {
 			this.running = false;
 			this.options.onIdle?.();
@@ -264,15 +295,60 @@ export class KnowledgeBaseGraphWatcher {
 	}
 }
 
-async function rebuildGraph(kbPath: string): Promise<void> {
+async function rebuildGraph(kbPath: string, signal: AbortSignal): Promise<void> {
 	const repoRoot = await findRepoRoot();
+	signal.throwIfAborted();
 	const script = path.join(repoRoot, "scripts", "build-graph-data.sh");
 	await access(script);
-	await execFileAsync("bash", [script, kbPath], {
-		cwd: repoRoot,
-		env: process.env,
-		maxBuffer: 10 * 1024 * 1024,
+	signal.throwIfAborted();
+	let child: ChildProcess;
+	const completion = new Promise<void>((resolve, reject) => {
+		child = spawn(
+			"bash",
+			[script, kbPath],
+			{
+				cwd: repoRoot,
+				detached: process.platform !== "win32",
+				env: process.env,
+				stdio: "ignore",
+			},
+		);
+		child.once("error", reject);
+		child.once("exit", (code, signal) => {
+			if (code === 0) resolve();
+			else reject(new Error(`graph rebuild exited with ${signal ?? `code ${code}`}`));
+		});
 	});
+	const stopChild = () => signalGraphBuildTree(child, "SIGTERM");
+	signal.addEventListener("abort", stopChild, { once: true });
+	activeGraphBuilds.set(child!, completion);
+	try {
+		await completion;
+	} finally {
+		signal.removeEventListener("abort", stopChild);
+		activeGraphBuilds.delete(child!);
+	}
+}
+
+async function waitForGraphBuilds(children: ChildProcess[], timeoutMs: number): Promise<void> {
+	const completions = children
+		.map((child) => activeGraphBuilds.get(child))
+		.filter((completion): completion is Promise<void> => completion !== undefined);
+	if (completions.length === 0) return;
+	await Promise.race([
+		Promise.allSettled(completions),
+		new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+	]);
+}
+
+function signalGraphBuildTree(child: ChildProcess, signal: NodeJS.Signals): void {
+	if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+	try {
+		if (process.platform === "win32") child.kill(signal);
+		else process.kill(-child.pid, signal);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
 }
 
 async function findRepoRoot(): Promise<string> {
@@ -299,10 +375,13 @@ function emitGraphEvent(event: GraphEvent): void {
 
 function createDefaultRebuildQueue(kbPath: string): GraphRebuildQueue {
 	return new GraphRebuildQueue({
-		run: async () => {
+		run: async (signal) => {
 			const previous = await readGraphData(kbPath).catch(() => null);
-			await rebuildGraph(kbPath);
+			signal.throwIfAborted();
+			await rebuildGraph(kbPath, signal);
+			signal.throwIfAborted();
 			const graph = await readGraphData(kbPath);
+			signal.throwIfAborted();
 			if (graph.needsBuild) return;
 			emitGraphEvent({
 				type: "graph_updated",

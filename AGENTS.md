@@ -44,6 +44,7 @@ npm workspaces，三个包（根 `package.json` 不设 `"type": "module"`——S
 | 操作 | 命令（从仓库根） |
 |---|---|
 | 一行启动（后端 `8787` + 前端 `5180`，strictPort） | `npm run dev` |
+| 本机与 GitHub 共用的完整质量检查 | `npm run quality-and-tests` |
 | 工作台契约边界检查 | `npm run check:boundaries` |
 | 全仓类型检查 | `npm run typecheck` |
 | 前端 lint | `npm run lint -w @llm-wiki-agent/web` |
