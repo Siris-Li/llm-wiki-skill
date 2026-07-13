@@ -149,6 +149,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		page = await context.newPage();
 		const apiRequests = new Set<string>();
 		let graphEventsSeen = false;
+		const graphEventReceipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
 		page.on("request", (request) => {
 			const url = new URL(request.url());
 			if (url.pathname.startsWith("/api/")) apiRequests.add(url.pathname);
@@ -257,28 +258,64 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await page.getByRole("tab", { name: "图谱" }).click();
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 		await page.getByText("1 节点 · 0 关联", { exact: true }).waitFor();
-		const rebuildRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/graph/rebuild" && request.method() === "POST");
-		const rebuildClick = page.getByRole("button", { name: "重构" }).click();
-		await rebuildRequest;
-		const busyResponses = await page.evaluate((kbPath) => Promise.all([0, 1].map(() => fetch(`/api/graph/rebuild?kb=${encodeURIComponent(kbPath)}`, { method: "POST" }).then(async (response) => ({ status: response.status, body: await response.text() })))), kbA);
-		await rebuildClick;
+		await page.evaluate(() => {
+			const receipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
+			const source = new EventSource("/api/events");
+			source.onmessage = (message) => receipts.push(JSON.parse(message.data));
+			Object.assign(window, { __graphEventReceipts: receipts });
+		});
+		await waitForGraphEvent(page, graphEventReceipts, (event) => event.type === "graph_stream_ready");
+		const firstResponsePromise = waitForGraphRebuildResponse(page, kbA);
+		await page.getByRole("button", { name: "重构" }).click();
+		assert.equal((await firstResponsePromise).status, "started");
+		const busyResponses = await page.evaluate((kbPath) => Promise.all([0, 1].map(() => fetch(`/api/graph/rebuild?kb=${encodeURIComponent(kbPath)}`, { method: "POST" }).then(async (response) => ({ status: response.status, body: await response.json() })))), kbA);
 		assert.equal(busyResponses.every((response) => response.status === 200), true);
-		assert.equal(busyResponses.some((response) => /queued/.test(response.body)), true);
+		assert.equal(busyResponses.some((response) => response.body.data.status === "queued"), true);
 		await assertBrowserJson(page, `/api/graph?kb=${encodeURIComponent(join(home, "missing-kb"))}`, 404, /知识库/);
-		await waitUntil(() => graphEventsSeen, OPERATION_TIMEOUT_MS, "browser did not open graph events");
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+		await page.goto("about:blank");
+		await rm(serverNetworkProbe, { force: true });
+		server = await restartBackend(server, home, backendPort, kbB, serverNetworkProbe);
+		await waitForFile(serverNetworkProbe);
+		assert.equal(await readFile(serverNetworkProbe, "utf8"), "BLOCKED");
+		graphEventsSeen = false;
+		await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+		await page.getByLabel("当前知识库").getByText("atlas-notes").waitFor({ timeout: START_TIMEOUT_MS });
+		await page.getByRole("tab", { name: "图谱" }).click();
+		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+		await page.evaluate(() => {
+			const receipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
+			const source = new EventSource("/api/events");
+			source.onmessage = (message) => receipts.push(JSON.parse(message.data));
+			Object.assign(window, { __graphEventReceipts: receipts });
+		});
+		await waitForGraphEvent(page, graphEventReceipts, (event) => event.type === "graph_stream_ready");
 		const graphDataPath = join(kbA, "wiki", "graph-data.json");
 		const graphData = await readFile(graphDataPath, "utf8");
 		await rm(graphDataPath, { force: true });
 		await mkdir(graphDataPath);
 		try {
+			await refreshGraphEventReceipts(page, graphEventReceipts);
+			const failureBaseline = graphEventReceipts.length;
+			const failureResponsePromise = waitForGraphRebuildResponse(page, kbA);
 			await page.getByRole("button", { name: "重构" }).click();
+			assert.equal((await failureResponsePromise).status, "started");
+			await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
+				index >= failureBaseline && event.type === "graph_error" && event.kbPath === kbA
+			));
 			await page.locator("[data-graph-status='error']").waitFor({ timeout: START_TIMEOUT_MS });
 		} finally {
 			await rm(graphDataPath, { recursive: true, force: true });
 			await writeFile(graphDataPath, graphData);
 		}
+		await refreshGraphEventReceipts(page, graphEventReceipts);
+		const recoveryBaseline = graphEventReceipts.length;
+		const recoveryResponsePromise = waitForGraphRebuildResponse(page, kbA);
 		await page.getByRole("button", { name: "重构" }).click();
+		assert.equal((await recoveryResponsePromise).status, "started");
+		await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
+			index >= recoveryBaseline && event.type === "graph_updated" && event.kbPath === kbA
+		));
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 
 		// Messages: normal send, duplicate while busy, cancellation, disconnect recovery, and failure recovery.
@@ -409,6 +446,39 @@ async function createArtifacts(appDir: string, conversationId: string, kbPath: s
 			primaryFile: artifact.primaryFile,
 		}, null, 2)}\n`);
 	}
+}
+
+async function waitForGraphRebuildResponse(page: Page, kbPath: string): Promise<{ status: "started" | "queued" }> {
+	const response = await page.waitForResponse((candidate) => {
+		const request = candidate.request();
+		const url = new URL(candidate.url());
+		return url.pathname === "/api/graph/rebuild"
+			&& url.searchParams.get("kb") === kbPath
+			&& request.method() === "POST";
+	});
+	assert.equal(response.status(), 200);
+	const body = await response.json() as { data: { status: "started" | "queued" } };
+	return body.data;
+}
+
+async function refreshGraphEventReceipts(
+	page: Page,
+	receipts: Array<{ type: string; kbPath?: string; seq: number }>,
+): Promise<void> {
+	receipts.splice(0, receipts.length, ...await page.evaluate(() => (
+		(window as typeof window & { __graphEventReceipts?: Array<{ type: string; kbPath?: string; seq: number }> }).__graphEventReceipts ?? []
+	)));
+}
+
+async function waitForGraphEvent(
+	page: Page,
+	receipts: Array<{ type: string; kbPath?: string; seq: number }>,
+	predicate: (event: { type: string; kbPath?: string; seq: number }, index: number) => boolean,
+): Promise<void> {
+	await waitUntil(async () => {
+		await refreshGraphEventReceipts(page, receipts);
+		return receipts.some(predicate);
+	}, OPERATION_TIMEOUT_MS, "expected graph event did not arrive");
 }
 
 async function sendComposerMessage(page: Page, message: string): Promise<void> {
