@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -95,7 +96,7 @@ test("timed out commands terminate their process group", { skip: process.platfor
 	].join("\n");
 	const result = await runInvocation(
 		{ command: process.execPath, args: ["--input-type=module", "-e", script], cwd: process.cwd() },
-		process.env,
+		createMinimalEnvironment(process.env, path.join(tmpdir(), "quality-timeout-home")),
 		50,
 	);
 	assert.equal(result.timedOut, true);
