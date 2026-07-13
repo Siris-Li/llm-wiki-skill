@@ -48,6 +48,9 @@ test("quality entrypoint covers every required check in a stable sequence", () =
 		const step = QUALITY_STEPS.find((candidate) => candidate.id === stepId);
 		assert.ok(step.commands.some((item) => item.args.includes("--force")));
 	}
+	const startup = QUALITY_STEPS.find((step) => step.id === "startup-isolation");
+	assert.ok(startup.commands[0].args.includes("workbench/server/test/startup-isolation.test.ts"));
+	assert.ok(startup.commands[0].args.includes("workbench/server/test/linux-child-isolation.test.mjs"));
 });
 
 test("quality children receive only the allowlisted environment", () => {

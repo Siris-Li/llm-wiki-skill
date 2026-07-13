@@ -73,7 +73,10 @@ export const QUALITY_STEPS = [
 	{
 		id: "startup-isolation",
 		timeoutMs: SLOW_TEST_TIMEOUT_MS,
-		commands: [nodeTest("workbench/server/test/startup-isolation.test.ts")],
+		commands: [nodeTest(
+			"workbench/server/test/startup-isolation.test.ts",
+			"workbench/server/test/linux-child-isolation.test.mjs",
+		)],
 	},
 	{
 		id: "route-registry-negative-controls",
