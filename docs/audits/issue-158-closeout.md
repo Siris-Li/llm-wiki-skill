@@ -94,7 +94,7 @@ PR #210 合并后的两轮真实进程复审共确认 4 个阻塞问题，编号
 - `browser-main-flows` 在该版本的 `main` push 上成功，检查作业完成时间为 2026-07-13T07:10:07Z；[workflow run 29231096879](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29231096879)。
 - GitHub 分支接口返回 `main.protected = true`；[分支保护 API 入口](https://api.github.com/repos/sdyckjq-lab/llm-wiki-skill/branches/main/protection)；[仓库设置入口](https://github.com/sdyckjq-lab/llm-wiki-skill/settings/branches)。
 - 规则要求所有变更通过合并请求进入，但不额外要求人工批准（`required_approving_review_count = 0`）；必过检查为 GitHub Actions 应用（app id `15368`）产生的 `quality-and-tests` 与 `browser-main-flows`，并启用严格状态检查（`strict = true`），要求候选分支先与最新主线同步。
-- 管理员同样受规则约束（`enforce_admins = true`）；`bypass_pull_request_allowances = null`、`restrictions = null`，仓库 rulesets 列表为空。`allow_force_pushes = false`、`allow_deletions = false`，强制推送和删除受保护分支均被禁止。
+- 管理员同样受规则约束（`enforce_admins = true`）；保护响应未包含合并请求绕过主体，push restrictions 子资源返回未启用，仓库 rulesets 列表为空。`allow_force_pushes = false`、`allow_deletions = false`，强制推送和删除受保护分支均被禁止。
 
 #196 不制造故意失败的请求。规则对检查未完成或失败状态的真实拦截证据，按规格由第一张真实修复请求取得，并作为 #200 的必过条件。
 
