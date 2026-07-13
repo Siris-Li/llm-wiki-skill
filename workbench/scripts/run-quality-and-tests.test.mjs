@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { glob, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
@@ -33,6 +34,8 @@ const REQUIRED_STEPS = [
 	"web-lint",
 ];
 
+const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+
 test("quality entrypoint covers every required check in a stable sequence", () => {
 	assert.deepEqual(QUALITY_STEPS.map((step) => step.id), REQUIRED_STEPS);
 	assert.ok(TOTAL_TIMEOUT_MS > 0);
@@ -51,6 +54,21 @@ test("quality entrypoint covers every required check in a stable sequence", () =
 	const startup = QUALITY_STEPS.find((step) => step.id === "startup-isolation");
 	assert.ok(startup.commands[0].args.includes("workbench/server/test/startup-isolation.test.ts"));
 	assert.ok(startup.commands[0].args.includes("workbench/server/test/linux-child-isolation.test.mjs"));
+});
+
+test("quality entrypoint covers every backend test file exactly once", async () => {
+	const expected = await collectMatches([
+		"workbench/server/src/**/*.test.ts",
+		"workbench/server/test/**/*.test.ts",
+		"workbench/server/test/**/*.test.mjs",
+	]);
+	const declaredPatterns = QUALITY_STEPS.flatMap((step) => step.commands)
+		.flatMap((item) => item.args)
+		.filter((arg) => arg.startsWith("workbench/server/") && /\.test\.(?:ts|mjs)$/.test(arg));
+	const actual = await collectMatches(declaredPatterns);
+
+	assert.deepEqual(actual, expected);
+	assert.equal(new Set(actual).size, actual.length);
 });
 
 test("quality children receive only the allowlisted environment", () => {
@@ -134,4 +152,12 @@ async function assertProcessStops(pid) {
 		await new Promise((resolve) => setTimeout(resolve, 25));
 	}
 	assert.fail(`process ${pid} survived quality timeout in ${path.basename(process.cwd())}`);
+}
+
+async function collectMatches(patterns) {
+	const matches = [];
+	for (const pattern of patterns) {
+		for await (const file of glob(pattern, { cwd: REPO_ROOT })) matches.push(file);
+	}
+	return matches.sort();
 }

@@ -86,7 +86,10 @@ export const QUALITY_STEPS = [
 	{
 		id: "server",
 		timeoutMs: SLOW_TEST_TIMEOUT_MS,
-		commands: [nodeTest("workbench/server/src/**/*.test.ts")],
+		commands: [nodeTest(
+			"workbench/server/src/**/*.test.ts",
+			"workbench/server/test/runtime-app.test.ts",
+		)],
 	},
 	{
 		id: "web-unit",
