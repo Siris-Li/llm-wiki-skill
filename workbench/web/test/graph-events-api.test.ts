@@ -26,6 +26,14 @@ describe("graph EventSource client", () => {
 	});
 
 	it("resets identity and seq only after a transport reconnect", () => {
+		const reused = new GraphEventParser();
+		reused.parse(JSON.stringify(event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:00:00.000Z" })));
+		reused.resetForReconnect();
+		assert.throws(
+			() => reused.parse(JSON.stringify(event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:01:00.000Z" }))),
+			isRecoverableGraphError,
+		);
+
 		const parser = new GraphEventParser();
 		parser.parse(JSON.stringify(event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:00:00.000Z" })));
 		assert.throws(
@@ -35,6 +43,11 @@ describe("graph EventSource client", () => {
 		parser.resetForReconnect();
 		const ready = event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:01:00.000Z" }, "stream-2");
 		assert.deepEqual(parser.parse(JSON.stringify(ready)), ready);
+		parser.resetForReconnect();
+		assert.throws(
+			() => parser.parse(JSON.stringify(event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:02:00.000Z" }))),
+			isRecoverableGraphError,
+		);
 	});
 
 	it("rejects events before ready, unknown/version/missing fields, seq inversion, and identity changes", () => {
@@ -83,6 +96,89 @@ describe("graph EventSource client", () => {
 		assert.deepEqual(received, [update]);
 		close();
 		assert.equal(sources[1]!.closed, true);
+	});
+
+	it("rejects a reused stream identity after reconnecting a corrupted connection", async () => {
+		const sources: FakeEventSource[] = [];
+		const errors: Error[] = [];
+		const close = subscribeGraphEvents({
+			onEvent: () => {},
+			onProtocolError: (error) => errors.push(error),
+			reconnectDelayMs: 0,
+			eventSourceFactory: () => {
+				const source = new FakeEventSource();
+				sources.push(source);
+				return source;
+			},
+		});
+
+		sources[0]!.emit(event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:00:00.000Z" }));
+		sources[0]!.emit({ ...event("graph_error", 2, { kbPath: "/fake/kb", message: "失败", rebuiltAt: "2026-07-11T12:01:00.000Z" }), type: "unknown" });
+		await delay(5);
+		assert.equal(sources.length, 2);
+
+		sources[1]!.emit(event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:02:00.000Z" }));
+		await delay(5);
+		assert.equal(errors.length, 2);
+		assert.equal(sources[1]!.closed, true);
+		assert.equal(sources.length, 3);
+
+		close();
+		assert.equal(sources[2]!.closed, true);
+	});
+
+	it("stops delivering or reconnecting after the caller closes the subscription", async () => {
+		const sources: FakeEventSource[] = [];
+		const received: GraphSseEvent[] = [];
+		const close = subscribeGraphEvents({
+			onEvent: (event) => received.push(event),
+			reconnectDelayMs: 0,
+			eventSourceFactory: () => {
+				const source = new FakeEventSource();
+				sources.push(source);
+				return source;
+			},
+		});
+
+		const source = sources[0]!;
+		source.emit(event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:00:00.000Z" }));
+		close();
+		source.emit(event("graph_updated", 2, { kbPath: "/fake/kb", diff: null, rebuiltAt: "2026-07-11T12:01:00.000Z", stats: { nodeCount: 1, edgeCount: 0 } }));
+		source.fail();
+		await delay(5);
+
+		assert.deepEqual(received, []);
+		assert.equal(source.closed, true);
+		assert.equal(sources.length, 1);
+	});
+
+	it("does not schedule a reconnect after the error callback closes the subscription", () => {
+		const originalSetTimeout = globalThis.setTimeout;
+		let scheduled = 0;
+		globalThis.setTimeout = (() => {
+			scheduled += 1;
+			return {} as ReturnType<typeof setTimeout>;
+		}) as typeof setTimeout;
+		try {
+			const sources: FakeEventSource[] = [];
+			const close = subscribeGraphEvents({
+				onEvent: () => {},
+				onProtocolError: () => close(),
+				eventSourceFactory: () => {
+					const source = new FakeEventSource();
+					sources.push(source);
+					return source;
+				},
+			});
+
+			sources[0]!.emit(event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:00:00.000Z" }));
+			sources[0]!.emit({ ...event("graph_error", 2, { kbPath: "/fake/kb", message: "失败", rebuiltAt: "2026-07-11T12:01:00.000Z" }), type: "unknown" });
+
+			assert.equal(sources[0]!.closed, true);
+			assert.equal(scheduled, 0);
+		} finally {
+			globalThis.setTimeout = originalSetTimeout;
+		}
 	});
 
 	it("accepts a new stream identity after native EventSource reconnects", () => {
