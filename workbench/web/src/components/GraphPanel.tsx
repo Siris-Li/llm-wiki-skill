@@ -378,7 +378,7 @@ export function GraphPanel({
 			if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return false;
 			const nextPins = { ...layout.pins, ...layoutPinsRef.current };
 			applyLayoutPins(nextPins);
-			if (result.needsBuild) {
+			if (result.needsBuild === true) {
 				setData(null);
 				setDataKnowledgeBasePath(kbPath);
 				onGraphDataChangeRef.current?.(null);

@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite",
     "prebuild": "npm run build -w @llm-wiki/workbench-contracts && npm run build -w @llm-wiki/graph-engine",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b --force && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "npm run test:unit && npm run test:dom",
@@ -17,7 +17,7 @@
     "test:browser:foundation": "node --import tsx test/browser/run-browser-foundation.ts",
     "visual:paper": "node --import tsx test/visual/paper-ui.ts",
     "pretypecheck": "npm run build -w @llm-wiki/workbench-contracts && npm run build -w @llm-wiki/graph-engine",
-    "typecheck": "tsc -b --noEmit && tsc -p tsconfig.browser.json --noEmit"
+    "typecheck": "tsc -b --noEmit --force && tsc -p tsconfig.browser.json --noEmit"
   },
   "dependencies": {
     "@llm-wiki/graph-engine": "0.0.0",
