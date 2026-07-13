@@ -15,11 +15,15 @@ const probeFile = process.env.LLM_WIKI_ISOLATED_PROBE_FILE;
 const probeOutside = process.env.LLM_WIKI_ISOLATED_PROBE_OUTSIDE;
 const probeNetwork = process.env.LLM_WIKI_ISOLATED_PROBE_NETWORK;
 const childSandboxProfile = process.env.LLM_WIKI_ISOLATED_CHILD_PROFILE;
+const firstGroupSignalNoop = process.env.LLM_WIKI_ISOLATED_FIRST_GROUP_SIGNAL_NOOP === "1";
+const rejectDuplicateSignals = process.env.LLM_WIKI_ISOLATED_REJECT_DUPLICATE_SIGNALS === "1";
 delete process.env.LLM_WIKI_ISOLATED_DENIED_READS;
 delete process.env.LLM_WIKI_ISOLATED_PROBE_FILE;
 delete process.env.LLM_WIKI_ISOLATED_PROBE_OUTSIDE;
 delete process.env.LLM_WIKI_ISOLATED_PROBE_NETWORK;
 delete process.env.LLM_WIKI_ISOLATED_CHILD_PROFILE;
+delete process.env.LLM_WIKI_ISOLATED_FIRST_GROUP_SIGNAL_NOOP;
+delete process.env.LLM_WIKI_ISOLATED_REJECT_DUPLICATE_SIGNALS;
 
 function assertReadablePath(value) {
 	if (typeof value !== "string" && !Buffer.isBuffer(value) && !(value instanceof URL)) {
@@ -81,6 +85,7 @@ wrapOpen(fs, "open");
 wrapOpen(fs, "openSync");
 wrapOpen(fs.promises, "open");
 if (childSandboxProfile) wrapChildProcesses(childSandboxProfile);
+if (rejectDuplicateSignals || firstGroupSignalNoop) guardProcessGroupSignals();
 syncBuiltinESMExports();
 
 const originalConnect = net.Socket.prototype.connect;
@@ -190,6 +195,25 @@ function wrapChildProcesses(profile) {
 			["-f", profile, file, ...args],
 			...rest,
 		);
+	};
+}
+
+function guardProcessGroupSignals() {
+	const originalKill = process.kill.bind(process);
+	const lastSignalAt = new Map();
+	process.kill = function guardedKill(pid, signal) {
+		if (pid < 0 && signal === "SIGTERM") {
+			const now = Date.now();
+			const previous = lastSignalAt.get(pid);
+			lastSignalAt.set(pid, now);
+			if (rejectDuplicateSignals && previous !== undefined && now - previous < 50) {
+				const error = new Error("duplicate process-group signal rejected by startup isolation guard");
+				error.code = "EPERM";
+				throw error;
+			}
+			if (firstGroupSignalNoop && previous === undefined) return true;
+		}
+		return originalKill(pid, signal);
 	};
 }
 
