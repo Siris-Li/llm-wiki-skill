@@ -235,6 +235,16 @@ describe("tool status model", () => {
 		assert.equal(state.summary.overflowLabel, "还有 3 项");
 	});
 
+	it("normalizes an omitted summary field before storing summary items", () => {
+		const event = summary(1, 1);
+		delete event.items[0]?.summary;
+
+		const state = reduceToolStatusEvent(createToolStatusState(runId, messageId), event, { nowMs: 1_000 });
+
+		assert.equal(state.summary.items[0]?.summary, null);
+		assert.equal(Object.hasOwn(state.summary.items[0] ?? {}, "summary"), true);
+	});
+
 	it("locally cancels active tools without waiting for backend abort confirmation", () => {
 		const running = reduceToolStatusEvents(
 			createToolStatusState(runId, messageId),

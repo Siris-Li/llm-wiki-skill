@@ -313,7 +313,9 @@ function reduceEnd(state: ToolStatusState, event: ToolStatusEndEvent): ToolStatu
 }
 
 function reduceSummary(state: ToolStatusState, event: ToolStatusSummaryEvent): ToolStatusState {
-	const cappedItems = event.items.slice(0, state.maxSummaryItems);
+	const cappedItems = event.items
+		.slice(0, state.maxSummaryItems)
+		.map((item) => ({ ...item, summary: item.summary ?? null }));
 	const overflowCount = Math.max(0, event.items.length - cappedItems.length);
 	return {
 		...state,
