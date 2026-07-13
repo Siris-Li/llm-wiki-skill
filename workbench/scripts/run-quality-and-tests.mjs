@@ -1,7 +1,9 @@
 import { spawn, spawnSync } from "node:child_process";
+import { readFileSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -10,12 +12,19 @@ const TSC = path.join(REPO_ROOT, "node_modules/typescript/bin/tsc");
 const VITE = path.join(REPO_ROOT, "node_modules/vite/bin/vite.js");
 const ESLINT = path.join(REPO_ROOT, "node_modules/eslint/bin/eslint.js");
 const FAILURE_DIR = path.join(REPO_ROOT, ".tmp/quality-and-tests");
+const PROCESS_REGISTRY_HOOK = path.join(REPO_ROOT, "workbench/scripts/register-quality-child.cjs");
 const COMMAND_TIMEOUT_MS = 120_000;
 const SLOW_TEST_TIMEOUT_MS = 240_000;
 const STOP_GRACE_MS = 250;
+const STOP_TIMEOUT_MS = 2_000;
+const PROCESS_SCAN_INTERVAL_MS = 100;
 const MAX_CAPTURE_BYTES = 8 * 1024 * 1024;
 
 export const TOTAL_TIMEOUT_MS = 15 * 60_000;
+
+export function interruptedExitCode(signal) {
+	return signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1;
+}
 
 const command = (args, cwd = REPO_ROOT) => ({ command: NODE, args, cwd });
 const nodeTest = (...files) => command(["--import", "tsx", "--test", ...files]);
@@ -161,14 +170,33 @@ export function createMinimalEnvironment(source, sandboxHome) {
 	return environment;
 }
 
-export async function runInvocation(invocation, environment, timeoutMs, onSpawn = () => undefined) {
+export async function runInvocation(
+	invocation,
+	environment,
+	timeoutMs,
+	onSpawn = () => undefined,
+	{ signal, readProcesses = readProcessTable } = {},
+) {
+	const processRegistry = path.join(tmpdir(), `llm-wiki-quality-processes-${process.pid}-${randomUUID()}.jsonl`);
 	const child = spawn(invocation.command, invocation.args, {
 		cwd: invocation.cwd,
 		detached: process.platform !== "win32",
-		env: environment,
+		env: {
+			...environment,
+			LLM_WIKI_QUALITY_PROCESS_REGISTRY: processRegistry,
+			NODE_OPTIONS: `--require=${PROCESS_REGISTRY_HOOK}`,
+		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	onSpawn(child);
+	let processTree;
+	try {
+		processTree = trackProcessTree(child.pid, processRegistry, readProcesses);
+	} catch (error) {
+		await stopUntrackedChild(child, processRegistry);
+		rmSync(processRegistry, { force: true });
+		throw error;
+	}
 	let output = "";
 	const append = (chunk) => {
 		output = `${output}${chunk}`.slice(-MAX_CAPTURE_BYTES);
@@ -176,15 +204,32 @@ export async function runInvocation(invocation, environment, timeoutMs, onSpawn 
 	child.stdout?.on("data", append);
 	child.stderr?.on("data", append);
 	let timedOut = false;
+	let aborted = signal?.aborted ?? false;
 	let termination;
+	const stopForAbort = () => {
+		aborted = true;
+		termination ??= terminateProcessTree(child, processTree);
+	};
+	signal?.addEventListener("abort", stopForAbort, { once: true });
+	if (aborted) stopForAbort();
 	const timer = setTimeout(() => {
 		timedOut = true;
-		termination = terminateProcessTree(child);
+		termination ??= terminateProcessTree(child, processTree);
 	}, timeoutMs);
-	const result = await waitForExit(child).finally(() => clearTimeout(timer));
-	if (timedOut) await termination;
-	else if (result.code !== 0) await terminateProcessTree(child);
-	return { ...result, timedOut, output };
+	let result;
+	try {
+		result = await waitForExit(child);
+	} catch (error) {
+		await terminateProcessTree(child, processTree);
+		throw error;
+	} finally {
+		clearTimeout(timer);
+		signal?.removeEventListener("abort", stopForAbort);
+	}
+	if (timedOut || aborted) await termination;
+	else if (result.code !== 0) await terminateProcessTree(child, processTree);
+	else await stopRemainingDescendants(child, processTree);
+	return { ...result, timedOut, aborted, output };
 }
 
 export function sanitizeOutput(value, { repoRoot = REPO_ROOT, sandbox, home = homedir() }) {
@@ -195,8 +240,8 @@ export function sanitizeOutput(value, { repoRoot = REPO_ROOT, sandbox, home = ho
 		.replace(/\b(?:sk-|ghp_|github_pat_)[A-Za-z0-9_\-]{12,}\b/g, "<redacted-token>");
 }
 
-async function main() {
-	await rm(FAILURE_DIR, { recursive: true, force: true });
+export async function main({ qualitySteps = QUALITY_STEPS, failureDir = FAILURE_DIR } = {}) {
+	await rm(failureDir, { recursive: true, force: true });
 	const sandbox = await mkdtemp(path.join(tmpdir(), "llm-wiki-quality-"));
 	const sandboxHome = path.join(sandbox, "home");
 	await mkdir(path.join(sandboxHome, ".config"), { recursive: true });
@@ -204,12 +249,11 @@ async function main() {
 	const deadline = Date.now() + TOTAL_TIMEOUT_MS;
 	const completed = [];
 	let failureOutput = "";
-	let activeChild;
-	let activeTermination;
+	let activeController;
 	let interrupted;
 	const stopForSignal = (signal) => {
 		interrupted = signal;
-		if (activeChild) activeTermination = terminateProcessTree(activeChild);
+		activeController?.abort();
 	};
 	const interruptHandler = () => stopForSignal("SIGINT");
 	const terminateHandler = () => stopForSignal("SIGTERM");
@@ -217,19 +261,24 @@ async function main() {
 	process.once("SIGTERM", terminateHandler);
 
 	try {
-		for (const step of QUALITY_STEPS) {
+		for (const step of qualitySteps) {
 			const stepDeadline = Math.min(deadline, Date.now() + step.timeoutMs);
 			process.stdout.write(`\n[quality-and-tests] ${step.id}\n`);
 			for (const invocation of step.commands) {
+				if (interrupted) throw new Error(`quality-and-tests interrupted by ${interrupted}`);
 				const remainingMs = stepDeadline - Date.now();
 				if (remainingMs <= 0) throw new Error(`${step.id} exceeded its time limit`);
-				const result = await runInvocation(invocation, environment, remainingMs, (child) => {
-					activeChild = child;
-				});
-				activeChild = undefined;
+				activeController = new AbortController();
+				const result = await runInvocation(
+					invocation,
+					environment,
+					remainingMs,
+					undefined,
+					{ signal: activeController.signal },
+				);
+				activeController = undefined;
 				failureOutput = sanitizeOutput(result.output, { sandbox });
 				if (failureOutput) process.stdout.write(failureOutput.endsWith("\n") ? failureOutput : `${failureOutput}\n`);
-				if (activeTermination) await activeTermination;
 				if (interrupted) throw new Error(`quality-and-tests interrupted by ${interrupted}`);
 				if (result.timedOut) throw new Error(`${step.id} exceeded its time limit`);
 				if (result.code !== 0) throw new Error(`${step.id} failed with exit code ${result.code ?? result.signal}`);
@@ -239,16 +288,15 @@ async function main() {
 		}
 		process.stdout.write("\n[quality-and-tests] all checks passed\n");
 	} catch (error) {
-		if (activeChild) await terminateProcessTree(activeChild);
 		const message = sanitizeOutput(error instanceof Error ? error.stack ?? error.message : String(error), { sandbox });
-		await mkdir(FAILURE_DIR, { recursive: true });
+		await mkdir(failureDir, { recursive: true });
 		await writeFile(
-			path.join(FAILURE_DIR, "failure.log"),
+			path.join(failureDir, "failure.log"),
 			`passed: ${completed.join(", ")}\n\n${failureOutput}\n${message}\n`,
 			"utf8",
 		);
 		console.error(message);
-		process.exitCode = interrupted === "SIGINT" ? 130 : interrupted === "SIGTERM" ? 143 : 1;
+		process.exitCode = interruptedExitCode(interrupted);
 	} finally {
 		process.off("SIGINT", interruptHandler);
 		process.off("SIGTERM", terminateHandler);
@@ -256,11 +304,44 @@ async function main() {
 	}
 }
 
-async function terminateProcessTree(child) {
-	signalProcessTree(child, "SIGTERM");
-	await new Promise((resolve) => setTimeout(resolve, STOP_GRACE_MS));
-	signalProcessTree(child, "SIGKILL");
+async function terminateProcessTree(child, processTree) {
+	let cleanupError;
+	try {
+		processTree.refresh();
+		signalTrackedProcesses(processTree, "SIGTERM");
+		await new Promise((resolve) => setTimeout(resolve, STOP_GRACE_MS));
+		processTree.refresh();
+		signalTrackedProcesses(processTree, "SIGKILL");
+		await waitForTrackedProcesses(processTree);
+	} catch (error) {
+		cleanupError = error;
+		await stopUntrackedChild(child, processTree.processRegistry);
+	} finally {
+		processTree.stop();
+	}
 	if (child.exitCode === null && child.signalCode === null) await waitForExit(child);
+	if (cleanupError) throw cleanupError;
+}
+
+async function stopUntrackedChild(child, processRegistry) {
+	signalRegisteredProcesses(child, processRegistry, "SIGTERM");
+	await new Promise((resolve) => setTimeout(resolve, STOP_GRACE_MS));
+	const registeredPids = readRegisteredProcesses(processRegistry).map(({ pid }) => pid);
+	signalRegisteredProcesses(child, processRegistry, "SIGKILL");
+	if (child.exitCode === null && child.signalCode === null) await waitForExit(child);
+	await waitForPidsToStop(registeredPids);
+}
+
+async function stopRemainingDescendants(child, processTree) {
+	let descendants;
+	try {
+		processTree.refresh();
+		descendants = processTree.livePids().filter((pid) => pid !== child.pid);
+	} catch {
+		return terminateProcessTree(child, processTree);
+	}
+	if (descendants.length > 0) return terminateProcessTree(child, processTree);
+	processTree.stop();
 }
 
 function waitForExit(child) {
@@ -273,16 +354,172 @@ function waitForExit(child) {
 	});
 }
 
-function signalProcessTree(child, signal) {
-	if (!child.pid) return;
+function signalTrackedProcesses(processTree, signal) {
 	try {
 		if (process.platform === "win32") {
-			spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+			spawnSync("taskkill", ["/PID", String(processTree.rootPid), "/T", "/F"], { stdio: "ignore" });
 		} else {
-			process.kill(-child.pid, signal);
+			for (const processGroup of processTree.processGroups()) signalProcess(-processGroup, signal);
+			for (const pid of processTree.ungroupedPids()) signalProcess(pid, signal);
 		}
 	} catch (error) {
 		if (error?.code !== "ESRCH") throw error;
+	}
+}
+
+function signalRegisteredProcesses(child, processRegistry, signal) {
+	if (process.platform === "win32") {
+		for (const pid of new Set([child.pid, ...readRegisteredProcesses(processRegistry).map(({ pid }) => pid)])) {
+			if (pid) spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+		}
+		return;
+	}
+	const registered = readRegisteredProcesses(processRegistry);
+	const processGroups = new Set([
+		child.pid,
+		...registered.map(({ processGroup }) => processGroup),
+	].filter((value) => Number.isInteger(value) && value > 1));
+	for (const processGroup of processGroups) signalProcess(-processGroup, signal);
+	for (const { pid, processGroup } of registered) {
+		if ((!processGroup || !processGroups.has(processGroup)) && pid > 1) signalProcess(pid, signal);
+	}
+}
+
+function signalProcess(pid, signal) {
+	try {
+		process.kill(pid, signal);
+	} catch (error) {
+		if (error?.code !== "ESRCH") throw error;
+	}
+}
+
+function trackProcessTree(rootPid, processRegistry, readProcesses) {
+	const trackedProcesses = new Map();
+	let stopped = false;
+	let monitorError;
+	const scan = () => {
+		if (stopped || process.platform === "win32") return;
+		const processes = readProcesses();
+		if (trackedProcesses.size === 0 && rootPid) {
+			const root = processes.find((entry) => entry.pid === rootPid);
+			if (root) trackedProcesses.set(root.pid, root);
+		}
+		for (const identity of readRegisteredProcesses(processRegistry)) {
+			trackedProcesses.set(identity.pid, identity);
+		}
+		let added;
+		do {
+			added = false;
+			for (const entry of processes) {
+				if (!trackedProcesses.has(entry.pid) && trackedProcesses.has(entry.parentPid)) {
+					trackedProcesses.set(entry.pid, entry);
+					added = true;
+				}
+			}
+		} while (added);
+	};
+	const refresh = () => {
+		if (monitorError) throw monitorError;
+		scan();
+	};
+	refresh();
+	const timer = setInterval(() => {
+		try {
+			scan();
+		} catch (error) {
+			monitorError = error;
+			clearInterval(timer);
+		}
+	}, PROCESS_SCAN_INTERVAL_MS);
+	timer.unref();
+	const liveProcesses = () => {
+		if (monitorError) throw monitorError;
+		const currentByPid = new Map(readProcesses().map((entry) => [entry.pid, entry]));
+		return [...trackedProcesses.values()].filter((identity) =>
+			currentByPid.get(identity.pid)?.startedAt === identity.startedAt
+			&& currentByPid.get(identity.pid)?.processGroup === identity.processGroup
+		);
+	};
+	return {
+		rootPid,
+		processRegistry,
+		refresh,
+		stop() {
+			stopped = true;
+			clearInterval(timer);
+			rmSync(processRegistry, { force: true });
+		},
+		livePids: () => liveProcesses().map(({ pid }) => pid),
+		processGroups: () => [...new Set(
+			liveProcesses()
+				.map(({ processGroup }) => processGroup)
+				.filter(Boolean),
+		)],
+		ungroupedPids: () => liveProcesses()
+			.filter(({ processGroup }) => !processGroup)
+			.map(({ pid }) => pid),
+	};
+}
+
+function readRegisteredProcesses(processRegistry) {
+	try {
+		return readFileSync(processRegistry, "utf8").trim().split("\n").flatMap((line) => {
+			try {
+				const identity = JSON.parse(line);
+				return Number.isInteger(identity.pid) && typeof identity.startedAt === "string" ? [identity] : [];
+			} catch {
+				return [];
+			}
+		});
+	} catch (error) {
+		if (error?.code === "ENOENT") return [];
+		throw error;
+	}
+}
+
+export function readProcessTable() {
+	const result = spawnSync("ps", ["-A", "-o", "pid=,ppid=,pgid=,lstart="], {
+		encoding: "utf8",
+		maxBuffer: 4 * 1024 * 1024,
+	});
+	if (result.status !== 0) throw new Error(`could not inspect child processes: ${result.stderr?.trim()}`);
+	return result.stdout.trim().split("\n").flatMap((line) => {
+		const [pidText, parentPidText, processGroupText, ...startedAtParts] = line.trim().split(/\s+/);
+		const [pid, parentPid, processGroup] = [pidText, parentPidText, processGroupText].map(Number);
+		return Number.isInteger(pid) && Number.isInteger(parentPid) && Number.isInteger(processGroup)
+			? [{ pid, parentPid, processGroup, startedAt: startedAtParts.join(" ") }]
+			: [];
+	});
+}
+
+async function waitForTrackedProcesses(processTree) {
+	const deadline = Date.now() + STOP_TIMEOUT_MS;
+	while (Date.now() < deadline) {
+		if (processTree.livePids().length === 0) return;
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	const survivors = processTree.livePids();
+	if (survivors.length > 0) throw new Error(`could not stop ${survivors.length} quality command processes`);
+}
+
+async function waitForPidsToStop(pids) {
+	const deadline = Date.now() + STOP_TIMEOUT_MS;
+	while (Date.now() < deadline) {
+		const survivors = pids.filter(isPidAlive);
+		if (survivors.length === 0) return;
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	const survivors = pids.filter(isPidAlive);
+	if (survivors.length > 0) throw new Error(`could not stop ${survivors.length} registered quality processes`);
+}
+
+function isPidAlive(pid) {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		if (error?.code === "ESRCH") return false;
+		throw error;
 	}
 }
 
