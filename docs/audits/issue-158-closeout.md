@@ -85,6 +85,19 @@ PR #210 合并后的两轮真实进程复审共确认 4 个阻塞问题，编号
 
 此前三项待验证范围均已在 #197 重新验收中主动执行：图谱重建清理归入 FIND-013，真实资料读取与子进程外网隔离按共同的检查护栏原因归入 FIND-014。当前没有尚未编号的待验证项。
 
-## 5. 最终验收与关闭记录
+## 5. Phase 3 主线保护证据
+
+2026-07-13T07:20:04Z，#196 在确认 #194 与 #195 已合入后，从 GitHub 读取并记录了以下实际结果：
+
+- 验证版本：`8ff9c51a73a021739a4120310b82078a74f0dc62`，当时的 `main` 提交。
+- `quality-and-tests` 在该版本的 `main` push 上成功，完成时间为 2026-07-13T07:11:42Z；[workflow run 29231096867](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29231096867)。
+- `browser-main-flows` 在该版本的 `main` push 上成功，完成时间为 2026-07-13T07:10:07Z；[workflow run 29231096879](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29231096879)。
+- GitHub 分支接口返回 `main.protected = true`；[分支保护规则入口](https://github.com/sdyckjq-lab/llm-wiki-skill/settings/branches)。
+- 规则要求所有变更通过合并请求进入，必过检查为 GitHub Actions 应用（app id `15368`）产生的 `quality-and-tests` 与 `browser-main-flows`，并启用严格状态检查，要求候选分支先与最新主线同步。
+- 管理员同样受规则约束；没有配置合并请求绕过主体，仓库也没有额外 ruleset。强制推送和删除受保护分支均被禁止。
+
+#196 不制造故意失败的请求。规则对检查未完成或失败状态的真实拦截证据，按规格由第一张真实修复请求取得，并作为 #200 的必过条件。
+
+## 6. 最终验收与关闭记录
 
 尚未开始。#200 固定最终候选并完成全部同版本验收后，由 #201 在此追加每个稳定编号的处理结果、最终证据和关闭判断。
