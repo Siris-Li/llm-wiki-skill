@@ -120,14 +120,6 @@ sleep 30
 		await writeFile(tokenFile, "stale-token", { mode: 0o644 });
 		await chmod(tokenFile, 0o644);
 		await writeFile(outsideMarker, "must-not-change\n");
-		if (process.platform === "linux") {
-			await chmod(realAppConfig, 0o000);
-			await chmod(realModelCredentials, 0o000);
-			await chmod(sandbox, 0o500);
-		}
-		await assert.rejects(
-			stat(join(REPO_ROOT, "workbench/server/dist/test/support/isolation-guard.mjs")),
-		);
 
 		t.after(async () => {
 			if (vite) await stopSpawnedProcess(vite).catch(() => undefined);
@@ -137,6 +129,15 @@ sleep 30
 			if (process.platform === "linux") await chmod(sandbox, 0o700);
 			await rm(sandbox, { recursive: true, force: true });
 		});
+
+		if (process.platform === "linux") {
+			await chmod(realAppConfig, 0o000);
+			await chmod(realModelCredentials, 0o000);
+			await chmod(sandbox, 0o500);
+		}
+		await assert.rejects(
+			stat(join(REPO_ROOT, "workbench/server/dist/test/support/isolation-guard.mjs")),
+		);
 
 		const environment = isolatedEnvironment(home, port, testBin, childSandboxProfile, {
 			deniedReads: [realAppConfig, realModelCredentials],
