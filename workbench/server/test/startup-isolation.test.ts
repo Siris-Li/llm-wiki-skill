@@ -295,6 +295,8 @@ function isolatedEnvironment(
 		LLM_WIKI_ISOLATED_PROBE_NETWORK: probe.externalProbeUrl,
 		LLM_WIKI_ISOLATED_PROBE_FILE: probe.probeFile,
 		LLM_WIKI_ISOLATED_PROBE_OUTSIDE: probe.outsideMarker,
+		LLM_WIKI_ISOLATED_FIRST_GROUP_SIGNAL_NOOP: "1",
+		LLM_WIKI_ISOLATED_REJECT_DUPLICATE_SIGNALS: "1",
 		NODE_OPTIONS: `--import=${join(import.meta.dirname, "support/isolation-guard.mjs")}`,
 	};
 	if (process.platform === "darwin") {

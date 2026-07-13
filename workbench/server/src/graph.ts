@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { diffGraphData, normalizeGraphLayoutFile, type GraphData, type GraphDiff, type GraphLayoutFile } from "@llm-wiki/graph-engine";
 
 const GRAPH_BUILD_STOP_TIMEOUT_MS = 1_000;
+const GRAPH_BUILD_ABORT_GRACE_MS = 100;
 
 export type GraphReadResult =
 	| { ok: true; needsBuild: true; graphPath: string }
@@ -139,11 +140,13 @@ export async function stopActiveGraphRebuilds(): Promise<void> {
 	const queues = Array.from(rebuilds.values());
 	for (const queue of queues) queue.stop();
 	const running = Array.from(activeGraphBuilds.keys());
-	for (const child of running) signalGraphBuildTree(child, "SIGTERM");
-	await waitForGraphBuilds(running, GRAPH_BUILD_STOP_TIMEOUT_MS);
-	const remaining = running.filter((child) => activeGraphBuilds.has(child));
-	for (const child of remaining) signalGraphBuildTree(child, "SIGKILL");
-	await waitForGraphBuilds(remaining, GRAPH_BUILD_STOP_TIMEOUT_MS);
+	await waitForGraphBuilds(running, GRAPH_BUILD_ABORT_GRACE_MS);
+	const remainingAfterAbort = running.filter((child) => activeGraphBuilds.has(child));
+	for (const child of remainingAfterAbort) signalGraphBuildTree(child, "SIGTERM");
+	await waitForGraphBuilds(remainingAfterAbort, GRAPH_BUILD_STOP_TIMEOUT_MS);
+	const remainingAfterTerminate = remainingAfterAbort.filter((child) => activeGraphBuilds.has(child));
+	for (const child of remainingAfterTerminate) signalGraphBuildTree(child, "SIGKILL");
+	await waitForGraphBuilds(remainingAfterTerminate, GRAPH_BUILD_STOP_TIMEOUT_MS);
 	await Promise.race([
 		Promise.allSettled(queues.map((queue) => queue.waitForIdle())),
 		new Promise<void>((resolve) => setTimeout(resolve, GRAPH_BUILD_STOP_TIMEOUT_MS)),
