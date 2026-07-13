@@ -13,7 +13,7 @@
     "start": "node dist/index.js",
     "pretypecheck": "npm run build -w @llm-wiki/workbench-contracts && npm run build -w @llm-wiki/graph-engine",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
-    "test:startup": "npm run build && node --import tsx --test test/startup-isolation.test.ts"
+    "test:startup": "npm run build && node --import tsx --test test/startup-isolation.test.ts test/linux-child-isolation.test.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.79.4",
