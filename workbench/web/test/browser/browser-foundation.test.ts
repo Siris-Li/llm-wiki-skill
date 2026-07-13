@@ -190,8 +190,9 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 	);
 	await context.routeWebSocket(
 		/^wss?:\/\/(?!127\.0\.0\.1(?::\d+)?(?:\/|$)|localhost(?::\d+)?(?:\/|$))/,
-		(route) => {
+		async (route) => {
 			blockedExternalRequests.push(new URL(route.url()).origin);
+			await route.close({ code: 1008, reason: "external connections are disabled in browser tests" });
 		},
 	);
 

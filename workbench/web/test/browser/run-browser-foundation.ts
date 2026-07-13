@@ -80,6 +80,7 @@ function minimalEnvironment(): NodeJS.ProcessEnv {
 		TMPDIR: process.env.TMPDIR,
 		LANG: "C.UTF-8",
 		CI: process.env.CI,
+		PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH,
 	};
 	if (process.platform === "win32") {
 		for (const name of ["SystemRoot", "ComSpec", "PATHEXT", "TEMP", "TMP"] as const) {
