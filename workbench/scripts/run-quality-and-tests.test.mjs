@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { glob, readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { glob, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,7 @@ import {
 	createMinimalEnvironment,
 	interruptedExitCode,
 	QUALITY_STEPS,
+	readProcessTable,
 	runInvocation,
 	sanitizeOutput,
 	TOTAL_TIMEOUT_MS,
@@ -125,7 +127,7 @@ test("timed out commands terminate their process group", { skip: process.platfor
 	const result = await runInvocation(
 		{ command: process.execPath, args: ["--input-type=module", "-e", script], cwd: process.cwd() },
 		createMinimalEnvironment(process.env, path.join(tmpdir(), "quality-timeout-home")),
-		150,
+		3_000,
 	);
 	assert.equal(result.timedOut, true);
 	const childPid = Number(result.output.trim());
@@ -137,7 +139,7 @@ test("timed out commands terminate detached descendants", { skip: process.platfo
 	const result = await runInvocation(
 		detachedDescendantInvocation("setInterval(() => {}, 1000)"),
 		createMinimalEnvironment(process.env, path.join(tmpdir(), "quality-detached-timeout-home")),
-		500,
+		3_000,
 	);
 	assert.equal(result.timedOut, true);
 	await assertProcessStopsWithCleanup(Number(result.output.trim()));
@@ -154,20 +156,96 @@ test("failed commands terminate detached descendants", { skip: process.platform 
 	await assertProcessStopsWithCleanup(Number(result.output.trim()));
 });
 
+test("failed commands do not lose descendants that detach immediately", { skip: process.platform === "win32" }, async () => {
+	for (let attempt = 0; attempt < 8; attempt += 1) {
+		const result = await runInvocation(
+			detachedDescendantInvocation("process.exit(7)"),
+			createMinimalEnvironment(process.env, path.join(tmpdir(), `quality-immediate-detach-home-${attempt}`)),
+			2_000,
+		);
+		assert.equal(result.code, 7);
+		await assertProcessStopsWithCleanup(Number(result.output.trim()));
+	}
+});
+
 test("aborted commands terminate detached descendants", { skip: process.platform === "win32" }, async () => {
 	const controller = new AbortController();
-	setTimeout(() => controller.abort(), 500);
 	const result = await runInvocation(
 		detachedDescendantInvocation("setInterval(() => {}, 1000)"),
 		createMinimalEnvironment(process.env, path.join(tmpdir(), "quality-detached-abort-home")),
-		2_000,
-		() => undefined,
+		5_000,
+		(child) => child.stdout.once("data", () => setTimeout(() => controller.abort(), 100)),
 		{ signal: controller.signal },
 	);
 	assert.equal(result.aborted, true);
 	assert.equal(result.timedOut, false);
 	await assertProcessStopsWithCleanup(Number(result.output.trim()));
 });
+
+test("process scan failures still clean registered detached descendants", { skip: process.platform === "win32" }, async () => {
+	const directory = await mkdtemp(path.join(tmpdir(), "quality-scan-failure-"));
+	const pidFile = path.join(directory, "descendant.pid");
+	const script = [
+		'import { spawn } from "node:child_process";',
+		'import { writeFileSync } from "node:fs";',
+		"const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 'ignore', 'ignore'] });",
+		`writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
+		"setInterval(() => {}, 1000);",
+	].join("\n");
+	let failScan = false;
+	const controller = new AbortController();
+	const invocation = runInvocation(
+		{ command: process.execPath, args: ["--input-type=module", "-e", script], cwd: process.cwd() },
+		createMinimalEnvironment(process.env, path.join(directory, "home")),
+		5_000,
+		() => undefined,
+		{
+			signal: controller.signal,
+			readProcesses: () => {
+				if (failScan) throw new Error("injected process scan failure");
+				return readProcessTable();
+			},
+		},
+	);
+	const rejection = assert.rejects(invocation, /injected process scan failure/);
+	await waitForFile(pidFile);
+	failScan = true;
+	await new Promise((resolve) => setTimeout(resolve, 150));
+	controller.abort();
+	await rejection;
+	await assertProcessStopsWithCleanup(Number(await readFile(pidFile, "utf8")));
+	await rm(directory, { recursive: true, force: true });
+});
+
+for (const [signal, exitCode] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+	test(`quality entrypoint handles ${signal} after cleanup and writes evidence`, { skip: process.platform === "win32" }, async () => {
+		const failureDir = await mkdtemp(path.join(tmpdir(), `quality-${signal.toLowerCase()}-`));
+		const script = [
+			`import { main } from ${JSON.stringify(new URL("./run-quality-and-tests.mjs", import.meta.url).href)};`,
+			'const childScript = \'const { spawn } = require("node:child_process"); const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: ["ignore", "ignore", "ignore"] }); console.log(child.pid); setInterval(() => {}, 1000);\';',
+			"await main({ failureDir: process.env.FAILURE_DIR, qualitySteps: [{ id: 'signal-probe', timeoutMs: 10_000, commands: [{ command: process.execPath, args: ['-e', childScript], cwd: process.cwd() }] }] });",
+		].join("\n");
+		const runner = spawn(process.execPath, ["--input-type=module", "-e", script], {
+			cwd: REPO_ROOT,
+			env: { ...process.env, FAILURE_DIR: failureDir },
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		let output = "";
+		runner.stdout.on("data", (chunk) => { output += chunk; });
+		runner.stderr.on("data", (chunk) => { output += chunk; });
+		await waitForOutput(() => output.includes("[quality-and-tests] signal-probe"));
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		const exit = waitForChildExit(runner);
+		runner.kill(signal);
+		const result = await exit;
+		assert.equal(result.code, exitCode);
+		const descendantPid = Number(output.match(/^\d+$/m)?.[0]);
+		await assertProcessStopsWithCleanup(descendantPid);
+		const evidence = await readFile(path.join(failureDir, "failure.log"), "utf8");
+		assert.match(evidence, new RegExp(`interrupted by ${signal}`));
+		await rm(failureDir, { recursive: true, force: true });
+	});
+}
 
 test("GitHub quality check calls the shared entrypoint with minimal permissions", async () => {
 	const workflow = await readFile(new URL("../../.github/workflows/quality-and-tests.yml", import.meta.url), "utf8");
@@ -209,6 +287,34 @@ async function assertProcessStopsWithCleanup(pid) {
 		}
 		throw assertionError;
 	}
+}
+
+async function waitForOutput(predicate) {
+	const deadline = Date.now() + 5_000;
+	while (Date.now() < deadline) {
+		if (await predicate()) return;
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	assert.fail("quality subprocess did not start in time");
+}
+
+async function waitForFile(file) {
+	await waitForOutput(async () => {
+		try {
+			await readFile(file);
+			return true;
+		} catch (error) {
+			if (error?.code === "ENOENT") return false;
+			throw error;
+		}
+	});
+}
+
+function waitForChildExit(child) {
+	return new Promise((resolve, reject) => {
+		child.once("error", reject);
+		child.once("exit", (code, signal) => resolve({ code, signal }));
+	});
 }
 
 function detachedDescendantInvocation(exitStatement) {
