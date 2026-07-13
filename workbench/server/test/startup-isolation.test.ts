@@ -54,11 +54,11 @@ test(
 		const childProbeFile = join(home, "child-isolation-probe.txt");
 		const childOutsideMarker = join(sandbox, "child-outside-home.txt");
 		const realAppConfig = await existingSensitivePathOrSentinel(
-			join(homedir(), ".llm-wiki-agent", "config.json"),
+			process.platform === "linux" ? join(sandbox, "missing-app-config") : join(homedir(), ".llm-wiki-agent", "config.json"),
 			join(sandbox, "real-app-config-sentinel.json"),
 		);
 		const realModelCredentials = await existingSensitivePathOrSentinel(
-			join(homedir(), ".pi", "agent", "auth.json"),
+			process.platform === "linux" ? join(sandbox, "missing-model-credentials") : join(homedir(), ".pi", "agent", "auth.json"),
 			join(sandbox, "real-model-credentials-sentinel.json"),
 		);
 		const childSandboxProfile = join(home, "child-isolation.sb");
@@ -120,6 +120,11 @@ sleep 30
 		await writeFile(tokenFile, "stale-token", { mode: 0o644 });
 		await chmod(tokenFile, 0o644);
 		await writeFile(outsideMarker, "must-not-change\n");
+		if (process.platform === "linux") {
+			await chmod(realAppConfig, 0o000);
+			await chmod(realModelCredentials, 0o000);
+			await chmod(sandbox, 0o500);
+		}
 		await assert.rejects(
 			stat(join(REPO_ROOT, "workbench/server/dist/test/support/isolation-guard.mjs")),
 		);
@@ -129,6 +134,7 @@ sleep 30
 			if (running) await running.stop().catch(() => undefined);
 			for (const socket of externalProbeSockets) socket.destroy();
 			await closeServer(externalProbeServer).catch(() => undefined);
+			if (process.platform === "linux") await chmod(sandbox, 0o700);
 			await rm(sandbox, { recursive: true, force: true });
 		});
 
@@ -301,6 +307,15 @@ function isolatedEnvironment(
 	};
 	if (process.platform === "darwin") {
 		environment.LLM_WIKI_ISOLATED_CHILD_PROFILE = childSandboxProfile;
+	}
+	if (process.platform === "linux") {
+		const uid = process.getuid?.();
+		const gid = process.getgid?.();
+		if (uid === undefined || gid === undefined || uid === 0) {
+			throw new Error("startup isolation check requires a non-root Linux user");
+		}
+		environment.LLM_WIKI_ISOLATED_LINUX_UID = String(uid);
+		environment.LLM_WIKI_ISOLATED_LINUX_GID = String(gid);
 	}
 	if (process.platform === "win32" && process.env.SystemRoot) {
 		environment.SystemRoot = process.env.SystemRoot;

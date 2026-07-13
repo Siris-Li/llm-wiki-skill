@@ -4,6 +4,8 @@ import { syncBuiltinESMExports } from "node:module";
 import net from "node:net";
 import { isAbsolute, relative, resolve } from "node:path";
 
+import { linuxIsolatedCommand, resolveExecutable } from "./linux-child-isolation.mjs";
+
 const allowedRoot = resolveRequiredPath(
 	process.env.LLM_WIKI_ISOLATED_WRITE_ROOT,
 	"LLM_WIKI_ISOLATED_WRITE_ROOT",
@@ -15,6 +17,8 @@ const probeFile = process.env.LLM_WIKI_ISOLATED_PROBE_FILE;
 const probeOutside = process.env.LLM_WIKI_ISOLATED_PROBE_OUTSIDE;
 const probeNetwork = process.env.LLM_WIKI_ISOLATED_PROBE_NETWORK;
 const childSandboxProfile = process.env.LLM_WIKI_ISOLATED_CHILD_PROFILE;
+const linuxUserId = optionalInteger(process.env.LLM_WIKI_ISOLATED_LINUX_UID);
+const linuxGroupId = optionalInteger(process.env.LLM_WIKI_ISOLATED_LINUX_GID);
 const firstGroupSignalNoop = process.env.LLM_WIKI_ISOLATED_FIRST_GROUP_SIGNAL_NOOP === "1";
 const rejectDuplicateSignals = process.env.LLM_WIKI_ISOLATED_REJECT_DUPLICATE_SIGNALS === "1";
 delete process.env.LLM_WIKI_ISOLATED_DENIED_READS;
@@ -22,6 +26,8 @@ delete process.env.LLM_WIKI_ISOLATED_PROBE_FILE;
 delete process.env.LLM_WIKI_ISOLATED_PROBE_OUTSIDE;
 delete process.env.LLM_WIKI_ISOLATED_PROBE_NETWORK;
 delete process.env.LLM_WIKI_ISOLATED_CHILD_PROFILE;
+delete process.env.LLM_WIKI_ISOLATED_LINUX_UID;
+delete process.env.LLM_WIKI_ISOLATED_LINUX_GID;
 delete process.env.LLM_WIKI_ISOLATED_FIRST_GROUP_SIGNAL_NOOP;
 delete process.env.LLM_WIKI_ISOLATED_REJECT_DUPLICATE_SIGNALS;
 
@@ -85,6 +91,9 @@ wrapOpen(fs, "open");
 wrapOpen(fs, "openSync");
 wrapOpen(fs.promises, "open");
 if (childSandboxProfile) wrapChildProcesses(childSandboxProfile);
+if (linuxUserId !== undefined && linuxGroupId !== undefined) {
+	wrapLinuxChildProcesses({ uid: linuxUserId, gid: linuxGroupId });
+}
 if (rejectDuplicateSignals || firstGroupSignalNoop) guardProcessGroupSignals();
 syncBuiltinESMExports();
 
@@ -198,6 +207,26 @@ function wrapChildProcesses(profile) {
 	};
 }
 
+function wrapLinuxChildProcesses(identity) {
+	if (process.platform !== "linux") return;
+	const originalSpawn = childProcess.spawn;
+	const originalExecFile = childProcess.execFile;
+	childProcess.spawn = function guardedSpawn(command, args, options) {
+		const commandArgs = Array.isArray(args) ? args : [];
+		const commandOptions = Array.isArray(args) ? options : args;
+		const executable = resolveExecutable(command, commandOptions?.env?.PATH ?? process.env.PATH);
+		const isolated = linuxIsolatedCommand(executable, commandArgs, identity);
+		return originalSpawn.call(this, isolated.command, isolated.args, commandOptions);
+	};
+	childProcess.execFile = function guardedExecFile(file, ...rest) {
+		const args = Array.isArray(rest[0]) ? rest.shift() : [];
+		const options = rest[0] && typeof rest[0] === "object" ? rest[0] : undefined;
+		const executable = resolveExecutable(file, options?.env?.PATH ?? process.env.PATH);
+		const isolated = linuxIsolatedCommand(executable, args, identity);
+		return originalExecFile.call(this, isolated.command, isolated.args, ...rest);
+	};
+}
+
 function guardProcessGroupSignals() {
 	const originalKill = process.kill.bind(process);
 	const lastSignalAt = new Map();
@@ -245,5 +274,12 @@ function parsePathList(value) {
 	if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
 		throw new Error("LLM_WIKI_ISOLATED_DENIED_READS must be a JSON string array");
 	}
+	return parsed;
+}
+
+function optionalInteger(value) {
+	if (value === undefined) return undefined;
+	const parsed = Number(value);
+	if (!Number.isInteger(parsed) || parsed < 0) throw new Error("isolated Linux identity must be a non-negative integer");
 	return parsed;
 }
