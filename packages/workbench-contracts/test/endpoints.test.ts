@@ -10,7 +10,9 @@ import {
 	findEndpoint,
 	hasTrustedBrowserSource,
 	isExplicitlyUntrustedSource,
+	isMigratedJsonEndpoint,
 	isMigratedJsonPath,
+	MIGRATED_JSON_ENDPOINTS,
 	MIGRATED_JSON_PATHS,
 	requiresCapabilityToken,
 	requiresTrustedSource,
@@ -78,6 +80,60 @@ test("MIGRATED_JSON_PATHS 与 registry 的 migrated-json 子集严格一致（�
 		(e) => e.path,
 	);
 	assert.deepEqual([...MIGRATED_JSON_PATHS], expected);
+});
+
+test("MIGRATED_JSON_ENDPOINTS 保留 registry 的 method + path 配对", () => {
+	const expected = ENDPOINT_REGISTRY.filter((entry) => entry.kind === "migrated-json").map(
+		({ method, path }) => ({ method, path }),
+	);
+	assert.deepEqual([...MIGRATED_JSON_ENDPOINTS], expected);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "GET", path: "/api/health" }),
+		true,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "POST", path: "/api/health" }),
+		false,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "GET", path: "/api/commands" }),
+		false,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "POST", path: "/api/prompt" }),
+		false,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({
+			method: "GET",
+			path: "/api/artifacts/:id/files/:filename",
+		}),
+		false,
+	);
+});
+
+test("运行时 registry 与派生 allowlist 不可被调用方改写", () => {
+	assert.equal(Object.isFrozen(ENDPOINT_REGISTRY), true);
+	assert.ok(ENDPOINT_REGISTRY.every((entry) => Object.isFrozen(entry)));
+	assert.equal(Object.isFrozen(MIGRATED_JSON_ENDPOINTS), true);
+	assert.ok(MIGRATED_JSON_ENDPOINTS.every((endpoint) => Object.isFrozen(endpoint)));
+	assert.equal(Object.isFrozen(MIGRATED_JSON_PATHS), true);
+
+	assert.throws(
+		() => {
+			(
+				MIGRATED_JSON_ENDPOINTS as unknown as Array<{
+					method: string;
+					path: string;
+				}>
+			).push({ method: "POST", path: "/api/auth/set" });
+		},
+		TypeError,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "POST", path: "/api/auth/set" }),
+		false,
+	);
 });
 
 test("health 与设置/模型/auth status 是 migrated-json endpoint", () => {
