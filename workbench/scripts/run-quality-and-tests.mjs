@@ -369,9 +369,14 @@ function trackProcessTree(rootPid) {
 		},
 		livePids: () => [...trackedPids].filter(isProcessAlive),
 		processGroups: () => [...new Set(
-			[...trackedPids].map((pid) => processGroupsByPid.get(pid)).filter(Boolean),
+			[...trackedPids]
+				.filter(isProcessAlive)
+				.map((pid) => processGroupsByPid.get(pid))
+				.filter(Boolean),
 		)],
-		ungroupedPids: () => [...trackedPids].filter((pid) => !processGroupsByPid.get(pid)),
+		ungroupedPids: () => [...trackedPids]
+			.filter(isProcessAlive)
+			.filter((pid) => !processGroupsByPid.get(pid)),
 	};
 }
 
