@@ -35,9 +35,15 @@ PR #210 合并后的两轮真实进程复审共确认 4 个阻塞问题，编号
 | FIND-009 | 高       | 保护启用前修复 | 是       | 是；缺少的正是线上检查和主线保护                               | [#194](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/194)、[#195](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/195)、[#196](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/196) | 两项线上检查在主线成功并成为必过条件；直接写入和未通过检查的合并被真实阻止             |
 | FIND-010 | 低       | 非阻塞后续     | 否       | 否                                                             | [#193](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/193)                                                                                                                                     | #165 至 #176 正式归入 #158；错误标签清理；任务关系从 GitHub 重新读取后与本表一致       |
 
-### 2.1 永久接受项
+### 2.1 永久接受项与 FIND-008 的用户决定
 
-当前为 **0 项**。没有用户留下明确批准记录，因此 FIND-008 仍是阻塞项；执行者不能把当前事件流做法自行认定为永久例外。
+当前永久接受项为 **0 项**。FIND-008 不是未经批准的永久例外：用户已于 2026-07-13 明确选择按业务类型区分事件结束规则，记录见 [#175 的决定](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/175#issuecomment-4959712274)。
+
+- prompt 仍以 `assistant_done`、`assistant_cancelled`、`assistant_error` 三选一结束；
+- batch digest 仍以 `batch_completed`、`batch_cancelled`、`batch_failed` 三选一结束；
+- graph events 保持长期只读订阅，主动关闭或传输断线结束本次连接；重连必须更换 `streamId` 并从序号 1 开始，不伪造业务终态。
+
+因此，早期把聊天三类终态套用于每条事件流的文字不再适用于 batch digest 和 graph events。#175 将以这项用户决定为准补齐防回退验证，完成前仍阻止最终收口。
 
 ### 2.2 重新打开的原子任务
 
