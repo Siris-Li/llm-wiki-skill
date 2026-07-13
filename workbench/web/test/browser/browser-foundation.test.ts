@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { chromium, type Browser, type BrowserContext } from "playwright";
+import { chromium, type Browser, type BrowserContext, type BrowserServer } from "playwright";
 
 const REPO_ROOT = resolve(import.meta.dirname, "../../../..");
 const WEB_ROOT = join(REPO_ROOT, "workbench/web");
@@ -21,6 +21,16 @@ const START_TIMEOUT_MS = 30_000;
 const OPERATION_TIMEOUT_MS = 8_000;
 const STOP_TIMEOUT_MS = 5_000;
 const FAKE_MODEL_MARKER = "browser-foundation-fake-model";
+const FORBIDDEN_PARENT_ENV = [
+	"ANTHROPIC_API_KEY",
+	"AWS_ACCESS_KEY_ID",
+	"AWS_SECRET_ACCESS_KEY",
+	"AZURE_OPENAI_API_KEY",
+	"GOOGLE_API_KEY",
+	"OPENAI_API_KEY",
+	"PI_CONFIG_DIR",
+	"XDG_CONFIG_HOME",
+] as const;
 
 interface RunningProcess {
 	child: ChildProcess;
@@ -41,6 +51,7 @@ interface BrowserEvidence {
 }
 
 test("browser foundation uses real frontend, HTTP, SSE, and backend processing", { timeout: 90_000 }, async (t) => {
+	for (const name of FORBIDDEN_PARENT_ENV) assert.equal(process.env[name], undefined, `${name} was not cleared`);
 	await assertPortAvailable(WEB_PORT);
 	const sandbox = await mkdtemp(join(tmpdir(), "llm-wiki-browser-foundation-"));
 	const home = join(sandbox, "home");
@@ -50,8 +61,10 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 	const serverNetworkProbe = join(home, "server-network-probe.txt");
 	const viteNetworkProbe = join(home, "vite-network-probe.txt");
 	const backendPort = await availablePort();
+	await prepareSandboxDirectories(home);
 	let server: RunningProcess | undefined;
 	let vite: RunningProcess | undefined;
+	let browserServer: BrowserServer | undefined;
 	let browser: Browser | undefined;
 	let context: BrowserContext | undefined;
 	let cleanupComplete = false;
@@ -75,6 +88,20 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 				errors.push(error);
 			}
 		}
+		if (
+			browserServer
+			&& browserServer.process().exitCode === null
+			&& browserServer.process().signalCode === null
+		) {
+			try {
+				await withTimeout(browserServer.close(), STOP_TIMEOUT_MS, "browser server did not close");
+			} catch (error) {
+				errors.push(error);
+				await withTimeout(browserServer.kill(), STOP_TIMEOUT_MS, "browser process could not be killed")
+					.catch((killError) => errors.push(killError));
+			}
+		}
+		browserServer = undefined;
 		if (vite) {
 			try {
 				await stopProcess(vite, [0, 143]);
@@ -99,8 +126,8 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 	};
 	t.after(cleanup);
 
-	await createKnowledgeBase(kbA, "Atlas Notes", "Shared fictional signal");
-	await createKnowledgeBase(kbB, "Harbor Notes", "Shared fictional signal");
+	await createKnowledgeBase(kbA, "Atlas Notes", "Atlas-only fictional signal");
+	await createKnowledgeBase(kbB, "Harbor Notes", "Harbor-only fictional signal");
 	await createConversation(appDir, kbA, "Atlas opening message");
 	await createConversation(appDir, kbB, "Harbor opening message");
 	await mkdir(appDir, { recursive: true });
@@ -129,6 +156,7 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 			TMPDIR: join(home, "tmp"),
 			LLM_WIKI_AGENT_API_ORIGIN: `http://127.0.0.1:${backendPort}`,
 			LLM_WIKI_AGENT_DISABLE_HMR: "1",
+			...platformSandboxEnvironment(home),
 			...networkGuardEnvironment(viteNetworkProbe),
 		},
 		(output) => output.includes("Local:"),
@@ -139,8 +167,18 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 	assert.equal(await readFile(serverNetworkProbe, "utf8"), "BLOCKED");
 	assert.equal(await readFile(viteNetworkProbe, "utf8"), "BLOCKED");
 
-	browser = await chromium.launch({ headless: true });
-	context = await browser.newContext();
+	browserServer = await chromium.launchServer({
+		headless: true,
+		env: {
+			HOME: home,
+			PATH: process.env.PATH ?? "/usr/bin:/bin",
+			TMPDIR: join(home, "tmp"),
+			LANG: "C.UTF-8",
+			...platformSandboxEnvironment(home),
+		},
+	});
+	browser = await chromium.connect(browserServer.wsEndpoint());
+	context = await browser.newContext({ serviceWorkers: "block" });
 	const blockedExternalRequests: string[] = [];
 	await context.route(
 		/^https?:\/\/(?!127\.0\.0\.1(?::\d+)?(?:\/|$)|localhost(?::\d+)?(?:\/|$))/,
@@ -148,6 +186,12 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 			const url = new URL(route.request().url());
 			blockedExternalRequests.push(url.origin);
 			await route.abort("blockedbyclient");
+		},
+	);
+	await context.routeWebSocket(
+		/^wss?:\/\/(?!127\.0\.0\.1(?::\d+)?(?:\/|$)|localhost(?::\d+)?(?:\/|$))/,
+		(route) => {
+			blockedExternalRequests.push(new URL(route.url()).origin);
 		},
 	);
 
@@ -206,10 +250,24 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 	assert.equal(evidence.health.status, 200);
 	assert.equal(evidence.knowledgeBases.status, 200);
 	assert.equal((evidence.knowledgeBases.body as { data: unknown[] }).data.length, 2);
+	assert.equal(evidence.conversationsA.status, 200);
+	assert.equal(evidence.conversationsB.status, 200);
+	assert.equal(evidence.sharedPageA.status, 200);
+	assert.equal(evidence.sharedPageB.status, 200);
 	assert.equal((evidence.conversationsA.body as { data: unknown[] }).data.length, 1);
 	assert.equal((evidence.conversationsB.body as { data: unknown[] }).data.length, 1);
-	assert.match(JSON.stringify(evidence.sharedPageA.body), /Shared fictional signal/);
-	assert.match(JSON.stringify(evidence.sharedPageB.body), /Shared fictional signal/);
+	const conversationsA = JSON.stringify(evidence.conversationsA.body);
+	const conversationsB = JSON.stringify(evidence.conversationsB.body);
+	assert.match(conversationsA, /Atlas opening message/);
+	assert.doesNotMatch(conversationsA, /Harbor opening message/);
+	assert.match(conversationsB, /Harbor opening message/);
+	assert.doesNotMatch(conversationsB, /Atlas opening message/);
+	const sharedPageA = JSON.stringify(evidence.sharedPageA.body);
+	const sharedPageB = JSON.stringify(evidence.sharedPageB.body);
+	assert.match(sharedPageA, /Atlas-only fictional signal/);
+	assert.doesNotMatch(sharedPageA, /Harbor-only fictional signal/);
+	assert.match(sharedPageB, /Harbor-only fictional signal/);
+	assert.doesNotMatch(sharedPageB, /Atlas-only fictional signal/);
 	assert.deepEqual(evidence.chosenDirectory, {
 		status: 200,
 		body: { ok: true, path: kbB },
@@ -268,6 +326,7 @@ function isolatedEnvironment(
 		TMPDIR: join(home, "tmp"),
 		LANG: "C.UTF-8",
 		LLM_WIKI_BROWSER_SELECTED_DIRECTORY: selectedDirectory,
+		...platformSandboxEnvironment(home),
 		...networkGuardEnvironment(networkProbeFile),
 	};
 }
@@ -277,6 +336,26 @@ function networkGuardEnvironment(probeFile: string): NodeJS.ProcessEnv {
 		NODE_OPTIONS: `--import=${NETWORK_GUARD}`,
 		LLM_WIKI_BROWSER_NETWORK_PROBE_FILE: probeFile,
 		LLM_WIKI_BROWSER_NETWORK_PROBE_TARGET: "http://192.0.2.1:9",
+	};
+}
+
+async function prepareSandboxDirectories(home: string): Promise<void> {
+	const directories = [join(home, "tmp")];
+	if (process.platform === "win32") {
+		directories.push(join(home, "AppData", "Roaming"), join(home, "AppData", "Local"));
+	}
+	await Promise.all(directories.map((directory) => mkdir(directory, { recursive: true })));
+}
+
+function platformSandboxEnvironment(home: string): Record<string, string> {
+	if (process.platform !== "win32") return {};
+	return {
+		USERPROFILE: home,
+		APPDATA: join(home, "AppData", "Roaming"),
+		LOCALAPPDATA: join(home, "AppData", "Local"),
+		TEMP: join(home, "tmp"),
+		TMP: join(home, "tmp"),
+		...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
 	};
 }
 
@@ -334,7 +413,9 @@ async function stopProcess(
 		throw error;
 	}
 	assert.equal(result.signal, null, running.output());
-	assert.equal(expectedExitCodes.includes(result.code ?? -1), true, running.output());
+	if (process.platform !== "win32") {
+		assert.equal(expectedExitCodes.includes(result.code ?? -1), true, running.output());
+	}
 }
 
 async function waitUntil(
@@ -405,8 +486,11 @@ async function withTimeout<T>(
 function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
 	if (!child.pid) return;
 	try {
-		if (process.platform === "win32") child.kill(signal);
-		else process.kill(-child.pid, signal);
+		if (process.platform === "win32") {
+			spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+		} else {
+			process.kill(-child.pid, signal);
+		}
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
 	}

@@ -17,28 +17,44 @@ net.Socket.prototype.connect = function guardedConnect(...args) {
 
 if (probeFile && probeTarget) {
 	const target = new URL(probeTarget);
-	const socket = new net.Socket();
-	let result = "ALLOWED";
-	try {
-		socket.connect({ host: target.hostname, port: Number(target.port) });
-	} catch {
-		result = "BLOCKED";
-	} finally {
-		socket.destroy();
-	}
+	const options = { host: target.hostname, port: Number(target.port) };
+	const attempts = [
+		() => new net.Socket().connect(options),
+		() => new net.Socket().connect(options.port, options.host),
+		() => net.connect(options),
+		() => net.connect(options.port, options.host),
+		() => net.createConnection(options),
+		() => net.createConnection(options.port, options.host),
+	];
+	const result = attempts.every(connectionIsBlocked) ? "BLOCKED" : "ALLOWED";
 	fs.writeFileSync(probeFile, result);
 }
 
 function connectionDestination(args) {
-	const first = args[0];
+	let normalized = args;
+	while (normalized.length === 1 && Array.isArray(normalized[0])) normalized = normalized[0];
+	const first = normalized[0];
 	if (typeof first === "object" && first !== null) {
 		if (typeof first.path === "string") return null;
 		return typeof first.host === "string" ? first.host : "localhost";
 	}
 	if (typeof first === "number") {
-		return typeof args[1] === "string" ? args[1] : "localhost";
+		return typeof normalized[1] === "string" ? normalized[1] : "localhost";
 	}
 	return null;
+}
+
+function connectionIsBlocked(connect) {
+	let socket;
+	try {
+		socket = connect();
+		socket.on("error", () => undefined);
+		return false;
+	} catch {
+		return true;
+	} finally {
+		socket?.destroy();
+	}
 }
 
 function isLoopback(host) {
