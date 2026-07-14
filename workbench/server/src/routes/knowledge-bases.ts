@@ -58,6 +58,7 @@ import {
 import {
 	createWiki,
 	InitConflictError,
+	KNOWLEDGE_BASE_SETUP_REQUIRED_MESSAGE,
 	initExistingWiki,
 	KnowledgeBaseSetupInputError,
 } from "../wiki-init.js";
@@ -327,6 +328,12 @@ function mapKnowledgeBaseSetupError(err: unknown): HttpContractError {
 	if (err instanceof HttpContractError) return mapKnowledgeBaseError(err);
 
 	const code = (err as { code?: unknown })?.code;
+	if (code === "SETUP_REQUIRED") {
+		return new HttpContractError(
+			"INVALID_REQUEST",
+			KNOWLEDGE_BASE_SETUP_REQUIRED_MESSAGE,
+		);
+	}
 	if (code === "ENOTSUP" || code === "UNSUPPORTED_PLATFORM") {
 		return new HttpContractError(
 			"UNSUPPORTED_PLATFORM",

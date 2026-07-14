@@ -431,6 +431,24 @@ test("创建和初始化使用统一失败 envelope，且不泄露底层细节",
 		message: "请选择一个存在的文件夹",
 	});
 
+	service.createKnowledgeBase = async () => {
+		throw Object.assign(new Error("/Users/private/llm-wiki is unavailable"), {
+			code: "SETUP_REQUIRED",
+		});
+	};
+	app = createApp({ knowledgeBaseService: service, mode: "test" });
+	res = await app.request("/api/knowledge-bases/new", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name: "research", purpose: "topic" }),
+	});
+	assert.equal(res.status, 400);
+	assert.deepEqual(await json(res), {
+		ok: false,
+		code: "INVALID_REQUEST",
+		message: "未找到 llm-wiki 初始化工具，请先安装后重试",
+	});
+
 	service.initExistingKnowledgeBase = async () => {
 		throw Object.assign(new Error("/Users/private/candidate"), {
 			code: "FORBIDDEN_PATH",
