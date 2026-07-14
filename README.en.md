@@ -10,7 +10,7 @@ Based on [Andrej Karpathy](https://karpathy.ai/)'s [llm-wiki methodology](https:
 
 Turn scattered information into a growing, interconnected knowledge base
 
-[![version](https://img.shields.io/badge/v3.6.60-Repository%20Privacy-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.61-Graph%20Checks-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-multi--platform-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -96,7 +96,7 @@ The key difference: knowledge is **compiled once, maintained continuously** — 
 | 📚 | **Workbench Knowledge Base Setup** | Creating a knowledge base, initializing an existing folder, and choosing a directory now share one flow; cancellation keeps the current input, conflicts can continue after backup, and failures do not reveal local paths or internal details |
 | ✅ | **Reliable Workbench Startup** | The server listens locally, failed launches preserve the active credential, restarts rotate it and restore the last knowledge base, and shutdown ends open streams and graph rebuild processes |
 | 🧪 | **Real Workbench Browser Checks** | Automated checks cover seven primary workflows plus isolation, cancellation, disconnects, busy states, and failure recovery through the real frontend and backend |
-| 🔎 | **Unified Workbench Quality Check** | Local and GitHub checks now block private paths and known private material clues before running frontend, backend, graph, boundary, type, lint, and build verification |
+| 🔎 | **Unified Workbench Quality Check** | Local and GitHub checks now block private paths and known private material clues before running frontend, backend, graph, boundary, type, lint, and build verification; graph interaction settlement is confirmed from the actual viewport commit, so brief load cannot make it finish early |
 
 ---
 
