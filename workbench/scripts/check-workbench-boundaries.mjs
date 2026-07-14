@@ -27,8 +27,6 @@ const REMAINING_LEGACY_ENDPOINTS = new Set([
 	"POST /api/knowledge-bases/init-existing",
 	"GET /api/commands",
 	"POST /api/system/choose-directory",
-	"POST /api/auth/set",
-	"POST /api/auth/test",
 ]);
 const REMAINING_LEGACY_PATHS = new Set(
 	[...REMAINING_LEGACY_ENDPOINTS].map((endpoint) => endpoint.slice(endpoint.indexOf(" ") + 1)),

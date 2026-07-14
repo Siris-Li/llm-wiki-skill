@@ -58,8 +58,6 @@ const TEMPORARY_LEGACY_EXCEPTIONS = new Map<string, TemporaryLegacyException>([
 	["POST /api/knowledge-bases/init-existing", { finding: "FIND-001", issue: 206 }],
 	["GET /api/commands", { finding: "FIND-001", issue: 207 }],
 	["POST /api/system/choose-directory", { finding: "FIND-001", issue: 206 }],
-	["POST /api/auth/set", { finding: "FIND-001", issue: 205 }],
-	["POST /api/auth/test", { finding: "FIND-001", issue: 205 }],
 ]);
 const APPROVED_AUXILIARY_ENDPOINTS = new Map<string, ApprovedAuxiliaryEndpoint>();
 
@@ -98,8 +96,8 @@ export const RUNTIME_ENDPOINT_DECLARATIONS = [
 	{ method: "GET", path: "/api/artifacts", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "GET", path: "/api/artifacts/:id", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "GET", path: "/api/auth/status", kind: "migrated-json", safety: "read-only", source: "createApp" },
-	{ method: "POST", path: "/api/auth/set", kind: "legacy", safety: "state-changing", source: "startup", temporaryLegacyException: { finding: "FIND-001", issue: 205 } },
-	{ method: "POST", path: "/api/auth/test", kind: "legacy", safety: "state-changing", source: "startup", temporaryLegacyException: { finding: "FIND-001", issue: 205 } },
+	{ method: "POST", path: "/api/auth/set", kind: "migrated-json", safety: "state-changing", source: "createApp" },
+	{ method: "POST", path: "/api/auth/test", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "GET", path: "/api/conversations", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "POST", path: "/api/conversations", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "POST", path: "/api/conversations/new", kind: "migrated-json", safety: "state-changing", source: "createApp" },

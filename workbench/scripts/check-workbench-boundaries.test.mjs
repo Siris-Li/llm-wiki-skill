@@ -12,8 +12,6 @@ const remainingLegacyEndpoints = [
 	{ method: "POST", path: "/api/knowledge-bases/init-existing", kind: "legacy" },
 	{ method: "GET", path: "/api/commands", kind: "legacy" },
 	{ method: "POST", path: "/api/system/choose-directory", kind: "legacy" },
-	{ method: "POST", path: "/api/auth/set", kind: "legacy" },
-	{ method: "POST", path: "/api/auth/test", kind: "legacy" },
 ];
 
 async function fixture(files) {

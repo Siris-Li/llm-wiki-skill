@@ -3,6 +3,10 @@ import test from "node:test";
 
 import {
 	AppConfigSchema,
+	AuthConnectionTestBodySchema,
+	AuthConnectionTestDataSchema,
+	AuthSetBodySchema,
+	AuthSetDataSchema,
 	AuthStatusDataSchema,
 	AvailableModelsDataSchema,
 	ConflictDetailsSchema,
@@ -38,6 +42,7 @@ test("WorkbenchErrorCode 包含第一批稳定错误码", () => {
 		"FORBIDDEN_PATH",
 		"FORBIDDEN_ORIGIN",
 		"FORBIDDEN_LOCAL_API",
+		"AUTHENTICATION_FAILED",
 		"NOT_FOUND",
 		"CONFLICT",
 		"UNSUPPORTED_PLATFORM",
@@ -57,6 +62,7 @@ test("errorCodeToHttpStatus 覆盖所有 code 且只用 spec 约定的大类状�
 	assert.equal(errorCodeToHttpStatus.NOT_FOUND, 404);
 	assert.equal(errorCodeToHttpStatus.FORBIDDEN_PATH, 403);
 	assert.equal(errorCodeToHttpStatus.FORBIDDEN_ORIGIN, 403);
+	assert.equal(errorCodeToHttpStatus.AUTHENTICATION_FAILED, 400);
 	assert.equal(errorCodeToHttpStatus.CONFLICT, 409);
 	assert.equal(errorCodeToHttpStatus.BUSY, 409);
 	assert.equal(errorCodeToHttpStatus.UNSUPPORTED_PLATFORM, 501);
@@ -185,7 +191,7 @@ test("ModelRef schema trim provider/modelId 且拒绝空字符串", () => {
 	);
 });
 
-test("config / models / auth status data schema 校验公开响应 shape", () => {
+test("config / models / auth data schema 校验公开请求与响应 shape", () => {
 	assert.equal(
 		AppConfigSchema.safeParse({
 			version: 1,
@@ -218,6 +224,33 @@ test("config / models / auth status data schema 校验公开响应 shape", () =>
 		}).success,
 		true,
 	);
+	assert.deepEqual(
+		AuthSetBodySchema.parse({
+			provider: " Anthropic ",
+			type: "api_key",
+			key: " sk-contract-test ",
+		}),
+		{ provider: "anthropic", type: "api_key", key: "sk-contract-test" },
+	);
+	assert.equal(
+		AuthSetBodySchema.safeParse({ provider: " ", type: "api_key", key: "sk-contract-test" })
+			.success,
+		false,
+	);
+	assert.equal(
+		AuthSetBodySchema.safeParse({ provider: "anthropic", type: "oauth", key: "sk-contract-test" })
+			.success,
+		false,
+	);
+	assert.equal(
+		AuthConnectionTestBodySchema.safeParse({ provider: " " }).success,
+		false,
+	);
+	assert.deepEqual(AuthSetDataSchema.parse({ saved: true }), { saved: true });
+	assert.deepEqual(AuthConnectionTestDataSchema.parse({ message: "连接成功" }), {
+		message: "连接成功",
+	});
+	assert.equal(AuthConnectionTestDataSchema.safeParse({ message: " " }).success, false);
 });
 
 test("知识库上下文明确 GET query kb 与 JSON body kbPath", () => {

@@ -347,14 +347,14 @@ export const ENDPOINT_REGISTRY = freezeEndpointEntries([
 	{
 		method: "POST",
 		path: "/api/auth/set",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "写入凭证",
 	},
 	{
 		method: "POST",
 		path: "/api/auth/test",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "向 provider 验证 key；不改本地状态但发起外部调用，保守要求 token",
 	},

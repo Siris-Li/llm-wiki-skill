@@ -89,30 +89,3 @@ export async function listCommands(
 	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
 	return json.items ?? [];
 }
-
-export async function setAuthKey(provider: string, key: string): Promise<void> {
-	const res = await fetch("/api/auth/set", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ provider, type: "api_key", key }),
-	});
-	const json = (await res.json()) as { ok: boolean; error?: string };
-	if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-}
-
-export async function testAuthConnection(
-	provider: string,
-): Promise<{ ok: boolean; message?: string; error?: string }> {
-	const res = await fetch("/api/auth/test", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ provider }),
-	});
-	const json = (await res.json()) as {
-		ok: boolean;
-		message?: string;
-		error?: string;
-	};
-	if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-	return json;
-}

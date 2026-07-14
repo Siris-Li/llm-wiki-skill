@@ -52,7 +52,7 @@ export interface WorkbenchAppDeps {
 	security?: MiddlewareHandler;
 	/** 设置 / 模型 route 依赖；测试可注入 fake，真实启动用默认实现。 */
 	configService?: ConfigRouteService;
-	/** 认证状态 route 依赖；测试可注入 fake，真实启动用默认实现。 */
+	/** 认证状态、写入和连接测试 route 依赖；测试可注入 fake，真实启动用默认实现。 */
 	authService?: AuthRouteService;
 	/** 知识库 / active context route 依赖；route 测试必须注入 fake。 */
 	knowledgeBaseService?: KnowledgeBaseRouteService;
