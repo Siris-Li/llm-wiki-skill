@@ -10,7 +10,7 @@
 
 把碎片化的信息变成持续积累、互相链接的知识库
 
-[![version](https://img.shields.io/badge/v3.6.61-图谱检查-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.62-页面检查-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-多平台-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -101,7 +101,7 @@ bash install.sh --platform hermes
 | 🔑 | **工作台认证设置** | 保存 API key 和测试连接使用同一套保护与提示；失败不会暴露本机信息、密钥或底层错误 |
 | 📚 | **工作台知识库创建** | 新建、初始化已有目录和选择文件夹使用统一流程；取消仍保留当前输入，发生冲突时可以备份后继续，异常不会暴露本机路径或内部信息 |
 | ✅ | **工作台可靠启动** | 后台只监听本机，失败启动不会替换现有凭证，重启会换新并恢复上次知识库；退出时会有序结束持续连接和图谱重建进程，必要时再启用兜底清理 |
-| 🧪 | **工作台真实浏览器检查** | 自动启动真实前台和后台，检查知识库、对话、页面、图谱、消息、产出物、设置与模型的主要流程，以及隔离、取消、断线和失败恢复 |
+| 🧪 | **工作台真实浏览器检查** | 自动启动真实前台和后台，检查知识库、对话、页面、图谱、消息、产出物、设置与模型的主要流程，以及隔离、取消、断线和失败恢复；Paper 视觉检查会从页面搜索进入右侧阅读区并确认正文已经显示 |
 | 🔎 | **工作台统一质量检查** | 本机与 GitHub 使用同一入口，顺序检查公开内容隐私、前后台、共享规则、图谱、边界、类型、规范和构建，并在隔离环境验证启动与入口反例；图谱交互结束按实际视图提交时点确认，不会因短暂繁忙被提前判定完成 |
 
 ---
