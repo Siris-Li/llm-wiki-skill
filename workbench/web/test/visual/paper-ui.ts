@@ -18,6 +18,7 @@ type PaperVisualCase = {
 	name: string;
 	description: string;
 	prefs: PaperPrefs;
+	apiReadProbe?: boolean;
 	viewport?: { width: number; height: number };
 	view?: "chat" | "graph";
 	fonts?: "normal" | "blocked";
@@ -36,6 +37,8 @@ const staticFallbackUrl = "http://paper-ui.local/";
 const distDir = resolve(process.cwd(), "dist");
 const visualKbPath = "/visual/ai-learning";
 const evaluateNameHelper = "globalThis.__name = (fn) => fn;";
+const paperApiReadPaths = ["/api/artifacts", "/api/config", "/api/models"] as const;
+type PaperApiReadPath = (typeof paperApiReadPaths)[number];
 const defaultPrefs: PaperPrefs = {
 	theme: "light",
 	paper: "clean",
@@ -53,6 +56,7 @@ const cases: PaperVisualCase[] = [
 			name: `${theme}-${paper}-1440`,
 			description: `${theme} theme with ${paper} paper`,
 			prefs: { ...defaultPrefs, theme, paper },
+			apiReadProbe: theme === "light" && paper === "clean",
 			fonts: "normal" as const,
 		})),
 	),
@@ -234,15 +238,16 @@ try {
 
 async function captureCase(browser: Browser, visualCase: PaperVisualCase, url: string, useStaticFallback: boolean) {
 	const viewport = visualCase.viewport ?? { width: 1440, height: 900 };
+	const apiReads = new Set<PaperApiReadPath>();
 	const context = await browser.newContext({
 		deviceScaleFactor: 1,
 		viewport,
 	});
 	await context.addInitScript(evaluateNameHelper);
 	if (useStaticFallback) {
-		await installStaticFallbackRoutes(context);
+		await installStaticFallbackRoutes(context, apiReads);
 	} else {
-		await installVisualApiRoutes(context, new URL(url).origin);
+		await installVisualApiRoutes(context, new URL(url).origin, apiReads);
 	}
 	if (visualCase.fonts === "blocked") {
 		await context.route(/fonts\.(googleapis|gstatic)\.com/, (route: Route) => route.abort());
@@ -275,6 +280,9 @@ async function captureCase(browser: Browser, visualCase: PaperVisualCase, url: s
 			await document.fonts?.ready;
 		});
 		await waitForStableVisualState(page, visualCase);
+		if (visualCase.apiReadProbe) {
+			await verifyPaperApiReads(page, apiReads);
+		}
 		if (visualCase.drawer === "wiki") {
 			await openWikiDrawerFromSearch(page);
 			await waitForStableVisualState(page, visualCase);
@@ -411,6 +419,27 @@ async function captureCase(browser: Browser, visualCase: PaperVisualCase, url: s
 	}
 }
 
+async function verifyPaperApiReads(page: Page, apiReads: Set<PaperApiReadPath>) {
+	const modelButton = page.locator(".topbar-model");
+	await modelButton.click();
+	const modelList = page.getByRole("listbox", { name: "主对话模型" });
+	const configuredModel = modelList.getByRole("option", {
+		name: /anthropic\/claude-sonnet-4\.6/,
+	});
+	await configuredModel.waitFor({ state: "visible", timeout: 10_000 });
+	if (await configuredModel.getAttribute("aria-selected") !== "true") {
+		throw new Error("Paper API fixture: configured model was not selected");
+	}
+	for (const path of paperApiReadPaths) {
+		if (!apiReads.has(path)) throw new Error(`Paper API fixture: ${path} was not requested`);
+	}
+	if (await page.locator(".sidebar-error").count() > 0) {
+		throw new Error("Paper API fixture: artifact read failed during startup");
+	}
+	await modelButton.click();
+	await modelList.waitFor({ state: "detached", timeout: 5_000 });
+}
+
 async function openWikiDrawerFromSearch(page: Page) {
 	await page.keyboard.press(process.platform === "darwin" ? "Meta+K" : "Control+K");
 	await page.waitForSelector(".search-panel", { timeout: 5_000 });
@@ -469,19 +498,23 @@ async function captureReference(
 	}
 }
 
-async function installVisualApiRoutes(context: BrowserContext, origin: string) {
+async function installVisualApiRoutes(
+	context: BrowserContext,
+	origin: string,
+	apiReads: Set<PaperApiReadPath>,
+) {
 	await context.route(`${origin}/api/**`, async (route) => {
 		const request = route.request();
-		await fulfillMockApi(route, new URL(request.url()), request.method());
+		await fulfillMockApi(route, new URL(request.url()), request.method(), apiReads);
 	});
 }
 
-async function installStaticFallbackRoutes(context: BrowserContext) {
+async function installStaticFallbackRoutes(context: BrowserContext, apiReads: Set<PaperApiReadPath>) {
 	await context.route("http://paper-ui.local/**", async (route) => {
 		const request = route.request();
 		const url = new URL(request.url());
 		if (url.pathname.startsWith("/api/")) {
-			await fulfillMockApi(route, url, request.method());
+			await fulfillMockApi(route, url, request.method(), apiReads);
 			return;
 		}
 		const path = url.pathname === "/" ? "/index.html" : url.pathname;
@@ -502,7 +535,7 @@ async function installStaticFallbackRoutes(context: BrowserContext) {
 	});
 }
 
-async function fulfillMockApi(route: Route, url: URL, method: string) {
+async function fulfillMockApi(route: Route, url: URL, method: string, apiReads: Set<PaperApiReadPath>) {
 	const pathname = url.pathname;
 	if (method === "HEAD") {
 		await route.fulfill({ status: 200, body: "" });
@@ -546,7 +579,8 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		return;
 	}
 	if (pathname === "/api/artifacts") {
-		await json({ ok: true, items: [] });
+		await json({ ok: true, data: [] });
+		apiReads.add("/api/artifacts");
 		return;
 	}
 	if (pathname === "/api/commands") {
@@ -562,19 +596,20 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 	if (pathname === "/api/config") {
 		await json({
 			ok: true,
-			config: {
+			data: {
 				version: 1,
 				externalKnowledgeBases: [],
 				lastUsedKbPath: visualKbPath,
 				modelRoles: { main: { provider: "anthropic", modelId: "claude-sonnet-4.6" } },
 			},
 		});
+		apiReads.add("/api/config");
 		return;
 	}
 	if (pathname === "/api/models") {
 		await json({
 			ok: true,
-			items: [
+			data: [
 				{
 					provider: "anthropic",
 					modelId: "claude-sonnet-4.6",
@@ -586,6 +621,7 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 				},
 			],
 		});
+		apiReads.add("/api/models");
 		return;
 	}
 	if (pathname === "/api/refs") {
