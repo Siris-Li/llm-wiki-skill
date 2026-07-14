@@ -13,7 +13,7 @@ describe("ChatPanel Paper bubbles", () => {
 		render(
 			<TooltipProvider>
 				<ChatPanel
-					currentKnowledgeBaseName="AI学习知识库"
+					currentKnowledgeBaseName="示例知识库"
 					currentKnowledgeBasePath="/kb"
 					initialMessages={[
 						{ id: "u1", role: "user", content: "帮我总结这篇笔记", tools: [] },

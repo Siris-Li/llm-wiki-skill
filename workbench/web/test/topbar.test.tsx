@@ -19,7 +19,7 @@ describe("TopBar", () => {
 			<TopBar
 				knowledgeBase={{
 					path: "/kb",
-					name: "AI学习知识库",
+					name: "示例知识库",
 					origin: "external",
 					valid: false,
 					reason: "路径不存在",
@@ -34,7 +34,7 @@ describe("TopBar", () => {
 		);
 
 		const kbHead = screen.getByLabelText("当前知识库");
-		assert.match(kbHead.textContent ?? "", /AI学习知识库/);
+		assert.match(kbHead.textContent ?? "", /示例知识库/);
 		assert.match(kbHead.textContent ?? "", /外部/);
 		assert.match(kbHead.textContent ?? "", /失效/);
 		assert.doesNotMatch(kbHead.textContent ?? "", /deepseek/);
@@ -45,7 +45,7 @@ describe("TopBar", () => {
 		const calls: string[] = [];
 		renderTopBar(
 			<TopBar
-				knowledgeBase={{ path: "/kb", name: "AI学习知识库", origin: "default", valid: true }}
+				knowledgeBase={{ path: "/kb", name: "示例知识库", origin: "default", valid: true }}
 				model={null}
 				theme="dark"
 				onSearch={() => calls.push("search")}
@@ -86,7 +86,7 @@ describe("TopBar", () => {
 	it("renders chat and graph status snapshots", () => {
 		renderTopBar(
 			<TopBar
-				knowledgeBase={{ path: "/kb", name: "AI学习知识库", origin: "default", valid: true }}
+				knowledgeBase={{ path: "/kb", name: "示例知识库", origin: "default", valid: true }}
 				model={null}
 				theme="light"
 				chatStatus={{ status: "streaming", summary: "正在接收回复" }}
@@ -166,7 +166,7 @@ describe("TopBar", () => {
 		try {
 			renderTopBar(
 				<TopBar
-					knowledgeBase={{ path: "/kb", name: "AI学习知识库", origin: "default", valid: true }}
+					knowledgeBase={{ path: "/kb", name: "示例知识库", origin: "default", valid: true }}
 					model={{ provider: "deepseek", id: "deepseek-v4-flash" }}
 					theme="light"
 					onSearch={noop}
@@ -226,7 +226,7 @@ function PaperTopBarHarness() {
 	return (
 		<React.Fragment>
 			<TopBar
-				knowledgeBase={{ path: "/kb", name: "AI学习知识库", origin: "default", valid: true }}
+				knowledgeBase={{ path: "/kb", name: "示例知识库", origin: "default", valid: true }}
 				model={null}
 				theme={appearance.theme}
 				appearanceOpen={appearanceOpen}

@@ -257,7 +257,7 @@
 					"status": "passed",
 					"evidence": [
 						"Tool status adapter sanitizes args, partial results, results, summaries, errors, path targets, and command targets before event output.",
-						"API smoke for /api/prompt selected /Users/kangjiaqi/llm-wiki/pi-agent but observed no /Users/kangjiaqi leakage in the SSE payload; emitted path target was ~/llm-wiki/pi-agent.",
+						"API smoke for /api/prompt selected /Users/example/llm-wiki/pi-agent but observed no /Users/example leakage in the SSE payload; emitted path target was ~/llm-wiki/pi-agent.",
 						"tool-status-events.test.ts covers home absolute path redaction and long command truncation."
 					]
 				},
@@ -317,7 +317,7 @@
             "Verified node --import tsx --test workbench/server/src/tool-status-events.test.ts exited 0 with 10 passing subtests.",
             "Verified npm run typecheck --workspace=@llm-wiki-agent/server exited 0.",
             "Verified npm run typecheck exited 0.",
-            "Verified API smoke against /api/prompt emitted tool_status_start/update/end for knowledge_search, assistant_text_delta, tool_status_summary, assistant_done, schemaVersion 1, stable runId/messageId, monotonic seq, and no /Users/kangjiaqi path leakage.",
+            "Verified API smoke against /api/prompt emitted tool_status_start/update/end for knowledge_search, assistant_text_delta, tool_status_summary, assistant_done, schemaVersion 1, stable runId/messageId, monotonic seq, and no /Users/example path leakage.",
             "Stopped npm run dev and confirmed ports 5180 and 8787 had no listeners.",
             "Verified git diff --check exited 0."
           ],

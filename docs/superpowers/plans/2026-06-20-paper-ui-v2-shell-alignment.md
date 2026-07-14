@@ -212,7 +212,7 @@ it("keeps the collapsed rail aligned with V2 actions", async () => {
 	renderSidebar(true, events);
 
 	assert.notEqual(screen.getByLabelText("展开侧栏"), null);
-	assert.notEqual(screen.getByLabelText("当前知识库：AI学习知识库"), null);
+	assert.notEqual(screen.getByLabelText("当前知识库：示例知识库"), null);
 	assert.notEqual(screen.getByLabelText("对话"), null);
 	assert.notEqual(screen.getByLabelText("图谱活地图"), null);
 	assert.notEqual(screen.getByLabelText("设置"), null);
@@ -240,7 +240,7 @@ function renderSidebar(collapsed: boolean, events = makeSidebarEvents()) {
 		<TooltipProvider>
 			<Sidebar
 				knowledgeBases={[
-					{ path: "/kb", name: "AI学习知识库", origin: "default", valid: true },
+					{ path: "/kb", name: "示例知识库", origin: "default", valid: true },
 					{ path: "/external", name: "设计灵感库", origin: "external", valid: true },
 				]}
 				currentKbPath="/kb"

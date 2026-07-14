@@ -18,7 +18,7 @@ describe("SearchPanel", () => {
 					ref("wiki/paper-ui.md", "paper-ui", "Paper UI 移植"),
 					ref("raw/source.md", "source", "Source Material"),
 				]}
-				knowledgeBaseName="AI学习知识库"
+				knowledgeBaseName="示例知识库"
 				onOpenPage={(path) => opened.push(path)}
 				onClose={() => closed.push("closed")}
 			/>,
@@ -44,7 +44,7 @@ describe("SearchPanel", () => {
 					ref("wiki/alpha.md", "alpha", "Alpha Notes"),
 					ref("wiki/beta.md", "beta", "Beta Notes"),
 				]}
-				knowledgeBaseName="AI学习知识库"
+				knowledgeBaseName="示例知识库"
 				onOpenPage={(path) => opened.push(path)}
 				onInsertRef={(path) => inserted.push(path)}
 				onClose={() => closed.push("closed")}
@@ -64,7 +64,7 @@ describe("SearchPanel", () => {
 					ref("wiki/alpha.md", "alpha", "Alpha Notes"),
 					ref("wiki/beta.md", "beta", "Beta Notes"),
 				]}
-				knowledgeBaseName="AI学习知识库"
+				knowledgeBaseName="示例知识库"
 				onOpenPage={(path) => opened.push(path)}
 				onInsertRef={(path) => inserted.push(path)}
 				onClose={() => closed.push("closed")}
@@ -82,7 +82,7 @@ describe("SearchPanel", () => {
 					ref("wiki/alpha.md", "alpha", "Alpha Notes"),
 					ref("wiki/beta.md", "beta", "Beta Notes"),
 				]}
-				knowledgeBaseName="AI学习知识库"
+				knowledgeBaseName="示例知识库"
 				onOpenPage={(path) => opened.push(path)}
 				onInsertRef={(path) => inserted.push(path)}
 				onClose={() => closed.push("closed")}
@@ -99,7 +99,7 @@ describe("SearchPanel", () => {
 				open
 				refs={[]}
 				loading
-				knowledgeBaseName="AI学习知识库"
+				knowledgeBaseName="示例知识库"
 				onOpenPage={noop}
 				onClose={noop}
 			/>,
@@ -112,7 +112,7 @@ describe("SearchPanel", () => {
 				open
 				refs={[]}
 				error="接口失败"
-				knowledgeBaseName="AI学习知识库"
+				knowledgeBaseName="示例知识库"
 				onOpenPage={noop}
 				onClose={noop}
 			/>,
@@ -128,7 +128,7 @@ describe("SearchPanel", () => {
 			<SearchPanel
 				open
 				refs={[ref("wiki/alpha.md", "alpha", "Alpha Notes")]}
-				knowledgeBaseName="AI学习知识库"
+				knowledgeBaseName="示例知识库"
 				onOpenPage={noop}
 				onClose={noop}
 			/>,

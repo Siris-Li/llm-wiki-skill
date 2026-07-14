@@ -1710,7 +1710,7 @@ Run the app:
 npm run dev
 ```
 
-Open `http://localhost:5180/`, use `AI学习知识库`, and verify these visible outcomes:
+Open `http://localhost:5180/`, use `示例知识库`, and verify these visible outcomes:
 
 - Click a community in global Sigma.
 - Confirm the global map highlights that community and the drawer shows its summary.

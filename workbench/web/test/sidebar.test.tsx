@@ -49,7 +49,7 @@ describe("Sidebar", () => {
 		renderSidebar(true, events);
 
 		assert.ok(screen.getByLabelText("展开侧栏"));
-		assert.ok(screen.getByLabelText("当前知识库：AI学习知识库"));
+		assert.ok(screen.getByLabelText("当前知识库：示例知识库"));
 		assert.ok(screen.getByLabelText("对话"));
 		assert.ok(screen.getByLabelText("图谱活地图"));
 		assert.ok(screen.queryByLabelText("设置"));
@@ -74,7 +74,7 @@ function renderSidebar(collapsed: boolean, events = makeSidebarEvents()) {
 		<TooltipProvider>
 			<Sidebar
 				knowledgeBases={[
-					{ path: "/kb", name: "AI学习知识库", origin: "default", valid: true },
+					{ path: "/kb", name: "示例知识库", origin: "default", valid: true },
 					{ path: "/external", name: "设计灵感库", origin: "external", valid: true },
 				]}
 				currentKbPath="/kb"

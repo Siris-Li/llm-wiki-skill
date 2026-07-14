@@ -31,8 +31,7 @@ const updateBaseline = process.argv.includes("--update");
 const actualDir = resolve(process.cwd(), "test-results/paper-ui/actual");
 const baselineDir = resolve(process.cwd(), "test-results/paper-ui/baseline");
 const referenceDir = resolve(process.cwd(), "test-results/paper-ui/reference-v2");
-const v2PrototypeUrl = process.env.PAPER_V2_PROTOTYPE_URL
-	?? "file:///Users/kangjiaqi/designs/llm-wiki-skill/bright/paper-final-v2.html";
+const v2PrototypeUrl = process.env.PAPER_V2_PROTOTYPE_URL;
 const staticFallbackUrl = "http://paper-ui.local/";
 const distDir = resolve(process.cwd(), "dist");
 const visualKbPath = "/visual/ai-learning";
@@ -423,14 +422,19 @@ async function openWikiDrawerFromSearch(page: Page) {
 
 async function captureReferenceForCase(browser: Browser, visualCase: PaperVisualCase): Promise<string | null> {
 	if (!visualCase.name.startsWith("v2-")) return null;
+	if (!v2PrototypeUrl) return null;
 	const viewport = visualCase.viewport ?? { width: 1440, height: 900 };
 	if (!referenceCache.has(viewport.width)) {
-		referenceCache.set(viewport.width, captureReference(browser, viewport));
+		referenceCache.set(viewport.width, captureReference(browser, viewport, v2PrototypeUrl));
 	}
 	return referenceCache.get(viewport.width) ?? null;
 }
 
-async function captureReference(browser: Browser, viewport: { width: number; height: number }): Promise<string> {
+async function captureReference(
+	browser: Browser,
+	viewport: { width: number; height: number },
+	prototypeUrl: string,
+): Promise<string> {
 	const context = await browser.newContext({
 		deviceScaleFactor: 1,
 		viewport,
@@ -438,7 +442,7 @@ async function captureReference(browser: Browser, viewport: { width: number; hei
 	await context.addInitScript(evaluateNameHelper);
 	const page = await context.newPage();
 	try {
-		await page.goto(v2PrototypeUrl, { waitUntil: "domcontentloaded" });
+		await page.goto(prototypeUrl, { waitUntil: "domcontentloaded" });
 		await page.evaluate(async () => {
 			await document.fonts?.ready;
 		});
@@ -503,7 +507,7 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		await json({
 			ok: true,
 			data: [
-				{ path: visualKbPath, name: "AI 学习知识库", origin: "default", valid: true },
+				{ path: visualKbPath, name: "示例知识库", origin: "default", valid: true },
 				{ path: "/visual/design", name: "设计灵感库", origin: "external", valid: true },
 			],
 		});
@@ -794,7 +798,7 @@ function stringOrNull(value: unknown): string | null {
 
 function visualActiveContext() {
 	return {
-		kb: { path: visualKbPath, name: "AI 学习知识库" },
+		kb: { path: visualKbPath, name: "示例知识库" },
 		conversation: {
 			id: "visual-conversation",
 			messages: [
@@ -820,7 +824,7 @@ function visualGraphData() {
 	return {
 		meta: {
 			build_date: "2026-06-20T00:00:00.000Z",
-			wiki_title: "AI 学习知识库",
+			wiki_title: "示例知识库",
 			total_nodes: 4,
 			total_edges: 3,
 		},
