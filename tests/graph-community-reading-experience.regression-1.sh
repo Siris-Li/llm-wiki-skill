@@ -225,14 +225,14 @@ HOME="$tmp_dir/home" LLM_WIKI_AGENT_API_ORIGIN="http://127.0.0.1:$server_port" L
 web_pid="$!"
 
 for _ in $(seq 1 120); do
-    if curl -fsS "http://127.0.0.1:$server_port/api/knowledge-bases" >/dev/null 2>&1 \
+    if curl -fsS "http://127.0.0.1:$server_port/api/health" >/dev/null 2>&1 \
         && curl -fsS "http://127.0.0.1:$web_port" >/dev/null 2>&1; then
         break
     fi
     sleep 0.25
 done
 
-curl -fsS "http://127.0.0.1:$server_port/api/knowledge-bases" >/dev/null 2>&1 \
+curl -fsS "http://127.0.0.1:$server_port/api/health" >/dev/null 2>&1 \
     || fail "workbench server did not start; see $tmp_dir/server.log"
 curl -fsS "http://127.0.0.1:$web_port" >/dev/null 2>&1 \
     || fail "workbench web did not start; see $tmp_dir/web.log"

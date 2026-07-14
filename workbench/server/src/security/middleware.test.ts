@@ -99,6 +99,17 @@ test("public health 即便来源不可信也放行", async () => {
 	assert.equal(res.status, 200);
 });
 
+test("知识库列表仍要求 token，不能作为公开后台探测", async () => {
+	const app = buildApp();
+	const res = await app.request("/api/knowledge-bases", {
+		headers: headers({ origin: TRUSTED_ORIGIN }),
+	});
+	assert.equal(res.status, 403);
+	const json = (await res.json()) as EnvelopeJson;
+	assert.equal(json.ok, false);
+	assert.equal(json.code, "FORBIDDEN_LOCAL_API");
+});
+
 test("trusted read-only POST /api/echo：可信来源仍需 token", async () => {
 	const app = buildApp();
 	const denied = await app.request("/api/echo", {
