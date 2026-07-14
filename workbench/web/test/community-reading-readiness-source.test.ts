@@ -13,10 +13,15 @@ test("community reading regression waits for the proxy token file without readin
 	assert.ok(readinessStart >= 0 && playwrightStart > readinessStart);
 
 	const readiness = source.slice(readinessStart, playwrightStart);
+	assert.doesNotMatch(readiness, /\/api\/knowledge-base(?:s)?/);
 	assert.match(
 		source,
 		/capability_token_file="\$tmp_dir\/home\/\.llm-wiki-agent\/runtime\/capability-token"/,
 	);
+	const tokenReferences = source.match(/\$\{?capability_token_file\}?/g) ?? [];
+	const tokenPresenceChecks = source.match(/\[ -s "\$capability_token_file" \]/g) ?? [];
+	assert.equal(tokenReferences.length, tokenPresenceChecks.length);
+	assert.equal(tokenPresenceChecks.length, 2);
 	assert.match(
 		readiness,
 		/api\/health" >\/dev\/null 2>&1 \\\n\s*&& \[ -s "\$capability_token_file" \] \\\n\s*&& curl -fsS "http:\/\/127\.0\.0\.1:\$web_port"/,
