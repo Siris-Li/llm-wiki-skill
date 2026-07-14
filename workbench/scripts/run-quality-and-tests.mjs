@@ -31,6 +31,14 @@ const nodeTest = (...files) => command(["--import", "tsx", "--test", ...files]);
 
 export const QUALITY_STEPS = [
 	{
+		id: "repository-privacy",
+		timeoutMs: COMMAND_TIMEOUT_MS,
+		commands: [
+			command(["--test", "workbench/scripts/check-repository-privacy.test.mjs"]),
+			command(["workbench/scripts/check-repository-privacy.mjs"]),
+		],
+	},
+	{
 		id: "build-contracts",
 		producesSharedArtifacts: true,
 		timeoutMs: COMMAND_TIMEOUT_MS,
