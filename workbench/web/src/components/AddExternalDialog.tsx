@@ -210,7 +210,7 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogContent className="dialog-surface w-[calc(100vw-2rem)] overflow-hidden sm:max-w-lg">
 				<DialogHeader>
-					<DialogTitle>新建知识库</DialogTitle>
+					<DialogTitle>添加现有库</DialogTitle>
 					<DialogDescription>
 						选择一个已有文件夹；如果它还不是知识库，可以在这里初始化成新的知识库。
 					</DialogDescription>

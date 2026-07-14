@@ -717,14 +717,14 @@ function assertState(visualCase: PaperVisualCase, state: Record<string, unknown>
 			assertTextIncludes(labels, "图谱活地图", visualCase.name);
 			assertTextIncludes(labels, "设置", visualCase.name);
 			assertTextIncludes(labels, "新建知识库", visualCase.name);
+			assertTextIncludes(labels, "添加现有库", visualCase.name);
 			assertTextExcludes(labels, "刷新", visualCase.name);
-			assertTextExcludes(labels, "添加现有库", visualCase.name);
 		} else {
 			if (state.sidebarKbRowIconCount !== 0) {
 				throw new Error(`${visualCase.name}: expanded notebook rows still render leading icons`);
 			}
 			assertTextIncludes(stringOrNull(state.sidebarFooterText), "新建知识库", visualCase.name);
-			assertTextExcludes(stringOrNull(state.sidebarFooterText), "添加现有库", visualCase.name);
+			assertTextIncludes(stringOrNull(state.sidebarFooterText), "添加现有库", visualCase.name);
 			assertTextIncludes(stringOrNull(state.sidebarText), "笔记本", visualCase.name);
 			assertTextIncludes(stringOrNull(state.sidebarText), "会话", visualCase.name);
 			assertTextIncludes(stringOrNull(state.sidebarText), "图谱活地图", visualCase.name);

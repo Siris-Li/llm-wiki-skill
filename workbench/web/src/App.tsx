@@ -43,6 +43,7 @@ import {
 import {
 	getActiveContext,
 	listKnowledgeBases,
+	createKnowledgeBase,
 	registerExternalKnowledgeBase,
 	selectKnowledgeBase,
 } from "@/lib/api/knowledge-bases";
@@ -392,15 +393,19 @@ function App() {
 		setGraphHasPendingUpdate(false);
 	};
 
-	const handleSelectKb = async (item: KnowledgeBaseInfo) => {
-		if (!item.valid) return;
+	const selectKnowledgeBaseAndRefresh = async (item: KnowledgeBaseInfo) => {
+		if (!item.valid) throw new Error("知识库暂时不可用");
 		if (item.path === active?.kb.path) return;
 
 		setSidebarError(null);
+		const ctx = await selectKnowledgeBase(item.path);
+		applyActive(ctx);
+		await refreshConversations(item.path);
+	};
+
+	const handleSelectKb = async (item: KnowledgeBaseInfo) => {
 		try {
-			const ctx = await selectKnowledgeBase(item.path);
-			applyActive(ctx);
-			await refreshConversations(item.path);
+			await selectKnowledgeBaseAndRefresh(item);
 		} catch (err) {
 			setSidebarError(err instanceof Error ? err.message : String(err));
 		}
@@ -485,6 +490,14 @@ function App() {
 		const { info } = await registerExternalKnowledgeBase(path);
 		await refreshAll();
 		if (info.valid) await handleSelectKb(info);
+	};
+
+	const handleCreateWiki = async (name: string, purpose: string) => {
+		const info = await createKnowledgeBase(name, purpose);
+		await refreshAll();
+		if (!info.valid) throw new Error("新建知识库暂时不可用");
+		await selectKnowledgeBaseAndRefresh(info);
+		setMainView("chat");
 	};
 
 	const handleMessageSent = async () => {
@@ -826,6 +839,7 @@ function App() {
 						onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
 						graphHasPendingUpdate={graphHasPendingUpdate}
 						onAddExternal={handleAddExternal}
+						onCreateWiki={handleCreateWiki}
 						onStartBatchDigest={handleStartBatchDigest}
 					/>
 					<main className="shell-main">

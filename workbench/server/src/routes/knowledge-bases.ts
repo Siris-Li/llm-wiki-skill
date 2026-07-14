@@ -331,6 +331,9 @@ function mapKnowledgeBaseSetupError(err: unknown): HttpContractError {
 	if (err instanceof HttpContractError) return mapKnowledgeBaseError(err);
 
 	const code = (err as { code?: unknown })?.code;
+	if (code === "BUSY") {
+		return new HttpContractError("BUSY", "知识库正在初始化，请稍后重试");
+	}
 	if (code === "SETUP_REQUIRED") {
 		return new HttpContractError(
 			"INVALID_REQUEST",

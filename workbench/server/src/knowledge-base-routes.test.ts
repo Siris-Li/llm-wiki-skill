@@ -485,6 +485,21 @@ test("创建和初始化使用统一失败 envelope，且不泄露底层细节",
 	});
 
 	service.createKnowledgeBase = async () => {
+		throw Object.assign(new Error("/Users/private/initialization is busy"), { code: "BUSY" });
+	};
+	res = await app.request("/api/knowledge-bases/new", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name: "research", purpose: "topic" }),
+	});
+	assert.equal(res.status, 409);
+	assert.deepEqual(await json(res), {
+		ok: false,
+		code: "BUSY",
+		message: "知识库正在初始化，请稍后重试",
+	});
+
+	service.createKnowledgeBase = async () => {
 		throw new Error("/Users/private/init-wiki.sh stdout=secret-key");
 	};
 	app = createApp({ knowledgeBaseService: service, mode: "test" });
