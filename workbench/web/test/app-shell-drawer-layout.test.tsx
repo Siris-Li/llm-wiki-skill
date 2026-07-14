@@ -32,14 +32,17 @@ describe("App shell drawer layout", () => {
 		assert.match(css, /\.drawer-panel\.drawer-panel-fullscreen[\s\S]*inset:\s*0/);
 	});
 
-	it("clamps the default drawer width so the V2 composer stays usable on 1024px desktop", () => {
+	it("reserves Paper's actual input gutter so the V2 composer stays usable on 1024px desktop", () => {
+		const css = readFileSync(resolve(import.meta.dirname, "../src/index.css"), "utf8");
 		const drawerWidth = clampDrawerWidthForViewport(DEFAULT_DRAWER_WIDTH, {
 			viewportWidth: 1024,
 			sidebarWidth: 252,
 		});
 		const composerWidth = 1024 - 252 - drawerWidth - CHAT_INPUT_HORIZONTAL_PADDING;
 
-		assert.equal(drawerWidth, 320);
+		assert.match(css, /\.chat-input-area\s*\{[^}]*padding:\s*14px\s+18px\s+17px/);
+		assert.equal(CHAT_INPUT_HORIZONTAL_PADDING, 36);
+		assert.equal(drawerWidth, 316);
 		assert.equal(composerWidth, MIN_COMPOSER_WIDTH);
 	});
 

@@ -761,7 +761,17 @@ function assertState(visualCase: PaperVisualCase, state: Record<string, unknown>
 	if (visualCase.drawer === "wiki") {
 		const drawer = asRect(state.drawerRect);
 		const composer = asRect(state.composerRect);
-		if (!state.drawerOpen || !drawer || !composer) throw new Error(`${visualCase.name}: expected drawer and composer geometry`);
+		const textarea = asRect(state.textareaRect);
+		const send = asRect(state.sendRect);
+		if (!state.drawerOpen || !drawer || !composer || !textarea || !send) {
+			throw new Error(`${visualCase.name}: expected drawer and composer geometry`);
+		}
+		if (Math.abs(send.width - 36) > 1 || Math.abs(send.height - 36) > 1) {
+			throw new Error(`${visualCase.name}: send button should be 36x36`);
+		}
+		if (textarea.right > send.left - 4) {
+			throw new Error(`${visualCase.name}: textarea collides with send button`);
+		}
 		const viewportWidth = Number(state.viewportWidth);
 		if (viewportWidth >= 1024 && composer.right > drawer.left - 8) {
 			throw new Error(`${visualCase.name}: drawer overlaps composer`);
