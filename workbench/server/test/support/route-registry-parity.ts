@@ -54,10 +54,7 @@ const SECURITY_MIDDLEWARE_KEY = "ALL /api/*";
 const EXPECTED_PUBLIC_ENDPOINTS = new Set(["GET /api/health"]);
 const TEMPORARY_LEGACY_EXCEPTIONS = new Map<string, TemporaryLegacyException>([
 	["POST /api/echo", { finding: "FIND-001", issue: 207 }],
-	["POST /api/knowledge-bases/new", { finding: "FIND-001", issue: 206 }],
-	["POST /api/knowledge-bases/init-existing", { finding: "FIND-001", issue: 206 }],
 	["GET /api/commands", { finding: "FIND-001", issue: 207 }],
-	["POST /api/system/choose-directory", { finding: "FIND-001", issue: 206 }],
 ]);
 const APPROVED_AUXILIARY_ENDPOINTS = new Map<string, ApprovedAuxiliaryEndpoint>();
 
@@ -77,8 +74,8 @@ export const RUNTIME_ENDPOINT_DECLARATIONS = [
 	{ method: "POST", path: "/api/knowledge-bases/external", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "POST", path: "/api/knowledge-bases/inspect", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "DELETE", path: "/api/knowledge-bases/external", kind: "migrated-json", safety: "state-changing", source: "createApp" },
-	{ method: "POST", path: "/api/knowledge-bases/new", kind: "legacy", safety: "state-changing", source: "startup", temporaryLegacyException: { finding: "FIND-001", issue: 206 } },
-	{ method: "POST", path: "/api/knowledge-bases/init-existing", kind: "legacy", safety: "state-changing", source: "startup", temporaryLegacyException: { finding: "FIND-001", issue: 206 } },
+	{ method: "POST", path: "/api/knowledge-bases/new", kind: "migrated-json", safety: "state-changing", source: "createApp" },
+	{ method: "POST", path: "/api/knowledge-bases/init-existing", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "GET", path: "/api/knowledge-base", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "POST", path: "/api/knowledge-base", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "DELETE", path: "/api/knowledge-base", kind: "migrated-json", safety: "state-changing", source: "createApp" },
@@ -92,7 +89,7 @@ export const RUNTIME_ENDPOINT_DECLARATIONS = [
 	{ method: "GET", path: "/api/config", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "POST", path: "/api/config", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "GET", path: "/api/models", kind: "migrated-json", safety: "read-only", source: "createApp" },
-	{ method: "POST", path: "/api/system/choose-directory", kind: "legacy", safety: "state-changing", source: "startup", temporaryLegacyException: { finding: "FIND-001", issue: 206 } },
+	{ method: "POST", path: "/api/system/choose-directory", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "GET", path: "/api/artifacts", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "GET", path: "/api/artifacts/:id", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "GET", path: "/api/auth/status", kind: "migrated-json", safety: "read-only", source: "createApp" },

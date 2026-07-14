@@ -3,6 +3,11 @@ import test from "node:test";
 
 import {
 	ActiveKnowledgeBaseDataSchema,
+	ChooseDirectoryDataSchema,
+	CreateKnowledgeBaseBodySchema,
+	CreateKnowledgeBaseDataSchema,
+	InitExistingKnowledgeBaseBodySchema,
+	InitExistingKnowledgeBaseDataSchema,
 	InspectKnowledgeBasePathDataSchema,
 	KnowledgeBaseContextBodySchema,
 	KnowledgeBaseInfoSchema,
@@ -95,4 +100,45 @@ test("知识库管理 path 与上下文 kbPath 是两种明确语义，不接受
 		}).success,
 		false,
 	);
+});
+
+test("创建、初始化和目录选择使用严格的知识库领域契约", () => {
+	assert.deepEqual(
+		CreateKnowledgeBaseBodySchema.parse({ name: " research ", purpose: " " }),
+		{ name: " research ", purpose: " " },
+	);
+	assert.equal(
+		CreateKnowledgeBaseBodySchema.safeParse({
+			name: "research",
+			purpose: "topic",
+			extra: true,
+		}).success,
+		false,
+	);
+	assert.deepEqual(
+		InitExistingKnowledgeBaseBodySchema.parse({
+			path: " /kb/candidate ",
+			purpose: " topic ",
+			overwrite: true,
+		}),
+		{ path: "/kb/candidate", purpose: " topic ", overwrite: true },
+	);
+	assert.equal(
+		InitExistingKnowledgeBaseBodySchema.safeParse({
+			path: "/kb/candidate",
+			purpose: "topic",
+			overwrite: "yes",
+		}).success,
+		false,
+	);
+	assert.deepEqual(CreateKnowledgeBaseDataSchema.parse({ info: knowledgeBase }), {
+		info: knowledgeBase,
+	});
+	assert.deepEqual(InitExistingKnowledgeBaseDataSchema.parse({ info: knowledgeBase }), {
+		info: knowledgeBase,
+	});
+	assert.deepEqual(ChooseDirectoryDataSchema.parse({ path: null }), { path: null });
+	assert.deepEqual(ChooseDirectoryDataSchema.parse({ path: "/kb/chosen" }), {
+		path: "/kb/chosen",
+	});
 });

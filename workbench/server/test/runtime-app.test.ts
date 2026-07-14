@@ -29,7 +29,7 @@ test("runtime application accepts a directory picker only through direct constru
 	assert.equal(response.status, 200);
 	assert.deepEqual(await response.json(), {
 		ok: true,
-		path: "/fictional/browser-kb",
+		data: { path: "/fictional/browser-kb" },
 	});
 	assert.equal(calls, 1);
 });
@@ -48,5 +48,5 @@ test("directly injected directory picker preserves cancellation", async () => {
 	});
 
 	assert.equal(response.status, 200);
-	assert.deepEqual(await response.json(), { ok: false, canceled: true });
+	assert.deepEqual(await response.json(), { ok: true, data: { path: null } });
 });
