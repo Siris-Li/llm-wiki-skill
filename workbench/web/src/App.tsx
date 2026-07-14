@@ -43,6 +43,7 @@ import {
 import {
 	getActiveContext,
 	listKnowledgeBases,
+	createKnowledgeBase,
 	registerExternalKnowledgeBase,
 	selectKnowledgeBase,
 } from "@/lib/api/knowledge-bases";
@@ -487,6 +488,13 @@ function App() {
 		if (info.valid) await handleSelectKb(info);
 	};
 
+	const handleCreateWiki = async (name: string, purpose: string) => {
+		const info = await createKnowledgeBase(name, purpose);
+		await refreshAll();
+		setMainView("chat");
+		if (info.valid) await handleSelectKb(info);
+	};
+
 	const handleMessageSent = async () => {
 		// 用户发了一次消息后，刷新对话列表，把 "(新对话)" stub 替换为带 firstMessage 的真实条目
 		if (active) await refreshConversations(active.kb.path);
@@ -826,6 +834,7 @@ function App() {
 						onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
 						graphHasPendingUpdate={graphHasPendingUpdate}
 						onAddExternal={handleAddExternal}
+						onCreateWiki={handleCreateWiki}
 						onStartBatchDigest={handleStartBatchDigest}
 					/>
 					<main className="shell-main">
