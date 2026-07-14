@@ -10,7 +10,7 @@ Based on [Andrej Karpathy](https://karpathy.ai/)'s [llm-wiki methodology](https:
 
 Turn scattered information into a growing, interconnected knowledge base
 
-[![version](https://img.shields.io/badge/v3.6.63-Paper%20Layout-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.64-Default%20Wiki%20Entry-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-multi--platform-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -93,7 +93,7 @@ The key difference: knowledge is **compiled once, maintained continuously** — 
 | 🧩 | **Global Intent Feedback** | Hovering a global node lightly previews first-order real relationships; clicking fixes that emphasis with the summary drawer; selecting a community reveals only a small internal and bridge preview instead of full reading |
 | 🔒 | **Local Workbench Access Protection** | Local settings, conversations, pages, graph events, files, and state changes require both a trusted source and the current startup credential |
 | 🧷 | **Workbench Request Boundaries** | The frontend only sends registered method-and-endpoint combinations; artifact manifests and downloads reject invalid IDs consistently, while legacy calls, file downloads, and event streams remain isolated |
-| 📚 | **Workbench Knowledge Base Setup** | Creating a knowledge base, initializing an existing folder, and choosing a directory now share one flow; cancellation keeps the current input, conflicts can continue after backup, and failures do not reveal local paths or internal details |
+| 📚 | **Workbench Knowledge Base Setup** | The sidebar separately creates a knowledge base in the default directory or adds an existing folder; initializing an existing directory and batch digestion remain independent, while cancellation, conflicts, and failures do not reveal local paths or internal details |
 | ✅ | **Reliable Workbench Startup** | The server listens locally, failed launches preserve the active credential, restarts rotate it and restore the last knowledge base, and shutdown ends open streams and graph rebuild processes |
 | 🧪 | **Real Workbench Browser Checks** | Automated checks cover seven primary workflows plus isolation, cancellation, disconnects, busy states, and failure recovery through the real frontend and backend; Paper visual checks follow page search into the right reading drawer, confirm that page content is visible, and keep the composer usable without text or send-button overlap when the reading drawer is open on a tablet |
 | 🔎 | **Unified Workbench Quality Check** | Local and GitHub checks now block private paths and known private material clues before running frontend, backend, graph, boundary, type, lint, and build verification; graph interaction settlement is confirmed from the actual viewport commit, so brief load cannot make it finish early |
