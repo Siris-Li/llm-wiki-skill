@@ -41,6 +41,8 @@ function buildApp(
 		},
 		authService: {
 			getAuthStatus: async () => ({ authFileExists: false, providers: [], envKeys: [] }),
+			setAuthKey: async () => {},
+			testAuthConnection: async () => ({ ok: true, message: "连接成功，模型可用" }),
 		},
 		artifactService: {
 			listArtifacts: () => [],
@@ -196,6 +198,45 @@ test("#168 migrated-json state-changing POST /api/config 带正确 token + 可�
 		body: JSON.stringify({ showUserGlobalSkills: true }),
 	});
 	assert.equal(res.status, 200);
+});
+
+test("#205 认证写入和连接测试同时要求可信来源与 token", async () => {
+	const app = buildApp();
+	for (const [path, body] of [
+		["/api/auth/set", { provider: "anthropic", type: "api_key", key: "sk-test" }],
+		["/api/auth/test", { provider: "anthropic" }],
+	] as const) {
+		const missingToken = await app.request(path, {
+			method: "POST",
+			headers: headers({ origin: TRUSTED_ORIGIN, "Content-Type": "application/json" }),
+			body: JSON.stringify(body),
+		});
+		assert.equal(missingToken.status, 403, path);
+		assert.equal(((await missingToken.json()) as EnvelopeJson).code, "FORBIDDEN_LOCAL_API");
+
+		const untrusted = await app.request(path, {
+			method: "POST",
+			headers: headers({
+				origin: "http://evil.example",
+				"Content-Type": "application/json",
+				[CAPABILITY_TOKEN_HEADER]: TOKEN,
+			}),
+			body: JSON.stringify(body),
+		});
+		assert.equal(untrusted.status, 403, path);
+		assert.equal(((await untrusted.json()) as EnvelopeJson).code, "FORBIDDEN_ORIGIN");
+
+		const allowed = await app.request(path, {
+			method: "POST",
+			headers: headers({
+				origin: TRUSTED_ORIGIN,
+				"Content-Type": "application/json",
+				[CAPABILITY_TOKEN_HEADER]: TOKEN,
+			}),
+			body: JSON.stringify(body),
+		});
+		assert.equal(allowed.status, 200, path);
+	}
 });
 
 // ============= token 校验 =============

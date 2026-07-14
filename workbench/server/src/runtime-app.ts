@@ -5,7 +5,6 @@ import { DEV_WORKBENCH_ORIGINS } from "@llm-wiki/workbench-contracts";
 
 import { createApp } from "./app.js";
 import { listLoadedSkills } from "./agent.js";
-import { setAuthKey, testAuthConnection } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { createSecurityMiddleware } from "./security/middleware.js";
 import type { PromptRouteService } from "./routes/prompt.js";
@@ -187,42 +186,6 @@ function configureLegacyRoutes(
 		}
 	});
 
-	// ============= 模型认证 =============
-
-	app.post("/api/auth/set", async (c) => {
-		let body: { provider?: unknown; type?: unknown; key?: unknown };
-		try {
-			body = await c.req.json();
-		} catch {
-			return c.json({ ok: false, error: "Invalid JSON body" }, 400);
-		}
-		if (body.type !== "api_key" || typeof body.provider !== "string" || typeof body.key !== "string") {
-			return c.json({ ok: false, error: "Missing provider/type/key" }, 400);
-		}
-		try {
-			await setAuthKey(body.provider, body.key);
-			return c.json({ ok: true });
-		} catch (err) {
-			return c.json(
-				{ ok: false, error: err instanceof Error ? err.message : String(err) },
-				400,
-			);
-		}
-	});
-
-	app.post("/api/auth/test", async (c) => {
-		let body: { provider?: unknown };
-		try {
-			body = await c.req.json();
-		} catch {
-			return c.json({ ok: false, error: "Invalid JSON body" }, 400);
-		}
-		if (typeof body.provider !== "string") {
-			return c.json({ ok: false, error: "Missing provider" }, 400);
-		}
-		const result = await testAuthConnection(body.provider);
-		return c.json(result);
-	});
 }
 
 async function chooseSystemDirectory(): Promise<string | null> {

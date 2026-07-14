@@ -132,11 +132,15 @@ test("运行时 registry 与派生 allowlist 不可被调用方改写", () => {
 	);
 	assert.equal(
 		isMigratedJsonEndpoint({ method: "POST", path: "/api/auth/set" }),
-		false,
+		true,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "POST", path: "/api/auth/test" }),
+		true,
 	);
 });
 
-test("health 与设置/模型/auth status 是 migrated-json endpoint", () => {
+test("health 与设置/模型/auth 入口是 migrated-json endpoint", () => {
 	const migrated = ENDPOINT_REGISTRY.filter((e) => e.kind === "migrated-json").map(
 		(e) => `${e.method} ${e.path}`,
 	);
@@ -146,6 +150,8 @@ test("health 与设置/模型/auth status 是 migrated-json endpoint", () => {
 		"POST /api/config",
 		"GET /api/models",
 		"GET /api/auth/status",
+		"POST /api/auth/set",
+		"POST /api/auth/test",
 	]) {
 		assert.ok(migrated.includes(expected), `missing migrated endpoint ${expected}`);
 	}
@@ -169,12 +175,14 @@ test("isMigratedJsonPath 接受 migrated-json、拒绝 legacy path", () => {
 	);
 });
 
-test("config / models / auth status 已迁移为 migrated-json，并保持安全分类", () => {
+test("config / models / auth 已迁移为 migrated-json，并保持安全分类", () => {
 	const cases = [
 		{ method: "GET", path: "/api/config", safety: "read-only" },
 		{ method: "POST", path: "/api/config", safety: "state-changing" },
 		{ method: "GET", path: "/api/models", safety: "read-only" },
 		{ method: "GET", path: "/api/auth/status", safety: "read-only" },
+		{ method: "POST", path: "/api/auth/set", safety: "state-changing" },
+		{ method: "POST", path: "/api/auth/test", safety: "state-changing" },
 	] as const;
 	for (const item of cases) {
 		const entry = findEndpoint(item.method, item.path);

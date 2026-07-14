@@ -15,6 +15,7 @@ export const WorkbenchErrorCodeSchema = z.enum([
 	"FORBIDDEN_PATH", // 路径越界或无权限
 	"FORBIDDEN_ORIGIN", // 请求来源不是工作台可信来源
 	"FORBIDDEN_LOCAL_API", // 本地 API 缺少或携带了错误的 capability token
+	"AUTHENTICATION_FAILED", // 认证连接测试未通过
 	"NOT_FOUND", // 资源不存在
 	"CONFLICT", // 资源冲突（如初始化已有库存在冲突文件）
 	"UNSUPPORTED_PLATFORM", // 当前平台不支持
@@ -37,6 +38,7 @@ export const errorCodeToHttpStatus: Readonly<
 	FORBIDDEN_PATH: 403,
 	FORBIDDEN_ORIGIN: 403,
 	FORBIDDEN_LOCAL_API: 403,
+	AUTHENTICATION_FAILED: 400,
 	NOT_FOUND: 404,
 	CONFLICT: 409,
 	UNSUPPORTED_PLATFORM: 501,
