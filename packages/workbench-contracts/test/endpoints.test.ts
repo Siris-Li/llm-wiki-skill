@@ -202,6 +202,16 @@ test("knowledge bases 与 active context 路由已迁移并保持安全分类", 
 		{ method: "GET", path: "/api/knowledge-bases", safety: "read-only" },
 		{
 			method: "POST",
+			path: "/api/knowledge-bases/new",
+			safety: "state-changing",
+		},
+		{
+			method: "POST",
+			path: "/api/knowledge-bases/init-existing",
+			safety: "state-changing",
+		},
+		{
+			method: "POST",
 			path: "/api/knowledge-bases/external",
 			safety: "state-changing",
 		},
@@ -213,6 +223,11 @@ test("knowledge bases 与 active context 路由已迁移并保持安全分类", 
 		{
 			method: "DELETE",
 			path: "/api/knowledge-bases/external",
+			safety: "state-changing",
+		},
+		{
+			method: "POST",
+			path: "/api/system/choose-directory",
 			safety: "state-changing",
 		},
 		{ method: "GET", path: "/api/knowledge-base", safety: "read-only" },

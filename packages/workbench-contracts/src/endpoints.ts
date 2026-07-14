@@ -214,14 +214,14 @@ export const ENDPOINT_REGISTRY = freezeEndpointEntries([
 	{
 		method: "POST",
 		path: "/api/knowledge-bases/new",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "新建知识库，写文件",
 	},
 	{
 		method: "POST",
 		path: "/api/knowledge-bases/init-existing",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "初始化已有库，写文件",
 	},
@@ -319,7 +319,7 @@ export const ENDPOINT_REGISTRY = freezeEndpointEntries([
 	{
 		method: "POST",
 		path: "/api/system/choose-directory",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "state-changing",
 		description: "触发系统目录选择器（osascript）；不改工作台状态但触发外部进程，保守要求 token",
 	},

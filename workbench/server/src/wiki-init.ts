@@ -30,6 +30,22 @@ export class InitConflictError extends Error {
 	}
 }
 
+export class KnowledgeBaseSetupInputError extends Error {
+	readonly code = "INVALID_REQUEST";
+}
+
+export const KNOWLEDGE_BASE_SETUP_REQUIRED_MESSAGE =
+	"未找到 llm-wiki 初始化工具，请先安装后重试";
+
+export class KnowledgeBaseSetupRequiredError extends Error {
+	readonly code = "SETUP_REQUIRED";
+
+	constructor() {
+		super(KNOWLEDGE_BASE_SETUP_REQUIRED_MESSAGE);
+		this.name = "KnowledgeBaseSetupRequiredError";
+	}
+}
+
 const INIT_WRITTEN_FILES = [
 	".gitignore",
 	".wiki-schema.md",
@@ -46,12 +62,12 @@ export function truncateOutput(text: string): string {
 
 export function validateWikiName(name: string): string {
 	const trimmed = name.trim();
-	if (!trimmed) throw new Error("知识库名不能为空");
+	if (!trimmed) throw new KnowledgeBaseSetupInputError("知识库名不能为空");
 	if (trimmed.includes("/") || trimmed.includes("\\")) {
-		throw new Error("知识库名不能包含路径分隔符");
+		throw new KnowledgeBaseSetupInputError("知识库名不能包含路径分隔符");
 	}
 	if (trimmed === "." || trimmed === "..") {
-		throw new Error("知识库名不能是 . 或 ..");
+		throw new KnowledgeBaseSetupInputError("知识库名不能是 . 或 ..");
 	}
 	return trimmed;
 }
@@ -94,7 +110,7 @@ export async function createWiki(nameInput: string, purposeInput: string): Promi
 	const name = validateWikiName(nameInput);
 	const scriptPath = await findInitScript();
 	if (!scriptPath) {
-		throw new Error("llm-wiki 未安装。请先安装到 ~/.codex/skills/llm-wiki/ 或 ~/.claude/skills/llm-wiki-skill/。");
+		throw new KnowledgeBaseSetupRequiredError();
 	}
 
 	const targetPath = path.join(DEFAULT_KNOWLEDGE_BASE_ROOT, name);
@@ -128,11 +144,21 @@ export async function initExistingWiki(
 	overwrite = false,
 ): Promise<InitExistingWikiResult> {
 	const absolutePath = path.resolve(expandUserPath(rawPath));
-	const info = await stat(absolutePath).catch(() => null);
-	if (!info?.isDirectory()) throw new Error(`目标路径不是目录：${absolutePath}`);
+	const info = await stat(absolutePath).catch((err: NodeJS.ErrnoException) => {
+		if (err.code === "EACCES" || err.code === "EPERM") {
+			throw Object.assign(new Error("path is not accessible"), {
+				code: "FORBIDDEN_PATH",
+				details: { reason: "outside-root" },
+			});
+		}
+		return null;
+	});
+	if (!info?.isDirectory()) {
+		throw new KnowledgeBaseSetupInputError("请选择一个存在的文件夹");
+	}
 
 	const purpose = purposeInput.trim();
-	if (!purpose) throw new Error("研究方向不能为空");
+	if (!purpose) throw new KnowledgeBaseSetupInputError("研究方向不能为空");
 
 	const conflicts = await findInitConflicts(absolutePath);
 	if (conflicts.length > 0 && !overwrite) {
@@ -143,7 +169,7 @@ export async function initExistingWiki(
 		conflicts.length > 0 ? await backupConflicts(absolutePath, conflicts) : [];
 	const scriptPath = await findInitScript();
 	if (!scriptPath) {
-		throw new Error("llm-wiki 未安装。请先安装到 ~/.codex/skills/llm-wiki/ 或 ~/.claude/skills/llm-wiki-skill/。");
+		throw new KnowledgeBaseSetupRequiredError();
 	}
 
 	const { stdout, stderr } = await execFileAsync(scriptPath, [absolutePath, purpose, "中文"], {

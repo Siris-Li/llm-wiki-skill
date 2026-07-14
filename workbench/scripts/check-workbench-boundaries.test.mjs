@@ -8,10 +8,7 @@ import { checkWorkbenchBoundaries } from "./check-workbench-boundaries.mjs";
 
 const remainingLegacyEndpoints = [
 	{ method: "POST", path: "/api/echo", kind: "legacy" },
-	{ method: "POST", path: "/api/knowledge-bases/new", kind: "legacy" },
-	{ method: "POST", path: "/api/knowledge-bases/init-existing", kind: "legacy" },
 	{ method: "GET", path: "/api/commands", kind: "legacy" },
-	{ method: "POST", path: "/api/system/choose-directory", kind: "legacy" },
 ];
 
 async function fixture(files) {

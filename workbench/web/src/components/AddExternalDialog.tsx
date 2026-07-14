@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import type {
-	AvailableModelInfo,
-	ModelRef,
+import {
+	ConflictDetailsSchema,
+	type AvailableModelInfo,
+	type ModelRef,
 } from "@llm-wiki/workbench-contracts";
 
 import { Button } from "./ui/button";
@@ -16,13 +17,12 @@ import {
 import { Input } from "./ui/input";
 import { fetchAvailableModels, getConfig } from "../lib/api/config";
 import {
+	chooseDirectory,
+	initExistingKnowledgeBase,
 	inspectKnowledgeBasePath,
 	type InspectPathResult,
 } from "../lib/api/knowledge-bases";
-import {
-	chooseDirectory,
-	initExistingKnowledgeBase,
-} from "../lib/api/legacy";
+import { ApiError } from "../lib/api/client";
 
 interface Props {
 	open: boolean;
@@ -134,15 +134,15 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 					setSubmitting(false);
 					return;
 				}
-				const result = await initExistingKnowledgeBase(trimmed, purpose, overwrite);
-				await onSubmit(result.info.path);
+				const info = await initExistingKnowledgeBase(trimmed, purpose, overwrite);
+				await onSubmit(info.path);
 				if (
 					digestAfterInit &&
 					inspect.ingestibleFiles?.paths.length &&
 					onStartBatchDigest
 				) {
 					onStartBatchDigest({
-						kbPath: result.info.path,
+						kbPath: info.path,
 						filePaths: inspect.ingestibleFiles.paths,
 						sourceScanId: inspect.ingestibleFiles.scanId,
 						digestModel: valueToModelRef(digestModel),
@@ -155,7 +155,13 @@ export function AddExternalDialog({ open, onOpenChange, onSubmit, onStartBatchDi
 			reset();
 			onOpenChange(false);
 		} catch (err) {
-			const maybeConflicts = (err as Error & { conflicts?: string[] }).conflicts ?? [];
+			const parsedConflicts =
+				err instanceof ApiError && err.code === "CONFLICT"
+					? ConflictDetailsSchema.safeParse(err.details)
+					: null;
+			const maybeConflicts = parsedConflicts?.success
+				? parsedConflicts.data.conflicts ?? []
+				: [];
 			setConflicts(maybeConflicts);
 			setError(err instanceof Error ? err.message : String(err));
 			setSubmitting(false);

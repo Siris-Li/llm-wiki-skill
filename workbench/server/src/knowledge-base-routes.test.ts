@@ -11,7 +11,9 @@ import type {
 
 import { createApp } from "./app.js";
 import { resolveKnowledgeBaseContext } from "./http/knowledge-base-context.js";
+import { HttpContractError } from "./http/request.js";
 import type { KnowledgeBaseRouteService } from "./routes/knowledge-bases.js";
+import { InitConflictError } from "./wiki-init.js";
 
 type EnvelopeJson = {
 	ok?: boolean;
@@ -31,6 +33,20 @@ const registeredKb: KnowledgeBaseInfo = {
 const externalKb: KnowledgeBaseInfo = {
 	path: "/fake/external/notes",
 	name: "notes",
+	origin: "external",
+	valid: true,
+};
+
+const createdKb: KnowledgeBaseInfo = {
+	path: "/fake/default/new-research",
+	name: "new-research",
+	origin: "default",
+	valid: true,
+};
+
+const initializedKb: KnowledgeBaseInfo = {
+	path: "/fake/external/candidate",
+	name: "candidate",
 	origin: "external",
 	valid: true,
 };
@@ -72,6 +88,9 @@ function createFakeService(options: FakeOptions = {}) {
 		registered: [] as string[],
 		unregistered: [] as string[],
 		inspected: [] as string[],
+		created: [] as Array<{ name: string; purpose: string }>,
+		initialized: [] as Array<{ path: string; purpose: string; overwrite: boolean }>,
+		pickedDirectories: 0,
 	};
 
 	const assertSelectable = (kbPath: string) => {
@@ -90,6 +109,18 @@ function createFakeService(options: FakeOptions = {}) {
 
 	const service: KnowledgeBaseRouteService = {
 		listKnowledgeBases: async () => [registeredKb, externalKb],
+		createKnowledgeBase: async (name, purpose) => {
+			calls.created.push({ name, purpose });
+			return createdKb;
+		},
+		initExistingKnowledgeBase: async (path, purpose, overwrite) => {
+			calls.initialized.push({ path, purpose, overwrite });
+			return initializedKb;
+		},
+		chooseDirectory: async () => {
+			calls.pickedDirectories += 1;
+			return "/fake/external/chosen";
+		},
 		registerExternalKnowledgeBase: async (
 			path: string,
 		): Promise<RegisterExternalKnowledgeBaseData> => {
@@ -344,4 +375,167 @@ test("知识库 body 使用统一 JSON/schema 校验且不回显原始 body", as
 	const payload = await json(invalidRequest);
 	assert.equal(payload.code, "INVALID_REQUEST");
 	assert.equal(JSON.stringify(payload).includes("sk-do-not-echo"), false);
+});
+
+test("创建、初始化和目录选择经知识库 route 返回统一成功 envelope", async () => {
+	const { service, calls } = createFakeService();
+	const app = createApp({ knowledgeBaseService: service });
+
+	const created = await app.request("/api/knowledge-bases/new", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name: " new-research ", purpose: " " }),
+	});
+	assert.equal(created.status, 200);
+	assert.deepEqual(await json(created), { ok: true, data: { info: createdKb } });
+	assert.deepEqual(calls.created, [{ name: " new-research ", purpose: " " }]);
+
+	const initialized = await app.request("/api/knowledge-bases/init-existing", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ path: " /fake/external/candidate ", purpose: " topic ", overwrite: true }),
+	});
+	assert.equal(initialized.status, 200);
+	assert.deepEqual(await json(initialized), {
+		ok: true,
+		data: { info: initializedKb },
+	});
+	assert.deepEqual(calls.initialized, [
+		{ path: "/fake/external/candidate", purpose: " topic ", overwrite: true },
+	]);
+
+	const picked = await app.request("/api/system/choose-directory", { method: "POST" });
+	assert.equal(picked.status, 200);
+	assert.deepEqual(await json(picked), {
+		ok: true,
+		data: { path: "/fake/external/chosen" },
+	});
+	assert.equal(calls.pickedDirectories, 1);
+});
+
+test("创建和初始化使用统一失败 envelope，且不泄露底层细节", async () => {
+	const { service } = createFakeService();
+	service.initExistingKnowledgeBase = async () => {
+		throw new HttpContractError("INVALID_REQUEST", "请选择一个存在的文件夹");
+	};
+	let app = createApp({ knowledgeBaseService: service });
+	let res = await app.request("/api/knowledge-bases/init-existing", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ path: "/fake/missing", purpose: "topic" }),
+	});
+	assert.equal(res.status, 400);
+	assert.deepEqual(await json(res), {
+		ok: false,
+		code: "INVALID_REQUEST",
+		message: "请选择一个存在的文件夹",
+	});
+
+	service.createKnowledgeBase = async () => {
+		throw Object.assign(new Error("/Users/private/llm-wiki is unavailable"), {
+			code: "SETUP_REQUIRED",
+		});
+	};
+	app = createApp({ knowledgeBaseService: service, mode: "test" });
+	res = await app.request("/api/knowledge-bases/new", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name: "research", purpose: "topic" }),
+	});
+	assert.equal(res.status, 400);
+	assert.deepEqual(await json(res), {
+		ok: false,
+		code: "INVALID_REQUEST",
+		message: "未找到 llm-wiki 初始化工具，请先安装后重试",
+	});
+
+	service.initExistingKnowledgeBase = async () => {
+		throw Object.assign(new Error("/Users/private/candidate"), {
+			code: "FORBIDDEN_PATH",
+			details: { reason: "symlink-escape" },
+		});
+	};
+	res = await app.request("/api/knowledge-bases/init-existing", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ path: "/fake/private", purpose: "topic" }),
+	});
+	assert.equal(res.status, 403);
+	assert.deepEqual(await json(res), {
+		ok: false,
+		code: "FORBIDDEN_PATH",
+		message: "路径不在允许的知识库边界内",
+		details: { reason: "symlink-escape" },
+	});
+
+	service.initExistingKnowledgeBase = async () => {
+		throw new InitConflictError(["index.md", "purpose.md"]);
+	};
+	res = await app.request("/api/knowledge-bases/init-existing", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ path: "/fake/conflict", purpose: "topic" }),
+	});
+	assert.equal(res.status, 409);
+	assert.deepEqual(await json(res), {
+		ok: false,
+		code: "CONFLICT",
+		message: "目标目录存在需要确认的文件",
+		details: { conflicts: ["index.md", "purpose.md"] },
+	});
+
+	service.createKnowledgeBase = async () => {
+		throw new Error("/Users/private/init-wiki.sh stdout=secret-key");
+	};
+	app = createApp({ knowledgeBaseService: service, mode: "test" });
+	res = await app.request("/api/knowledge-bases/new", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name: "research", purpose: "topic" }),
+	});
+	assert.equal(res.status, 500);
+	const internal = await json(res);
+	assert.equal(internal.code, "INTERNAL_ERROR");
+	assert.equal(internal.message, "服务器内部错误");
+	assert.equal(JSON.stringify(internal).includes("/Users/private"), false);
+	assert.equal(JSON.stringify(internal).includes("secret-key"), false);
+});
+
+test("目录选择保留取消，并将平台和内部失败收敛为稳定错误", async () => {
+	const { service } = createFakeService();
+	service.chooseDirectory = async () => null;
+	let app = createApp({ knowledgeBaseService: service });
+	let res = await app.request("/api/system/choose-directory", { method: "POST" });
+	assert.equal(res.status, 200);
+	assert.deepEqual(await json(res), { ok: true, data: { path: null } });
+
+	service.chooseDirectory = async () => {
+		throw new Error("User canceled");
+	};
+	app = createApp({ knowledgeBaseService: service });
+	res = await app.request("/api/system/choose-directory", { method: "POST" });
+	assert.equal(res.status, 200);
+	assert.deepEqual(await json(res), { ok: true, data: { path: null } });
+
+	service.chooseDirectory = async () => {
+		throw Object.assign(new Error("native picker details"), { code: "ENOTSUP" });
+	};
+	app = createApp({ knowledgeBaseService: service });
+	res = await app.request("/api/system/choose-directory", { method: "POST" });
+	assert.equal(res.status, 501);
+	assert.deepEqual(await json(res), {
+		ok: false,
+		code: "UNSUPPORTED_PLATFORM",
+		message: "当前系统暂不支持文件夹选择器",
+	});
+
+	service.chooseDirectory = async () => {
+		throw new Error("/Users/private/native-picker-output");
+	};
+	app = createApp({ knowledgeBaseService: service, mode: "test" });
+	res = await app.request("/api/system/choose-directory", { method: "POST" });
+	assert.equal(res.status, 500);
+	const internal = await json(res);
+	assert.equal(internal.code, "INTERNAL_ERROR");
+	assert.equal(JSON.stringify(internal).includes("/Users/private"), false);
 });

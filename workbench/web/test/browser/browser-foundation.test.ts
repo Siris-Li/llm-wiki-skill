@@ -239,7 +239,7 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 	assert.doesNotMatch(sharedPageB, /Atlas-only fictional signal/);
 	assert.deepEqual(evidence.chosenDirectory, {
 		status: 200,
-		body: { ok: true, path: kbB },
+		body: { ok: true, data: { path: kbB } },
 	});
 	assert.equal(evidence.promptStatus, 200);
 	assert.match(evidence.promptContentType ?? "", /text\/event-stream/);

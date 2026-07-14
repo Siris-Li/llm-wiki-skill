@@ -181,7 +181,7 @@ test("旧入口必须绑定自己的稳定发现编号和处理任务", () => {
 	}
 });
 
-test("旧入口例外数量不能超过当前五个", () => {
+test("旧入口例外数量不能超过当前两个", () => {
 	const extra: RuntimeEndpointDeclaration = {
 		method: "GET",
 		path: "/api/legacy-eight",
@@ -202,7 +202,7 @@ test("旧入口例外数量不能超过当前五个", () => {
 			declared: [...RUNTIME_ENDPOINT_DECLARATIONS, extra],
 			registry,
 		}),
-		/legacy exception count increased: 6 > 5/,
+		/legacy exception count increased: 3 > 2/,
 	);
 });
 
