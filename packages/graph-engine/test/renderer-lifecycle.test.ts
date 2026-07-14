@@ -1491,7 +1491,8 @@ describe("graph renderer lifecycle", () => {
     renderer.destroy();
   });
 
-  it("degrades interaction detail during lightweight viewport changes and restores after settle", async () => {
+  it("degrades interaction detail during lightweight viewport changes and restores after settle", (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");
     const renderer = createGraphRenderer(container as unknown as HTMLElement, {
@@ -1515,7 +1516,11 @@ describe("graph renderer lifecycle", () => {
     assert.equal(nodeBefore?.dataset.coreAnchor, "true");
     assert.equal(nodeBefore?.dataset.traceable, "true");
 
-    await waitForInteractionSettle();
+    t.mock.timers.tick(0);
+    t.mock.timers.tick(179);
+    assert.equal(renderer.root.dataset.interactionMode, "active");
+
+    t.mock.timers.tick(1);
     assert.equal(renderer.root.dataset.interactionMode, "idle");
     assert.equal(nodeElement(renderer, "a"), nodeBefore);
     assert.equal(edgeElement(renderer, "a-b"), edgeBefore);
