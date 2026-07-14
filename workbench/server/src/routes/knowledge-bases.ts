@@ -235,6 +235,9 @@ export function createKnowledgeBaseRoutes(
 				}),
 			);
 		} catch (err) {
+			if (isDirectoryPickerCancellation(err)) {
+				return jsonOk(c, ChooseDirectoryDataSchema.parse({ path: null }));
+			}
 			throw mapKnowledgeBaseSetupError(err);
 		}
 	});
