@@ -1,5 +1,10 @@
 import {
 	ActiveKnowledgeBaseDataSchema,
+	ChooseDirectoryDataSchema,
+	CreateKnowledgeBaseBodySchema,
+	CreateKnowledgeBaseDataSchema,
+	InitExistingKnowledgeBaseBodySchema,
+	InitExistingKnowledgeBaseDataSchema,
 	InspectKnowledgeBasePathDataSchema,
 	KnowledgeBaseContextBodySchema,
 	KnowledgeBaseListDataSchema,
@@ -25,6 +30,43 @@ export function listKnowledgeBases(): Promise<KnowledgeBaseInfo[]> {
 	return request({ method: "GET", path: "/api/knowledge-bases" }, {
 		responseSchema: KnowledgeBaseListDataSchema,
 	});
+}
+
+export async function createKnowledgeBase(
+	name: string,
+	purpose: string,
+): Promise<KnowledgeBaseInfo> {
+	const { info } = await request(
+		{ method: "POST", path: "/api/knowledge-bases/new" },
+		{
+			body: CreateKnowledgeBaseBodySchema.parse({ name, purpose }),
+			responseSchema: CreateKnowledgeBaseDataSchema,
+		},
+	);
+	return info;
+}
+
+export async function initExistingKnowledgeBase(
+	path: string,
+	purpose: string,
+	overwrite = false,
+): Promise<KnowledgeBaseInfo> {
+	const { info } = await request(
+		{ method: "POST", path: "/api/knowledge-bases/init-existing" },
+		{
+			body: InitExistingKnowledgeBaseBodySchema.parse({ path, purpose, overwrite }),
+			responseSchema: InitExistingKnowledgeBaseDataSchema,
+		},
+	);
+	return info;
+}
+
+export async function chooseDirectory(): Promise<string | null> {
+	const { path } = await request(
+		{ method: "POST", path: "/api/system/choose-directory" },
+		{ responseSchema: ChooseDirectoryDataSchema },
+	);
+	return path;
 }
 
 export async function getActiveContext(): Promise<ActiveContext | null> {
