@@ -306,6 +306,49 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 		true,
 	);
 
+	const selectionFailureName = "browser-selection-failure";
+	const rejectNewWikiSelection = async (route: import("playwright").Route) => {
+		const request = route.request();
+		if (
+			request.method() === "POST" &&
+			(request.postDataJSON() as { kbPath?: unknown }).kbPath === join(home, "llm-wiki", selectionFailureName)
+		) {
+			await route.fulfill({
+				status: 500,
+				contentType: "application/json",
+				body: JSON.stringify({
+					ok: false,
+					code: "INTERNAL_ERROR",
+					message: "无法进入新知识库，请重试",
+				}),
+			});
+			return;
+		}
+		await route.continue();
+	};
+	await page.route("**/api/knowledge-base", rejectNewWikiSelection);
+	await page.getByRole("button", { name: "新建知识库" }).click();
+	await page.getByPlaceholder("stage2-research").fill(selectionFailureName);
+	await page.getByPlaceholder("研究方向").fill("Selection failure coverage");
+	const selectionRequest = page.waitForRequest((request) => (
+		new URL(request.url()).pathname === "/api/knowledge-base" &&
+		request.method() === "POST" &&
+		(request.postDataJSON() as { kbPath?: unknown }).kbPath === join(home, "llm-wiki", selectionFailureName)
+	));
+	await page.getByRole("button", { name: "创建" }).click();
+	await selectionRequest;
+	await page.getByText("无法进入新知识库，请重试").waitFor({ timeout: START_TIMEOUT_MS });
+	assert.ok(await page.getByText("无法进入新知识库，请重试").isVisible());
+	assert.ok(await page.getByRole("dialog").isVisible());
+	await page.locator(".shell-sidebar").getByText(selectionFailureName, { exact: true }).waitFor({ timeout: START_TIMEOUT_MS });
+	const failedSelectionContext = await page.evaluate(async (): Promise<ActiveKnowledgeBaseResponse> => {
+		const response = await fetch("/api/knowledge-base");
+		return response.json();
+	});
+	assert.equal(failedSelectionContext.data.active?.kb.name, "browser-created");
+	await page.unroute("**/api/knowledge-base", rejectNewWikiSelection);
+	await page.getByRole("button", { name: "取消" }).click();
+
 	await cleanup();
 	await assertProductionBuildExcludesBrowserFakes();
 });
