@@ -600,6 +600,14 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		return;
 	}
 	if (pathname === "/api/page") {
+		if (url.searchParams.get("path") !== "wiki/concepts/mamba.md") {
+			await json({
+				ok: false,
+				code: "NOT_FOUND",
+				message: "Unexpected Paper page fixture request",
+			}, 404);
+			return;
+		}
 		await json({
 			ok: true,
 			data: {
