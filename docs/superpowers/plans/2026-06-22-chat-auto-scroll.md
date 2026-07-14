@@ -103,7 +103,7 @@ function renderChatPanel(props: Partial<ChatPanelProps> = {}) {
 	return render(
 		<TooltipProvider>
 			<ChatPanel
-				currentKnowledgeBaseName="AI学习知识库"
+				currentKnowledgeBaseName="示例知识库"
 				currentKnowledgeBasePath="/kb"
 				initialMessages={[]}
 				{...props}
