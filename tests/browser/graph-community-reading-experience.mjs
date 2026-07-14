@@ -14,7 +14,7 @@ assert.notEqual(workbenchUrl, "", "GRAPH_COMMUNITY_EXPERIENCE_URL must point at 
 assert.notEqual(artifactDir, "", "GRAPH_COMMUNITY_EXPERIENCE_ARTIFACT_DIR must point at an artifact directory");
 
 const COMMUNITY_CASES = [
-  { id: "dense-agent", slug: "dense-agent", label: "AI Agent 对比分析", minNodes: 16, minEdges: 18 },
+  { id: "dense-agent", slug: "dense-agent", label: "示例密集社区", minNodes: 16, minEdges: 18 },
   { id: "small-chain", slug: "small-chain", label: "小型概念链", minNodes: 3, minEdges: 2 },
   { id: "long-title", slug: "long-title", label: "长标题节点社区", minNodes: 5, minEdges: 4 },
   { id: "edge-dense", slug: "edge-dense", label: "高密关系社区", minNodes: 7, minEdges: 10 },
