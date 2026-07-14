@@ -13,6 +13,7 @@ web_pid=""
 server_port="${GRAPH_COMMUNITY_EXPERIENCE_SERVER_PORT:-18790}"
 web_port="${GRAPH_COMMUNITY_EXPERIENCE_WEB_PORT:-15183}"
 artifact_dir="${GRAPH_COMMUNITY_EXPERIENCE_ARTIFACT_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/llm-wiki-community-experience.XXXXXX")}"
+capability_token_file="$tmp_dir/home/.llm-wiki-agent/runtime/capability-token"
 
 cleanup() {
     if [ -d "$artifact_dir" ]; then
@@ -225,15 +226,18 @@ HOME="$tmp_dir/home" LLM_WIKI_AGENT_API_ORIGIN="http://127.0.0.1:$server_port" L
 web_pid="$!"
 
 for _ in $(seq 1 120); do
-    if curl -fsS "http://127.0.0.1:$server_port/api/knowledge-bases" >/dev/null 2>&1 \
+    if curl -fsS "http://127.0.0.1:$server_port/api/health" >/dev/null 2>&1 \
+        && [ -s "$capability_token_file" ] \
         && curl -fsS "http://127.0.0.1:$web_port" >/dev/null 2>&1; then
         break
     fi
     sleep 0.25
 done
 
-curl -fsS "http://127.0.0.1:$server_port/api/knowledge-bases" >/dev/null 2>&1 \
+curl -fsS "http://127.0.0.1:$server_port/api/health" >/dev/null 2>&1 \
     || fail "workbench server did not start; see $tmp_dir/server.log"
+[ -s "$capability_token_file" ] \
+    || fail "workbench server did not finish startup; see $tmp_dir/server.log"
 curl -fsS "http://127.0.0.1:$web_port" >/dev/null 2>&1 \
     || fail "workbench web did not start; see $tmp_dir/web.log"
 
