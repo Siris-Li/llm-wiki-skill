@@ -92,7 +92,7 @@ describe("pages / artifacts API module", () => {
 		stubFetch({ ok: true, items: [manifest] });
 		await assert.rejects(
 			() => listArtifacts(),
-			(err) => err instanceof ContractMismatchError,
+			(err) => err instanceof ContractMismatchError && err.path === "/api/artifacts",
 		);
 	});
 

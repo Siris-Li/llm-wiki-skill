@@ -76,6 +76,42 @@ describe("config / auth API modules", () => {
 		assert.equal(models[0]?.provider, "anthropic");
 	});
 
+	it("getConfig 拒绝旧的顶层 config 成功形状", async () => {
+		stubFetch({
+			ok: true,
+			config: {
+				version: 1,
+				externalKnowledgeBases: [],
+				modelRoles: { main: null },
+			},
+		});
+		await assert.rejects(
+			() => getConfig(),
+			(err) => err instanceof ContractMismatchError && err.path === "/api/config",
+		);
+	});
+
+	it("fetchAvailableModels 拒绝旧的顶层 items 成功形状", async () => {
+		stubFetch({
+			ok: true,
+			items: [
+				{
+					provider: "anthropic",
+					modelId: "claude-sonnet",
+					name: "Claude Sonnet",
+					reasoning: false,
+					contextWindow: 200000,
+					cost: { input: 3, output: 15 },
+					hasAuth: true,
+				},
+			],
+		});
+		await assert.rejects(
+			() => fetchAvailableModels(),
+			(err) => err instanceof ContractMismatchError && err.path === "/api/models",
+		);
+	});
+
 	it("getAuthStatus 读取脱敏认证状态，不接受旧的 spread 响应", async () => {
 		stubFetch({
 			ok: true,

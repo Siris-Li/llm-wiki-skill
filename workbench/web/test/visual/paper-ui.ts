@@ -18,6 +18,7 @@ type PaperVisualCase = {
 	name: string;
 	description: string;
 	prefs: PaperPrefs;
+	apiReadProbe?: boolean;
 	viewport?: { width: number; height: number };
 	view?: "chat" | "graph";
 	fonts?: "normal" | "blocked";
@@ -36,6 +37,9 @@ const staticFallbackUrl = "http://paper-ui.local/";
 const distDir = resolve(process.cwd(), "dist");
 const visualKbPath = "/visual/ai-learning";
 const evaluateNameHelper = "globalThis.__name = (fn) => fn;";
+const paperApiReadPaths = ["/api/artifacts", "/api/config", "/api/models"] as const;
+type PaperApiReadPath = (typeof paperApiReadPaths)[number];
+type PaperApiReadRequest = `GET ${PaperApiReadPath}`;
 const defaultPrefs: PaperPrefs = {
 	theme: "light",
 	paper: "clean",
@@ -53,6 +57,7 @@ const cases: PaperVisualCase[] = [
 			name: `${theme}-${paper}-1440`,
 			description: `${theme} theme with ${paper} paper`,
 			prefs: { ...defaultPrefs, theme, paper },
+			apiReadProbe: theme === "light" && paper === "clean",
 			fonts: "normal" as const,
 		})),
 	),
@@ -234,47 +239,56 @@ try {
 
 async function captureCase(browser: Browser, visualCase: PaperVisualCase, url: string, useStaticFallback: boolean) {
 	const viewport = visualCase.viewport ?? { width: 1440, height: 900 };
+	const apiReads = new Set<PaperApiReadRequest>();
 	const context = await browser.newContext({
 		deviceScaleFactor: 1,
 		viewport,
 	});
 	await context.addInitScript(evaluateNameHelper);
+	await context.addInitScript((prefs) => {
+		localStorage.setItem(prefs.themeStorageKey, prefs.theme);
+		localStorage.setItem(`${prefs.appearanceStoragePrefix}paper`, prefs.paper);
+		localStorage.setItem(`${prefs.appearanceStoragePrefix}accent`, prefs.accent);
+		localStorage.setItem(`${prefs.appearanceStoragePrefix}userbubble`, prefs.userbubble);
+		localStorage.setItem(`${prefs.appearanceStoragePrefix}hand`, prefs.hand);
+		localStorage.setItem(`${prefs.appearanceStoragePrefix}density`, prefs.density);
+		localStorage.setItem(prefs.mainViewStorageKey, prefs.view);
+		localStorage.setItem(prefs.sidebarCollapsedStorageKey, prefs.sidebarCollapsed);
+	}, {
+		...visualCase.prefs,
+		view: visualCase.view ?? "chat",
+		sidebarCollapsed: visualCase.sidebar === "collapsed" ? "true" : "false",
+		themeStorageKey: THEME_STORAGE_KEY,
+		appearanceStoragePrefix: APPEARANCE_STORAGE_PREFIX,
+		mainViewStorageKey: MAIN_VIEW_STORAGE_KEY,
+		sidebarCollapsedStorageKey: SIDEBAR_COLLAPSED_STORAGE_KEY,
+	});
 	if (useStaticFallback) {
-		await installStaticFallbackRoutes(context);
+		await installStaticFallbackRoutes(context, apiReads);
 	} else {
-		await installVisualApiRoutes(context, new URL(url).origin);
+		await installVisualApiRoutes(context, new URL(url).origin, apiReads);
 	}
 	if (visualCase.fonts === "blocked") {
 		await context.route(/fonts\.(googleapis|gstatic)\.com/, (route: Route) => route.abort());
 	}
 	const page = await context.newPage();
 	try {
+		const artifactRead = visualCase.apiReadProbe
+			? page.waitForResponse((response) =>
+				response.request().method() === "GET" && new URL(response.url()).pathname === "/api/artifacts",
+			)
+			: null;
 		await page.goto(url, { waitUntil: "domcontentloaded" });
-		await page.evaluate((prefs) => {
-			localStorage.setItem(prefs.themeStorageKey, prefs.theme);
-			localStorage.setItem(`${prefs.appearanceStoragePrefix}paper`, prefs.paper);
-			localStorage.setItem(`${prefs.appearanceStoragePrefix}accent`, prefs.accent);
-			localStorage.setItem(`${prefs.appearanceStoragePrefix}userbubble`, prefs.userbubble);
-			localStorage.setItem(`${prefs.appearanceStoragePrefix}hand`, prefs.hand);
-			localStorage.setItem(`${prefs.appearanceStoragePrefix}density`, prefs.density);
-			localStorage.setItem(prefs.mainViewStorageKey, prefs.view ?? "chat");
-			localStorage.setItem(prefs.sidebarCollapsedStorageKey, prefs.sidebar === "collapsed" ? "true" : "false");
-		}, {
-			...visualCase.prefs,
-			view: visualCase.view,
-			sidebar: visualCase.sidebar,
-			themeStorageKey: THEME_STORAGE_KEY,
-			appearanceStoragePrefix: APPEARANCE_STORAGE_PREFIX,
-			mainViewStorageKey: MAIN_VIEW_STORAGE_KEY,
-			sidebarCollapsedStorageKey: SIDEBAR_COLLAPSED_STORAGE_KEY,
-		});
-		await page.reload({ waitUntil: "domcontentloaded" });
+		if (artifactRead) await artifactRead;
 		await page.waitForSelector(".app-shell", { timeout: 15_000 });
 		await page.waitForSelector(visualCase.view === "graph" ? ".graph-screen" : ".chat-screen", { timeout: 15_000 });
 		await page.evaluate(async () => {
 			await document.fonts?.ready;
 		});
 		await waitForStableVisualState(page, visualCase);
+		if (visualCase.apiReadProbe) {
+			await verifyPaperApiReads(page, apiReads);
+		}
 		if (visualCase.drawer === "wiki") {
 			await openWikiDrawerFromSearch(page);
 			await waitForStableVisualState(page, visualCase);
@@ -411,6 +425,28 @@ async function captureCase(browser: Browser, visualCase: PaperVisualCase, url: s
 	}
 }
 
+async function verifyPaperApiReads(page: Page, apiReads: Set<PaperApiReadRequest>) {
+	const modelButton = page.locator(".topbar-model");
+	await modelButton.click();
+	const modelList = page.getByRole("listbox", { name: "主对话模型" });
+	const configuredModel = modelList.getByRole("option", {
+		name: /anthropic\/claude-sonnet-4\.6/,
+	});
+	await configuredModel.waitFor({ state: "visible", timeout: 10_000 });
+	if (await configuredModel.getAttribute("aria-selected") !== "true") {
+		throw new Error("Paper API fixture: configured model was not selected");
+	}
+	for (const path of paperApiReadPaths) {
+		const request: PaperApiReadRequest = `GET ${path}`;
+		if (!apiReads.has(request)) throw new Error(`Paper API fixture: ${request} was not requested`);
+	}
+	if (await page.locator(".sidebar-error").count() > 0) {
+		throw new Error("Paper API fixture: artifact read failed during startup");
+	}
+	await modelButton.click();
+	await modelList.waitFor({ state: "detached", timeout: 5_000 });
+}
+
 async function openWikiDrawerFromSearch(page: Page) {
 	await page.keyboard.press(process.platform === "darwin" ? "Meta+K" : "Control+K");
 	await page.waitForSelector(".search-panel", { timeout: 5_000 });
@@ -469,19 +505,23 @@ async function captureReference(
 	}
 }
 
-async function installVisualApiRoutes(context: BrowserContext, origin: string) {
+async function installVisualApiRoutes(
+	context: BrowserContext,
+	origin: string,
+	apiReads: Set<PaperApiReadRequest>,
+) {
 	await context.route(`${origin}/api/**`, async (route) => {
 		const request = route.request();
-		await fulfillMockApi(route, new URL(request.url()), request.method());
+		await fulfillMockApi(route, new URL(request.url()), request.method(), apiReads);
 	});
 }
 
-async function installStaticFallbackRoutes(context: BrowserContext) {
+async function installStaticFallbackRoutes(context: BrowserContext, apiReads: Set<PaperApiReadRequest>) {
 	await context.route("http://paper-ui.local/**", async (route) => {
 		const request = route.request();
 		const url = new URL(request.url());
 		if (url.pathname.startsWith("/api/")) {
-			await fulfillMockApi(route, url, request.method());
+			await fulfillMockApi(route, url, request.method(), apiReads);
 			return;
 		}
 		const path = url.pathname === "/" ? "/index.html" : url.pathname;
@@ -502,17 +542,43 @@ async function installStaticFallbackRoutes(context: BrowserContext) {
 	});
 }
 
-async function fulfillMockApi(route: Route, url: URL, method: string) {
-	const pathname = url.pathname;
-	if (method === "HEAD") {
-		await route.fulfill({ status: 200, body: "" });
-		return;
+async function beginPaperApiRead(
+	json: (body: unknown, status?: number) => Promise<void>,
+	apiReads: Set<PaperApiReadRequest>,
+	path: PaperApiReadPath,
+	method: string,
+): Promise<boolean> {
+	if (method !== "GET") {
+		await json({
+			ok: false,
+			code: "INVALID_REQUEST",
+			message: `Paper API fixture only accepts GET ${path}`,
+		}, 405);
+		return false;
 	}
+	apiReads.add(`GET ${path}`);
+	return true;
+}
+
+function isPaperApiReadPath(pathname: string): pathname is PaperApiReadPath {
+	return paperApiReadPaths.includes(pathname as PaperApiReadPath);
+}
+
+async function fulfillMockApi(route: Route, url: URL, method: string, apiReads: Set<PaperApiReadRequest>) {
+	const pathname = url.pathname;
 	const json = (body: unknown, status = 200) => route.fulfill({
 		status,
 		contentType: "application/json",
 		body: JSON.stringify(body),
 	});
+	if (method === "HEAD") {
+		if (isPaperApiReadPath(pathname)) {
+			await beginPaperApiRead(json, apiReads, pathname, method);
+			return;
+		}
+		await route.fulfill({ status: 200, body: "" });
+		return;
+	}
 	if (pathname === "/api/knowledge-bases") {
 		await json({
 			ok: true,
@@ -546,7 +612,8 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		return;
 	}
 	if (pathname === "/api/artifacts") {
-		await json({ ok: true, items: [] });
+		if (!(await beginPaperApiRead(json, apiReads, "/api/artifacts", method))) return;
+		await json({ ok: true, data: [] });
 		return;
 	}
 	if (pathname === "/api/commands") {
@@ -560,9 +627,10 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		return;
 	}
 	if (pathname === "/api/config") {
+		if (!(await beginPaperApiRead(json, apiReads, "/api/config", method))) return;
 		await json({
 			ok: true,
-			config: {
+			data: {
 				version: 1,
 				externalKnowledgeBases: [],
 				lastUsedKbPath: visualKbPath,
@@ -572,9 +640,10 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		return;
 	}
 	if (pathname === "/api/models") {
+		if (!(await beginPaperApiRead(json, apiReads, "/api/models", method))) return;
 		await json({
 			ok: true,
-			items: [
+			data: [
 				{
 					provider: "anthropic",
 					modelId: "claude-sonnet-4.6",
