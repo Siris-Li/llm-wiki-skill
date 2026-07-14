@@ -414,9 +414,19 @@ async function captureCase(browser: Browser, visualCase: PaperVisualCase, url: s
 async function openWikiDrawerFromSearch(page: Page) {
 	await page.keyboard.press(process.platform === "darwin" ? "Meta+K" : "Control+K");
 	await page.waitForSelector(".search-panel", { timeout: 5_000 });
-	await page.waitForSelector(".search-result-main", { timeout: 10_000 });
-	await page.locator(".search-result-main").first().click();
-	await page.waitForSelector(".drawer-panel-open", { timeout: 10_000 });
+	const firstResult = page.locator(".search-result-main").first();
+	await firstResult.waitFor({ state: "visible", timeout: 10_000 });
+	const resultPath = await firstResult.locator(".search-result-path").textContent();
+	if (resultPath !== "wiki/concepts/mamba.md") {
+		throw new Error(`expected Mamba page result, got ${resultPath ?? "no path"}`);
+	}
+	await firstResult.click();
+	const drawer = page.locator(".drawer-panel-open");
+	await drawer.waitFor({ state: "visible", timeout: 10_000 });
+	await drawer.getByText("Mamba 是选择性状态空间模型", { exact: false }).waitFor({
+		state: "visible",
+		timeout: 10_000,
+	});
 	await page.waitForSelector(".search-panel", { state: "detached", timeout: 5_000 }).catch(() => undefined);
 }
 
@@ -581,7 +591,7 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 	if (pathname === "/api/refs") {
 		await json({
 			ok: true,
-			items: [
+			data: [
 				{ path: "wiki/concepts/mamba.md", name: "mamba", title: "Mamba", category: "concept" },
 				{ path: "wiki/concepts/transformer.md", name: "transformer", title: "Transformer", category: "concept" },
 				{ path: "wiki/concepts/rag.md", name: "rag", title: "RAG 检索增强", category: "concept" },
@@ -590,15 +600,25 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		return;
 	}
 	if (pathname === "/api/page") {
+		if (url.searchParams.get("path") !== "wiki/concepts/mamba.md") {
+			await json({
+				ok: false,
+				code: "NOT_FOUND",
+				message: "Unexpected Paper page fixture request",
+			}, 404);
+			return;
+		}
 		await json({
 			ok: true,
-			content: [
-				"# Mamba",
-				"",
-				"Mamba 是选择性状态空间模型，把序列压缩成固定大小的隐状态，实现线性复杂度的长序列建模。",
-				"",
-				"属于「序列建模」社区，桥接「状态空间模型」。与 [[wiki/concepts/transformer.md]] 路径相反。",
-			].join("\n"),
+			data: {
+				content: [
+					"# Mamba",
+					"",
+					"Mamba 是选择性状态空间模型，把序列压缩成固定大小的隐状态，实现线性复杂度的长序列建模。",
+					"",
+					"属于「序列建模」社区，桥接「状态空间模型」。与 [[wiki/concepts/transformer.md]] 路径相反。",
+				].join("\n"),
+			},
 		});
 		return;
 	}
