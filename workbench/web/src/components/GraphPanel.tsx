@@ -465,7 +465,7 @@ export function GraphPanel({
 		}
 		if (!("needsBuild" in result)) return;
 		setError(null);
-		if (result.needsBuild) {
+		if (result.needsBuild === true) {
 			void startGraphRebuild(kbPath, requestId);
 			return;
 		}
