@@ -65,6 +65,7 @@ export interface GraphEventsSubscriptionOptions {
 	) => void;
 	onProtocolError?: (error: GraphEventsProtocolError) => void;
 	eventSourceFactory?: (url: string) => EventSourceLike;
+	connectivityTarget?: EventTarget;
 	reconnectDelayMs?: number;
 }
 
@@ -75,14 +76,17 @@ export function subscribeGraphEvents(
 		new EventSource(url) as unknown as EventSourceLike
 	));
 	const reconnectDelayMs = options.reconnectDelayMs ?? 1_000;
+	const connectivityTarget = options.connectivityTarget
+		?? (typeof window === "undefined" ? null : window);
 	let stopped = false;
+	let offline = false;
 	let source: EventSourceLike | null = null;
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	let hasSeenReady = false;
 	const parser = new GraphEventParser();
 
 	const connect = () => {
-		if (stopped) return;
+		if (stopped || offline || source) return;
 		const current = createEventSource("/api/events");
 		source = current;
 		current.onmessage = (message) => {
@@ -119,9 +123,28 @@ export function subscribeGraphEvents(
 		};
 	};
 
+	const handleOffline = () => {
+		if (stopped || offline) return;
+		offline = true;
+		if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+		reconnectTimer = null;
+		parser.resetForReconnect();
+		const current = source;
+		source = null;
+		current?.close();
+	};
+	const handleOnline = () => {
+		if (stopped || !offline) return;
+		offline = false;
+		connect();
+	};
+	connectivityTarget?.addEventListener("offline", handleOffline);
+	connectivityTarget?.addEventListener("online", handleOnline);
 	connect();
 	return () => {
 		stopped = true;
+		connectivityTarget?.removeEventListener("offline", handleOffline);
+		connectivityTarget?.removeEventListener("online", handleOnline);
 		if (reconnectTimer !== null) clearTimeout(reconnectTimer);
 		reconnectTimer = null;
 		source?.close();

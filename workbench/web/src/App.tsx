@@ -37,7 +37,11 @@ import {
 	selectConversation,
 } from "@/lib/api/conversations";
 import { subscribeGraphEvents } from "@/lib/api/events";
-import { getGraphData } from "@/lib/api/graph";
+import {
+	getGraphData,
+	type GraphAuthoritySnapshot,
+	type GraphBuildError,
+} from "@/lib/api/graph";
 import {
 	getActiveContext,
 	listKnowledgeBases,
@@ -165,11 +169,8 @@ function App() {
 	const [pendingGraphDiff, setPendingGraphDiff] = useState<GraphDiff | null>(null);
 	const [graphRefreshToken, setGraphRefreshToken] = useState(0);
 	const [graphHasPendingUpdate, setGraphHasPendingUpdate] = useState(false);
-	const [graphBuildError, setGraphBuildError] = useState<{
-		kbPath: string;
-		message: string;
-		rebuiltAt: string;
-	} | null>(null);
+	const [graphBuildError, setGraphBuildError] = useState<GraphBuildError | null>(null);
+	const [graphAuthoritySnapshot, setGraphAuthoritySnapshot] = useState<GraphAuthoritySnapshot | null>(null);
 	const [graphData, setGraphData] = useState<GraphData | null>(null);
 	const [graphPins, setGraphPins] = useState<PinMap>({});
 	const [graphVisibilityState, setGraphVisibilityState] = useState<GraphVisibilityState | null>(null);
@@ -282,25 +283,26 @@ function App() {
 					.then((result) => {
 						if (cancelled || authorityReadId !== readId) return;
 						setSidebarError(null);
-						if (result.state.status === "error") {
-							setGraphBuildError({
-								kbPath,
-								message: result.state.message,
-								rebuiltAt: result.state.rebuiltAt,
-							});
-							return;
-						}
 						setGraphBuildError(null);
-						setGraphRefreshToken((token) => token + 1);
+						setGraphAuthoritySnapshot({ id: readId, kbPath, result });
 					})
-					.catch((error) => {
+					.catch(() => {
 						if (cancelled || authorityReadId !== readId) return;
-						setSidebarError(error instanceof Error ? error.message : String(error));
+						const message = "图谱状态校准失败，请重新连接后重试";
+						setGraphAuthoritySnapshot(null);
+						setPendingGraphDiff(null);
+						setGraphBuildError({
+							kbPath,
+							message,
+							rebuiltAt: _ready.connectedAt,
+						});
+						setSidebarError(message);
 					});
 			},
 			onEvent(event) {
 				if (event.kbPath !== kbPath) return;
 				authorityReadId += 1;
+				setGraphAuthoritySnapshot(null);
 				if (event.type === "graph_updated") {
 					setGraphBuildError(null);
 					setGraphRefreshToken((token) => token + 1);
@@ -426,6 +428,7 @@ function App() {
 		setArtifacts([]);
 		setPendingGraphDiff(null);
 		setGraphBuildError(null);
+		setGraphAuthoritySnapshot(null);
 		setGraphHasPendingUpdate(false);
 	};
 
@@ -923,6 +926,7 @@ function App() {
 									focusPath={graphFocusPath}
 									pendingDiff={pendingGraphDiff}
 									refreshToken={graphRefreshToken}
+									authoritativeSnapshot={graphAuthoritySnapshot}
 									onDiffConsumed={() => setPendingGraphDiff(null)}
 									drawerFullscreen={drawerFullscreen}
 								/>

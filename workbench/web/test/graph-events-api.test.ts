@@ -230,6 +230,55 @@ describe("graph EventSource client", () => {
 		close();
 	});
 
+	it("replaces the graph stream across browser offline and online signals", () => {
+		const connectivity = new EventTarget();
+		const sources: FakeEventSource[] = [];
+		const readyStates: Array<{ streamId: string; reconnected: boolean }> = [];
+		const received: GraphSseEvent[] = [];
+		const close = subscribeGraphEvents({
+			onEvent: (item) => received.push(item),
+			onReady: (ready, context) => readyStates.push({
+				streamId: ready.streamId,
+				reconnected: context.reconnected,
+			}),
+			connectivityTarget: connectivity,
+			eventSourceFactory: () => {
+				const source = new FakeEventSource();
+				sources.push(source);
+				return source;
+			},
+		});
+
+		sources[0]!.emit(event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:00:00.000Z" }));
+		connectivity.dispatchEvent(new Event("offline"));
+		assert.equal(sources[0]!.closed, true);
+		sources[0]!.emit(event("graph_error", 2, {
+			kbPath: "/fake/kb",
+			message: "旧连接失败",
+			rebuiltAt: "2026-07-11T12:01:00.000Z",
+		}));
+
+		connectivity.dispatchEvent(new Event("online"));
+		assert.equal(sources.length, 2);
+		sources[1]!.emit(event("graph_stream_ready", 1, { connectedAt: "2026-07-11T12:02:00.000Z" }, "stream-2"));
+		const update = event("graph_updated", 2, {
+			kbPath: "/fake/kb",
+			diff: null,
+			rebuiltAt: "2026-07-11T12:03:00.000Z",
+			stats: { nodeCount: 2, edgeCount: 1 },
+		}, "stream-2");
+		sources[1]!.emit(update);
+
+		assert.deepEqual(readyStates, [
+			{ streamId: "stream-1", reconnected: false },
+			{ streamId: "stream-2", reconnected: true },
+		]);
+		assert.deepEqual(received, [update]);
+		close();
+		connectivity.dispatchEvent(new Event("online"));
+		assert.equal(sources.length, 2);
+	});
+
 	it("ignores terminal events from a replaced connection after the new stream is ready", async () => {
 		const sources: FakeEventSource[] = [];
 		const received: GraphSseEvent[] = [];

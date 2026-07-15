@@ -21,6 +21,8 @@ import {
 	getGraphLayout,
 	putGraphLayout,
 	rebuildGraph,
+	type GraphAuthoritySnapshot,
+	type GraphBuildError,
 } from "../lib/api/graph";
 import type { GraphSelectionCommand } from "../lib/graph-summary-actions";
 import { applyCommunityEnter } from "../lib/graph-community-enter";
@@ -35,7 +37,7 @@ interface Props {
 	currentKnowledgeBaseName: string | null;
 	currentKnowledgeBasePath: string | null;
 	theme: "dark" | "light";
-	graphBuildError?: { kbPath: string; message: string; rebuiltAt: string } | null;
+	graphBuildError?: GraphBuildError | null;
 	onOpenPage?: (payload: GraphOpenPagePayload) => void;
 	onGraphDataChange?: (data: GraphData | null) => void;
 	onGraphPinsChange?: (pins: PinMap) => void;
@@ -47,6 +49,7 @@ interface Props {
 	focusPath?: string | null;
 	pendingDiff?: GraphDiff | null;
 	refreshToken?: number;
+	authoritativeSnapshot?: GraphAuthoritySnapshot | null;
 	onDiffConsumed?: () => void;
 	// #122：右侧节点详情抽屉是否全屏。社区阅读普通单击节点打开抽屉时，宽屏并排布局下
 	// 镜头让位到剩余画布；窄屏覆盖/全屏由策略判定为不让位。
@@ -90,6 +93,7 @@ export function GraphPanel({
 	focusPath,
 	pendingDiff,
 	refreshToken = 0,
+	authoritativeSnapshot = null,
 	onDiffConsumed,
 	drawerFullscreen = false,
 }: Props) {
@@ -117,6 +121,7 @@ export function GraphPanel({
 	const nodeDrawerAccommodationTokenRef = useRef(0);
 	const pendingNodeDrawerAccommodationRef = useRef<PendingNodeDrawerAccommodation | null>(null);
 	const nodeDrawerAccommodationFrameRef = useRef<number | null>(null);
+	const authoritativeSnapshotRef = useRef(authoritativeSnapshot);
 	const lastSelectionCommandRef = useRef<GraphSelectionCommand | undefined>(selectionCommand);
 	const [data, setData] = useState<GraphData | null>(null);
 	const [edgeStyle, setEdgeStyle] = useState<GraphEdgeStyleOptions>(() => readGraphEdgeStylePreference());
@@ -163,19 +168,6 @@ export function GraphPanel({
 			onStatusChange?.(DEFAULT_GRAPH_STATUS);
 		};
 	}, [onStatusChange]);
-
-	useEffect(() => {
-		if (!graphBuildError || graphBuildError.kbPath !== currentKnowledgeBasePath) return;
-		loadRequestRef.current += 1;
-		setData(null);
-		setDataKnowledgeBasePath(currentKnowledgeBasePath);
-		onGraphDataChangeRef.current?.(null);
-		onGraphVisibilityChangeRef.current?.(null);
-		onSelectionChangeRef.current?.(null);
-		setBuildState("none");
-		setError(graphBuildError.message);
-		setStatus("error");
-	}, [currentKnowledgeBasePath, graphBuildError]);
 
 	useEffect(() => {
 		writeGraphEdgeStylePreference(edgeStyle);
@@ -263,6 +255,10 @@ export function GraphPanel({
 	}, [drawerFullscreen]);
 
 	useLayoutEffect(() => {
+		authoritativeSnapshotRef.current = authoritativeSnapshot;
+	}, [authoritativeSnapshot]);
+
+	useLayoutEffect(() => {
 		onStatusChange?.({
 			status,
 			summary: graphStatusSummary(status, Boolean(currentKnowledgeBasePath), buildState, error, data, animationState),
@@ -278,6 +274,37 @@ export function GraphPanel({
 		layoutPinsRef.current = pins;
 		onGraphPinsChangeRef.current?.(pins);
 	}, []);
+
+	const applyGraphFailure = useCallback((kbPath: string, message: string): void => {
+		setData(null);
+		setDataKnowledgeBasePath(kbPath);
+		onGraphDataChangeRef.current?.(null);
+		onGraphVisibilityChangeRef.current?.(null);
+		applyLayoutPins({});
+		onSelectionChangeRef.current?.(null);
+		setBuildState("none");
+		setError(message);
+		setStatus("error");
+	}, [applyLayoutPins]);
+
+	const resetForAuthoritySnapshot = useCallback((): void => {
+		animationTokenRef.current += 1;
+		diffQueueRef.current = new GraphDiffQueue({ visible: true });
+		setPendingAnimation(null);
+		setAnimationReadyToken(0);
+		setAnimationState("idle");
+		engineRef.current?.destroy();
+		engineRef.current = null;
+		engineKbPathRef.current = null;
+		engineDataRef.current = null;
+	}, []);
+
+	useEffect(() => {
+		if (!graphBuildError || graphBuildError.kbPath !== currentKnowledgeBasePath) return;
+		loadRequestRef.current += 1;
+		resetForAuthoritySnapshot();
+		applyGraphFailure(currentKnowledgeBasePath, graphBuildError.message);
+	}, [applyGraphFailure, currentKnowledgeBasePath, graphBuildError, resetForAuthoritySnapshot]);
 
 	const runWhenDragIdle = useCallback((operation: () => void): () => void => {
 		let cancelled = false;
@@ -378,15 +405,7 @@ export function GraphPanel({
 			const [result, layout] = await Promise.all([getGraphData(kbPath), getGraphLayout(kbPath)]);
 			if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return false;
 			if (result.state.status === "error") {
-				setData(null);
-				setDataKnowledgeBasePath(kbPath);
-				onGraphDataChangeRef.current?.(null);
-				onGraphVisibilityChangeRef.current?.(null);
-				applyLayoutPins({});
-				onSelectionChangeRef.current?.(null);
-				setBuildState("none");
-				setError(result.state.message);
-				setStatus("error");
+				applyGraphFailure(kbPath, result.state.message);
 				return true;
 			}
 			if (!("needsBuild" in result)) return false;
@@ -412,21 +431,66 @@ export function GraphPanel({
 			return true;
 		} catch (err) {
 			if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return false;
+			applyGraphFailure(kbPath, err instanceof Error ? err.message : String(err));
+			return false;
+		}
+	}, [applyGraphFailure, applyLayoutPins, currentKnowledgeBasePath]);
+
+	useEffect(() => {
+		if (!authoritativeSnapshot || authoritativeSnapshot.kbPath !== currentKnowledgeBasePath) return;
+		const requestId = ++loadRequestRef.current;
+		const { kbPath, result } = authoritativeSnapshot;
+		resetForAuthoritySnapshot();
+		if (result.state.status === "error") {
+			applyGraphFailure(kbPath, result.state.message);
+			return;
+		}
+		if (!("needsBuild" in result)) return;
+		setError(null);
+		if (result.needsBuild) {
 			setData(null);
 			setDataKnowledgeBasePath(kbPath);
 			onGraphDataChangeRef.current?.(null);
 			onGraphVisibilityChangeRef.current?.(null);
-			applyLayoutPins({});
 			onSelectionChangeRef.current?.(null);
-			setStatus("error");
-			setError(err instanceof Error ? err.message : String(err));
-			return false;
+			setStatus("building");
+			void rebuildGraph(kbPath)
+				.then((nextBuildState) => {
+					if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return;
+					setBuildState(nextBuildState);
+				})
+				.catch((error) => {
+					if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return;
+					applyGraphFailure(kbPath, error instanceof Error ? error.message : String(error));
+				});
+			return;
 		}
-	}, [applyLayoutPins, currentKnowledgeBasePath]);
+
+		setData(null);
+		setDataKnowledgeBasePath(kbPath);
+		onGraphDataChangeRef.current?.(null);
+		setStatus("loading");
+		void getGraphLayout(kbPath)
+			.then((layout) => {
+				if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return;
+				applyLayoutPins({ ...layout.pins, ...layoutPinsRef.current });
+				setData(result.data);
+				setDataKnowledgeBasePath(kbPath);
+				onGraphDataChangeRef.current?.(result.data);
+				setBuildState("none");
+				setStatus("ready");
+			})
+			.catch((error) => {
+				if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return;
+				applyGraphFailure(kbPath, error instanceof Error ? error.message : String(error));
+			});
+	}, [applyGraphFailure, applyLayoutPins, authoritativeSnapshot, currentKnowledgeBasePath, resetForAuthoritySnapshot]);
 
 	useEffect(() => {
+		const snapshot = authoritativeSnapshotRef.current;
+		if (snapshot?.kbPath === currentKnowledgeBasePath) return;
 		void loadGraph();
-	}, [loadGraph]);
+	}, [currentKnowledgeBasePath, loadGraph]);
 
 	useEffect(() => {
 		return () => {

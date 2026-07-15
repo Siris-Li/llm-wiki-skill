@@ -227,6 +227,117 @@ describe("GraphPanel Paper shell", () => {
 		assert.equal(screen.queryByText("1 节点 · 0 关联"), null);
 	});
 
+	it("applies one authoritative snapshot and discards an older queued graph update", async () => {
+		let graphReads = 0;
+		let resolveOlderGraph!: (response: Response) => void;
+		const olderGraphResponse = new Promise<Response>((resolve) => {
+			resolveOlderGraph = resolve;
+		});
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: { version: 2, pins: {}, updatedAt: "2026-07-15T12:00:00.000Z" },
+				});
+			}
+			if (url.startsWith("/api/graph?")) {
+				graphReads += 1;
+				if (graphReads === 1) return jsonResponse({ ok: true, data: readyGraphResult() });
+				if (graphReads === 2) return olderGraphResponse;
+			}
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+
+		const props = {
+			currentKnowledgeBaseName: "Fictional notes",
+			currentKnowledgeBasePath: "/fictional/kb",
+			theme: "light" as const,
+		};
+		const staleDiff = {
+			addedNodes: ["wiki/stale.md"],
+			removedNodes: [],
+			recoloredNodes: [],
+			addedEdges: [],
+			removedEdges: [],
+			newCommunities: [],
+			stats: { nodeCount: 2, edgeCount: 0, communityCount: 0 },
+		};
+		const { rerender } = render(<GraphPanel {...props} refreshToken={0} />);
+		await screen.findByText("1 节点 · 0 关联");
+
+		rerender(<GraphPanel {...props} refreshToken={1} pendingDiff={staleDiff} />);
+		await waitFor(() => {
+			assert.equal(document.querySelector("[data-graph-animation='queued']") !== null, true);
+			assert.equal(graphReads, 2);
+		});
+
+		rerender(
+			<GraphPanel
+				{...props}
+				refreshToken={1}
+				authoritativeSnapshot={{
+					id: 1,
+					kbPath: "/fictional/kb",
+					result: readyGraphResult(["wiki/current.md", "wiki/current-detail.md"]),
+				}}
+			/>,
+		);
+		await screen.findByText("2 节点 · 0 关联");
+		assert.notEqual(document.querySelector("[data-graph-animation='idle']"), null);
+		assert.equal(graphReads, 2, "the panel must not repeat the authoritative graph read");
+
+		await act(async () => {
+			resolveOlderGraph(jsonResponse({ ok: true, data: readyGraphResult() }));
+			await olderGraphResponse;
+		});
+		assert.notEqual(screen.queryByText("2 节点 · 0 关联"), null);
+		assert.equal(screen.queryByText("图谱更新待播放"), null);
+	});
+
+	it("clears stale graph state after calibration failure and recovers on the next update", async () => {
+		let graphResult = readyGraphResult();
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: { version: 2, pins: {}, updatedAt: "2026-07-15T12:00:00.000Z" },
+				});
+			}
+			if (url.startsWith("/api/graph?")) return jsonResponse({ ok: true, data: graphResult });
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+
+		const props = {
+			currentKnowledgeBaseName: "Fictional notes",
+			currentKnowledgeBasePath: "/fictional/kb",
+			theme: "light" as const,
+		};
+		const { rerender } = render(<GraphPanel {...props} refreshToken={0} />);
+		await screen.findByText("1 节点 · 0 关联");
+
+		rerender(
+			<GraphPanel
+				{...props}
+				refreshToken={0}
+				graphBuildError={{
+					kbPath: "/fictional/kb",
+					message: "图谱状态校准失败，请重新连接后重试",
+					rebuiltAt: "2026-07-15T12:01:00.000Z",
+				}}
+			/>,
+		);
+		await screen.findByText("图谱暂时不可用");
+		assert.equal(screen.queryByText("1 节点 · 0 关联"), null);
+		assert.notEqual(document.querySelector("[data-graph-animation='idle']"), null);
+
+		graphResult = readyGraphResult(["wiki/recovered.md", "wiki/recovered-detail.md"]);
+		rerender(<GraphPanel {...props} refreshToken={1} graphBuildError={null} />);
+		await screen.findByText("2 节点 · 0 关联");
+		assert.equal(screen.queryByText("图谱暂时不可用"), null);
+	});
+
 	it("loads a saved authoritative error and recovers after an active rebuild", async () => {
 		let graphResult: unknown = {
 			state: {
@@ -399,7 +510,7 @@ function mockGraphFetch(options: { needsBuild?: boolean } = {}) {
 	}) as typeof fetch;
 }
 
-function readyGraphResult() {
+function readyGraphResult(nodeIds = ["wiki/fictional.md"]) {
 	return {
 		state: { status: "ready", rebuiltAt: "2026-07-15T12:00:00.000Z" },
 		needsBuild: false,
@@ -407,15 +518,15 @@ function readyGraphResult() {
 			meta: {
 				build_date: "2026-07-15T12:00:00.000Z",
 				wiki_title: "Fictional notes",
-				total_nodes: 1,
+				total_nodes: nodeIds.length,
 				total_edges: 0,
 			},
-			nodes: [{
-				id: "wiki/fictional.md",
-				label: "Fictional",
+			nodes: nodeIds.map((id, index) => ({
+				id,
+				label: `Fictional ${index + 1}`,
 				type: "topic",
-				source_path: "wiki/fictional.md",
-			}],
+				source_path: id,
+			})),
 			edges: [],
 		},
 	};

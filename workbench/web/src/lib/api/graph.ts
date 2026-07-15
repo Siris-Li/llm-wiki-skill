@@ -20,6 +20,17 @@ export type GraphApiResult =
 			data: GraphData;
 	  };
 
+export type GraphBuildError = Pick<
+	Extract<GraphAuthorityState, { status: "error" }>,
+	"message" | "rebuiltAt"
+> & { kbPath: string };
+
+export interface GraphAuthoritySnapshot {
+	id: number;
+	kbPath: string;
+	result: GraphApiResult;
+}
+
 export async function getGraphData(kbPath: string): Promise<GraphApiResult> {
 	return (await request({ method: "GET", path: "/api/graph" }, {
 		responseSchema: GraphReadDataSchema,
