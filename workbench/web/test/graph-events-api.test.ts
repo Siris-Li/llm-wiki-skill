@@ -230,6 +230,34 @@ describe("graph EventSource client", () => {
 		close();
 	});
 
+	it("treats ready as reconnected when the stream failed before its first ready", () => {
+		const sources: FakeEventSource[] = [];
+		const readyStates: Array<{ streamId: string; reconnected: boolean }> = [];
+		const close = subscribeGraphEvents({
+			onEvent: () => {},
+			onReady: (ready, context) => readyStates.push({
+				streamId: ready.streamId,
+				reconnected: context.reconnected,
+			}),
+			eventSourceFactory: () => {
+				const source = new FakeEventSource();
+				sources.push(source);
+				return source;
+			},
+		});
+
+		sources[0]!.fail();
+		sources[0]!.emit(event(
+			"graph_stream_ready",
+			1,
+			{ connectedAt: "2026-07-11T12:01:00.000Z" },
+			"stream-2",
+		));
+
+		assert.deepEqual(readyStates, [{ streamId: "stream-2", reconnected: true }]);
+		close();
+	});
+
 	it("replaces the graph stream across browser offline and online signals", () => {
 		const connectivity = new EventTarget();
 		const sources: FakeEventSource[] = [];

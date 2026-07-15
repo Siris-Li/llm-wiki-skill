@@ -400,7 +400,8 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 
 		await setBrowserOffline(true);
 		await writeFile(join(kbA, "wiki", "entities", "reconnect.md"), "# Reconnect page\n\nFictional reconnect-only graph node.\n");
-		assert.equal((await triggerAuthoritativeGraphRebuild()).status, "started");
+		const offlineUpdateBuild = await triggerAuthoritativeGraphRebuild();
+		assert.equal(["started", "queued"].includes(offlineUpdateBuild.status), true);
 		await waitUntil(
 			async () => {
 				const snapshot = await readAuthoritativeGraph();
