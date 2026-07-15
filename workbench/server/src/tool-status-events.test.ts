@@ -378,6 +378,50 @@ test("模型重试间隙取消会替代暂存模型错误，保持取消终态",
 	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_cancelled"]);
 });
 
+test("上下文超限自动恢复期间取消会替代暂存模型错误，保持取消终态", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	assert.deepEqual(
+		adapter.adapt({ type: "compaction_start", reason: "overflow" }),
+		[],
+	);
+	adapter.recordCancellation();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_cancelled"]);
+});
+
+test("上下文超限恢复完成并继续下一次模型调用时仍可取消", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	assert.deepEqual(
+		adapter.adapt({ type: "compaction_start", reason: "overflow" }),
+		[],
+	);
+	assert.deepEqual(
+		adapter.adapt({ type: "compaction_end", reason: "overflow", willRetry: true }),
+		[],
+	);
+	adapter.recordCancellation();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_cancelled"]);
+});
+
+test("上下文超限自动恢复结束后的最终模型错误不被随后断线改成取消", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	assert.deepEqual(
+		adapter.adapt({ type: "compaction_start", reason: "overflow" }),
+		[],
+	);
+	assert.deepEqual(
+		adapter.adapt({ type: "compaction_end", reason: "overflow", willRetry: false }),
+		[],
+	);
+	adapter.recordCancellation();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_error"]);
+});
+
 test("重试结束后的最终模型错误不被随后断线改成取消", () => {
 	const adapter = createAdapter();
 

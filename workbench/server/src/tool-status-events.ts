@@ -188,7 +188,7 @@ export class ToolStatusEventAdapter {
 	private readonly runningTools = new Map<string, RunningToolState>();
 	private readonly completedTools: CompletedToolState[] = [];
 	private pendingAssistantTerminal: AssistantTerminalReason | null = null;
-	private retryingPendingAssistantError = false;
+	private recoveringPendingAssistantError = false;
   /** 是否已生成 terminal 事件（assistant_done/cancelled/error）。terminal 后不再生成任何事件。 */
   private terminalEmitted = false;
 
@@ -209,7 +209,7 @@ export class ToolStatusEventAdapter {
 	recordCancellation(): void {
 		if (
 			!this.terminalEmitted
-			&& (this.pendingAssistantTerminal !== "error" || this.retryingPendingAssistantError)
+			&& (this.pendingAssistantTerminal !== "error" || this.recoveringPendingAssistantError)
 		) {
 			this.pendingAssistantTerminal = "aborted";
 		}
@@ -219,11 +219,23 @@ export class ToolStatusEventAdapter {
     if (this.terminalEmitted) return [];
 		const eventRecord = toRecord(event);
 		if (eventRecord.type === "auto_retry_start") {
-			this.retryingPendingAssistantError = this.pendingAssistantTerminal === "error";
+			this.recoveringPendingAssistantError = this.pendingAssistantTerminal === "error";
 			return [];
 		}
 		if (eventRecord.type === "auto_retry_end") {
-			this.retryingPendingAssistantError = false;
+			this.recoveringPendingAssistantError = false;
+			return [];
+		}
+		if (eventRecord.type === "compaction_start") {
+			if (eventRecord.reason === "overflow") {
+				this.recoveringPendingAssistantError = this.pendingAssistantTerminal === "error";
+			}
+			return [];
+		}
+		if (eventRecord.type === "compaction_end") {
+			if (eventRecord.reason === "overflow" && eventRecord.willRetry !== true) {
+				this.recoveringPendingAssistantError = false;
+			}
 			return [];
 		}
 		if (isAgentEventType(event, "message_update")) {
@@ -386,11 +398,11 @@ export class ToolStatusEventAdapter {
 		const terminalReason = getAssistantTerminalReason(record.stopReason);
 		if (terminalReason) {
 			this.pendingAssistantTerminal = terminalReason;
-			this.retryingPendingAssistantError = false;
+			this.recoveringPendingAssistantError = false;
 			return [];
 		}
 		this.pendingAssistantTerminal = null;
-		this.retryingPendingAssistantError = false;
+		this.recoveringPendingAssistantError = false;
     return [];
   }
 

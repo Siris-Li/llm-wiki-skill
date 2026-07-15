@@ -107,8 +107,13 @@ export function piMessagesToUIMessages(messages: AgentMessage[]): UIMessage[] {
 		if (!pending) return;
 		const finalPartIndex = pending.assistantParts.length - 1;
 		const finalTerminalReason = pending.assistantParts[finalPartIndex]?.terminalReason ?? null;
+		// 旧会话里的失败条目也可能带有 provider partial；只重放用户主动取消的片段。
 		const texts = pending.assistantParts
-			.filter((part, index) => part.terminalReason === null || index === finalPartIndex)
+			.filter(
+				(part, index) =>
+					part.terminalReason === null ||
+					(index === finalPartIndex && part.terminalReason === "aborted"),
+			)
 			.map((part) => part.text)
 			.filter((text) => text.trim());
 		if (finalTerminalReason) texts.push(getAssistantTerminalMessage(finalTerminalReason));

@@ -32,6 +32,7 @@ export interface PromptSession {
   subscribe: (listener: (event: unknown) => void | Promise<void>) => () => void;
   prompt: (message: string) => Promise<void>;
   abort?: () => void;
+  abortCompaction?: () => void;
   state: { model?: { contextWindow?: unknown } };
 }
 
@@ -379,6 +380,7 @@ export const defaultPromptRouteService: PromptRouteService = {
   },
   abortSession(ctx) {
 		ctx.adapter.recordCancellation();
+		ctx.session.abortCompaction?.();
     ctx.session.abort?.();
   },
   clearPendingKnowledgeContext(ctx) {

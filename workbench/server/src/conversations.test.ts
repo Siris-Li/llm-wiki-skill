@@ -58,7 +58,7 @@ test("piMessagesToUIMessages omits empty summaries for messages without tools", 
 
 test("piMessagesToUIMessages renders a safe failure for a saved model error", () => {
 	const messages = piMessagesToUIMessages([
-		assistantMessage("", [], {
+		assistantMessage("虚构的旧失败回复片段", [], {
 			stopReason: "error",
 			errorMessage: "fictional raw provider detail",
 		}),
@@ -66,17 +66,18 @@ test("piMessagesToUIMessages renders a safe failure for a saved model error", ()
 
 	assert.equal(messages[0]?.content, "生成回复时发生错误，请重试");
 	assert.equal(JSON.stringify(messages).includes("fictional raw provider detail"), false);
+	assert.equal(JSON.stringify(messages).includes("虚构的旧失败回复片段"), false);
 });
 
 test("piMessagesToUIMessages keeps a saved cancellation distinct from completion", () => {
 	const messages = piMessagesToUIMessages([
-		assistantMessage("", [], {
+		assistantMessage("取消前已显示的虚构回复片段", [], {
 			stopReason: "aborted",
 			errorMessage: "fictional raw abort detail",
 		}),
 	]);
 
-	assert.equal(messages[0]?.content, "生成已停止");
+	assert.equal(messages[0]?.content, "取消前已显示的虚构回复片段\n\n生成已停止");
 	assert.equal(JSON.stringify(messages).includes("fictional raw abort detail"), false);
 });
 

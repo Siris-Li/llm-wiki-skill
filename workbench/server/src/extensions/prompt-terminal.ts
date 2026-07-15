@@ -18,9 +18,20 @@ const terminalPersistence = new WeakMap<SessionManager, TerminalPersistenceState
 export function sanitizeAssistantTerminalMessage(
 	message: AssistantMessage,
 ): AssistantMessage {
+	return sanitizeTerminalMessage(message, message.stopReason === "aborted");
+}
+
+function sanitizeTerminalMessage(
+	message: AssistantMessage,
+	preservePartialContent: boolean,
+): AssistantMessage {
 	const terminalReason = getAssistantTerminalReason(message.stopReason);
 	return terminalReason
-		? replaceTerminalDiagnostics(message, getAssistantTerminalMessage(terminalReason))
+		? replaceTerminalDiagnostics(
+			message,
+			getAssistantTerminalMessage(terminalReason),
+			preservePartialContent,
+		)
 		: message;
 }
 
@@ -70,7 +81,9 @@ export function finalizeSessionTerminalMessages(
 	const finalMessage = terminalReason === pendingMessage.stopReason
 		? pendingMessage
 		: { ...pendingMessage, stopReason: terminalReason };
-	state.appendMessage(sanitizeAssistantTerminalMessage(finalMessage));
+	state.appendMessage(
+		sanitizeTerminalMessage(finalMessage, pendingMessage.stopReason === "aborted"),
+	);
 }
 
 function isTerminalAssistantMessage(
@@ -82,7 +95,12 @@ function isTerminalAssistantMessage(
 function replaceTerminalDiagnostics(
 	message: AssistantMessage,
 	errorMessage: string,
+	preservePartialContent: boolean,
 ): AssistantMessage {
 	const { diagnostics: _diagnostics, ...safeMessage } = message;
-	return { ...safeMessage, errorMessage };
+	return {
+		...safeMessage,
+		...(preservePartialContent ? {} : { content: [] }),
+		errorMessage,
+	};
 }
