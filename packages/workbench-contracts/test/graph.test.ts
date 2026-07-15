@@ -39,19 +39,38 @@ const layout = {
 test("graph read 与 layout data schema 接受当前图谱主路径结构", () => {
 	assert.deepEqual(
 		GraphReadDataSchema.parse({
+			state: { status: "ready", rebuiltAt: null },
 			needsBuild: false,
 			data: graphData,
 		}),
 		{
+			state: { status: "ready", rebuiltAt: null },
 			needsBuild: false,
 			data: graphData,
 		},
 	);
 	assert.deepEqual(
 		GraphReadDataSchema.parse({
+			state: { status: "ready", rebuiltAt: null },
 			needsBuild: true,
 		}),
-		{ needsBuild: true },
+		{ state: { status: "ready", rebuiltAt: null }, needsBuild: true },
+	);
+	assert.deepEqual(
+		GraphReadDataSchema.parse({
+			state: {
+				status: "error",
+				message: "图谱重建失败",
+				rebuiltAt: "2026-07-15T12:00:00.000Z",
+			},
+		}),
+		{
+			state: {
+				status: "error",
+				message: "图谱重建失败",
+				rebuiltAt: "2026-07-15T12:00:00.000Z",
+			},
+		},
 	);
 	assert.deepEqual(GraphLayoutDataSchema.parse(layout), layout);
 	assert.equal(

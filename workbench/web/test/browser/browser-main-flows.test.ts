@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { chromium, type Browser, type BrowserContext, type BrowserServer, type Page } from "playwright";
+import type { GraphReadData } from "@llm-wiki/workbench-contracts";
 
 import {
 	OPERATION_TIMEOUT_MS,
@@ -151,11 +152,13 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await blockExternalBrowserTraffic(context, blockedExternalRequests);
 		page = await context.newPage();
 		const apiRequests = new Set<string>();
+		let browserGraphReadCount = 0;
 		let graphEventsSeen = false;
 		const graphEventReceipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
 		page.on("request", (request) => {
 			const url = new URL(request.url());
 			if (url.pathname.startsWith("/api/")) apiRequests.add(url.pathname);
+			if (url.pathname === "/api/graph" && request.method() === "GET") browserGraphReadCount += 1;
 			if (url.pathname === "/api/events") graphEventsSeen = true;
 		});
 		await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
@@ -346,6 +349,118 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 			index >= recoveryBaseline && event.type === "graph_updated" && event.kbPath === kbA
 		));
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+
+		// Graph reconnect: terminal events missed while offline are reconciled from GET /api/graph.
+		const capabilityToken = (await readFile(join(appDir, "runtime", "capability-token"), "utf8")).trim();
+			const cdp = await context.newCDPSession(page);
+			await cdp.send("Network.enable");
+			const setBrowserOffline = async (offline: boolean) => {
+				await cdp.send("Network.emulateNetworkConditions", {
+					offline,
+				latency: 0,
+				downloadThroughput: -1,
+				uploadThroughput: -1,
+			});
+			await waitUntil(
+				() => page!.evaluate(() => navigator.onLine).then((online) => online === !offline),
+					OPERATION_TIMEOUT_MS,
+					`browser did not become ${offline ? "offline" : "online"}`,
+				);
+				await page!.evaluate((eventType) => window.dispatchEvent(new Event(eventType)), offline ? "offline" : "online");
+			};
+		const readAuthoritativeGraph = () => backendGraphRead(backendPort, capabilityToken, kbA);
+		const triggerAuthoritativeGraphRebuild = () => backendGraphRebuild(backendPort, capabilityToken, kbA);
+
+		await setBrowserOffline(true);
+		const offlineGraphData = await readFile(graphDataPath, "utf8");
+		await rm(graphDataPath, { force: true });
+		await mkdir(graphDataPath);
+		try {
+			assert.equal((await triggerAuthoritativeGraphRebuild()).status, "started");
+			await waitUntil(
+				async () => (await tryBackendGraphRead(backendPort, capabilityToken, kbA))?.state.status === "error",
+				OPERATION_TIMEOUT_MS,
+				"graph error did not become authoritative while the browser was offline",
+			);
+			const errorCalibration = page.waitForResponse(async (response) => {
+				if (new URL(response.url()).pathname !== "/api/graph" || response.status() !== 200) return false;
+				const body = await response.json() as { data?: { state?: { status?: string } } };
+				return body.data?.state?.status === "error";
+			});
+			const errorGraphReadBaseline = browserGraphReadCount;
+			await setBrowserOffline(false);
+			await errorCalibration;
+			await page.locator("[data-graph-status='error']").waitFor({ timeout: START_TIMEOUT_MS });
+			await page.getByText("图谱重建失败", { exact: true }).waitFor();
+			assert.equal(browserGraphReadCount, errorGraphReadBaseline + 1);
+		} finally {
+			await rm(graphDataPath, { recursive: true, force: true });
+			await writeFile(graphDataPath, offlineGraphData);
+		}
+
+		await setBrowserOffline(true);
+		await writeFile(join(kbA, "wiki", "entities", "reconnect.md"), "# Reconnect page\n\nFictional reconnect-only graph node.\n");
+		const offlineUpdateBuild = await triggerAuthoritativeGraphRebuild();
+		assert.equal(["started", "queued"].includes(offlineUpdateBuild.status), true);
+		await waitUntil(
+			async () => {
+				const snapshot = await readAuthoritativeGraph();
+				return snapshot.state.status === "ready"
+					&& "needsBuild" in snapshot
+					&& snapshot.needsBuild === false
+					&& snapshot.data.nodes.some((node) => node.id.includes("reconnect"));
+			},
+			OPERATION_TIMEOUT_MS,
+			"graph update did not become authoritative while the browser was offline",
+		);
+			const readyCalibration = page.waitForResponse(async (response) => {
+			if (new URL(response.url()).pathname !== "/api/graph" || response.status() !== 200) return false;
+			const body = await response.json() as {
+				data?: { state?: { status?: string }; data?: { nodes?: Array<{ id?: string }> } };
+			};
+			return body.data?.state?.status === "ready"
+					&& body.data.data?.nodes?.some((node) => node.id?.includes("reconnect")) === true;
+			});
+			const readyGraphReadBaseline = browserGraphReadCount;
+			await setBrowserOffline(false);
+			await readyCalibration;
+			await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+			await page.getByText("2 节点 · 0 关联", { exact: true }).waitFor();
+			assert.equal(browserGraphReadCount, readyGraphReadBaseline + 1);
+
+			await setBrowserOffline(true);
+			const calibrationFailure = page.waitForResponse((response) => (
+				new URL(response.url()).pathname === "/api/graph" && response.status() === 503
+			));
+			await page.route("**/api/graph?*", async (route) => {
+				await route.fulfill({
+					status: 503,
+					contentType: "application/json",
+					body: JSON.stringify({ ok: false, code: "GRAPH_READ_FAILED", message: "Fictional internal detail" }),
+				});
+			});
+			const failedGraphReadBaseline = browserGraphReadCount;
+			await setBrowserOffline(false);
+			await calibrationFailure;
+			await page.locator("[data-graph-status='error']").waitFor({ timeout: START_TIMEOUT_MS });
+			await page.getByTestId("graph-state")
+				.getByText("图谱状态校准失败，请重新连接后重试", { exact: true })
+				.waitFor();
+			assert.equal((await page.locator("body").textContent())?.includes("Fictional internal detail"), false);
+			assert.equal(browserGraphReadCount, failedGraphReadBaseline + 1);
+			await page.unroute("**/api/graph?*");
+
+			const eventRecoveryRead = page.waitForResponse(async (response) => {
+				if (new URL(response.url()).pathname !== "/api/graph" || response.status() !== 200) return false;
+				const body = await response.json() as { data?: { state?: { status?: string } } };
+				return body.data?.state?.status === "ready";
+			});
+			assert.equal((await triggerAuthoritativeGraphRebuild()).status, "started");
+			await eventRecoveryRead;
+			await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+			await page.getByText("2 节点 · 0 关联", { exact: true }).waitFor();
+			assert.equal(await page.locator(".sidebar-error").count(), 0);
+			await cdp.detach();
 
 		// Messages: controlled terminal failures, direct failures, cancellation, disconnect recovery, and normal recovery.
 		await page.getByRole("tab", { name: "对话" }).click();
@@ -548,6 +663,43 @@ async function waitForGraphEvent(
 		await refreshGraphEventReceipts(page, receipts);
 		return receipts.some(predicate);
 	}, OPERATION_TIMEOUT_MS, "expected graph event did not arrive");
+}
+
+async function backendGraphRead(
+	port: number,
+	token: string,
+	kbPath: string,
+): Promise<GraphReadData> {
+	const snapshot = await tryBackendGraphRead(port, token, kbPath);
+	assert.notEqual(snapshot, null);
+	return snapshot!;
+}
+
+async function tryBackendGraphRead(
+	port: number,
+	token: string,
+	kbPath: string,
+): Promise<GraphReadData | null> {
+	const response = await fetch(`http://127.0.0.1:${port}/api/graph?kb=${encodeURIComponent(kbPath)}`, {
+		headers: { "X-LLM-Wiki-Workbench-Token": token },
+	});
+	if (response.status !== 200) return null;
+	const body = await response.json() as { data: GraphReadData };
+	return body.data;
+}
+
+async function backendGraphRebuild(
+	port: number,
+	token: string,
+	kbPath: string,
+): Promise<{ status: "started" | "queued" }> {
+	const response = await fetch(`http://127.0.0.1:${port}/api/graph/rebuild?kb=${encodeURIComponent(kbPath)}`, {
+		method: "POST",
+		headers: { "X-LLM-Wiki-Workbench-Token": token },
+	});
+	assert.equal(response.status, 200);
+	const body = await response.json() as { data: { status: "started" | "queued" } };
+	return body.data;
 }
 
 async function sendComposerMessage(page: Page, message: string): Promise<void> {

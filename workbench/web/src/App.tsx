@@ -36,10 +36,12 @@ import {
 	listConversations,
 	selectConversation,
 } from "@/lib/api/conversations";
+import { subscribeGraphEvents } from "@/lib/api/events";
 import {
-	subscribeGraphEvents,
-	type GraphNotificationEvent as GraphEvent,
-} from "@/lib/api/events";
+	getGraphData,
+	type GraphAuthoritySnapshot,
+	type GraphBuildError,
+} from "@/lib/api/graph";
 import {
 	getActiveContext,
 	listKnowledgeBases,
@@ -167,7 +169,8 @@ function App() {
 	const [pendingGraphDiff, setPendingGraphDiff] = useState<GraphDiff | null>(null);
 	const [graphRefreshToken, setGraphRefreshToken] = useState(0);
 	const [graphHasPendingUpdate, setGraphHasPendingUpdate] = useState(false);
-	const [graphBuildError, setGraphBuildError] = useState<Extract<GraphEvent, { type: "graph_error" }> | null>(null);
+	const [graphBuildError, setGraphBuildError] = useState<GraphBuildError | null>(null);
+	const [graphAuthoritySnapshot, setGraphAuthoritySnapshot] = useState<GraphAuthoritySnapshot | null>(null);
 	const [graphData, setGraphData] = useState<GraphData | null>(null);
 	const [graphPins, setGraphPins] = useState<PinMap>({});
 	const [graphVisibilityState, setGraphVisibilityState] = useState<GraphVisibilityState | null>(null);
@@ -268,10 +271,40 @@ function App() {
 
 	useEffect(() => {
 		if (!active?.kb.path) return;
-		return subscribeGraphEvents({
+		const kbPath = active.kb.path;
+		let authorityReadId = 0;
+		let cancelled = false;
+		const close = subscribeGraphEvents({
+			onReady(_ready, context) {
+				if (!context.reconnected) return;
+				const readId = ++authorityReadId;
+				setPendingGraphDiff(null);
+				void getGraphData(kbPath)
+					.then((result) => {
+						if (cancelled || authorityReadId !== readId) return;
+						setSidebarError(null);
+						setGraphBuildError(null);
+						setGraphAuthoritySnapshot({ kbPath, result });
+					})
+					.catch(() => {
+						if (cancelled || authorityReadId !== readId) return;
+						const message = "图谱状态校准失败，请重新连接后重试";
+						setGraphAuthoritySnapshot(null);
+						setPendingGraphDiff(null);
+						setGraphBuildError({
+							kbPath,
+							message,
+							rebuiltAt: _ready.connectedAt,
+						});
+						setSidebarError(message);
+					});
+			},
 			onEvent(event) {
-				if (event.kbPath !== active.kb.path) return;
+				if (event.kbPath !== kbPath) return;
+				authorityReadId += 1;
+				setGraphAuthoritySnapshot(null);
 				if (event.type === "graph_updated") {
+					setSidebarError(null);
 					setGraphBuildError(null);
 					setGraphRefreshToken((token) => token + 1);
 					setPendingGraphDiff(event.diff);
@@ -282,9 +315,15 @@ function App() {
 				setGraphBuildError(event);
 			},
 			onProtocolError(error) {
+				authorityReadId += 1;
 				setSidebarError(error.message);
 			},
 		});
+		return () => {
+			cancelled = true;
+			authorityReadId += 1;
+			close();
+		};
 	}, [active?.kb.path]);
 
 	useEffect(() => {
@@ -390,6 +429,7 @@ function App() {
 		setArtifacts([]);
 		setPendingGraphDiff(null);
 		setGraphBuildError(null);
+		setGraphAuthoritySnapshot(null);
 		setGraphHasPendingUpdate(false);
 	};
 
@@ -887,6 +927,7 @@ function App() {
 									focusPath={graphFocusPath}
 									pendingDiff={pendingGraphDiff}
 									refreshToken={graphRefreshToken}
+									authoritativeSnapshot={graphAuthoritySnapshot}
 									onDiffConsumed={() => setPendingGraphDiff(null)}
 									drawerFullscreen={drawerFullscreen}
 								/>

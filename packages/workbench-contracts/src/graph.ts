@@ -138,14 +138,46 @@ export const GraphDataSchema = z
 	.passthrough();
 export type GraphDataContract = z.infer<typeof GraphDataSchema>;
 
-export const GraphReadDataSchema = z.discriminatedUnion("needsBuild", [
-	z.object({
-		needsBuild: z.literal(true),
-	}),
-	z.object({
-		needsBuild: z.literal(false),
-		data: GraphDataSchema,
-	}),
+const GraphReadyStateSchema = z
+	.object({
+		status: z.literal("ready"),
+		rebuiltAt: z.string().datetime().nullable(),
+	})
+	.strict();
+
+const GraphErrorStateSchema = z
+	.object({
+		status: z.literal("error"),
+		message: z.string().min(1),
+		rebuiltAt: z.string().datetime(),
+	})
+	.strict();
+
+export const GraphAuthorityStateSchema = z.discriminatedUnion("status", [
+	GraphReadyStateSchema,
+	GraphErrorStateSchema,
+]);
+export type GraphAuthorityState = z.infer<typeof GraphAuthorityStateSchema>;
+
+export const GraphReadDataSchema = z.union([
+	z
+		.object({
+			state: GraphReadyStateSchema,
+			needsBuild: z.literal(true),
+		})
+		.strict(),
+	z
+		.object({
+			state: GraphReadyStateSchema,
+			needsBuild: z.literal(false),
+			data: GraphDataSchema,
+		})
+		.strict(),
+	z
+		.object({
+			state: GraphErrorStateSchema,
+		})
+		.strict(),
 ]);
 export type GraphReadData = z.infer<typeof GraphReadDataSchema>;
 

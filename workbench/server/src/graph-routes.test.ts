@@ -51,6 +51,7 @@ function createGraphService(
 		},
 		triggerGraphRebuild: (): GraphRebuildData => ({ status: "started" }),
 		readGraphData: async (): Promise<GraphReadData> => ({
+			state: { status: "ready", rebuiltAt: null },
 			needsBuild: false,
 			data: graphData,
 		}),
@@ -174,7 +175,11 @@ test("graph read 与 layout read/save 返回统一 success envelope", async () =
 	assert.equal(graph.status, 200);
 	assert.deepEqual(await json(graph), {
 		ok: true,
-		data: { needsBuild: false, data: graphData },
+		data: {
+			state: { status: "ready", rebuiltAt: null },
+			needsBuild: false,
+			data: graphData,
+		},
 	});
 
 	const layout = await app.request("/api/graph/layout");
@@ -204,6 +209,33 @@ test("graph read 与 layout read/save 返回统一 success envelope", async () =
 			},
 		},
 	]);
+});
+
+test("graph read returns the saved safe error as authoritative state", async () => {
+	const app = createApp({
+		graphService: createGraphService({
+			readGraphData: async () => ({
+				state: {
+					status: "error",
+					message: "图谱重建失败",
+					rebuiltAt: "2026-07-15T12:00:00.000Z",
+				},
+			}),
+		}),
+	});
+
+	const res = await app.request("/api/graph");
+	assert.equal(res.status, 200);
+	assert.deepEqual(await json(res), {
+		ok: true,
+		data: {
+			state: {
+				status: "error",
+				message: "图谱重建失败",
+				rebuiltAt: "2026-07-15T12:00:00.000Z",
+			},
+		},
+	});
 });
 
 test("layout PUT 的 query kb 优先于 body kbPath", async () => {

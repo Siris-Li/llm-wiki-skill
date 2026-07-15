@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { diffGraphData, normalizeGraphLayoutFile, type GraphData, type GraphDiff, type GraphLayoutFile } from "@llm-wiki/graph-engine";
+import type { GraphAuthorityState } from "@llm-wiki/workbench-contracts";
 
 const GRAPH_BUILD_STOP_TIMEOUT_MS = 1_000;
 const GRAPH_BUILD_ABORT_GRACE_MS = 100;
@@ -29,7 +30,14 @@ export type GraphEvent =
 			kbPath: string;
 			message: string;
 			rebuiltAt: string;
-	  };
+		  };
+
+export type GraphSnapshot =
+	| { state: Extract<GraphAuthorityState, { status: "error" }> }
+	| ({ state: Extract<GraphAuthorityState, { status: "ready" }> } & (
+		| { needsBuild: true }
+		| { needsBuild: false; data: GraphData }
+	));
 
 type RebuildQueueOptions = {
 	run: (signal: AbortSignal) => Promise<void>;
@@ -82,6 +90,41 @@ export async function readGraphData(kbPath: string): Promise<GraphReadResult> {
 		return { ok: true, needsBuild: true, graphPath };
 	}
 	return { ok: true, needsBuild: false, graphPath, data };
+}
+
+export class GraphAuthorityStore {
+	private readonly states = new Map<string, GraphAuthorityState>();
+
+	read(kbPath: string): GraphAuthorityState {
+		return this.states.get(kbPath) ?? { status: "ready", rebuiltAt: null };
+	}
+
+	record(event: GraphEvent): void {
+		this.states.set(
+			event.kbPath,
+			event.type === "graph_error"
+				? {
+						status: "error",
+						message: event.message,
+						rebuiltAt: event.rebuiltAt,
+					}
+				: { status: "ready", rebuiltAt: event.rebuiltAt },
+		);
+	}
+}
+
+const graphAuthority = new GraphAuthorityStore();
+
+export async function readGraphSnapshot(
+	kbPath: string,
+	authority: GraphAuthorityStore = graphAuthority,
+): Promise<GraphSnapshot> {
+	const state = authority.read(kbPath);
+	if (state.status === "error") return { state };
+	const graph = await readGraphData(kbPath);
+	return graph.needsBuild
+		? { state, needsBuild: true }
+		: { state, needsBuild: false, data: graph.data };
 }
 
 function graphNodesHavePagePaths(nodes: GraphData["nodes"]): boolean {
@@ -368,8 +411,12 @@ export function graphRebuildFailureMessage(_err: unknown): string {
 	return "图谱重建失败";
 }
 
+export const GRAPH_REBUILD_FAILURE_LOG_MESSAGE = "[graph] rebuild failed";
+export const GRAPH_WATCH_STARTED_LOG_MESSAGE = "[graph] watching knowledge base for graph rebuilds";
+
 
 function emitGraphEvent(event: GraphEvent): void {
+	graphAuthority.record(event);
 	eventBus.emit("graph", event);
 }
 
@@ -395,9 +442,7 @@ function createDefaultRebuildQueue(kbPath: string): GraphRebuildQueue {
 			});
 		},
 		onError: (err) => {
-			console.warn(
-				`[graph] rebuild failed for ${kbPath}: ${err instanceof Error ? err.message : String(err)}`,
-			);
+			console.warn(GRAPH_REBUILD_FAILURE_LOG_MESSAGE);
 			emitGraphEvent({
 				type: "graph_error",
 				kbPath,
@@ -415,7 +460,7 @@ function createFsWatchAdapter(kbPath: string, onEvent: (event: WatchEvent) => vo
 	const watcher = watch(kbPath, { recursive: true }, (eventType, filename) => {
 		onEvent({ eventType, filename: filename ? String(filename) : null });
 	});
-	console.log(`[graph] watching knowledge base for graph rebuilds: ${kbPath}`);
+	console.log(GRAPH_WATCH_STARTED_LOG_MESSAGE);
 	return { close: () => watcher.close() };
 }
 
