@@ -82,9 +82,12 @@ export function subscribeGraphEvents(
 	let offline = false;
 	let source: EventSourceLike | null = null;
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-	let hasSeenReady = false;
-	let hasDisconnected = false;
+	let nextReadyIsReconnect = false;
 	const parser = new GraphEventParser();
+	const markDisconnected = () => {
+		nextReadyIsReconnect = true;
+		parser.resetForReconnect();
+	};
 
 	const connect = () => {
 		if (stopped || offline || source) return;
@@ -95,8 +98,8 @@ export function subscribeGraphEvents(
 			try {
 				const event = parser.parse(message.data);
 				if (event.type === GRAPH_SSE_READY_EVENT_TYPE) {
-					options.onReady?.(event, { reconnected: hasSeenReady || hasDisconnected });
-					hasSeenReady = true;
+					options.onReady?.(event, { reconnected: nextReadyIsReconnect });
+					nextReadyIsReconnect = false;
 				} else {
 					options.onEvent(event);
 				}
@@ -106,8 +109,7 @@ export function subscribeGraphEvents(
 					: protocolError("图谱更新流发生未知协议错误");
 				options.onProtocolError?.(error);
 				if (stopped || source !== current) return;
-				hasDisconnected = true;
-				parser.resetForReconnect();
+				markDisconnected();
 				current.close();
 				if (source === current) source = null;
 				if (reconnectTimer !== null) clearTimeout(reconnectTimer);
@@ -121,18 +123,16 @@ export function subscribeGraphEvents(
 			if (stopped || source !== current) return;
 			// Native EventSource reconnects automatically. The server then sends a new
 			// ready event with a new streamId and seq=1.
-			hasDisconnected = true;
-			parser.resetForReconnect();
+			markDisconnected();
 		};
 	};
 
 	const handleOffline = () => {
 		if (stopped || offline) return;
 		offline = true;
-		hasDisconnected = true;
+		markDisconnected();
 		if (reconnectTimer !== null) clearTimeout(reconnectTimer);
 		reconnectTimer = null;
-		parser.resetForReconnect();
 		const current = source;
 		source = null;
 		current?.close();
