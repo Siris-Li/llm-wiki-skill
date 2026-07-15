@@ -314,8 +314,8 @@ test("knowledge search uses a safe target without query or path", () => {
   assert.deepEqual(event.args, {});
 });
 test("adapter terminal 后拒绝任何后续 prompt 事件", () => {
-  const adapter = createAdapter();
-  const done = adapter.finishAssistant();
+	const adapter = createAdapter();
+	const done = adapter.finishAssistant();
 
   assert.equal(done.at(-1)?.type, "assistant_done");
   assert.equal(adapter.adapt(textDelta("late")).length, 0);
@@ -332,7 +332,135 @@ test("adapter terminal 后拒绝任何后续 prompt 事件", () => {
     adapter.artifactCreated({ id: "late", kind: "html", title: "late" }),
     null,
   );
-  assert.deepEqual(adapter.cancelAssistant(), []);
+	assert.deepEqual(adapter.cancelAssistant(), []);
+});
+
+test("已保存的模型错误结束会在本轮结束时成为唯一安全失败终态，而不是成功完成", () => {
+	const adapter = createAdapter();
+	const intermediate = adapter.adapt(
+		assistantMessageEnd("error", "fictional provider detail that must not reach the page"),
+	);
+	assert.deepEqual(intermediate, []);
+	assert.equal(adapter.isFinished, false);
+	const events = adapter.finishAssistant();
+
+	assert.deepEqual(events.map((event) => event.type), ["assistant_error"]);
+	assert.equal(events[0]?.type, "assistant_error");
+	if (events[0]?.type === "assistant_error") {
+		assert.equal(events[0].message, "生成回复时发生错误，请重试");
+	}
+	assert.equal(JSON.stringify(events).includes("fictional provider detail"), false);
+	assert.deepEqual(adapter.finishAssistant(), []);
+});
+
+test("模型错误会安全结束运行中的工具，并保留已完成工具摘要", () => {
+	const adapter = createAdapter();
+	adapter.startTool({ toolCallId: "completed-tool", toolName: "read", args: { path: "done.md" } });
+	adapter.endTool({
+		toolCallId: "completed-tool",
+		toolName: "read",
+		result: { summary: "已完成" },
+	});
+	adapter.startTool({ toolCallId: "running-tool", toolName: "read", args: { path: "running.md" } });
+	adapter.adapt(assistantMessageEnd("error"));
+
+	const events = adapter.finishAssistant();
+	assert.deepEqual(events.map((event) => event.type), [
+		"tool_status_end",
+		"tool_status_summary",
+		"assistant_error",
+	]);
+	assert.equal(events[0]?.type, "tool_status_end");
+	if (events[0]?.type === "tool_status_end") {
+		assert.equal(events[0].toolCallId, "running-tool");
+		assert.equal(events[0].status, "failed");
+		assert.equal(events[0].error, "生成回复时发生错误，请重试");
+	}
+	assert.equal(events[1]?.type, "tool_status_summary");
+	if (events[1]?.type === "tool_status_summary") {
+		assert.deepEqual(events[1].items.map((item) => item.status), ["done", "failed"]);
+		assert.equal(events[1].remainingRunningCount, 0);
+	}
+	assert.equal(events.some((event) => event.type === "assistant_done"), false);
+});
+
+test("后续正常助手结束会替代暂存的模型错误，保留正常完成", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("stop")), []);
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_done"]);
+});
+
+test("最终模型错误在传输随后断开时仍保持失败终态", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	adapter.recordCancellation();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_error"]);
+});
+
+test("模型重试间隙取消会替代暂存模型错误，保持取消终态", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	assert.deepEqual(adapter.adapt({ type: "auto_retry_start" }), []);
+	adapter.recordCancellation();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_cancelled"]);
+});
+
+test("上下文超限自动恢复期间取消会替代暂存模型错误，保持取消终态", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	assert.deepEqual(
+		adapter.adapt({ type: "compaction_start", reason: "overflow" }),
+		[],
+	);
+	adapter.recordCancellation();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_cancelled"]);
+});
+
+test("上下文超限恢复完成并继续下一次模型调用时仍可取消", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	assert.deepEqual(
+		adapter.adapt({ type: "compaction_start", reason: "overflow" }),
+		[],
+	);
+	assert.deepEqual(
+		adapter.adapt({ type: "compaction_end", reason: "overflow", willRetry: true }),
+		[],
+	);
+	adapter.recordCancellation();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_cancelled"]);
+});
+
+test("上下文超限自动恢复结束后的最终模型错误不被随后断线改成取消", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	assert.deepEqual(
+		adapter.adapt({ type: "compaction_start", reason: "overflow" }),
+		[],
+	);
+	assert.deepEqual(
+		adapter.adapt({ type: "compaction_end", reason: "overflow", willRetry: false }),
+		[],
+	);
+	adapter.recordCancellation();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_error"]);
+});
+
+test("重试结束后的最终模型错误不被随后断线改成取消", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	assert.deepEqual(adapter.adapt({ type: "auto_retry_start" }), []);
+	assert.deepEqual(adapter.adapt({ type: "auto_retry_end" }), []);
+	adapter.recordCancellation();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_error"]);
 });
 
 test("tool status fixture 的每个事件都通过共享 prompt schema", () => {
@@ -350,10 +478,24 @@ test("ordered SSE writer serializes mixed async writes", async () => {
 
 	const first = writer.writeNamed("slow", "1");
 	const second = writer.writeNamed("fast", "2");
-	await Promise.all([second, first]);
+	assert.deepEqual(await Promise.all([second, first]), [true, true]);
 	await writer.flush();
 
 	assert.deepEqual(order, ["slow:1", "fast:2"]);
+});
+
+test("ordered SSE writer reports queued writes skipped after transport close", async () => {
+	const written: string[] = [];
+	const writer = new OrderedSseWriter(async (payload) => {
+		written.push(payload.data);
+	});
+
+	const queued = writer.writeNamed("assistant_text_delta", "未展示的虚构文字");
+	writer.close();
+
+	assert.equal(await queued, false);
+	await writer.flush();
+	assert.deepEqual(written, []);
 });
 
 test("prompt run registry rejects same-session concurrency and releases owner", () => {
@@ -471,6 +613,21 @@ function startEvent(
 		toolName,
 		args,
 	};
+}
+
+function assistantMessageEnd(
+	stopReason: "error" | "aborted" | "stop" | "toolUse",
+	errorMessage?: string,
+): AgentEvent {
+	return {
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [],
+			stopReason,
+			...(errorMessage ? { errorMessage } : {}),
+		},
+	} as unknown as AgentEvent;
 }
 
 function compactEvent(event: ToolStatusContractEvent): Record<string, unknown> {

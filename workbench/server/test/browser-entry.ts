@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { appendFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -19,6 +19,7 @@ const FAKE_MODEL_MARKER = "browser-foundation-fake-model";
 const FAUX_PROVIDER = "browser-test-provider";
 const FAUX_MODEL = "browser-test-model";
 const modelFailureFlag = path.join(process.env.HOME ?? "", ".llm-wiki-agent", "browser-model-fail");
+const modelErrorAttemptsFile = path.join(process.env.HOME ?? "", ".llm-wiki-agent", "browser-model-error-attempts");
 const modelCancelStartedFlag = path.join(process.env.HOME ?? "", ".llm-wiki-agent", "browser-model-cancel-started");
 const modelCancelSettledFlag = path.join(process.env.HOME ?? "", ".llm-wiki-agent", "browser-model-cancel-settled");
 const modelDisconnectStartedFlag = path.join(process.env.HOME ?? "", ".llm-wiki-agent", "browser-model-disconnect-started");
@@ -85,6 +86,27 @@ function streamBrowserModel(model: Model<Api>, context: Context, options?: Strea
 	console.log(`[browser-test-model] ${FAKE_MODEL_MARKER}`);
 	const stream = createAssistantMessageEventStream();
 	queueMicrotask(async () => {
+		if (prompt.includes("[model-error]")) {
+			await appendFile(modelErrorAttemptsFile, "attempt\n");
+			const failure = browserAssistantMessage(
+				model,
+				"",
+				"error",
+				"fictional retryable server error that must not reach the page or session",
+			);
+			failure.diagnostics = [{
+				type: "provider_failure",
+				timestamp: 0,
+				error: {
+					message: "fictional diagnostic detail that must not reach the page or session",
+					stack: "fictional diagnostic stack that must not reach the page or session",
+				},
+				details: { path: "/fictional/private/diagnostic" },
+			}];
+			stream.push({ type: "error", reason: "error", error: failure });
+			stream.end(failure);
+			return;
+		}
 		if (prompt.includes("cancel this response")) {
 			await writeFile(modelCancelStartedFlag, "started");
 		}
@@ -136,7 +158,7 @@ function retrievalOwner(systemPrompt: string | undefined): "atlas" | "harbor" | 
 function browserAssistantMessage(
 	model: Model<Api>,
 	text: string,
-	stopReason: "stop" | "aborted",
+	stopReason: "stop" | "aborted" | "error",
 	errorMessage?: string,
 ) {
 	return {
