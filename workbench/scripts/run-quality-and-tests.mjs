@@ -74,7 +74,11 @@ export const QUALITY_STEPS = [
 		timeoutMs: COMMAND_TIMEOUT_MS,
 		commands: [
 			nodeTest("workbench/scripts/check-workbench-boundaries.test.mjs"),
-			command(["--test", "workbench/scripts/run-quality-and-tests.test.mjs"]),
+			command([
+				"--test",
+				"workbench/scripts/run-quality-and-tests.test.mjs",
+				"workbench/scripts/run-browser-main-flows-ci.test.mjs",
+			]),
 		],
 	},
 	{
