@@ -3,13 +3,22 @@ import {
 	GraphReadDataSchema,
 	GraphRebuildDataSchema,
 	type GraphAuthorityState,
-	type GraphReadData,
 } from "@llm-wiki/workbench-contracts";
-import type { GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
+import type { GraphData, GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
 
 import { request } from "./client";
 
-export type GraphApiResult = GraphReadData;
+export type GraphApiResult =
+	| { state: Extract<GraphAuthorityState, { status: "error" }> }
+	| {
+			state: Extract<GraphAuthorityState, { status: "ready" }>;
+			needsBuild: true;
+	  }
+	| {
+			state: Extract<GraphAuthorityState, { status: "ready" }>;
+			needsBuild: false;
+			data: GraphData;
+	  };
 
 export type GraphBuildError = Pick<
 	Extract<GraphAuthorityState, { status: "error" }>,
@@ -22,10 +31,10 @@ export interface GraphAuthoritySnapshot {
 }
 
 export async function getGraphData(kbPath: string): Promise<GraphApiResult> {
-	return await request({ method: "GET", path: "/api/graph" }, {
+	return (await request({ method: "GET", path: "/api/graph" }, {
 		responseSchema: GraphReadDataSchema,
 		query: { kb: kbPath },
-	});
+	})) as GraphApiResult;
 }
 
 export async function rebuildGraph(
