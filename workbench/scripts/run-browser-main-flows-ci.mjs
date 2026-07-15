@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { runInvocation, sanitizeOutput } from "./run-quality-and-tests.mjs";
+import { interruptedExitCode, runInvocation, sanitizeOutput } from "./run-quality-and-tests.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const EVIDENCE_DIR = path.join(REPO_ROOT, ".tmp/browser-main-flows-ci");
@@ -18,8 +18,6 @@ const COMPONENT_LABELS = {
 	"chromium-headless-shell": "Chrome Headless Shell",
 	ffmpeg: "FFmpeg",
 };
-
-export const BROWSER_JOB_TIMEOUT_MINUTES = 32;
 
 export const BROWSER_CI_STAGES = {
 	"npm-dependencies": {
@@ -105,6 +103,7 @@ export async function runBrowserCiStage(stageId, {
 	evidenceDir,
 	environment,
 	invocation,
+	signal,
 	timeoutMs,
 }) {
 	await mkdir(evidenceDir, { recursive: true });
@@ -124,6 +123,7 @@ export async function runBrowserCiStage(stageId, {
 	try {
 		result = await runInvocation(invocation, environment, timeoutMs, undefined, {
 			onOutput: observeOutput,
+			signal,
 		});
 	} catch (error) {
 		executionError = error;
@@ -133,11 +133,14 @@ export async function runBrowserCiStage(stageId, {
 		result?.output ?? "",
 		executionError instanceof Error ? executionError.stack ?? executionError.message : executionError ? String(executionError) : "",
 	].filter(Boolean).join("\n"), { home: environment.HOME });
-	const status = result?.timedOut
-		? "timed-out"
-		: executionError || result?.code !== 0
-			? "failed"
-			: "passed";
+	const aborted = result?.aborted ?? signal?.aborted ?? false;
+	const status = aborted
+		? "interrupted"
+		: result?.timedOut
+			? "timed-out"
+			: executionError || result?.code !== 0
+				? "failed"
+				: "passed";
 	const record = {
 		stage: stageId,
 		status,
@@ -148,6 +151,7 @@ export async function runBrowserCiStage(stageId, {
 		exitCode: result?.code ?? null,
 		signal: result?.signal ?? null,
 		timedOut: result?.timedOut ?? false,
+		aborted,
 		milestones,
 	};
 	await Promise.all([
@@ -216,19 +220,36 @@ async function main() {
 	const stage = BROWSER_CI_STAGES[stageId];
 	if (!stage) throw new Error(`unknown browser CI stage: ${stageId ?? "missing"}`);
 	if (stageId === "npm-dependencies") await rm(EVIDENCE_DIR, { recursive: true, force: true });
-	const record = await runBrowserCiStage(stageId, {
-		evidenceDir: EVIDENCE_DIR,
-		environment: browserCiEnvironment(),
-		...stage,
-	});
-	if (process.env.GITHUB_STEP_SUMMARY) {
-		await appendFile(
-			process.env.GITHUB_STEP_SUMMARY,
-			`- ${stageId}: ${record.status} (${record.durationMs} ms)\n`,
-			"utf8",
-		);
+	const controller = new AbortController();
+	let interrupted;
+	const stopForSignal = (signal) => {
+		interrupted ??= signal;
+		controller.abort();
+	};
+	const interruptHandler = () => stopForSignal("SIGINT");
+	const terminateHandler = () => stopForSignal("SIGTERM");
+	process.once("SIGINT", interruptHandler);
+	process.once("SIGTERM", terminateHandler);
+	try {
+		const record = await runBrowserCiStage(stageId, {
+			evidenceDir: EVIDENCE_DIR,
+			environment: browserCiEnvironment(),
+			signal: controller.signal,
+			...stage,
+		});
+		if (process.env.GITHUB_STEP_SUMMARY) {
+			await appendFile(
+				process.env.GITHUB_STEP_SUMMARY,
+				`- ${stageId}: ${record.status} (${record.durationMs} ms)\n`,
+				"utf8",
+			);
+		}
+		if (interrupted) process.exitCode = interruptedExitCode(interrupted);
+		else if (record.status !== "passed") process.exitCode = 1;
+	} finally {
+		process.off("SIGINT", interruptHandler);
+		process.off("SIGTERM", terminateHandler);
 	}
-	if (record.status !== "passed") process.exitCode = 1;
 }
 
 function npmCommand() {

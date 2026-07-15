@@ -8,13 +8,13 @@ import test from "node:test";
 
 import {
 	BROWSER_CI_STAGES,
-	BROWSER_JOB_TIMEOUT_MINUTES,
 	createPlaywrightCacheIdentity,
 	runBrowserCiStage,
 } from "./run-browser-main-flows-ci.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const BROWSER_CI_RUNNER = path.join(REPO_ROOT, "workbench/scripts/run-browser-main-flows-ci.mjs");
+const BROWSER_CI_EVIDENCE_DIR = path.join(REPO_ROOT, ".tmp/browser-main-flows-ci");
 const BROWSER_RUNNER = path.join(REPO_ROOT, "workbench/web/test/browser/run-browser-main-flows.mjs");
 const BROWSER_FAILURE_DIR = path.join(REPO_ROOT, ".tmp/browser-main-flows");
 
@@ -60,6 +60,26 @@ test("Playwright cache identity follows the locked version and installed Chromiu
 	);
 });
 
+test("cache-key publishes the generated identity for the workflow cache step", async (t) => {
+	const directory = await mkdtemp(path.join(tmpdir(), "browser-ci-cache-output-"));
+	t.after(async () => {
+		await rm(directory, { recursive: true, force: true });
+		await rm(BROWSER_CI_EVIDENCE_DIR, { recursive: true, force: true });
+	});
+	const githubOutput = path.join(directory, "github-output");
+	const child = spawn(process.execPath, [BROWSER_CI_RUNNER, "cache-key"], {
+		cwd: REPO_ROOT,
+		env: { ...minimalEnvironment(directory), GITHUB_OUTPUT: githubOutput },
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	const result = await waitForChildExit(child);
+	assert.equal(result.code, 0);
+	const identity = JSON.parse(
+		await readFile(path.join(BROWSER_CI_EVIDENCE_DIR, "playwright-cache-identity.json"), "utf8"),
+	);
+	assert.equal(await readFile(githubOutput, "utf8"), `key=${identity.key}\n`);
+});
+
 for (const stageId of ["system-dependencies", "browser-install"]) {
 	test(`${stageId} records success and explicit command failure`, async (t) => {
 		const directory = await mkdtemp(path.join(tmpdir(), `browser-ci-${stageId}-`));
@@ -90,6 +110,63 @@ for (const stageId of ["system-dependencies", "browser-install"]) {
 		assert.ok(saved.durationMs >= 0);
 	});
 }
+
+test("a recognized stage command failure makes the CI runner exit nonzero", { skip: process.platform === "win32" }, async (t) => {
+	const directory = await mkdtemp(path.join(tmpdir(), "browser-ci-stage-failure-"));
+	t.after(async () => {
+		await rm(directory, { recursive: true, force: true });
+		await rm(BROWSER_CI_EVIDENCE_DIR, { recursive: true, force: true });
+	});
+	const { bin, pidFile } = await createFakeNpm(directory, { hang: false });
+	const child = spawn(process.execPath, [BROWSER_CI_RUNNER, "npm-dependencies"], {
+		cwd: REPO_ROOT,
+		env: {
+			...minimalEnvironment(directory),
+			PATH: [bin, path.dirname(process.execPath), "/usr/bin", "/bin"].join(path.delimiter),
+		},
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	const result = await waitForChildExit(child);
+	assert.equal(result.code, 1);
+	const record = JSON.parse(
+		await readFile(path.join(BROWSER_CI_EVIDENCE_DIR, "npm-dependencies.json"), "utf8"),
+	);
+	assert.equal(record.status, "failed");
+	assert.equal(record.exitCode, 17);
+	const output = await readFile(path.join(BROWSER_CI_EVIDENCE_DIR, "npm-dependencies.log"), "utf8");
+	assert.doesNotMatch(output, new RegExp(escapeRegExp(directory)));
+	assert.doesNotMatch(output, /sk-abcdefghijklmnop/);
+	assert.match(output, /<home>|<redacted-token>/);
+	await assertProcessStops(Number(await readFile(pidFile, "utf8")));
+});
+
+test("the CI runner preserves SIGTERM after cleaning the active stage", { skip: process.platform === "win32" }, async (t) => {
+	const directory = await mkdtemp(path.join(tmpdir(), "browser-ci-stage-sigterm-"));
+	t.after(async () => {
+		await rm(directory, { recursive: true, force: true });
+		await rm(BROWSER_CI_EVIDENCE_DIR, { recursive: true, force: true });
+	});
+	const { bin, pidFile } = await createFakeNpm(directory, { hang: true });
+	const child = spawn(process.execPath, [BROWSER_CI_RUNNER, "npm-dependencies"], {
+		cwd: REPO_ROOT,
+		env: {
+			...minimalEnvironment(directory),
+			PATH: [bin, path.dirname(process.execPath), "/usr/bin", "/bin"].join(path.delimiter),
+		},
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	await waitForFile(pidFile);
+	const exit = waitForChildExit(child);
+	child.kill("SIGTERM");
+	const result = await exit;
+	assert.equal(result.code, 143);
+	await assertProcessStops(Number(await readFile(pidFile, "utf8")));
+	const record = JSON.parse(
+		await readFile(path.join(BROWSER_CI_EVIDENCE_DIR, "npm-dependencies.json"), "utf8"),
+	);
+	assert.equal(record.status, "interrupted");
+	assert.equal(record.aborted, true);
+});
 
 test("a hanging browser installation stops at its boundary and cleans descendants", { skip: process.platform === "win32" }, async (t) => {
 	const directory = await mkdtemp(path.join(tmpdir(), "browser-ci-install-hang-"));
@@ -140,7 +217,6 @@ test("browser installation records download and installed-content milestones", a
 });
 
 test("browser CI stages have separate commands and measured failure boundaries", () => {
-	assert.equal(BROWSER_JOB_TIMEOUT_MINUTES, 32);
 	assert.deepEqual(
 		Object.fromEntries(Object.entries(BROWSER_CI_STAGES).map(([id, stage]) => [id, stage.timeoutMs])),
 		{
