@@ -68,7 +68,7 @@ export function protectSessionTerminalMessages(
 	return sessionManager;
 }
 
-/** Commits only the final terminal fact after the SDK has finished retry or recovery work. */
+/** Commits the final terminal fact and scrubs the live terminal message after recovery work. */
 export function finalizeSessionTerminalMessages(
 	sessionManager: SessionManager,
 	terminalReason: AssistantTerminalReason | null,
@@ -81,9 +81,12 @@ export function finalizeSessionTerminalMessages(
 	const finalMessage = terminalReason === pendingMessage.stopReason
 		? pendingMessage
 		: { ...pendingMessage, stopReason: terminalReason };
-	state.appendMessage(
-		sanitizeTerminalMessage(finalMessage, pendingMessage.stopReason === "aborted"),
+	const safeMessage = sanitizeTerminalMessage(
+		finalMessage,
+		pendingMessage.stopReason === "aborted",
 	);
+	overwriteAssistantMessage(pendingMessage, safeMessage);
+	state.appendMessage(safeMessage);
 }
 
 function isTerminalAssistantMessage(
@@ -109,4 +112,13 @@ function visibleTextContent(message: AssistantMessage): AssistantMessage["conten
 	return message.content.flatMap((part) =>
 		part.type === "text" ? [{ type: "text" as const, text: part.text }] : [],
 	);
+}
+
+function overwriteAssistantMessage(
+	target: AssistantMessage,
+	replacement: AssistantMessage,
+): void {
+	const targetRecord = target as unknown as Record<string, unknown>;
+	for (const key of Object.keys(targetRecord)) delete targetRecord[key];
+	Object.assign(target, replacement);
 }

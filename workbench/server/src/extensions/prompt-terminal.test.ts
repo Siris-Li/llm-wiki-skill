@@ -87,7 +87,7 @@ test("正常助手结束不改写", () => {
 	assert.equal(sanitizeAssistantTerminalMessage(message), message);
 });
 
-test("会话写入只保存安全副本，保留原消息供模型重试判断", async (t) => {
+test("模型恢复判断完成前保留原消息，最终结束后同步清除内存和记录", async (t) => {
 	const directory = await mkdtemp(join(tmpdir(), "llm-wiki-terminal-test-"));
 	t.after(async () => {
 		await rm(directory, { recursive: true, force: true });
@@ -108,10 +108,16 @@ test("会话写入只保存安全副本，保留原消息供模型重试判断",
 	message.content = [{ type: "text", text: "fictional partial response from /fictional/private" }];
 
 	sessionManager.appendMessage(message);
-	finalizeSessionTerminalMessages(sessionManager, "error");
-
 	assert.equal(message.errorMessage, "fictional retryable server error");
 	assert.equal(message.diagnostics?.[0]?.error?.stack, "fictional diagnostic stack");
+	finalizeSessionTerminalMessages(sessionManager, "error");
+
+	assert.equal(message.errorMessage, MODEL_FAILURE_MESSAGE);
+	assert.deepEqual(message.content, []);
+	assert.equal("diagnostics" in message, false);
+	assert.equal(JSON.stringify(message).includes("fictional retryable server error"), false);
+	assert.equal(JSON.stringify(message).includes("fictional diagnostic stack"), false);
+	assert.equal(JSON.stringify(message).includes("fictional partial response"), false);
 	const sessionFile = sessionManager.getSessionFile();
 	assert.ok(sessionFile);
 	const persisted = await readFile(sessionFile, "utf8");
