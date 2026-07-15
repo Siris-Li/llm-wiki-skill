@@ -100,7 +100,13 @@ function replaceTerminalDiagnostics(
 	const { diagnostics: _diagnostics, ...safeMessage } = message;
 	return {
 		...safeMessage,
-		...(preservePartialContent ? {} : { content: [] }),
+		content: preservePartialContent ? visibleTextContent(message) : [],
 		errorMessage,
 	};
+}
+
+function visibleTextContent(message: AssistantMessage): AssistantMessage["content"] {
+	return message.content.flatMap((part) =>
+		part.type === "text" ? [{ type: "text" as const, text: part.text }] : [],
+	);
 }

@@ -58,6 +58,30 @@ test("取消写入会话前保留取消事实，但移除原始失败内容", ()
 	assert.equal("diagnostics" in sanitized, false);
 });
 
+test("取消写入会话前只保留已显示的文本，不保存推理或工具参数", () => {
+	const message = assistantMessage("aborted");
+	message.content = [
+		{ type: "thinking", thinking: "fictional hidden reasoning", thinkingSignature: "fictional hidden signature" },
+		{
+			type: "toolCall",
+			id: "fictional-hidden-tool",
+			name: "read",
+			arguments: { path: "/fictional/private/tool-argument" },
+		},
+		{ type: "text", text: "取消前已显示的虚构回复片段", textSignature: "fictional hidden text signature" },
+	];
+
+	const sanitized = sanitizeAssistantTerminalMessage(message);
+
+	assert.deepEqual(sanitized.content, [{ type: "text", text: "取消前已显示的虚构回复片段" }]);
+	const serialized = JSON.stringify(sanitized);
+	assert.equal(serialized.includes("fictional hidden reasoning"), false);
+	assert.equal(serialized.includes("fictional hidden signature"), false);
+	assert.equal(serialized.includes("fictional-hidden-tool"), false);
+	assert.equal(serialized.includes("/fictional/private/tool-argument"), false);
+	assert.equal(serialized.includes("fictional hidden text signature"), false);
+});
+
 test("正常助手结束不改写", () => {
 	const message = assistantMessage("stop");
 	assert.equal(sanitizeAssistantTerminalMessage(message), message);
@@ -148,6 +172,30 @@ test("正常取消会保存已显示的回复片段，同时移除取消诊断",
 	assert.match(serialized, /"stopReason":"aborted"/);
 	assert.equal(serialized.includes("取消前已显示的虚构回复片段"), true);
 	assert.equal(serialized.includes("fictional abort detail"), false);
+});
+
+test("正常取消写入会话时不会保存未展示的推理或工具参数", () => {
+	const sessionManager = protectSessionTerminalMessages(SessionManager.inMemory("/fictional/project"));
+	const message = assistantMessage("aborted");
+	message.content = [
+		{ type: "thinking", thinking: "fictional hidden reasoning" },
+		{
+			type: "toolCall",
+			id: "fictional-hidden-tool",
+			name: "read",
+			arguments: { path: "/fictional/private/tool-argument" },
+		},
+		{ type: "text", text: "取消前已显示的虚构回复片段" },
+	];
+
+	sessionManager.appendMessage(message);
+	finalizeSessionTerminalMessages(sessionManager, "aborted");
+
+	const serialized = JSON.stringify(sessionManager.getEntries());
+	assert.equal(serialized.includes("取消前已显示的虚构回复片段"), true);
+	assert.equal(serialized.includes("fictional hidden reasoning"), false);
+	assert.equal(serialized.includes("fictional-hidden-tool"), false);
+	assert.equal(serialized.includes("/fictional/private/tool-argument"), false);
 });
 
 function assistantMessage(
