@@ -284,7 +284,7 @@ function App() {
 						if (cancelled || authorityReadId !== readId) return;
 						setSidebarError(null);
 						setGraphBuildError(null);
-						setGraphAuthoritySnapshot({ id: readId, kbPath, result });
+						setGraphAuthoritySnapshot({ kbPath, result });
 					})
 					.catch(() => {
 						if (cancelled || authorityReadId !== readId) return;
@@ -304,6 +304,7 @@ function App() {
 				authorityReadId += 1;
 				setGraphAuthoritySnapshot(null);
 				if (event.type === "graph_updated") {
+					setSidebarError(null);
 					setGraphBuildError(null);
 					setGraphRefreshToken((token) => token + 1);
 					setPendingGraphDiff(event.diff);

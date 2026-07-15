@@ -458,6 +458,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 			await eventRecoveryRead;
 			await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 			await page.getByText("2 节点 · 0 关联", { exact: true }).waitFor();
+			assert.equal(await page.locator(".sidebar-error").count(), 0);
 			await cdp.detach();
 
 		// Messages: controlled terminal failures, direct failures, cancellation, disconnect recovery, and normal recovery.

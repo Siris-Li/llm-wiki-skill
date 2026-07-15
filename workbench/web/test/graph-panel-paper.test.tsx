@@ -2,7 +2,9 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import React, { act } from "react";
+import React from "react";
+import { act } from "@testing-library/react";
+import { createGraphEngine } from "@llm-wiki/graph-engine";
 
 import { GraphPanel } from "../src/components/GraphPanel";
 import { click, pressKey, render, screen, waitFor } from "./render";
@@ -277,7 +279,6 @@ describe("GraphPanel Paper shell", () => {
 				{...props}
 				refreshToken={1}
 				authoritativeSnapshot={{
-					id: 1,
 					kbPath: "/fictional/kb",
 					result: readyGraphResult(["wiki/current.md", "wiki/current-detail.md"]),
 				}}
@@ -293,6 +294,74 @@ describe("GraphPanel Paper shell", () => {
 		});
 		assert.notEqual(screen.queryByText("2 节点 · 0 关联"), null);
 		assert.equal(screen.queryByText("图谱更新待播放"), null);
+	});
+
+	it("does not let an older playing animation finish the current authoritative animation", async () => {
+		let graphResult = readyGraphResult();
+		const animationResolvers: Array<() => void> = [];
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: { version: 2, pins: {}, updatedAt: "2026-07-15T12:00:00.000Z" },
+				});
+			}
+			if (url.startsWith("/api/graph?")) return jsonResponse({ ok: true, data: graphResult });
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+		const engineFactory: typeof createGraphEngine = (container, options) => ({
+			...createGraphEngine(container, options),
+			applyDiff: () => new Promise<void>((resolve) => animationResolvers.push(resolve)),
+		});
+		const props = {
+			currentKnowledgeBaseName: "Fictional notes",
+			currentKnowledgeBasePath: "/fictional/kb",
+			theme: "light" as const,
+			engineFactory,
+		};
+		const firstDiff = graphDiff("wiki/first-update.md", 2);
+		const currentDiff = graphDiff("wiki/current-update.md", 3);
+		const { rerender } = render(<GraphPanel {...props} refreshToken={0} />);
+		await screen.findByText("1 节点 · 0 关联");
+
+		graphResult = readyGraphResult(["wiki/fictional.md", "wiki/first-update.md"]);
+		rerender(<GraphPanel {...props} refreshToken={1} pendingDiff={firstDiff} />);
+		await waitFor(() => {
+			assert.notEqual(document.querySelector("[data-graph-animation='playing']"), null);
+			assert.equal(animationResolvers.length, 1);
+		});
+
+		const currentResult = readyGraphResult([
+			"wiki/fictional.md",
+			"wiki/first-update.md",
+			"wiki/current-update.md",
+		]);
+		graphResult = currentResult;
+		rerender(
+			<GraphPanel
+				{...props}
+				refreshToken={1}
+				authoritativeSnapshot={{ kbPath: "/fictional/kb", result: currentResult }}
+			/>,
+		);
+		await screen.findByText("3 节点 · 0 关联");
+		rerender(<GraphPanel {...props} refreshToken={2} pendingDiff={currentDiff} />);
+		await waitFor(() => {
+			assert.notEqual(document.querySelector("[data-graph-animation='playing']"), null);
+			assert.equal(animationResolvers.length, 2);
+		});
+
+		await act(async () => {
+			animationResolvers[0]!();
+			await Promise.resolve();
+		});
+		assert.notEqual(document.querySelector("[data-graph-animation='playing']"), null);
+		await act(async () => {
+			animationResolvers[1]!();
+			await Promise.resolve();
+		});
+		await waitFor(() => assert.notEqual(document.querySelector("[data-graph-animation='idle']"), null));
 	});
 
 	it("clears stale graph state after calibration failure and recovers on the next update", async () => {
@@ -529,6 +598,18 @@ function readyGraphResult(nodeIds = ["wiki/fictional.md"]) {
 			})),
 			edges: [],
 		},
+	};
+}
+
+function graphDiff(nodeId: string, nodeCount: number) {
+	return {
+		addedNodes: [nodeId],
+		removedNodes: [],
+		recoloredNodes: [],
+		addedEdges: [],
+		removedEdges: [],
+		newCommunities: [],
+		stats: { nodeCount, edgeCount: 0, communityCount: 0 },
 	};
 }
 

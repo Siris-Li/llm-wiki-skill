@@ -412,6 +412,7 @@ export function graphRebuildFailureMessage(_err: unknown): string {
 }
 
 export const GRAPH_REBUILD_FAILURE_LOG_MESSAGE = "[graph] rebuild failed";
+export const GRAPH_WATCH_STARTED_LOG_MESSAGE = "[graph] watching knowledge base for graph rebuilds";
 
 
 function emitGraphEvent(event: GraphEvent): void {
@@ -459,7 +460,7 @@ function createFsWatchAdapter(kbPath: string, onEvent: (event: WatchEvent) => vo
 	const watcher = watch(kbPath, { recursive: true }, (eventType, filename) => {
 		onEvent({ eventType, filename: filename ? String(filename) : null });
 	});
-	console.log(`[graph] watching knowledge base for graph rebuilds: ${kbPath}`);
+	console.log(GRAPH_WATCH_STARTED_LOG_MESSAGE);
 	return { close: () => watcher.close() };
 }
 

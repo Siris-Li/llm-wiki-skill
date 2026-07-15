@@ -4,6 +4,7 @@ import test from "node:test";
 import {
 	graphRebuildFailureMessage,
 	GRAPH_REBUILD_FAILURE_LOG_MESSAGE,
+	GRAPH_WATCH_STARTED_LOG_MESSAGE,
 	GraphRebuildQueue,
 	KnowledgeBaseGraphWatcher,
 	shouldIgnoreGraphWatchPath,
@@ -131,6 +132,10 @@ test("graph rebuild failure message is stable and does not expose build paths", 
 	assert.equal(
 		GRAPH_REBUILD_FAILURE_LOG_MESSAGE,
 		"[graph] rebuild failed",
+	);
+	assert.equal(
+		GRAPH_WATCH_STARTED_LOG_MESSAGE,
+		"[graph] watching knowledge base for graph rebuilds",
 	);
 });
 test("graph rebuild queue recovers to started after a failed run", async () => {
