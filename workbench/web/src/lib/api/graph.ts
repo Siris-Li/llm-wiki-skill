@@ -2,13 +2,23 @@ import {
 	GraphLayoutDataSchema,
 	GraphReadDataSchema,
 	GraphRebuildDataSchema,
-	type GraphReadData,
+	type GraphAuthorityState,
 } from "@llm-wiki/workbench-contracts";
-import type { GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
+import type { GraphData, GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
 
 import { request } from "./client";
 
-export type GraphApiResult = GraphReadData;
+export type GraphApiResult =
+	| { state: Extract<GraphAuthorityState, { status: "error" }> }
+	| {
+			state: Extract<GraphAuthorityState, { status: "ready" }>;
+			needsBuild: true;
+	  }
+	| {
+			state: Extract<GraphAuthorityState, { status: "ready" }>;
+			needsBuild: false;
+			data: GraphData;
+	  };
 
 export async function getGraphData(kbPath: string): Promise<GraphApiResult> {
 	return (await request({ method: "GET", path: "/api/graph" }, {
