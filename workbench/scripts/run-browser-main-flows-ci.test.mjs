@@ -14,6 +14,7 @@ import {
 } from "./run-browser-main-flows-ci.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const BROWSER_CI_RUNNER = path.join(REPO_ROOT, "workbench/scripts/run-browser-main-flows-ci.mjs");
 const BROWSER_RUNNER = path.join(REPO_ROOT, "workbench/web/test/browser/run-browser-main-flows.mjs");
 const BROWSER_FAILURE_DIR = path.join(REPO_ROOT, ".tmp/browser-main-flows");
 
@@ -113,6 +114,29 @@ test("a hanging browser installation stops at its boundary and cleans descendant
 	const descendantPid = Number(output.match(/^\d+$/m)?.[0]);
 	assert.ok(Number.isInteger(descendantPid));
 	await assertProcessStops(descendantPid);
+});
+
+test("browser installation records download and installed-content milestones", async (t) => {
+	const directory = await mkdtemp(path.join(tmpdir(), "browser-ci-install-milestones-"));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	const result = await runBrowserCiStage("browser-install", {
+		evidenceDir: directory,
+		environment: minimalEnvironment(directory),
+		invocation: nodeInvocation([
+			'console.log("Downloading Chrome for Testing 149 (playwright chromium v1228)");',
+			'console.log("Chrome for Testing 149 (playwright chromium v1228) downloaded to /tmp/chromium-1228");',
+			'console.log("Downloading FFmpeg (playwright ffmpeg v1011)");',
+			'console.log("FFmpeg (playwright ffmpeg v1011) downloaded to /tmp/ffmpeg-1011");',
+		].join("\n")),
+		timeoutMs: 1_000,
+	});
+	assert.deepEqual(result.milestones.map(({ event, component }) => ({ event, component })), [
+		{ event: "download-started", component: "Chrome for Testing" },
+		{ event: "content-installed", component: "Chrome for Testing" },
+		{ event: "download-started", component: "FFmpeg" },
+		{ event: "content-installed", component: "FFmpeg" },
+	]);
+	assert.ok(result.milestones.every(({ elapsedMs }) => elapsedMs >= 0));
 });
 
 test("browser CI stages have separate commands and measured failure boundaries", () => {
@@ -218,6 +242,24 @@ test("browser runner preserves SIGTERM exit status after cleanup and evidence", 
 	await assertProcessStops(descendantPid);
 	const evidence = await readFile(path.join(BROWSER_FAILURE_DIR, "runner.log"), "utf8");
 	assert.match(evidence, /interrupted by SIGTERM/);
+});
+
+test("browser CI command failures do not print repository or home paths", async (t) => {
+	const directory = await mkdtemp(path.join(tmpdir(), "browser-ci-command-error-"));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	const child = spawn(process.execPath, [BROWSER_CI_RUNNER, "missing-stage"], {
+		cwd: REPO_ROOT,
+		env: minimalEnvironment(directory),
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	let output = "";
+	child.stdout.on("data", (chunk) => { output += chunk; });
+	child.stderr.on("data", (chunk) => { output += chunk; });
+	const result = await waitForChildExit(child);
+	assert.equal(result.code, 1);
+	assert.doesNotMatch(output, new RegExp(escapeRegExp(REPO_ROOT)));
+	assert.doesNotMatch(output, new RegExp(escapeRegExp(directory)));
+	assert.match(output, /unknown browser CI stage/);
 });
 
 function nodeInvocation(script) {

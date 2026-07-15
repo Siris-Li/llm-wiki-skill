@@ -13,6 +13,11 @@ const PLAYWRIGHT_PACKAGE = path.join(REPO_ROOT, "node_modules/playwright/package
 const PLAYWRIGHT_BROWSERS = path.join(REPO_ROOT, "node_modules/playwright-core/browsers.json");
 const PACKAGE_LOCK = path.join(REPO_ROOT, "package-lock.json");
 const CACHED_BROWSER_NAMES = ["chromium", "chromium-headless-shell", "ffmpeg"];
+const COMPONENT_LABELS = {
+	chromium: "Chrome for Testing",
+	"chromium-headless-shell": "Chrome Headless Shell",
+	ffmpeg: "FFmpeg",
+};
 
 export const BROWSER_JOB_TIMEOUT_MINUTES = 32;
 
@@ -105,10 +110,21 @@ export async function runBrowserCiStage(stageId, {
 	await mkdir(evidenceDir, { recursive: true });
 	const startedAt = new Date();
 	process.stdout.write(`[browser-main-flows] ${stageId} started\n`);
+	const milestones = [];
+	let outputBuffer = "";
+	const observeOutput = (chunk) => {
+		if (stageId !== "browser-install") return;
+		outputBuffer += chunk;
+		const lines = outputBuffer.split(/\r?\n/);
+		outputBuffer = lines.pop() ?? "";
+		for (const line of lines) recordInstallMilestone(line, milestones, startedAt);
+	};
 	let result;
 	let executionError;
 	try {
-		result = await runInvocation(invocation, environment, timeoutMs);
+		result = await runInvocation(invocation, environment, timeoutMs, undefined, {
+			onOutput: observeOutput,
+		});
 	} catch (error) {
 		executionError = error;
 	}
@@ -132,6 +148,7 @@ export async function runBrowserCiStage(stageId, {
 		exitCode: result?.code ?? null,
 		signal: result?.signal ?? null,
 		timedOut: result?.timedOut ?? false,
+		milestones,
 	};
 	await Promise.all([
 		writeFile(path.join(evidenceDir, `${stageId}.log`), output ? `${output}\n` : "", "utf8"),
@@ -144,6 +161,25 @@ export async function runBrowserCiStage(stageId, {
 
 async function readJson(file) {
 	return JSON.parse(await readFile(file, "utf8"));
+}
+
+function recordInstallMilestone(line, milestones, startedAt) {
+	const match = line.match(/\(playwright (chromium|chromium-headless-shell|ffmpeg) v\d+\)/);
+	if (!match) return;
+	const event = line.startsWith("Downloading ")
+		? "download-started"
+		: line.includes(" downloaded to ")
+			? "content-installed"
+			: null;
+	if (!event) return;
+	const component = COMPONENT_LABELS[match[1]];
+	if (milestones.some((item) => item.event === event && item.component === component)) return;
+	milestones.push({
+		event,
+		component,
+		observedAt: new Date().toISOString(),
+		elapsedMs: Date.now() - startedAt.getTime(),
+	});
 }
 
 function browserCiEnvironment(source = process.env) {
@@ -200,5 +236,16 @@ function npmCommand() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-	await main();
+	try {
+		await main();
+	} catch (error) {
+		const message = sanitizeOutput(
+			error instanceof Error ? error.stack ?? error.message : String(error),
+			{ repoRoot: REPO_ROOT, home: process.env.HOME ?? tmpdir() },
+		);
+		await mkdir(EVIDENCE_DIR, { recursive: true }).catch(() => undefined);
+		await writeFile(path.join(EVIDENCE_DIR, "runner.log"), `${message}\n`, "utf8").catch(() => undefined);
+		console.error(message);
+		process.exitCode = 1;
+	}
 }
