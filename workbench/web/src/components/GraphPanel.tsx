@@ -474,10 +474,11 @@ export function GraphPanel({
 		setDataKnowledgeBasePath(kbPath);
 		onGraphDataChangeRef.current?.(null);
 		setStatus("loading");
+		const graphData = result.data;
 		void getGraphLayout(kbPath)
 			.then((layout) => {
 				if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return;
-				applyReadyGraph(kbPath, result.data, layout.pins);
+				applyReadyGraph(kbPath, graphData, layout.pins);
 			})
 			.catch((error) => {
 				if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return;
