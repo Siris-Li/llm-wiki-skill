@@ -5,12 +5,15 @@ import {
 
 import { request } from "./client";
 
-export function listCommands(includeUserGlobal = false): Promise<CommandItem[]> {
+export function listCommands(includeUserGlobal?: boolean): Promise<CommandItem[]> {
 	return request(
 		{ method: "GET", path: "/api/commands" },
 		{
 			responseSchema: CommandListDataSchema,
-			query: { includeUserGlobal: includeUserGlobal ? "true" : undefined },
+			query: {
+				includeUserGlobal:
+					includeUserGlobal === undefined ? undefined : String(includeUserGlobal),
+			},
 		},
 	);
 }
