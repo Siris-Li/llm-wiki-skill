@@ -21,7 +21,7 @@ import {
 } from "../http/request.js";
 import { jsonOk } from "../http/response.js";
 import {
-	readGraphData,
+	readGraphSnapshot,
 	readGraphLayout,
 	triggerGraphRebuild,
 	writeGraphLayout,
@@ -48,15 +48,7 @@ export const defaultGraphRouteService: GraphRouteService = {
 		return GraphRebuildDataSchema.parse({ status: result.status });
 	},
 	readGraphData: async (kbPath) => {
-		const result = await readGraphData(kbPath);
-		return GraphReadDataSchema.parse(
-			result.needsBuild
-				? { needsBuild: true }
-				: {
-						needsBuild: false,
-						data: result.data,
-					},
-		);
+		return GraphReadDataSchema.parse(await readGraphSnapshot(kbPath));
 	},
 	readGraphLayout: async (kbPath) => {
 		const result = await readGraphLayout(kbPath);

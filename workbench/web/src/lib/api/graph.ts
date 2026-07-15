@@ -2,14 +2,13 @@ import {
 	GraphLayoutDataSchema,
 	GraphReadDataSchema,
 	GraphRebuildDataSchema,
+	type GraphReadData,
 } from "@llm-wiki/workbench-contracts";
-import type { GraphData, GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
+import type { GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
 
 import { request } from "./client";
 
-export type GraphApiResult =
-	| { needsBuild: true }
-	| { needsBuild: false; data: GraphData };
+export type GraphApiResult = GraphReadData;
 
 export async function getGraphData(kbPath: string): Promise<GraphApiResult> {
 	return (await request({ method: "GET", path: "/api/graph" }, {

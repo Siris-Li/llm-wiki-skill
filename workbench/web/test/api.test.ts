@@ -18,7 +18,13 @@ describe("graph API helpers", () => {
 	it("binds graph reads, rebuilds, and layout writes to the requested knowledge base", async () => {
 		const requests: Array<{ url: string; method: string; body?: BodyInit | null }> = [];
 		const responses: unknown[] = [
-			{ ok: true, data: { needsBuild: true } },
+			{
+				ok: true,
+				data: {
+					state: { status: "ready", rebuiltAt: null },
+					needsBuild: true,
+				},
+			},
 			{ ok: true, data: { version: 2, pins: {}, updatedAt: "" } },
 			{ ok: true, data: { status: "started" } },
 			{ ok: true, data: { version: 2, pins: {}, updatedAt: "" } },

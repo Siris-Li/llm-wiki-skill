@@ -694,7 +694,11 @@ async function fulfillMockApi(route: Route, url: URL, method: string, apiReads: 
 	if (pathname === "/api/graph") {
 		await json({
 			ok: true,
-			data: { needsBuild: false, data: visualGraphData() },
+			data: {
+				state: { status: "ready", rebuiltAt: null },
+				needsBuild: false,
+				data: visualGraphData(),
+			},
 		});
 		return;
 	}

@@ -2,7 +2,7 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import React from "react";
+import React, { act } from "react";
 
 import { GraphPanel } from "../src/components/GraphPanel";
 import { click, pressKey, render, screen, waitFor } from "./render";
@@ -177,6 +177,98 @@ describe("GraphPanel Paper shell", () => {
 		});
 	});
 
+	it("does not let an older graph read overwrite a newer build error", async () => {
+		let resolveGraph!: (response: Response) => void;
+		const graphResponse = new Promise<Response>((resolve) => {
+			resolveGraph = resolve;
+		});
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: { version: 2, pins: {}, updatedAt: "2026-07-15T12:00:00.000Z" },
+				});
+			}
+			if (url.startsWith("/api/graph?")) return graphResponse;
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+
+		const { rerender } = render(
+			<GraphPanel
+				currentKnowledgeBaseName="Fictional notes"
+				currentKnowledgeBasePath="/fictional/kb"
+				theme="light"
+			/>,
+		);
+		rerender(
+			<GraphPanel
+				currentKnowledgeBaseName="Fictional notes"
+				currentKnowledgeBasePath="/fictional/kb"
+				theme="light"
+				graphBuildError={{
+					kbPath: "/fictional/kb",
+					message: "图谱重建失败",
+					rebuiltAt: "2026-07-15T12:01:00.000Z",
+				}}
+			/>,
+		);
+		await screen.getByText("图谱暂时不可用");
+
+		await act(async () => {
+			resolveGraph(jsonResponse({
+				ok: true,
+				data: readyGraphResult(),
+			}));
+			await graphResponse;
+		});
+
+		assert.notEqual(screen.queryByText("图谱暂时不可用"), null);
+		assert.equal(screen.queryByText("1 节点 · 0 关联"), null);
+	});
+
+	it("loads a saved authoritative error and recovers after an active rebuild", async () => {
+		let graphResult: unknown = {
+			state: {
+				status: "error",
+				message: "图谱重建失败",
+				rebuiltAt: "2026-07-15T12:00:00.000Z",
+			},
+		};
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: { version: 2, pins: {}, updatedAt: "2026-07-15T12:00:00.000Z" },
+				});
+			}
+			if (url.startsWith("/api/graph?")) {
+				return jsonResponse({ ok: true, data: graphResult });
+			}
+			if (url.startsWith("/api/graph/rebuild")) {
+				return jsonResponse({ ok: true, data: { status: "started" } });
+			}
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+
+		const props = {
+			currentKnowledgeBaseName: "Fictional notes",
+			currentKnowledgeBasePath: "/fictional/kb",
+			theme: "light" as const,
+		};
+		const { rerender } = render(<GraphPanel {...props} refreshToken={0} />);
+		await screen.findByText("图谱暂时不可用");
+		assert.equal((screen.getByRole("button", { name: "重构" }) as HTMLButtonElement).disabled, false);
+
+		await click(screen.getByRole("button", { name: "重构" }));
+		graphResult = readyGraphResult();
+		rerender(<GraphPanel {...props} refreshToken={1} />);
+
+		await screen.findByText("1 节点 · 0 关联");
+		assert.equal(screen.queryByText("图谱暂时不可用"), null);
+	});
+
 	it("notifies the app to close the community summary drawer when entering a community", async () => {
 		mockGraphFetch();
 		const selectionChanges: unknown[] = [];
@@ -262,17 +354,21 @@ function mockGraphFetch(options: { needsBuild?: boolean } = {}) {
 				data: { version: 2, pins: {}, updatedAt: "2026-06-20T00:00:00.000Z" },
 			});
 		}
-		if (url.startsWith("/api/graph?")) {
-			if (options.needsBuild) {
+			if (url.startsWith("/api/graph?")) {
+				if (options.needsBuild) {
+					return jsonResponse({
+						ok: true,
+						data: {
+							state: { status: "ready", rebuiltAt: null },
+							needsBuild: true,
+						},
+					});
+				}
 				return jsonResponse({
 					ok: true,
-					data: { needsBuild: true },
-				});
-			}
-			return jsonResponse({
-				ok: true,
-				data: {
-					needsBuild: false,
+					data: {
+						state: { status: "ready", rebuiltAt: null },
+						needsBuild: false,
 					data: {
 						meta: {
 							build_date: "2026-06-20T00:00:00.000Z",
@@ -301,6 +397,28 @@ function mockGraphFetch(options: { needsBuild?: boolean } = {}) {
 		}
 		return jsonResponse({ ok: false, error: `Unexpected request: ${url}` }, 500);
 	}) as typeof fetch;
+}
+
+function readyGraphResult() {
+	return {
+		state: { status: "ready", rebuiltAt: "2026-07-15T12:00:00.000Z" },
+		needsBuild: false,
+		data: {
+			meta: {
+				build_date: "2026-07-15T12:00:00.000Z",
+				wiki_title: "Fictional notes",
+				total_nodes: 1,
+				total_edges: 0,
+			},
+			nodes: [{
+				id: "wiki/fictional.md",
+				label: "Fictional",
+				type: "topic",
+				source_path: "wiki/fictional.md",
+			}],
+			edges: [],
+		},
+	};
 }
 
 function jsonResponse(payload: unknown, status = 200) {

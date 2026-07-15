@@ -29,7 +29,18 @@ export type GraphEvent =
 			kbPath: string;
 			message: string;
 			rebuiltAt: string;
-	  };
+		  };
+
+export type GraphAuthorityState =
+	| { status: "ready"; rebuiltAt: string | null }
+	| { status: "error"; message: string; rebuiltAt: string };
+
+export type GraphSnapshot =
+	| { state: Extract<GraphAuthorityState, { status: "error" }> }
+	| ({ state: Extract<GraphAuthorityState, { status: "ready" }> } & (
+		| { needsBuild: true }
+		| { needsBuild: false; data: GraphData }
+	));
 
 type RebuildQueueOptions = {
 	run: (signal: AbortSignal) => Promise<void>;
@@ -82,6 +93,41 @@ export async function readGraphData(kbPath: string): Promise<GraphReadResult> {
 		return { ok: true, needsBuild: true, graphPath };
 	}
 	return { ok: true, needsBuild: false, graphPath, data };
+}
+
+export class GraphAuthorityStore {
+	private readonly states = new Map<string, GraphAuthorityState>();
+
+	read(kbPath: string): GraphAuthorityState {
+		return this.states.get(kbPath) ?? { status: "ready", rebuiltAt: null };
+	}
+
+	record(event: GraphEvent): void {
+		this.states.set(
+			event.kbPath,
+			event.type === "graph_error"
+				? {
+						status: "error",
+						message: event.message,
+						rebuiltAt: event.rebuiltAt,
+					}
+				: { status: "ready", rebuiltAt: event.rebuiltAt },
+		);
+	}
+}
+
+const graphAuthority = new GraphAuthorityStore();
+
+export async function readGraphSnapshot(
+	kbPath: string,
+	authority: GraphAuthorityStore = graphAuthority,
+): Promise<GraphSnapshot> {
+	const state = authority.read(kbPath);
+	if (state.status === "error") return { state };
+	const graph = await readGraphData(kbPath);
+	return graph.needsBuild
+		? { state, needsBuild: true }
+		: { state, needsBuild: false, data: graph.data };
 }
 
 function graphNodesHavePagePaths(nodes: GraphData["nodes"]): boolean {
@@ -368,8 +414,13 @@ export function graphRebuildFailureMessage(_err: unknown): string {
 	return "图谱重建失败";
 }
 
+export function graphRebuildFailureLogMessage(_err: unknown): string {
+	return "[graph] rebuild failed";
+}
+
 
 function emitGraphEvent(event: GraphEvent): void {
+	graphAuthority.record(event);
 	eventBus.emit("graph", event);
 }
 
@@ -395,9 +446,7 @@ function createDefaultRebuildQueue(kbPath: string): GraphRebuildQueue {
 			});
 		},
 		onError: (err) => {
-			console.warn(
-				`[graph] rebuild failed for ${kbPath}: ${err instanceof Error ? err.message : String(err)}`,
-			);
+			console.warn(graphRebuildFailureLogMessage(err));
 			emitGraphEvent({
 				type: "graph_error",
 				kbPath,

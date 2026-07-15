@@ -36,10 +36,8 @@ import {
 	listConversations,
 	selectConversation,
 } from "@/lib/api/conversations";
-import {
-	subscribeGraphEvents,
-	type GraphNotificationEvent as GraphEvent,
-} from "@/lib/api/events";
+import { subscribeGraphEvents } from "@/lib/api/events";
+import { getGraphData } from "@/lib/api/graph";
 import {
 	getActiveContext,
 	listKnowledgeBases,
@@ -167,7 +165,11 @@ function App() {
 	const [pendingGraphDiff, setPendingGraphDiff] = useState<GraphDiff | null>(null);
 	const [graphRefreshToken, setGraphRefreshToken] = useState(0);
 	const [graphHasPendingUpdate, setGraphHasPendingUpdate] = useState(false);
-	const [graphBuildError, setGraphBuildError] = useState<Extract<GraphEvent, { type: "graph_error" }> | null>(null);
+	const [graphBuildError, setGraphBuildError] = useState<{
+		kbPath: string;
+		message: string;
+		rebuiltAt: string;
+	} | null>(null);
 	const [graphData, setGraphData] = useState<GraphData | null>(null);
 	const [graphPins, setGraphPins] = useState<PinMap>({});
 	const [graphVisibilityState, setGraphVisibilityState] = useState<GraphVisibilityState | null>(null);
@@ -268,9 +270,37 @@ function App() {
 
 	useEffect(() => {
 		if (!active?.kb.path) return;
-		return subscribeGraphEvents({
+		const kbPath = active.kb.path;
+		let authorityReadId = 0;
+		let cancelled = false;
+		const close = subscribeGraphEvents({
+			onReady(_ready, context) {
+				if (!context.reconnected) return;
+				const readId = ++authorityReadId;
+				setPendingGraphDiff(null);
+				void getGraphData(kbPath)
+					.then((result) => {
+						if (cancelled || authorityReadId !== readId) return;
+						setSidebarError(null);
+						if (result.state.status === "error") {
+							setGraphBuildError({
+								kbPath,
+								message: result.state.message,
+								rebuiltAt: result.state.rebuiltAt,
+							});
+							return;
+						}
+						setGraphBuildError(null);
+						setGraphRefreshToken((token) => token + 1);
+					})
+					.catch((error) => {
+						if (cancelled || authorityReadId !== readId) return;
+						setSidebarError(error instanceof Error ? error.message : String(error));
+					});
+			},
 			onEvent(event) {
-				if (event.kbPath !== active.kb.path) return;
+				if (event.kbPath !== kbPath) return;
+				authorityReadId += 1;
 				if (event.type === "graph_updated") {
 					setGraphBuildError(null);
 					setGraphRefreshToken((token) => token + 1);
@@ -282,9 +312,15 @@ function App() {
 				setGraphBuildError(event);
 			},
 			onProtocolError(error) {
+				authorityReadId += 1;
 				setSidebarError(error.message);
 			},
 		});
+		return () => {
+			cancelled = true;
+			authorityReadId += 1;
+			close();
+		};
 	}, [active?.kb.path]);
 
 	useEffect(() => {

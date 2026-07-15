@@ -27,7 +27,10 @@ describe("graph API module", () => {
 	it("graph read 与 layout read/save 通过 migrated JSON client", async () => {
 		let calls = stubFetch({
 			ok: true,
-			data: { needsBuild: true },
+			data: {
+				state: { status: "ready", rebuiltAt: null },
+				needsBuild: true,
+			},
 		});
 		assert.equal((await getGraphData("/kb/registered")).needsBuild, true);
 		assert.equal(calls[0]?.url, "/api/graph?kb=%2Fkb%2Fregistered");

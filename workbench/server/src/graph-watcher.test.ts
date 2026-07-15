@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
 	graphRebuildFailureMessage,
+	graphRebuildFailureLogMessage,
 	GraphRebuildQueue,
 	KnowledgeBaseGraphWatcher,
 	shouldIgnoreGraphWatchPath,
@@ -126,6 +127,10 @@ test("graph rebuild failure message is stable and does not expose build paths", 
 	assert.equal(
 		graphRebuildFailureMessage(new Error("spawn failed /Users/private/build.sh")),
 		"图谱重建失败",
+	);
+	assert.equal(
+		graphRebuildFailureLogMessage(new Error("spawn failed /private/fictional/build.sh")),
+		"[graph] rebuild failed",
 	);
 });
 test("graph rebuild queue recovers to started after a failed run", async () => {

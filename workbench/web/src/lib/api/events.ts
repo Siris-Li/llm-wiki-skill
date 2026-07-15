@@ -59,6 +59,10 @@ export interface EventSourceLike {
 
 export interface GraphEventsSubscriptionOptions {
 	onEvent: (event: GraphNotificationEvent) => void;
+	onReady?: (
+		event: Extract<GraphSseEvent, { type: "graph_stream_ready" }>,
+		context: { reconnected: boolean },
+	) => void;
 	onProtocolError?: (error: GraphEventsProtocolError) => void;
 	eventSourceFactory?: (url: string) => EventSourceLike;
 	reconnectDelayMs?: number;
@@ -74,6 +78,7 @@ export function subscribeGraphEvents(
 	let stopped = false;
 	let source: EventSourceLike | null = null;
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	let hasSeenReady = false;
 	const parser = new GraphEventParser();
 
 	const connect = () => {
@@ -84,7 +89,12 @@ export function subscribeGraphEvents(
 			if (stopped || source !== current) return;
 			try {
 				const event = parser.parse(message.data);
-				if (event.type !== GRAPH_SSE_READY_EVENT_TYPE) options.onEvent(event);
+				if (event.type === GRAPH_SSE_READY_EVENT_TYPE) {
+					options.onReady?.(event, { reconnected: hasSeenReady });
+					hasSeenReady = true;
+				} else {
+					options.onEvent(event);
+				}
 			} catch (err) {
 				const error = err instanceof GraphEventsProtocolError
 					? err

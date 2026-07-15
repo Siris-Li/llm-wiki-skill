@@ -166,6 +166,7 @@ export function GraphPanel({
 
 	useEffect(() => {
 		if (!graphBuildError || graphBuildError.kbPath !== currentKnowledgeBasePath) return;
+		loadRequestRef.current += 1;
 		setData(null);
 		setDataKnowledgeBasePath(currentKnowledgeBasePath);
 		onGraphDataChangeRef.current?.(null);
@@ -376,6 +377,19 @@ export function GraphPanel({
 		try {
 			const [result, layout] = await Promise.all([getGraphData(kbPath), getGraphLayout(kbPath)]);
 			if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return false;
+			if (result.state.status === "error") {
+				setData(null);
+				setDataKnowledgeBasePath(kbPath);
+				onGraphDataChangeRef.current?.(null);
+				onGraphVisibilityChangeRef.current?.(null);
+				applyLayoutPins({});
+				onSelectionChangeRef.current?.(null);
+				setBuildState("none");
+				setError(result.state.message);
+				setStatus("error");
+				return true;
+			}
+			if (!("needsBuild" in result)) return false;
 			const nextPins = { ...layout.pins, ...layoutPinsRef.current };
 			applyLayoutPins(nextPins);
 			if (result.needsBuild === true) {

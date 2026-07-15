@@ -4,7 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { graphDataPath, graphLayoutPath, readGraphData, readGraphLayout, writeGraphLayout } from "./graph.js";
+import {
+	GraphAuthorityStore,
+	graphDataPath,
+	graphLayoutPath,
+	readGraphData,
+	readGraphLayout,
+	readGraphSnapshot,
+	writeGraphLayout,
+} from "./graph.js";
 
 test("graph data without node source paths is treated as stale", async () => {
 	const kbPath = await tempKb();
@@ -18,6 +26,46 @@ test("graph data without node source paths is treated as stale", async () => {
 
 		const result = await readGraphData(kbPath);
 		assert.equal(result.needsBuild, true);
+	} finally {
+		await rm(kbPath, { recursive: true, force: true });
+	}
+});
+
+test("graph snapshot keeps the latest error and ready state authoritative across reconnect reads", async () => {
+	const kbPath = await tempKb();
+	const authority = new GraphAuthorityStore();
+	try {
+		await writeGraphFixture(kbPath, "Old graph");
+		authority.record({
+			type: "graph_error",
+			kbPath,
+			message: "图谱重建失败",
+			rebuiltAt: "2026-07-15T12:00:00.000Z",
+		});
+
+		assert.deepEqual(await readGraphSnapshot(kbPath, authority), {
+			state: {
+				status: "error",
+				message: "图谱重建失败",
+				rebuiltAt: "2026-07-15T12:00:00.000Z",
+			},
+		});
+
+		await writeGraphFixture(kbPath, "Current graph");
+		authority.record({
+			type: "graph_updated",
+			kbPath,
+			diff: null,
+			rebuiltAt: "2026-07-15T12:01:00.000Z",
+			stats: { nodeCount: 1, edgeCount: 0 },
+		});
+		const recovered = await readGraphSnapshot(kbPath, authority);
+
+		if (recovered.state.status !== "ready") assert.fail("expected recovered graph state");
+		if (!("needsBuild" in recovered)) assert.fail("expected recovered graph data");
+		assert.equal(recovered.state.rebuiltAt, "2026-07-15T12:01:00.000Z");
+		assert.equal(recovered.needsBuild, false);
+		assert.equal(recovered.needsBuild ? null : recovered.data.meta.wiki_title, "Current graph");
 	} finally {
 		await rm(kbPath, { recursive: true, force: true });
 	}
@@ -110,4 +158,23 @@ test("graph layout keeps old percent pins readable and preserves explicit world 
 
 async function tempKb(): Promise<string> {
 	return mkdtemp(path.join(os.tmpdir(), "llm-wiki-graph-layout-"));
+}
+
+async function writeGraphFixture(kbPath: string, title: string): Promise<void> {
+	await mkdir(path.dirname(graphDataPath(kbPath)), { recursive: true });
+	await writeFile(graphDataPath(kbPath), JSON.stringify({
+		meta: {
+			build_date: "2026-07-15T12:00:00.000Z",
+			wiki_title: title,
+			total_nodes: 1,
+			total_edges: 0,
+		},
+		nodes: [{
+			id: "fictional-topic",
+			label: "Fictional topic",
+			type: "topic",
+			source_path: "wiki/fictional-topic.md",
+		}],
+		edges: [],
+	}), "utf8");
 }
