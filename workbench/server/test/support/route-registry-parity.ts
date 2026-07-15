@@ -13,11 +13,6 @@ export interface MountedEndpoint {
 	readonly source: EndpointMountSource;
 }
 
-export interface TemporaryLegacyException {
-	readonly finding: `FIND-${string}`;
-	readonly issue: number;
-}
-
 export interface ApprovedAuxiliaryEndpoint {
 	readonly id: `AUX-${string}`;
 	readonly approval: string;
@@ -30,7 +25,6 @@ export interface RuntimeEndpointDeclaration {
 	readonly kind: EndpointKind;
 	readonly safety: EndpointSafety;
 	readonly source: EndpointMountSource;
-	readonly temporaryLegacyException?: TemporaryLegacyException;
 	readonly approvedAuxiliary?: ApprovedAuxiliaryEndpoint;
 }
 
@@ -52,10 +46,6 @@ interface AssertRouteRegistryParityOptions {
 
 const SECURITY_MIDDLEWARE_KEY = "ALL /api/*";
 const EXPECTED_PUBLIC_ENDPOINTS = new Set(["GET /api/health"]);
-const TEMPORARY_LEGACY_EXCEPTIONS = new Map<string, TemporaryLegacyException>([
-	["POST /api/echo", { finding: "FIND-001", issue: 207 }],
-	["GET /api/commands", { finding: "FIND-001", issue: 207 }],
-]);
 const APPROVED_AUXILIARY_ENDPOINTS = new Map<string, ApprovedAuxiliaryEndpoint>();
 
 /**
@@ -69,7 +59,6 @@ export const RUNTIME_ENDPOINT_DECLARATIONS = [
 	{ method: "POST", path: "/api/prompt", kind: "sse", safety: "state-changing", source: "createApp" },
 	{ method: "POST", path: "/api/knowledge-bases/batch-digest", kind: "sse", safety: "state-changing", source: "createApp" },
 	{ method: "GET", path: "/api/artifacts/:id/files/:filename", kind: "file-download", safety: "read-only", source: "createApp" },
-	{ method: "POST", path: "/api/echo", kind: "legacy", safety: "read-only", source: "startup", temporaryLegacyException: { finding: "FIND-001", issue: 207 } },
 	{ method: "GET", path: "/api/knowledge-bases", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "POST", path: "/api/knowledge-bases/external", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "POST", path: "/api/knowledge-bases/inspect", kind: "migrated-json", safety: "read-only", source: "createApp" },
@@ -85,7 +74,7 @@ export const RUNTIME_ENDPOINT_DECLARATIONS = [
 	{ method: "PUT", path: "/api/graph/layout", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "GET", path: "/api/refs", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "GET", path: "/api/page", kind: "migrated-json", safety: "read-only", source: "createApp" },
-	{ method: "GET", path: "/api/commands", kind: "legacy", safety: "read-only", source: "startup", temporaryLegacyException: { finding: "FIND-001", issue: 207 } },
+	{ method: "GET", path: "/api/commands", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "GET", path: "/api/config", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "POST", path: "/api/config", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "GET", path: "/api/models", kind: "migrated-json", safety: "read-only", source: "createApp" },
@@ -173,39 +162,12 @@ export function assertRouteRegistryParity(
 		}
 	}
 
-	const legacy = options.declared.filter((entry) => entry.kind === "legacy");
-	for (const entry of options.declared) {
-		const key = endpointKey(entry);
-		const exception = entry.temporaryLegacyException;
-		if (entry.kind !== "legacy" && exception) {
-			errors.push(`legacy exception metadata on non-legacy endpoint: ${endpointKey(entry)}`);
-		}
-		if (entry.kind !== "legacy") continue;
-		if (!exception) {
-			errors.push(`legacy exception metadata missing: ${key}`);
-			continue;
-		}
-		const expected = TEMPORARY_LEGACY_EXCEPTIONS.get(key);
-		if (!expected || exception.finding !== expected.finding || exception.issue !== expected.issue) {
-			errors.push(`legacy exception mismatch: ${key}`);
-		}
-	}
-	if (legacy.length > TEMPORARY_LEGACY_EXCEPTIONS.size) {
-		errors.push(`legacy exception count increased: ${legacy.length} > ${TEMPORARY_LEGACY_EXCEPTIONS.size}`);
-	}
-	for (const key of TEMPORARY_LEGACY_EXCEPTIONS.keys()) {
-		if (declared.get(key)?.kind !== "legacy") {
-			errors.push(`stale legacy exception allowlist: ${key}`);
-		}
-	}
-
 	for (const entry of options.declared) {
 		const approval = entry.approvedAuxiliary;
 		if (entry.source !== "startup") {
 			if (approval) errors.push(`auxiliary approval on createApp endpoint: ${endpointKey(entry)}`);
 			continue;
 		}
-		if (entry.kind === "legacy") continue;
 		if (!approval) {
 			errors.push(`auxiliary approval metadata missing: ${endpointKey(entry)}`);
 			continue;

@@ -29,7 +29,18 @@ describe("SettingsPanel authentication", () => {
 				return json({ ok: true, data: { version: 1, externalKnowledgeBases: [] } });
 			}
 			if (url === "/api/commands?includeUserGlobal=true") {
-				return json({ ok: true, items: [] });
+				return json({
+					ok: true,
+					data: [
+						{
+							slug: "/project-skill",
+							name: "project-skill",
+							description: "Project capability",
+							source: "builtin",
+							isProjectSkill: true,
+						},
+					],
+				});
 			}
 			if (url === "/api/models") {
 				return json({ ok: true, data: [] });
@@ -45,6 +56,7 @@ describe("SettingsPanel authentication", () => {
 
 		render(<SettingsPanel open onOpenChange={() => {}} />);
 		const keyInput = await screen.findByPlaceholderText("API key");
+		await screen.findByText(/项目内置 1 个 \/ pi 默认 0 个 \/ 用户全局 0 个/);
 		await changeText(keyInput, "sk-settings-panel-test");
 		await click(screen.getByRole("button", { name: "保存并测试" }));
 

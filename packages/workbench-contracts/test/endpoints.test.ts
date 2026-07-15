@@ -35,11 +35,12 @@ test("method + path 在 registry 中唯一（没有重复登记）", () => {
 	}
 });
 
-test("registry 覆盖四类 endpoint kind", () => {
+test("registry 只保留统一 JSON、SSE 与下载类型", () => {
 	const kinds = new Set(ENDPOINT_REGISTRY.map((e) => e.kind));
-	for (const expected of EndpointKindSchema.options) {
+	for (const expected of ["migrated-json", "file-download", "sse"] as const) {
 		assert.ok(kinds.has(expected), `missing kind ${expected}`);
 	}
+	assert.equal(EndpointKindSchema.safeParse("legacy").success, false);
 });
 
 test("registry 覆盖公开、可信只读、状态变更三类 safety 分类", () => {
@@ -97,8 +98,9 @@ test("MIGRATED_JSON_ENDPOINTS 保留 registry 的 method + path 配对", () => {
 	);
 	assert.equal(
 		isMigratedJsonEndpoint({ method: "GET", path: "/api/commands" }),
-		false,
+		true,
 	);
+	assert.equal(findEndpoint("POST", "/api/echo"), undefined);
 	assert.equal(
 		isMigratedJsonEndpoint({ method: "POST", path: "/api/prompt" }),
 		false,
@@ -162,10 +164,11 @@ test("health 与设置/模型/auth 入口是 migrated-json endpoint", () => {
 	assert.equal(health?.safety, "public");
 });
 
-test("isMigratedJsonPath 接受 migrated-json、拒绝 legacy path", () => {
+test("isMigratedJsonPath 接受 migrated-json、拒绝专用响应路径", () => {
 	assert.equal(isMigratedJsonPath("/api/health"), true);
 	assert.equal(isMigratedJsonPath("/api/knowledge-bases"), true);
 	assert.equal(isMigratedJsonPath("/api/knowledge-base"), true);
+	assert.equal(isMigratedJsonPath("/api/commands"), true);
 	assert.equal(isMigratedJsonPath("/api/graph"), true);
 	assert.equal(isMigratedJsonPath("/api/graph/rebuild"), true);
 	assert.equal(isMigratedJsonPath("/api/prompt"), false); // sse，不是 migrated-json

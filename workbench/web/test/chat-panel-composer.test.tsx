@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
 import { readFileSync } from "node:fs";
@@ -9,6 +9,39 @@ import { TooltipProvider } from "../src/components/ui/tooltip";
 import { changeText, render, screen } from "./render";
 
 describe("ChatPanel Paper composer", () => {
+	const originalFetch = globalThis.fetch;
+
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	it("loads the slash menu from the unified commands response", async () => {
+		const requests: string[] = [];
+		globalThis.fetch = (async (input) => {
+			requests.push(String(input));
+			return new Response(JSON.stringify({
+				ok: true,
+				data: [
+					{
+						slug: "/project-skill",
+						name: "project-skill",
+						description: "Project capability",
+						source: "builtin",
+						isProjectSkill: true,
+					},
+				],
+			}), {
+				headers: { "Content-Type": "application/json" },
+			});
+		}) as typeof globalThis.fetch;
+
+		renderChatPanel([]);
+		await changeText(screen.getByPlaceholderText(/写下想法/), "/project");
+
+		assert.ok(await screen.findByRole("option", { name: /project-skill/ }));
+		assert.deepEqual(requests, ["/api/commands"]);
+	});
+
 	it("keeps send inside the composer input card and export outside it", () => {
 		renderChatPanel();
 

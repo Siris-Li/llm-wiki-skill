@@ -16,7 +16,7 @@ import {
  * 只服务已迁移到统一 JSON envelope（`{ ok:true, data } | { ok:false, code,
  * message, details? }`）的 endpoint（migrated-json）。不吞旧响应格式：遇到旧
  * 格式（无 ok 字段、`{ ok:true, items }` 等）一律判为契约不符并抛
- * ContractMismatchError。未迁移 endpoint 继续走 legacy.ts，互不污染。
+ * ContractMismatchError。SSE 和文件下载继续使用各自专用的调用路径，互不污染。
  */
 
 /** 后端失败 envelope 抛出的错误。业务逻辑用 code 判断，不依赖 message。 */
@@ -75,7 +75,7 @@ export interface RequestOptions<T> {
  *
  * `endpoint` 类型为 MigratedJsonEndpoint（派生自 registry）：编译期把 method +
  * path 锁成合法组合。运行时在 fetch 前再次核对同一 registry，防止 `as` 或无类型
- * 调用绕过。未迁移 endpoint 继续走 legacy.ts，互不污染。
+ * 调用绕过。SSE 和文件下载继续走各自专用的调用路径，互不污染。
  */
 export async function request<T>(
 	endpoint: MigratedJsonEndpoint,

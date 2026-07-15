@@ -6,8 +6,7 @@ import { resolve } from "node:path";
 
 import { CommandMenu } from "../src/components/CommandMenu";
 import { RefMenu } from "../src/components/RefMenu";
-import type { PageRef } from "@llm-wiki/workbench-contracts";
-import type { CommandItem } from "../src/lib/api/legacy";
+import type { CommandItem, PageRef } from "@llm-wiki/workbench-contracts";
 import { render, screen } from "./render";
 
 describe("Paper popup menus", () => {
@@ -42,9 +41,9 @@ describe("Paper popup menus", () => {
 				open
 				query="dig"
 				items={[
-					command({ slug: "/digest", name: "消化素材", source: "builtin", skillPath: null }),
-					command({ slug: "/llm-wiki", name: "llm-wiki", source: "builtin", skillPath: "/skills/llm-wiki" }),
-					command({ slug: "/help", name: "帮助", source: "pi-default", skillPath: null }),
+					command({ slug: "/digest", name: "消化素材", source: "builtin", isProjectSkill: false }),
+					command({ slug: "/llm-wiki", name: "llm-wiki", source: "builtin", isProjectSkill: true }),
+					command({ slug: "/help", name: "帮助", source: "pi-default", isProjectSkill: false }),
 				]}
 				selectedIndex={1}
 				onSelect={() => {}}
@@ -80,7 +79,7 @@ function command(overrides: Partial<CommandItem>): CommandItem {
 		name: "Command",
 		description: "Runs a command",
 		source: "builtin",
-		skillPath: null,
+		isProjectSkill: false,
 		...overrides,
 	};
 }

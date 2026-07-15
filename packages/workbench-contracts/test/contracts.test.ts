@@ -9,6 +9,8 @@ import {
 	AuthSetDataSchema,
 	AuthStatusDataSchema,
 	AvailableModelsDataSchema,
+	CommandListDataSchema,
+	CommandListQuerySchema,
 	ConflictDetailsSchema,
 	errorCodeToHttpStatus,
 	FailureEnvelopeSchema,
@@ -251,6 +253,40 @@ test("config / models / auth data schema 校验公开请求与响应 shape", () 
 		message: "连接成功",
 	});
 	assert.equal(AuthConnectionTestDataSchema.safeParse({ message: " " }).success, false);
+});
+
+test("命令清单契约不保留本机 skill 路径", () => {
+	const commands = CommandListDataSchema.parse([
+		{
+			slug: "/project-skill",
+			name: "project-skill",
+			description: "Project capability",
+			source: "builtin",
+			isProjectSkill: true,
+			skillPath: "/Users/example/.llm-wiki-agent/skills/project-skill",
+		},
+	]);
+	assert.deepEqual(commands, [
+		{
+			slug: "/project-skill",
+			name: "project-skill",
+			description: "Project capability",
+			source: "builtin",
+			isProjectSkill: true,
+		},
+	]);
+});
+
+test("命令清单查询只接受明确的全局能力开关", () => {
+	assert.deepEqual(CommandListQuerySchema.parse({}), {});
+	assert.deepEqual(CommandListQuerySchema.parse({ includeUserGlobal: "true" }), {
+		includeUserGlobal: "true",
+	});
+	assert.equal(
+		CommandListQuerySchema.safeParse({ includeUserGlobal: "unexpected" }).success,
+		false,
+	);
+	assert.equal(CommandListQuerySchema.safeParse({ unexpected: "true" }).success, false);
 });
 
 test("知识库上下文明确 GET query kb 与 JSON body kbPath", () => {
