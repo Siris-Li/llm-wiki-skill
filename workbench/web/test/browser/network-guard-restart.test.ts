@@ -13,6 +13,8 @@ import {
 	verifyNetworkGuardLaunch,
 } from "./support/browser-harness";
 
+const LIVE_CHILD_SOURCE = "const s=require('node:net').createServer();process.on('SIGTERM',()=>s.close(()=>process.exit(0)));s.listen(0,'127.0.0.1',()=>console.log('ready'))";
+
 test("every guarded process launch produces fresh verified evidence", async (t) => {
 	const sandbox = await mkdtemp(join(tmpdir(), "llm-wiki-browser-network-guard-"));
 	const probeFile = join(sandbox, "server-network-probe.json");
@@ -22,11 +24,10 @@ test("every guarded process launch produces fresh verified evidence", async (t) 
 		await rm(sandbox, { recursive: true, force: true });
 	});
 
-	const childSource = "const s=require('node:net').createServer();process.on('SIGTERM',()=>s.close(()=>process.exit(0)));s.listen(0,'127.0.0.1',()=>console.log('ready'))";
-	for (let launch = 0; launch < 2; launch += 1) {
+	for (let launchIndex = 0; launchIndex < 2; launchIndex += 1) {
 		running = await startNetworkGuardedProcess(
 			process.execPath,
-			["-e", childSource],
+			["-e", LIVE_CHILD_SOURCE],
 			REPO_ROOT,
 			{
 				HOME: sandbox,
@@ -63,7 +64,7 @@ test("a restarted process cannot reuse stale network guard evidence", async (t) 
 
 	const processWithoutGuard = await startProcess(
 		process.execPath,
-		["-e", "console.log('ready')"],
+		["-e", LIVE_CHILD_SOURCE],
 		REPO_ROOT,
 		{
 			HOME: sandbox,
@@ -80,4 +81,8 @@ test("a restarted process cannot reuse stale network guard evidence", async (t) 
 		verifyNetworkGuardLaunch(currentLaunch, processWithoutGuard),
 		/current launch did not produce valid network guard evidence/,
 	);
+	assert.equal(processWithoutGuard.child.exitCode, null);
+	assert.equal(processWithoutGuard.child.signalCode, null);
+	await stopProcess(processWithoutGuard);
+	runningProcesses.pop();
 });

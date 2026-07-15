@@ -74,11 +74,11 @@ export function isolatedEnvironment(home: string, port: number, selectedDirector
 	};
 }
 
-export async function createNetworkGuardLaunch(probeFile: string): Promise<NetworkGuardLaunch> {
+export async function createNetworkGuardLaunch(probeFileBase: string): Promise<NetworkGuardLaunch> {
 	const generation = randomUUID();
 	const launch = {
 		generation,
-		probeFile: `${probeFile}.${generation}`,
+		probeFile: `${probeFileBase}.${generation}`,
 	};
 	await rm(launch.probeFile, { force: true });
 	return launch;
