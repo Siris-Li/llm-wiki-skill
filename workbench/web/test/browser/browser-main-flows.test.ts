@@ -23,11 +23,10 @@ import {
 	createConversation,
 	createKnowledgeBase as createBaseKnowledgeBase,
 	isolatedEnvironment,
-	networkGuardEnvironment,
 	platformSandboxEnvironment,
 	prepareSandboxDirectories,
 	sanitizeBrowserOutput,
-	startProcess,
+	startNetworkGuardedProcess,
 	stopProcess,
 	type RunningProcess,
 	waitForFile,
@@ -115,7 +114,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		}, null, 2)}\n`);
 
 		server = await startBackend(home, backendPort, kbB, serverNetworkProbe);
-		vite = await startProcess(
+		vite = await startNetworkGuardedProcess(
 			process.execPath,
 			[VITE_ENTRY, "--host", "127.0.0.1", "--port", String(webPort), "--strictPort"],
 			WEB_ROOT,
@@ -127,14 +126,11 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 				LLM_WIKI_AGENT_API_ORIGIN: `http://127.0.0.1:${backendPort}`,
 				LLM_WIKI_AGENT_DISABLE_HMR: "1",
 				...platformSandboxEnvironment(home),
-				...networkGuardEnvironment(viteNetworkProbe),
 			},
 			(output) => output.includes("Local:"),
 			"Vite frontend",
+			viteNetworkProbe,
 		);
-		await Promise.all([waitForFile(serverNetworkProbe), waitForFile(viteNetworkProbe)]);
-		assert.equal(await readFile(serverNetworkProbe, "utf8"), "BLOCKED");
-		assert.equal(await readFile(viteNetworkProbe, "utf8"), "BLOCKED");
 
 		browserServer = await chromium.launchServer({
 			headless: true,
@@ -306,10 +302,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await assertBrowserJson(page, `/api/graph?kb=${encodeURIComponent(join(home, "missing-kb"))}`, 404, /知识库/);
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 		await page.goto("about:blank");
-		await rm(serverNetworkProbe, { force: true });
 		server = await restartBackend(server, home, backendPort, kbB, serverNetworkProbe);
-		await waitForFile(serverNetworkProbe);
-		assert.equal(await readFile(serverNetworkProbe, "utf8"), "BLOCKED");
 		graphEventsSeen = false;
 		await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
 		await page.getByLabel("当前知识库").getByText("atlas-notes").waitFor({ timeout: START_TIMEOUT_MS });
@@ -585,13 +578,14 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 });
 
 async function startBackend(home: string, port: number, selectedDirectory: string, networkProbeFile: string) {
-	return startProcess(
+	return startNetworkGuardedProcess(
 		process.execPath,
 		["--import", "tsx", SERVER_ENTRY],
 		REPO_ROOT,
-		isolatedEnvironment(home, port, selectedDirectory, networkProbeFile),
+		isolatedEnvironment(home, port, selectedDirectory),
 		(output) => output.includes("listening on http://"),
 		"browser backend",
+		networkProbeFile,
 	);
 }
 
