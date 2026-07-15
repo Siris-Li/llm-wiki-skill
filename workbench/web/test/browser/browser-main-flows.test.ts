@@ -157,6 +157,15 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		});
 		await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
 		await page.getByText("atlas-notes", { exact: false }).first().waitFor({ timeout: START_TIMEOUT_MS });
+		await waitUntil(
+			() => apiRequests.has("/api/commands"),
+			OPERATION_TIMEOUT_MS,
+			"command list was not loaded",
+		);
+		const composer = page.getByPlaceholder(/写下想法/);
+		await composer.fill("/");
+		await page.getByRole("option", { name: /sediment_to_wiki/ }).waitFor();
+		await composer.fill("");
 
 		// Knowledge bases: selection, clearing, restart recovery, and isolation.
 		await page.getByText("harbor-notes", { exact: true }).click();
@@ -372,6 +381,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		// Settings and models: persisted setting, model list, and redacted auth status.
 		await page.getByRole("button", { name: "设置" }).last().click();
 		await page.getByText("auth.json：已存在", { exact: true }).waitFor();
+		await page.getByText(/项目内置 \d+ 个 \/ pi 默认 \d+ 个 \/ 用户全局 \d+ 个/).waitFor();
 		assert.equal((await page.locator("select").nth(1).locator("option").allTextContents()).length > 1, true);
 		const skillsToggle = page.getByRole("checkbox");
 		await skillsToggle.check();

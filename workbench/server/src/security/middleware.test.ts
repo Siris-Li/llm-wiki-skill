@@ -9,6 +9,7 @@ import { createSecurityMiddleware } from "./middleware.js";
 const TOKEN = "test-capability-token-secret-do-not-log-7f3e";
 const TRUSTED_ORIGIN = "http://localhost:5180";
 const TRUSTED_ORIGINS = new Set([TRUSTED_ORIGIN]);
+const EXAMPLE_SKILL_PATH = "/Users/example/.llm-wiki-agent/skills/project-skill";
 const KNOWLEDGE_BASE_BODY = JSON.stringify({ name: "security-kb", purpose: "security test" });
 const KNOWLEDGE_BASE_INFO = {
 	path: "/fake/default/security-kb",
@@ -30,7 +31,7 @@ type EnvelopeJson = {
  *  - POST /api/config                        state-changing（#168 migrated-json）
  *  - GET /api/models                         read-only（#168 migrated-json）
  *  - GET /api/auth/status                    read-only（#168 migrated-json）
- *  - POST /api/echo                          read-only（POST 不等于要 token）
+ *  - GET /api/commands                       read-only（命令清单不能泄露本机路径）
  *  - GET /api/artifacts/:id/files/:filename  file-download read-only
  *  - POST /api/knowledge-bases/new/init-existing 与 /api/system/choose-directory state-changing
  *  - POST /api/prompt                        state-changing（SSE 启动）
@@ -46,6 +47,15 @@ function buildApp(
 			saveConfig: async () => {},
 			listAvailableModels: () => [],
 			reloadActiveResources: async () => {},
+		},
+		commandService: {
+			loadConfig: async () => ({ version: 1, externalKnowledgeBases: [] }),
+			listLoadedSkills: async () => [{
+				name: "project-skill",
+				description: "Project capability",
+				source: "builtin" as const,
+				skillPath: EXAMPLE_SKILL_PATH,
+			}],
 		},
 		authService: {
 			getAuthStatus: async () => ({ authFileExists: false, providers: [], envKeys: [] }),
@@ -72,7 +82,6 @@ function buildApp(
 			chooseDirectory: async () => "/fake/external/chosen",
 		},
 	});
-	app.post("/api/echo", (c) => c.json({ ok: true }));
 	app.post("/api/prompt", (c) => c.json({ ok: true }));
 	return app;
 }
@@ -110,18 +119,27 @@ test("知识库列表仍要求 token，不能作为公开后台探测", async ()
 	assert.equal(json.code, "FORBIDDEN_LOCAL_API");
 });
 
-test("trusted read-only POST /api/echo：可信来源仍需 token", async () => {
+test("命令清单要求可信来源和 token，且不暴露本机路径", async () => {
 	const app = buildApp();
-	const denied = await app.request("/api/echo", {
-		method: "POST",
+	const denied = await app.request("/api/commands", {
 		headers: headers({ origin: TRUSTED_ORIGIN }),
 	});
 	assert.equal(denied.status, 403);
-	const allowed = await app.request("/api/echo", {
-		method: "POST",
+	assert.equal(JSON.stringify(await denied.json()).includes(EXAMPLE_SKILL_PATH), false);
+
+	const untrusted = await app.request("/api/commands", {
+		headers: headers({ origin: "http://evil.example", [CAPABILITY_TOKEN_HEADER]: TOKEN }),
+	});
+	assert.equal(untrusted.status, 403);
+	assert.equal(JSON.stringify(await untrusted.json()).includes(EXAMPLE_SKILL_PATH), false);
+
+	const allowed = await app.request("/api/commands", {
 		headers: headers({ origin: TRUSTED_ORIGIN, [CAPABILITY_TOKEN_HEADER]: TOKEN }),
 	});
 	assert.equal(allowed.status, 200);
+	const payload = JSON.stringify(await allowed.json());
+	assert.equal(payload.includes(EXAMPLE_SKILL_PATH), false);
+	assert.equal(payload.includes("skillPath"), false);
 });
 
 test("文件下载 GET：可信来源和 token 缺一不可", async () => {
@@ -147,7 +165,7 @@ test("只读 graph EventSource GET：不可信来源不能观察本地事件", a
 
 test("migrated-json read-only GET：可信来源和 token 同时正确才放行", async () => {
 	const app = buildApp();
-	for (const path of ["/api/config", "/api/models", "/api/auth/status"]) {
+	for (const path of ["/api/config", "/api/models", "/api/auth/status", "/api/commands"]) {
 		const denied = await app.request(path, { headers: headers({ origin: TRUSTED_ORIGIN }) });
 		assert.equal(denied.status, 403, path);
 		const res = await app.request(path, {

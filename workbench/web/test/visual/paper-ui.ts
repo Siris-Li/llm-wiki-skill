@@ -619,9 +619,9 @@ async function fulfillMockApi(route: Route, url: URL, method: string, apiReads: 
 	if (pathname === "/api/commands") {
 		await json({
 			ok: true,
-			items: [
-				{ slug: "/sediment", name: "sediment_to_wiki", description: "把当前对话整理成页面", source: "builtin", skillPath: null },
-				{ slug: "/html", name: "html", description: "导出 HTML 页面", source: "builtin", skillPath: null },
+			data: [
+				{ slug: "/sediment", name: "sediment_to_wiki", description: "把当前对话整理成页面", source: "builtin", isProjectSkill: false },
+				{ slug: "/html", name: "html", description: "导出 HTML 页面", source: "builtin", isProjectSkill: false },
 			],
 		});
 		return;

@@ -116,7 +116,6 @@ describe("workbench api client", () => {
 		});
 		for (const endpoint of [
 			{ method: "POST", path: "/api/health" },
-			{ method: "GET", path: "/api/commands" },
 			{ method: "POST", path: "/api/prompt" },
 			{ method: "GET", path: "/api/artifacts/:id/files/:filename" },
 		]) {
