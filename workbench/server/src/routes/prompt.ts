@@ -276,8 +276,6 @@ export const defaultPromptRouteService: PromptRouteService = {
         ts: Date.now(),
         sessionId: active.conversationId,
         kbPath: active.kbPath,
-        messagePreview: message.slice(0, 120),
-        explicitRefs,
       };
       if (shouldSearch) {
         const toolCallId = `${ctx.runId}-knowledge-search`;
@@ -329,10 +327,9 @@ export const defaultPromptRouteService: PromptRouteService = {
               hitReason: result.hitReason,
               score: result.score,
             })),
-            wrappedCharCount: message.length + (knowledgeContext?.length ?? 0),
             error: null,
           }).catch(() => {});
-        } catch (err) {
+        } catch {
           const errorText = "知识库检索失败";
           await ctx.writer.write(
             ctx.adapter.endTool({
@@ -346,9 +343,7 @@ export const defaultPromptRouteService: PromptRouteService = {
             ...baseLog,
             triggered: true,
             results: [],
-            wrappedCharCount: 0,
-            error:
-              err instanceof Error ? (err.stack ?? err.message) : String(err),
+            error: "retrieval_failed",
           }).catch(() => {});
         }
       } else {
@@ -356,7 +351,6 @@ export const defaultPromptRouteService: PromptRouteService = {
           ...baseLog,
           triggered: false,
           results: [],
-          wrappedCharCount: 0,
           error: null,
         }).catch(() => {});
       }

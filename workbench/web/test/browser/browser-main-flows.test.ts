@@ -179,16 +179,25 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await page.getByText("wiki/entities/shared.md", { exact: true }).last().click();
 		await page.getByText("Harbor-only fictional signal", { exact: false }).waitFor();
 		await page.getByLabel("关闭").last().click();
+		const shortQuestion = "q9x";
+		const longQuestionPrefix = "fictional-long-question-marker-";
+		const longQuestion = `${longQuestionPrefix}${"fictional-detail-".repeat(32)}fictional-long-question-tail`;
+		const sensitiveMarker = "FICTIONAL_SENSITIVE_LOG_MARKER";
+		const sensitiveQuestion = `${sensitiveMarker} fictional confidential topic`;
+		await sendComposerMessage(page, shortQuestion);
+		await sendComposerMessage(page, longQuestion);
+		await sendComposerMessage(page, sensitiveQuestion);
 		await waitUntil(
 			() => readdir(retrievalLogDir).then((files) => files.some((file) => file.endsWith(".jsonl")), () => false),
 			OPERATION_TIMEOUT_MS,
 			"retrieval log did not appear",
 		);
-		const retrievalEntries = (await Promise.all(
+		const retrievalLogContents = await Promise.all(
 			(await readdir(retrievalLogDir))
 				.filter((file) => file.endsWith(".jsonl"))
 				.map((file) => readFile(join(retrievalLogDir, file), "utf8")),
-		)).flatMap((content) => content.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as {
+		);
+		const retrievalEntries = retrievalLogContents.flatMap((content) => content.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as {
 			sessionId: string;
 			kbPath: string;
 			triggered: boolean;
@@ -200,6 +209,14 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 			&& entry.triggered
 			&& entry.results.some((result) => result.path === "wiki/entities/shared.md")
 		)), true);
+		const serializedRetrievalLogs = retrievalLogContents.join("\n");
+		for (const fragment of [shortQuestion, longQuestionPrefix, sensitiveMarker]) {
+			assert.equal(
+				serializedRetrievalLogs.includes(fragment),
+				false,
+				`default retrieval logs must not contain ${fragment}`,
+			);
+		}
 		await page.getByRole("tab", { name: "图谱" }).click();
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 		await page.getByText("2 节点 · 0 关联", { exact: true }).waitFor();

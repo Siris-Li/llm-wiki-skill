@@ -9,6 +9,7 @@ import {
 	contextBudgetFromWindow,
 	parseExplicitPageRefs,
 	searchKnowledgeBase,
+	serializeRetrievalLogEntry,
 	shouldUseKnowledgeBase,
 	stripKnowledgeContextForDisplay,
 } from "./retrieval.js";
@@ -105,6 +106,50 @@ test("contextBudgetFromWindow follows 20 percent fallback rule", () => {
 	assert.equal(contextBudgetFromWindow(10_000), 2_000);
 	assert.equal(contextBudgetFromWindow(undefined), 4_000);
 	assert.equal(contextBudgetFromWindow("bad"), 4_000);
+});
+
+test("serializeRetrievalLogEntry excludes user-derived and unrecognized data", () => {
+	const shortQuestion = "q9x";
+	const longQuestionPrefix = "fictional-long-question-marker-";
+	const longQuestion = `${longQuestionPrefix}${"fictional-detail-".repeat(32)}fictional-long-question-tail`;
+	const truncatedLongQuestion = longQuestion.slice(0, 120);
+	const sensitiveMarker = "FICTIONAL_SENSITIVE_LOG_MARKER";
+
+	for (const question of [shortQuestion, longQuestion, sensitiveMarker]) {
+		const encodedQuestion = Buffer.from(question).toString("base64");
+		const untrustedEntry = {
+			ts: 1_735_000_000_000,
+			sessionId: "fictional-session",
+			kbPath: "/fictional/knowledge-base",
+			triggered: true,
+			results: [{ path: "wiki/entities/harbor.md", hitReason: "body" as const, score: 1 }],
+			error: "retrieval_failed" as const,
+			messagePreview: question,
+			explicitRefs: [question],
+			wrappedCharCount: question.length,
+			rawError: `failed while processing ${question}`,
+			encodedQuestion,
+		};
+		const serialized = serializeRetrievalLogEntry(untrustedEntry);
+		const forbiddenFragments = [
+			question,
+			encodedQuestion,
+			...(question === longQuestion
+				? [truncatedLongQuestion, Buffer.from(truncatedLongQuestion).toString("base64")]
+				: []),
+		];
+
+		for (const fragment of forbiddenFragments) {
+			assert.equal(serialized.includes(fragment), false);
+		}
+		assert.equal(serialized.includes("messagePreview"), false);
+		assert.equal(serialized.includes("explicitRefs"), false);
+		assert.equal(serialized.includes("rawError"), false);
+		assert.equal(serialized.includes("wrappedCharCount"), false);
+		assert.match(serialized, /fictional-session/);
+		assert.match(serialized, /wiki\/entities\/harbor\.md/);
+		assert.match(serialized, /retrieval_failed/);
+	}
 });
 
 test("buildKnowledgeContextPrompt wraps empty results explicitly", () => {
