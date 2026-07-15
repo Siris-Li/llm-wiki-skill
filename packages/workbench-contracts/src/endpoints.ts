@@ -6,9 +6,6 @@ import { z } from "zod";
  * 每个 endpoint 同时携带两维元数据：
  *
  * - `kind`：迁移状态 + 响应形态。决定 endpoint 走哪条调用路径。
- *   - `legacy`        尚未迁移，继续由隔离的 legacy wrapper（web `lib/api/legacy.ts` /
- *     server `runtime-app.ts` 手写 handler）处理，返回旧 `{ ok, error }` /
- *     `{ ok:true, items }` 形态。
  *   - `migrated-json` 已迁移到统一 JSON envelope
  *     `{ ok:true, data } | { ok:false, code, message, details? }`，只能由新
  *     `api/client.ts` 的 `request()` 处理。
@@ -29,9 +26,9 @@ import { z } from "zod";
  *   类型与 `MIGRATED_JSON_ENDPOINTS` 等常量都从它派生。
  * - 新 `api/client.ts` 的 `request()` 在类型层只接受 `MigratedJsonEndpoint`，
  *   从而在编译期阻止业务代码误配 method/path 或调用非 migrated-json endpoint。
- * - 路由迁移时在这里改对应 entry 的 `kind`（legacy -> migrated-json），调用路径
- *   与安全边界随之收敛，无需在多处同步。
- * - 当前只服务 workbench 路由迁移；安全策略实现留给 #166。
+ * - 新增或调整路由时在这里登记对应的 `kind`，调用路径与安全边界随之收敛，
+ *   无需在多处同步。
+ * - 当前只服务 workbench 路由；安全策略实现留给 #166。
  */
 
 // ============= HTTP method =============
@@ -43,7 +40,6 @@ export type HttpMethod = z.infer<typeof HttpMethodSchema>;
 
 /** endpoint 迁移状态与响应形态（见模块注释）。 */
 export const EndpointKindSchema = z.enum([
-	"legacy",
 	"migrated-json",
 	"file-download",
 	"sse",
@@ -122,9 +118,8 @@ export const EndpointEntrySchema = z.object({
 
 // ============= registry（单一来源） =============
 //
-// 登记当前 workbench 后端全部 endpoint（见 server/src/runtime-app.ts 实际组装）。
-// 新增 / 迁移路由时在此同步：新增 entry，或把 legacy 改为 migrated-json。
-// 迁移完成后该 entry 不再保留 legacy 形态（由新 client 与统一 response helper 保证）。
+// 登记当前 workbench 后端全部 endpoint（见 server/src/app.ts 实际组装）。
+// 新增或调整路由时在此同步；普通 JSON 路由由统一 client 与 response helper 处理。
 
 function freezeEndpointEntries<const Entries extends readonly EndpointEntry[]>(
 	entries: Entries,
@@ -175,14 +170,7 @@ export const ENDPOINT_REGISTRY = freezeEndpointEntries([
 		description: "产物文件下载，无副作用",
 	},
 
-	// ---------- remaining endpoints（legacy 与已迁移状态按 entry 明确登记） ----------
-	{
-		method: "POST",
-		path: "/api/echo",
-		kind: "legacy",
-		safety: "read-only",
-		description: "诊断回显，无副作用",
-	},
+	// ---------- remaining migrated-json endpoints ----------
 	{
 		method: "GET",
 		path: "/api/knowledge-bases",
@@ -291,7 +279,7 @@ export const ENDPOINT_REGISTRY = freezeEndpointEntries([
 	{
 		method: "GET",
 		path: "/api/commands",
-		kind: "legacy",
+		kind: "migrated-json",
 		safety: "read-only",
 		description: "slash 命令列表",
 	},
@@ -435,7 +423,7 @@ const MIGRATED_JSON_ENDPOINT_KEYS: ReadonlySet<string> = new Set(
 );
 const MIGRATED_JSON_PATH_SET: ReadonlySet<string> = new Set(MIGRATED_JSON_PATHS);
 
-/** 运行时判别：path 是否属于已迁移 endpoint（legacy 返回 false）。 */
+/** 运行时判别：path 是否属于统一 JSON endpoint（专用响应路径返回 false）。 */
 export function isMigratedJsonPath(path: string): path is MigratedJsonPath {
 	return MIGRATED_JSON_PATH_SET.has(path);
 }
@@ -526,8 +514,8 @@ export function requiresTrustedSource(method: string, path: string): boolean {
 
 // ============= 静态自检（编译期护栏，被 typecheck 覆盖） =============
 //
-// 编译期证明 graph rebuild 已迁移，可由 typed client 调用。若 endpoint 退回
-// legacy-json，或 method/path 不再配对，赋值会触发类型错误。
+// 编译期证明 graph rebuild 可由 typed client 调用。若 method/path 不再配对，
+// 赋值会触发类型错误。
 const _graphRebuildAcceptedByClient: MigratedJsonEndpoint = {
 	method: "POST",
 	path: "/api/graph/rebuild",
@@ -542,12 +530,12 @@ const _wrongMethodRejectedByClient: MigratedJsonEndpoint = {
 };
 void _wrongMethodRejectedByClient;
 
-const _legacyRejectedByClient: MigratedJsonEndpoint = {
-	method: "GET",
-	// @ts-expect-error legacy endpoints stay in the isolated legacy client
-	path: "/api/commands",
+const _removedEchoRejectedByClient: MigratedJsonEndpoint = {
+	method: "POST",
+	// @ts-expect-error removed endpoints cannot return through the typed client
+	path: "/api/echo",
 };
-void _legacyRejectedByClient;
+void _removedEchoRejectedByClient;
 
 const _sseRejectedByClient: MigratedJsonEndpoint = {
 	method: "POST",

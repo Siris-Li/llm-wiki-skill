@@ -16,7 +16,7 @@ import {
 import { Input } from "./ui/input";
 import { getAuthStatus, setAuthKey, testAuthConnection } from "../lib/api/auth";
 import { fetchAvailableModels, getConfig, setConfig } from "../lib/api/config";
-import { listCommands } from "../lib/api/legacy";
+import { listCommands } from "../lib/api/commands";
 import { modelRefToValue, valueToModelRef } from "../lib/model-roles";
 
 const PROVIDERS = [
@@ -60,7 +60,7 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 			digest: modelRefToValue(config.modelRoles?.digest),
 		});
 		setSkillCounts({
-			builtin: allCommands.filter((item) => item.source === "builtin" && item.skillPath).length,
+			builtin: allCommands.filter((item) => item.source === "builtin" && item.isProjectSkill).length,
 			piDefault: allCommands.filter((item) => item.source === "pi-default").length,
 			userGlobal: allCommands.filter((item) => item.source === "user-global").length,
 		});

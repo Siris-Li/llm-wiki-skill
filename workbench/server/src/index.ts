@@ -3,7 +3,6 @@
  *
  * 阶段一 step 8 完整端点：
  *   GET    /api/health                          心跳
- *   POST   /api/echo                            诊断回显
  *   POST   /api/prompt                          发消息（SSE 回 agent 事件流）
  *
  *   GET    /api/knowledge-bases                 列出所有已知知识库
@@ -27,7 +26,6 @@ const runningServer = await startWorkbenchServer({
 });
 
 console.log(`  GET    /api/health`);
-console.log(`  POST   /api/echo`);
 console.log(`  POST   /api/prompt`);
 console.log(`  GET    /api/knowledge-bases`);
 console.log(`  POST   /api/knowledge-bases/external`);

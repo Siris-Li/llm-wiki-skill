@@ -10,6 +10,7 @@ import { HttpContractError } from "./http/request.js";
 import { createArtifactRoutes, defaultArtifactRouteService, type ArtifactRouteService } from "./routes/artifacts.js";
 import { createAuthRoutes, defaultAuthRouteService, type AuthRouteService } from "./routes/auth.js";
 import { createConfigRoutes, createModelRoutes, defaultConfigRouteService, type ConfigRouteService } from "./routes/config.js";
+import { createCommandRoutes, defaultCommandRouteService, type CommandRouteService } from "./routes/commands.js";
 import { createConversationRoutes, defaultConversationRouteService, type ConversationRouteService } from "./routes/conversations.js";
 import {
 	createBatchDigestRoutes,
@@ -52,6 +53,8 @@ export interface WorkbenchAppDeps {
 	security?: MiddlewareHandler;
 	/** 设置 / 模型 route 依赖；测试可注入 fake，真实启动用默认实现。 */
 	configService?: ConfigRouteService;
+	/** 命令清单 route 依赖；测试可注入 fake，真实启动用默认实现。 */
+	commandService?: CommandRouteService;
 	/** 认证状态、写入和连接测试 route 依赖；测试可注入 fake，真实启动用默认实现。 */
 	authService?: AuthRouteService;
 	/** 知识库 / active context route 依赖；route 测试必须注入 fake。 */
@@ -110,6 +113,7 @@ export function createApp(deps: WorkbenchAppDeps = {}): Hono {
 	app.route("/api/health", createHealthRoutes());
 	app.route("/api/config", createConfigRoutes(deps.configService ?? defaultConfigRouteService));
 	app.route("/api/models", createModelRoutes(deps.configService ?? defaultConfigRouteService));
+	app.route("/api/commands", createCommandRoutes(deps.commandService ?? defaultCommandRouteService));
 	app.route("/api/auth", createAuthRoutes(deps.authService ?? defaultAuthRouteService));
 	app.route(
 		"/api",

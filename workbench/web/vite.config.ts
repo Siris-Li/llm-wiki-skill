@@ -24,7 +24,7 @@ const trustedOrigins = new Set(DEV_WORKBENCH_ORIGINS);
 //
 // dev 期由 Vite 代理把后端生成的 capability token 注入到转发请求头，这样：
 //   - token 永远不进入浏览器上下文（抗 XSS：前端业务代码、JS 都拿不到它）；
-//   - 前端业务调用零改动（legacy api.ts 与新 api/client.ts 都照常走 /api 代理）；
+//   - 前端 API 请求继续通过 /api 代理；普通 JSON 请求通过统一 API client；
 //   - token 不进 URL / 不进日志 / 不进仓库 / 不进 config（只存在后端内存 + 这份
 //     运行期文件里，由同机可信的 dev 代理读取后注入）。
 //
