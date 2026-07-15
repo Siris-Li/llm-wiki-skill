@@ -188,6 +188,7 @@ export class ToolStatusEventAdapter {
 	private readonly runningTools = new Map<string, RunningToolState>();
 	private readonly completedTools: CompletedToolState[] = [];
 	private pendingAssistantTerminal: AssistantTerminalReason | null = null;
+	private retryingPendingAssistantError = false;
   /** 是否已生成 terminal 事件（assistant_done/cancelled/error）。terminal 后不再生成任何事件。 */
   private terminalEmitted = false;
 
@@ -206,11 +207,25 @@ export class ToolStatusEventAdapter {
 	}
 
 	recordCancellation(): void {
-		if (!this.terminalEmitted) this.pendingAssistantTerminal = "aborted";
+		if (
+			!this.terminalEmitted
+			&& (this.pendingAssistantTerminal !== "error" || this.retryingPendingAssistantError)
+		) {
+			this.pendingAssistantTerminal = "aborted";
+		}
 	}
 
 	adapt(event: unknown): ToolStatusContractEvent[] {
     if (this.terminalEmitted) return [];
+		const eventRecord = toRecord(event);
+		if (eventRecord.type === "auto_retry_start") {
+			this.retryingPendingAssistantError = this.pendingAssistantTerminal === "error";
+			return [];
+		}
+		if (eventRecord.type === "auto_retry_end") {
+			this.retryingPendingAssistantError = false;
+			return [];
+		}
 		if (isAgentEventType(event, "message_update")) {
 			const inner = event.assistantMessageEvent;
 			if (inner.type === "text_delta") {
@@ -371,9 +386,11 @@ export class ToolStatusEventAdapter {
 		const terminalReason = getAssistantTerminalReason(record.stopReason);
 		if (terminalReason) {
 			this.pendingAssistantTerminal = terminalReason;
+			this.retryingPendingAssistantError = false;
 			return [];
 		}
 		this.pendingAssistantTerminal = null;
+		this.retryingPendingAssistantError = false;
     return [];
   }
 
