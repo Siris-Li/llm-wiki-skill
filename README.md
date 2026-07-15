@@ -10,7 +10,7 @@
 
 把碎片化的信息变成持续积累、互相链接的知识库
 
-[![version](https://img.shields.io/badge/v3.6.68-检索日志隐私-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.69-模型失败状态-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-多平台-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -95,7 +95,7 @@ bash install.sh --platform hermes
 | 🎨 | **工作台 Paper 视觉** | 工作台沿用暖纸配色，按钮、消息、侧栏和图谱控件保持统一，长标题不会撑开页面 |
 | 💬 | **工作台对话自动跟随** | 发送和流式回复时自动停在最新内容，用户上翻时暂停，并用向下箭头一键回到底部 |
 | 🧰 | **工作台动态工具状态** | agent 执行工具时显示当前动作；完成后折叠成摘要，避免主对话被工具流水账刷屏 |
-| 🛡️ | **工作台安全流式对话** | prompt、工具状态、产物和终态使用统一流式契约；检索内容只进入发起它的运行和对话，切换、取消或重复发送不会串用旧内容；异常流会安全结束并恢复输入 |
+| 🛡️ | **工作台安全流式对话** | prompt、工具状态、产物和终态使用统一流式契约；检索内容只进入发起它的运行和对话，切换、取消或重复发送不会串用旧内容；模型失败不会显示为完成，异常流会安全结束并恢复输入 |
 | / | **工作台检索日志隐私** | 默认检索日志只保留排障所需的会话、知识库、触发状态、结果信息和稳定失败状态，不保存用户提问或可恢复的派生内容 |
 | 🔒 | **工作台本地访问保护** | 本地配置、对话、页面、图谱事件、文件和状态操作都只对同时通过来源与启动凭证检查的工作台开放 |
 | 🧷 | **工作台请求边界** | 前台只会发送已登记的请求方式与入口组合；产出物清单和下载统一拒绝不合规编号，文件下载和事件流保持各自独立处理 |
