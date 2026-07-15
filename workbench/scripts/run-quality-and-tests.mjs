@@ -74,7 +74,11 @@ export const QUALITY_STEPS = [
 		timeoutMs: COMMAND_TIMEOUT_MS,
 		commands: [
 			nodeTest("workbench/scripts/check-workbench-boundaries.test.mjs"),
-			command(["--test", "workbench/scripts/run-quality-and-tests.test.mjs"]),
+			command([
+				"--test",
+				"workbench/scripts/run-quality-and-tests.test.mjs",
+				"workbench/scripts/run-browser-main-flows-ci.test.mjs",
+			]),
 		],
 	},
 	{
@@ -183,7 +187,7 @@ export async function runInvocation(
 	environment,
 	timeoutMs,
 	onSpawn = () => undefined,
-	{ signal, readProcesses = readProcessTable } = {},
+	{ signal, readProcesses = readProcessTable, onOutput = () => undefined } = {},
 ) {
 	const processRegistry = path.join(tmpdir(), `llm-wiki-quality-processes-${process.pid}-${randomUUID()}.jsonl`);
 	const child = spawn(invocation.command, invocation.args, {
@@ -207,7 +211,9 @@ export async function runInvocation(
 	}
 	let output = "";
 	const append = (chunk) => {
-		output = `${output}${chunk}`.slice(-MAX_CAPTURE_BYTES);
+		const text = String(chunk);
+		output = `${output}${text}`.slice(-MAX_CAPTURE_BYTES);
+		onOutput(text);
 	};
 	child.stdout?.on("data", append);
 	child.stderr?.on("data", append);

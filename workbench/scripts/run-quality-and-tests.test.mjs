@@ -62,6 +62,9 @@ test("quality entrypoint covers every required check in a stable sequence", () =
 	const privacyArgs = privacy.commands.flatMap((item) => item.args);
 	assert.ok(privacyArgs.includes("workbench/scripts/check-repository-privacy.test.mjs"));
 	assert.ok(privacyArgs.includes("workbench/scripts/check-repository-privacy.mjs"));
+	const negativeControls = QUALITY_STEPS.find((step) => step.id === "boundary-negative-controls");
+	const negativeControlArgs = negativeControls.commands.flatMap((item) => item.args);
+	assert.ok(negativeControlArgs.includes("workbench/scripts/run-browser-main-flows-ci.test.mjs"));
 });
 
 test("quality entrypoint covers every backend test file exactly once", async () => {
