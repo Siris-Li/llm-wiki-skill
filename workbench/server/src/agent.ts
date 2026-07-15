@@ -129,14 +129,35 @@ function rememberTerminalSessionManager(
 	terminalSessionManagers.set(session, sessionManager);
 }
 
+/** Keeps the active foreground state aligned with a terminal message written after recovery. */
+export function finalizeTerminalSessionState(
+	session: Pick<AgentSession, "state">,
+	sessionManager: SessionManager,
+	terminalReason: AssistantTerminalReason | null,
+	visibleAssistantText = "",
+): boolean {
+	if (!finalizeSessionTerminalMessages(sessionManager, terminalReason, visibleAssistantText)) {
+		return false;
+	}
+	session.state.messages = sessionManager.buildSessionContext().messages;
+	return true;
+}
+
 export function finalizeSessionTerminalPersistence(
 	session: unknown,
 	terminalReason: AssistantTerminalReason | null,
 	visibleAssistantText = "",
 ): void {
-	const sessionManager = terminalSessionManagers.get(session as AgentSession);
-	if (sessionManager)
-		finalizeSessionTerminalMessages(sessionManager, terminalReason, visibleAssistantText);
+	const agentSession = session as AgentSession;
+	const sessionManager = terminalSessionManagers.get(agentSession);
+	if (sessionManager) {
+		finalizeTerminalSessionState(
+			agentSession,
+			sessionManager,
+			terminalReason,
+			visibleAssistantText,
+		);
+	}
 }
 
 export async function getResourceLoader(): Promise<DefaultResourceLoader> {

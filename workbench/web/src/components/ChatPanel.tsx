@@ -463,7 +463,13 @@ export function ChatPanel({
 						break;
 					case "assistant_error":
 						applyToolStatusEvent(assistantId, event);
-						setErrorMsg(event.message);
+						setMessages((prev) =>
+							prev.map((message) =>
+								message.id === assistantId ? { ...message, content: event.message } : message,
+							),
+						);
+						// The terminal message already renders the safe failure in the conversation.
+						setErrorMsg(null);
 						setStatus("error");
 						break;
 					default:

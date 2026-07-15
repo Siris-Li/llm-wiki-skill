@@ -324,15 +324,8 @@ export class ToolStatusEventAdapter {
 		if (this.pendingAssistantTerminal === "aborted")
 			return this.cancelAssistant(getAssistantTerminalMessage("aborted"));
 		const events: ToolStatusContractEvent[] = [];
-		if (this.completedTools.length > 0 || this.runningTools.size > 0) {
-			events.push(
-				this.makeEvent({
-					type: "tool_status_summary",
-					items: this.completedTools.map((item) => ({ ...item })),
-					remainingRunningCount: this.runningTools.size,
-				}),
-			);
-		}
+		const summary = this.toolSummary();
+		if (summary) events.push(summary);
 		events.push(this.makeEvent({ type: "assistant_done" }));
 		return events;
 	}
@@ -345,7 +338,11 @@ export class ToolStatusEventAdapter {
 	failAssistant(error: unknown): ToolStatusContractEvent[] {
     if (this.terminalEmitted) return [];
     const { code, message } = classifyPromptError(error, this.redaction);
-    return [this.makeEvent({ type: "assistant_error", code, message })];
+		const events: ToolStatusContractEvent[] = [...this.failActiveTools(message)];
+		const summary = this.toolSummary();
+		if (summary) events.push(summary);
+		events.push(this.makeEvent({ type: "assistant_error", code, message }));
+		return events;
 	}
 
 	cancelAssistant(reason = "cancelled"): ToolStatusContractEvent[] {
@@ -360,12 +357,30 @@ export class ToolStatusEventAdapter {
 	}
 
 	cancelActiveTools(reason = "cancelled"): ToolStatusEndEvent[] {
+		return this.finishActiveTools("cancelled", reason);
+	}
+
+	private failActiveTools(reason: string): ToolStatusEndEvent[] {
+		return this.finishActiveTools("failed", reason);
+	}
+
+	private finishActiveTools(
+		status: Exclude<ToolRunStatus, "running" | "done">,
+		reason: string,
+	): ToolStatusEndEvent[] {
     if (this.terminalEmitted) return [];
 		const events: ToolStatusEndEvent[] = [];
 		for (const tool of [...this.runningTools.values()]) {
 			this.runningTools.delete(tool.toolCallId);
 			const summary = redactText(reason, this.redaction, 160);
-			this.completedTools.push({ ...tool, status: "cancelled", summary });
+			this.completedTools.push({
+				toolCallId: tool.toolCallId,
+				toolName: tool.toolName,
+				action: tool.action,
+				target: tool.target,
+				status,
+				summary,
+			});
 			events.push(
 				this.makeEvent({
 					type: "tool_status_end",
@@ -373,10 +388,10 @@ export class ToolStatusEventAdapter {
 					toolName: tool.toolName,
 					action: tool.action,
 					target: tool.target,
-					status: "cancelled",
+					status,
 					result: null,
 					summary,
-					error: null,
+					error: status === "failed" ? summary : null,
 					durationMs: Math.max(0, this.now() - tool.startedAt),
 					runningToolCount: this.runningTools.size,
 					otherRunningCount: this.runningTools.size,
@@ -384,6 +399,15 @@ export class ToolStatusEventAdapter {
 			);
 		}
 		return events;
+	}
+
+	private toolSummary(): ToolStatusSummaryEvent | null {
+		if (this.completedTools.length === 0 && this.runningTools.size === 0) return null;
+		return this.makeEvent({
+			type: "tool_status_summary",
+			items: this.completedTools.map((item) => ({ ...item })),
+			remainingRunningCount: this.runningTools.size,
+		});
 	}
 
 	getRunningTools(): ToolDisplay[] {

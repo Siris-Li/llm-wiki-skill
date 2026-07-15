@@ -212,14 +212,18 @@ export function createPromptRoutes(service: PromptRouteService): Hono {
 
         await service.runPrompt(ctx);
         if (!adapter.isFinished && writer.open) {
-          const errorEvent = adapter.failAssistant(
+          for (const event of adapter.failAssistant(
             new Error("missing terminal event"),
-          )[0];
-          if (errorEvent) await writer.write(errorEvent);
+          )) {
+            await writer.write(event);
+          }
         }
       } catch (err) {
-        const errorEvent = adapter.failAssistant(err)[0];
-        if (errorEvent && writer.open) await writer.write(errorEvent);
+        if (writer.open) {
+          for (const event of adapter.failAssistant(err)) {
+            await writer.write(event);
+          }
+        }
       } finally {
         await writer.flush();
         unsubscribeArtifacts?.();

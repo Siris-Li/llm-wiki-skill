@@ -1,4 +1,5 @@
 import { open, readFile, rename, rm } from "node:fs/promises";
+import { isDeepStrictEqual } from "node:util";
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -15,6 +16,8 @@ interface TerminalPersistenceState {
 }
 
 const terminalPersistence = new WeakMap<SessionManager, TerminalPersistenceState>();
+const PERSISTED_CANCELLED_TEXT_MARKER = "llm-wiki-terminal-cancelled-text-v1";
+const SAFE_TERMINAL_SUMMARY = "此前一轮生成未完成，详细内容未保留。";
 
 /** Tracks text confirmed written to the client for each assistant message. */
 export class PublishedAssistantText {
@@ -97,12 +100,12 @@ export function finalizeSessionTerminalMessages(
 	sessionManager: SessionManager,
 	terminalReason: AssistantTerminalReason | null,
 	visibleAssistantText = "",
-): void {
+): boolean {
 	const state = terminalPersistence.get(sessionManager);
-	if (!state) return;
+	if (!state) return false;
 	const pendingMessage = state.pendingMessage;
 	state.pendingMessage = null;
-	if (!pendingMessage || !terminalReason) return;
+	if (!pendingMessage || !terminalReason) return false;
 	const finalMessage = terminalReason === pendingMessage.stopReason
 		? pendingMessage
 		: { ...pendingMessage, stopReason: terminalReason };
@@ -111,7 +114,12 @@ export function finalizeSessionTerminalMessages(
 		pendingMessage.stopReason === "aborted" ? visibleAssistantText : "",
 	);
 	overwriteAssistantMessage(pendingMessage, safeMessage);
+	if (hasVisibleCancelledText(safeMessage)) {
+		// Custom entries never become model context; this binds retained text to this writer.
+		sessionManager.appendCustomEntry(PERSISTED_CANCELLED_TEXT_MARKER, { version: 1 });
+	}
 	state.appendMessage(safeMessage);
+	return true;
 }
 
 /**
@@ -129,18 +137,46 @@ export async function sanitizePersistedSessionTerminalMessages(
 		throw error;
 	}
 
-	let changed = false;
-	const rewritten = source
+	const parsedLines = source
 		.split("\n")
 		.map((line) => {
-			if (!line.trim()) return line;
+			if (!line.trim()) return { line, entry: null };
 			let entry: unknown;
 			try {
 				entry = JSON.parse(line);
 			} catch {
-				return line;
+				return { line, entry: null };
 			}
-			const safeEntry = sanitizePersistedEntry(entry);
+			return { line, entry };
+		});
+	const trustedCancelledTextParents = new Set(
+		parsedLines
+			.map(({ entry }) => entry)
+			.filter(isPersistedCancelledTextMarker)
+			.map((entry) => entry.id),
+	);
+	const entriesById = new Map(
+		parsedLines
+			.map(({ entry }) => entry)
+			.filter(isPersistedSessionEntry)
+			.map((entry) => [entry.id, entry]),
+	);
+	const terminalSummarySourceIds = new Set(
+		[...entriesById.values()]
+			.filter((entry) => isTerminalSummarySource(entry, trustedCancelledTextParents))
+			.map((entry) => entry.id),
+	);
+
+	let changed = false;
+	const rewritten = parsedLines
+		.map(({ line, entry }) => {
+			if (!entry) return line;
+			const safeEntry = sanitizePersistedEntry(
+				entry,
+				trustedCancelledTextParents,
+				entriesById,
+				terminalSummarySourceIds,
+			);
 			if (safeEntry === entry) return line;
 			changed = true;
 			return JSON.stringify(safeEntry);
@@ -158,20 +194,145 @@ function isTerminalAssistantMessage(
 	return message.role === "assistant" && getAssistantTerminalReason(message.stopReason) !== null;
 }
 
-function sanitizePersistedEntry(entry: unknown): unknown {
-	if (!isRecord(entry) || entry.type !== "message" || !isRecord(entry.message)) return entry;
-	const safeMessage = sanitizePersistedTerminalMessage(entry.message);
-	return safeMessage ? { ...entry, message: safeMessage } : entry;
+function sanitizePersistedEntry(
+	entry: unknown,
+	trustedCancelledTextParents: Set<string>,
+	entriesById: ReadonlyMap<string, Record<string, unknown>>,
+	terminalSummarySourceIds: ReadonlySet<string>,
+): unknown {
+	if (!isRecord(entry)) return entry;
+	if (entry.type === "message" && isRecord(entry.message)) {
+		const preserveCancelledText =
+			typeof entry.parentId === "string" && trustedCancelledTextParents.has(entry.parentId);
+		const safeMessage = sanitizePersistedTerminalMessage(entry.message, preserveCancelledText);
+		return safeMessage ? { ...entry, message: safeMessage } : entry;
+	}
+	return summaryReferencesTerminal(entry, entriesById, terminalSummarySourceIds)
+		? createSafeTerminalSummary(entry)
+		: entry;
+}
+
+function isPersistedSessionEntry(
+	entry: unknown,
+): entry is Record<string, unknown> & { id: string } {
+	return isRecord(entry) && typeof entry.id === "string";
+}
+
+function isTerminalSummarySource(
+	entry: Record<string, unknown>,
+	trustedCancelledTextParents: Set<string>,
+): boolean {
+	if (entry.type !== "message" || !isRecord(entry.message)) return false;
+	const preserveCancelledText =
+		typeof entry.parentId === "string" && trustedCancelledTextParents.has(entry.parentId);
+	return sanitizePersistedTerminalMessage(entry.message, preserveCancelledText) !== null;
+}
+
+function summaryReferencesTerminal(
+	entry: Record<string, unknown>,
+	entriesById: ReadonlyMap<string, Record<string, unknown>>,
+	terminalSummarySourceIds: ReadonlySet<string>,
+): boolean {
+	if (isSafeTerminalSummary(entry)) return false;
+	if (entry.type === "compaction") {
+		return (
+			hasTerminalAncestor(entry.parentId, entriesById, terminalSummarySourceIds) ||
+			hasTerminalAncestor(entry.firstKeptEntryId, entriesById, terminalSummarySourceIds)
+		);
+	}
+	if (entry.type === "branch_summary") {
+		return (
+			hasTerminalAncestor(entry.parentId, entriesById, terminalSummarySourceIds) ||
+			hasTerminalAncestor(entry.fromId, entriesById, terminalSummarySourceIds)
+		);
+	}
+	return false;
+}
+
+function hasTerminalAncestor(
+	startId: unknown,
+	entriesById: ReadonlyMap<string, Record<string, unknown>>,
+	terminalSummarySourceIds: ReadonlySet<string>,
+): boolean {
+	let currentId = typeof startId === "string" ? startId : null;
+	const visited = new Set<string>();
+	while (currentId && !visited.has(currentId)) {
+		if (terminalSummarySourceIds.has(currentId)) return true;
+		visited.add(currentId);
+		const current = entriesById.get(currentId);
+		currentId = typeof current?.parentId === "string" ? current.parentId : null;
+	}
+	return false;
+}
+
+function isSafeTerminalSummary(entry: Record<string, unknown>): boolean {
+	return entry.summary === SAFE_TERMINAL_SUMMARY && !("details" in entry);
+}
+
+function createSafeTerminalSummary(entry: Record<string, unknown>): Record<string, unknown> {
+	const { details: _details, ...safeEntry } = entry;
+	return { ...safeEntry, summary: SAFE_TERMINAL_SUMMARY };
 }
 
 function sanitizePersistedTerminalMessage(
 	message: Record<string, unknown>,
+	preserveCancelledText: boolean,
 ): AssistantMessage | null {
 	if (message.role !== "assistant") return null;
 	const terminalReason = getAssistantTerminalReason(message.stopReason);
-	return terminalReason
-		? createSafeTerminalMessage(message, terminalReason, "")
-		: null;
+	if (!terminalReason) return null;
+	const visibleAssistantText = terminalReason === "aborted" && preserveCancelledText
+		? persistedVisibleAssistantText(message)
+		: "";
+	const candidate = createSafeTerminalMessage(
+		message,
+		terminalReason,
+		visibleAssistantText,
+	);
+	return isCanonicalTerminalMessage(message, candidate)
+		? null
+		: createSafeTerminalMessage(message, terminalReason, "");
+}
+
+function isPersistedCancelledTextMarker(
+	entry: unknown,
+): entry is Record<string, unknown> & { id: string } {
+	return (
+		isRecord(entry) &&
+		entry.type === "custom" &&
+		entry.customType === PERSISTED_CANCELLED_TEXT_MARKER &&
+		typeof entry.id === "string" &&
+		isRecord(entry.data) &&
+		entry.data.version === 1
+	);
+}
+
+function hasVisibleCancelledText(message: AssistantMessage): boolean {
+	return (
+		message.stopReason === "aborted" &&
+		message.content.length === 1 &&
+		message.content[0]?.type === "text" &&
+		message.content[0].text.length > 0
+	);
+}
+
+function persistedVisibleAssistantText(message: Record<string, unknown>): string {
+	const content = message.content;
+	if (!Array.isArray(content) || content.length !== 1 || !isRecord(content[0])) return "";
+	const part = content[0];
+	return part.type === "text" && typeof part.text === "string" && Object.keys(part).length === 2
+		? part.text
+		: "";
+}
+
+function isCanonicalTerminalMessage(
+	message: Record<string, unknown>,
+	candidate: AssistantMessage,
+): boolean {
+	return isDeepStrictEqual(
+		JSON.parse(JSON.stringify(message)),
+		JSON.parse(JSON.stringify(candidate)),
+	);
 }
 
 function createSafeTerminalMessage(

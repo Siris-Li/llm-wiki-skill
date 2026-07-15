@@ -71,6 +71,7 @@ interface FakeOptions {
   behavior?:
     | "success"
     | "fail"
+    | "fail-with-running-tool"
     | "saved-model-error"
     | "saved-model-abort"
     | "model-error-then-success"
@@ -252,6 +253,15 @@ function createFakeService(options: FakeOptions = {}) {
         }
       } else if (behavior === "fail") {
         throw new Error("ENOENT /Users/private/secret\n    at secret stack");
+      } else if (behavior === "fail-with-running-tool") {
+        await ctx.writer.write(
+          ctx.adapter.startTool({
+            toolCallId: "failing-tool",
+            toolName: "read",
+            args: { path: "/fictional/private/failing-tool.md" },
+          }),
+        );
+        throw new Error("fictional model entry failure");
       }
       // empty: 不写任何事件，也不 finish —— 用于测 EOF-without-terminal 由 route 不兜底
     },
@@ -508,6 +518,22 @@ test("模型入口直接失败时发送唯一 assistant_error，不泄露 raw er
   assert.equal(serialized.includes("/Users/"), false, "不得泄露 /Users/ 路径");
   assert.equal(serialized.includes("secret stack"), false, "不得泄露 stack");
   assert.equal(serialized.includes("ENOENT"), false, "不得泄露原始错误");
+});
+
+test("模型入口失败会结束运行中的工具，并以失败终态收尾", async () => {
+  const { service } = createFakeService({ behavior: "fail-with-running-tool" });
+  const app = createApp({ promptService: service });
+  const res = await app.request("/api/prompt", post({ message: "工具后失败" }));
+  const frames = await readSse(res);
+
+  assertLifecycle(frames);
+  assert.deepEqual(frames.map((frame) => frame.event), [
+    "tool_status_start",
+    "tool_status_end",
+    "tool_status_summary",
+    "assistant_error",
+  ]);
+  assert.equal(frames.at(-1)?.event, "assistant_error");
 });
 
 test("检索工具事件不回显原始 prompt、知识库路径或结果路径", async () => {

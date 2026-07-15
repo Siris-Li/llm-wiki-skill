@@ -118,7 +118,7 @@ export function piMessagesToUIMessages(messages: AgentMessage[]): UIMessage[] {
 			.filter((text) => text.trim());
 		if (finalTerminalReason) texts.push(getAssistantTerminalMessage(finalTerminalReason));
 		const content = texts.join("\n\n");
-		const tools = pending.tools;
+		const tools = finalTerminalReason ? [] : pending.tools;
 		if (content.trim() || tools.length > 0) {
 			result.push({
 				id: `a-${result.length}`,

@@ -293,28 +293,137 @@ test("旧错误会话在恢复前会被安全重写，不进入下一次模型�
 	assert.equal(serializedContext.includes(MODEL_FAILURE_MESSAGE), true);
 });
 
-test("已安全保存的取消片段在恢复时保持可见", async (t) => {
-	const directory = await mkdtemp(join(tmpdir(), "llm-wiki-terminal-safe-abort-test-"));
+test("旧错误会话会清除压缩和分支摘要中的终态原文", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "llm-wiki-terminal-summary-test-"));
 	t.after(async () => {
 		await rm(directory, { recursive: true, force: true });
 	});
-	const sessionFile = join(directory, "safe-abort.jsonl");
-	const safeMessage = assistantMessage("aborted", MODEL_CANCELLED_MESSAGE);
-	safeMessage.content = [{ type: "text", text: "已展示的虚构取消片段" }];
+	const sessionFile = join(directory, "legacy-summary.jsonl");
+	const rawFailureText = "fictional legacy terminal fragment /fictional/private/terminal";
 	const entries = [
 		{
 			type: "session",
 			version: 3,
-			id: "safe-abort-session",
+			id: "legacy-summary-session",
 			timestamp: new Date(0).toISOString(),
 			cwd: "/fictional/project",
 		},
 		{
 			type: "message",
-			id: "safe-abort-message",
+			id: "legacy-summary-user",
 			parentId: null,
 			timestamp: new Date(0).toISOString(),
-			message: safeMessage,
+			message: { role: "user", content: "继续", timestamp: 0 },
+		},
+		{
+			type: "message",
+			id: "legacy-summary-error",
+			parentId: "legacy-summary-user",
+			timestamp: new Date(0).toISOString(),
+			message: {
+				...assistantMessage("error", rawFailureText),
+				content: [{ type: "text", text: rawFailureText }],
+			},
+		},
+		{
+			type: "compaction",
+			id: "legacy-summary-compaction",
+			parentId: "legacy-summary-error",
+			timestamp: new Date(0).toISOString(),
+			summary: `压缩摘要保留了 ${rawFailureText}`,
+			firstKeptEntryId: "legacy-summary-error",
+			tokensBefore: 1,
+			details: { diagnostic: rawFailureText },
+		},
+		{
+			type: "branch_summary",
+			id: "legacy-summary-branch",
+			parentId: "legacy-summary-compaction",
+			timestamp: new Date(0).toISOString(),
+			fromId: "legacy-summary-error",
+			summary: `分支摘要保留了 ${rawFailureText}`,
+			details: { diagnostic: rawFailureText },
+		},
+	];
+	await writeFile(sessionFile, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+	assert.equal(await sanitizePersistedSessionTerminalMessages(sessionFile), true);
+
+	const persisted = await readFile(sessionFile, "utf8");
+	const restoredContext = SessionManager.open(sessionFile).buildSessionContext();
+	const serializedContext = JSON.stringify(restoredContext.messages);
+	assert.equal(persisted.includes(rawFailureText), false);
+	assert.equal(serializedContext.includes(rawFailureText), false);
+	assert.equal(persisted.includes("此前一轮生成未完成，详细内容未保留。"), true);
+	assert.equal(serializedContext.includes("此前一轮生成未完成，详细内容未保留。"), true);
+	assert.equal(persisted.includes('"details"'), false);
+});
+
+test("安全错误后的正常压缩和分支摘要保持不变", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "llm-wiki-terminal-safe-summary-test-"));
+	t.after(async () => {
+		await rm(directory, { recursive: true, force: true });
+	});
+	const sessionFile = join(directory, "safe-summary.jsonl");
+	const normalSummary = "后续正常对话的压缩摘要";
+	const normalBranchSummary = "后续正常对话的分支摘要";
+	const entries = [
+		{
+			type: "session",
+			version: 3,
+			id: "safe-summary-session",
+			timestamp: new Date(0).toISOString(),
+			cwd: "/fictional/project",
+		},
+		{
+			type: "message",
+			id: "safe-summary-first-user",
+			parentId: null,
+			timestamp: new Date(0).toISOString(),
+			message: { role: "user", content: "第一次", timestamp: 0 },
+		},
+		{
+			type: "message",
+			id: "safe-summary-error",
+			parentId: "safe-summary-first-user",
+			timestamp: new Date(0).toISOString(),
+			message: sanitizeAssistantTerminalMessage(assistantMessage("error")),
+		},
+		{
+			type: "message",
+			id: "safe-summary-follow-up-user",
+			parentId: "safe-summary-error",
+			timestamp: new Date(0).toISOString(),
+			message: { role: "user", content: "继续", timestamp: 0 },
+		},
+		{
+			type: "message",
+			id: "safe-summary-follow-up-assistant",
+			parentId: "safe-summary-follow-up-user",
+			timestamp: new Date(0).toISOString(),
+			message: {
+				...assistantMessage("stop"),
+				content: [{ type: "text", text: "恢复后的虚构回复" }],
+			},
+		},
+		{
+			type: "compaction",
+			id: "safe-summary-compaction",
+			parentId: "safe-summary-follow-up-assistant",
+			timestamp: new Date(0).toISOString(),
+			summary: normalSummary,
+			firstKeptEntryId: "safe-summary-follow-up-user",
+			tokensBefore: 1,
+			details: { source: "fictional normal compaction" },
+		},
+		{
+			type: "branch_summary",
+			id: "safe-summary-branch",
+			parentId: "safe-summary-compaction",
+			timestamp: new Date(0).toISOString(),
+			fromId: "safe-summary-follow-up-user",
+			summary: normalBranchSummary,
+			details: { source: "fictional normal branch" },
 		},
 	];
 	await writeFile(sessionFile, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
@@ -322,9 +431,128 @@ test("已安全保存的取消片段在恢复时保持可见", async (t) => {
 	assert.equal(await sanitizePersistedSessionTerminalMessages(sessionFile), false);
 
 	const persisted = await readFile(sessionFile, "utf8");
+	assert.equal(persisted.includes(normalSummary), true);
+	assert.equal(persisted.includes(normalBranchSummary), true);
+	assert.equal(persisted.includes("fictional normal compaction"), true);
+	assert.equal(persisted.includes("fictional normal branch"), true);
+});
+
+test("已安全保存的取消片段在恢复时保持可见", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "llm-wiki-terminal-safe-abort-test-"));
+	t.after(async () => {
+		await rm(directory, { recursive: true, force: true });
+	});
+	const sessionManager = protectSessionTerminalMessages(
+		SessionManager.create("/fictional/project", directory),
+	);
+	sessionManager.appendMessage(assistantMessage("aborted"));
+	finalizeSessionTerminalMessages(sessionManager, "aborted", "已展示的虚构取消片段");
+	const sessionFile = sessionManager.getSessionFile();
+	assert.ok(sessionFile);
+
+	assert.equal(await sanitizePersistedSessionTerminalMessages(sessionFile), false);
+
+	const persisted = await readFile(sessionFile, "utf8");
 	const restoredContext = SessionManager.open(sessionFile).buildSessionContext();
 	assert.equal(persisted.includes("已展示的虚构取消片段"), true);
 	assert.equal(JSON.stringify(restoredContext.messages).includes("已展示的虚构取消片段"), true);
+	assert.equal(
+		JSON.stringify(restoredContext.messages).includes("llm-wiki-terminal-cancelled-text-v1"),
+		false,
+	);
+});
+
+test("旧取消会话不能只因终态格式相同就保留未经确认的文字", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "llm-wiki-terminal-unmarked-abort-test-"));
+	t.after(async () => {
+		await rm(directory, { recursive: true, force: true });
+	});
+	const sessionFile = join(directory, "unmarked-abort.jsonl");
+	const legacyMessage = assistantMessage("aborted", MODEL_CANCELLED_MESSAGE);
+	legacyMessage.content = [{ type: "text", text: "未经确认的虚构旧取消片段" }];
+	const entries = [
+		{
+			type: "session",
+			version: 3,
+			id: "unmarked-abort-session",
+			timestamp: new Date(0).toISOString(),
+			cwd: "/fictional/project",
+		},
+		{
+			type: "message",
+			id: "unmarked-abort-message",
+			parentId: null,
+			timestamp: new Date(0).toISOString(),
+			message: legacyMessage,
+		},
+	];
+	await writeFile(sessionFile, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+	assert.equal(await sanitizePersistedSessionTerminalMessages(sessionFile), true);
+
+	const persisted = await readFile(sessionFile, "utf8");
+	const restoredContext = SessionManager.open(sessionFile).buildSessionContext();
+	assert.equal(persisted.includes("未经确认的虚构旧取消片段"), false);
+	assert.equal(JSON.stringify(restoredContext.messages).includes("未经确认的虚构旧取消片段"), false);
+});
+
+test("旧取消会话在恢复前丢弃未经验证的文字和工具内容", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "llm-wiki-terminal-legacy-abort-test-"));
+	t.after(async () => {
+		await rm(directory, { recursive: true, force: true });
+	});
+	const sessionFile = join(directory, "legacy-abort.jsonl");
+	const unsafeMessage = assistantMessage("aborted", "fictional legacy abort detail", [
+		{
+			type: "abort_failure",
+			timestamp: 0,
+			error: {
+				message: "fictional legacy abort diagnostic",
+				stack: "fictional legacy abort stack /fictional/private/legacy-abort-stack",
+			},
+		},
+	]);
+	unsafeMessage.content = [
+		{ type: "text", text: "未经验证的虚构取消片段" },
+		{
+			type: "toolCall",
+			id: "fictional-legacy-abort-tool",
+			name: "read",
+			arguments: { path: "/fictional/private/legacy-abort-tool-argument" },
+		},
+	];
+	const entries = [
+		{
+			type: "session",
+			version: 3,
+			id: "legacy-abort-session",
+			timestamp: new Date(0).toISOString(),
+			cwd: "/fictional/project",
+		},
+		{
+			type: "message",
+			id: "legacy-abort-message",
+			parentId: null,
+			timestamp: new Date(0).toISOString(),
+			message: unsafeMessage,
+		},
+	];
+	await writeFile(sessionFile, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+	assert.equal(await sanitizePersistedSessionTerminalMessages(sessionFile), true);
+
+	const persisted = await readFile(sessionFile, "utf8");
+	const restoredContext = SessionManager.open(sessionFile).buildSessionContext();
+	const serializedContext = JSON.stringify(restoredContext.messages);
+	assert.match(persisted, new RegExp(MODEL_CANCELLED_MESSAGE));
+	assert.equal(persisted.includes("未经验证的虚构取消片段"), false);
+	assert.equal(persisted.includes("fictional legacy abort detail"), false);
+	assert.equal(persisted.includes("fictional legacy abort diagnostic"), false);
+	assert.equal(persisted.includes("fictional-legacy-abort-tool"), false);
+	assert.equal(persisted.includes("/fictional/private/legacy-abort-tool-argument"), false);
+	assert.equal(serializedContext.includes("未经验证的虚构取消片段"), false);
+	assert.equal(serializedContext.includes("fictional legacy abort detail"), false);
+	assert.equal(serializedContext.includes("fictional-legacy-abort-tool"), false);
 });
 
 test("正常取消写入会话时不会保存未展示的推理或工具参数", () => {

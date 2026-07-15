@@ -34,7 +34,7 @@ describe("ChatPanel model failure", () => {
 		await changeText(composer, "触发受控失败");
 		await pressKey(composer, "Enter", { metaKey: true });
 
-		assert.ok(await screen.findByText(MODEL_FAILURE_MESSAGE, { exact: true }));
+		assert.equal((await screen.findAllByText(MODEL_FAILURE_MESSAGE, { exact: true })).length, 1);
 		assert.equal(screen.getByRole("alert").textContent, "出错");
 		assert.equal(composer.disabled, false);
 		assert.equal(document.body.textContent?.includes(RAW_PROVIDER_DETAIL), false);
@@ -44,7 +44,7 @@ describe("ChatPanel model failure", () => {
 
 		await waitFor(() => {
 			assert.ok(screen.getByText("恢复后的虚构回复", { exact: true }));
-			assert.equal(screen.queryByText(MODEL_FAILURE_MESSAGE, { exact: true }), null);
+			assert.equal(screen.getAllByText(MODEL_FAILURE_MESSAGE, { exact: true }).length, 1);
 			assert.equal(screen.queryByRole("alert"), null);
 			assert.equal(composer.disabled, false);
 		});
