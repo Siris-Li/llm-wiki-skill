@@ -22,8 +22,9 @@ import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agen
 
 import { APP_DIR } from "./config.js";
 import {
-	MODEL_CANCELLED_MESSAGE,
-	MODEL_FAILURE_MESSAGE,
+	getAssistantTerminalMessage,
+	getAssistantTerminalReason,
+	type AssistantTerminalReason,
 } from "./extensions/prompt-terminal.js";
 import { stripKnowledgeContextForDisplay } from "./retrieval.js";
 import { formatToolDisplay } from "./tool-status-events.js";
@@ -99,7 +100,7 @@ export function piMessagesToUIMessages(messages: AgentMessage[]): UIMessage[] {
 	// 一轮（两条 user 消息之间）里 pi 往往产出多条 assistant 消息：文字 → 工具调用 →
 	// 续写 …… 直播态把整轮聚合进一个气泡，这里合并成一个 UIMessage 以与直播保持一致。
 	let pending: {
-		assistantParts: Array<{ text: string; terminalReason: "error" | "aborted" | null }>;
+		assistantParts: Array<{ text: string; terminalReason: AssistantTerminalReason | null }>;
 		tools: string[];
 	} | null = null;
 	const flushAssistant = () => {
@@ -110,8 +111,7 @@ export function piMessagesToUIMessages(messages: AgentMessage[]): UIMessage[] {
 			.filter((part, index) => part.terminalReason === null || index === finalPartIndex)
 			.map((part) => part.text)
 			.filter((text) => text.trim());
-		if (finalTerminalReason === "error") texts.push(MODEL_FAILURE_MESSAGE);
-		if (finalTerminalReason === "aborted") texts.push(MODEL_CANCELLED_MESSAGE);
+		if (finalTerminalReason) texts.push(getAssistantTerminalMessage(finalTerminalReason));
 		const content = texts.join("\n\n");
 		const tools = pending.tools;
 		if (content.trim() || tools.length > 0) {
@@ -143,7 +143,7 @@ export function piMessagesToUIMessages(messages: AgentMessage[]): UIMessage[] {
 			if (!pending) pending = { assistantParts: [], tools: [] };
 			pending.assistantParts.push({
 				text,
-				terminalReason: assistantTerminalReason(msg),
+				terminalReason: getAssistantTerminalReason(msg.stopReason),
 			});
 			pending.tools.push(...tools);
 		}
@@ -183,14 +183,6 @@ function extractText(msg: AgentMessage): string {
 			.join("");
 	}
 	return "";
-}
-
-function assistantTerminalReason(
-	msg: Extract<AgentMessage, { role: "assistant" }>,
-): "error" | "aborted" | null {
-	if (msg.stopReason === "error") return "error";
-	if (msg.stopReason === "aborted") return "aborted";
-	return null;
 }
 
 function extractToolSummaries(

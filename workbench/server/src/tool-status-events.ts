@@ -9,8 +9,10 @@ import {
 } from "@llm-wiki/workbench-contracts";
 
 import {
-  MODEL_CANCELLED_MESSAGE,
-  MODEL_FAILURE_MESSAGE,
+	getAssistantTerminalMessage,
+	getAssistantTerminalReason,
+	MODEL_FAILURE_MESSAGE,
+	type AssistantTerminalReason,
 } from "./extensions/prompt-terminal.js";
 
 export const TOOL_STATUS_SCHEMA_VERSION = 1;
@@ -185,7 +187,7 @@ export class ToolStatusEventAdapter {
 	private readonly redaction: RedactionOptions;
 	private readonly runningTools = new Map<string, RunningToolState>();
 	private readonly completedTools: CompletedToolState[] = [];
-  private pendingAssistantTerminal: "error" | "aborted" | null = null;
+	private pendingAssistantTerminal: AssistantTerminalReason | null = null;
   /** 是否已生成 terminal 事件（assistant_done/cancelled/error）。terminal 后不再生成任何事件。 */
   private terminalEmitted = false;
 
@@ -199,7 +201,7 @@ export class ToolStatusEventAdapter {
     return this.terminalEmitted;
   }
 
-	get pendingTerminalReason(): "error" | "aborted" | null {
+	get pendingTerminalReason(): AssistantTerminalReason | null {
 		return this.pendingAssistantTerminal;
 	}
 
@@ -288,7 +290,7 @@ export class ToolStatusEventAdapter {
     if (this.terminalEmitted) return [];
 		if (this.pendingAssistantTerminal === "error") return this.failAssistant(null);
 		if (this.pendingAssistantTerminal === "aborted")
-			return this.cancelAssistant(MODEL_CANCELLED_MESSAGE);
+			return this.cancelAssistant(getAssistantTerminalMessage("aborted"));
 		const events: ToolStatusContractEvent[] = [];
 		if (this.completedTools.length > 0 || this.runningTools.size > 0) {
 			events.push(
@@ -363,15 +365,12 @@ export class ToolStatusEventAdapter {
     );
 	}
 
-  private assistantMessageEnded(message: unknown): ToolStatusContractEvent[] {
-    const record = toRecord(message);
-    if (record.role !== "assistant") return [];
-		if (record.stopReason === "error") {
-			this.pendingAssistantTerminal = "error";
-			return [];
-		}
-		if (record.stopReason === "aborted") {
-			this.pendingAssistantTerminal = "aborted";
+	private assistantMessageEnded(message: unknown): ToolStatusContractEvent[] {
+		const record = toRecord(message);
+		if (record.role !== "assistant") return [];
+		const terminalReason = getAssistantTerminalReason(record.stopReason);
+		if (terminalReason) {
+			this.pendingAssistantTerminal = terminalReason;
 			return [];
 		}
 		this.pendingAssistantTerminal = null;

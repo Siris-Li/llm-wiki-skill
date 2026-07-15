@@ -40,6 +40,7 @@ import knowledgeBaseExtension from "./extensions/knowledge-base.js";
 import {
 	finalizeSessionTerminalMessages,
 	protectSessionTerminalMessages,
+	type AssistantTerminalReason,
 } from "./extensions/prompt-terminal.js";
 import {
 	clearCurrentKnowledgeBase,
@@ -129,7 +130,7 @@ function rememberTerminalSessionManager(
 
 export function finalizeSessionTerminalPersistence(
 	session: unknown,
-	terminalReason: "error" | "aborted" | null,
+	terminalReason: AssistantTerminalReason | null,
 ): void {
 	const sessionManager = terminalSessionManagers.get(session as AgentSession);
 	if (sessionManager) finalizeSessionTerminalMessages(sessionManager, terminalReason);

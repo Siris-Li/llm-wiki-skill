@@ -3,6 +3,7 @@ import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
 export const MODEL_FAILURE_MESSAGE = "生成回复时发生错误，请重试";
 export const MODEL_CANCELLED_MESSAGE = "生成已停止";
+export type AssistantTerminalReason = "error" | "aborted";
 
 type PersistedMessage = Parameters<SessionManager["appendMessage"]>[0];
 
@@ -17,13 +18,20 @@ const terminalPersistence = new WeakMap<SessionManager, TerminalPersistenceState
 export function sanitizeAssistantTerminalMessage(
 	message: AssistantMessage,
 ): AssistantMessage {
-	if (message.stopReason === "error") {
-		return replaceTerminalDiagnostics(message, MODEL_FAILURE_MESSAGE);
-	}
-	if (message.stopReason === "aborted") {
-		return replaceTerminalDiagnostics(message, MODEL_CANCELLED_MESSAGE);
-	}
-	return message;
+	const terminalReason = getAssistantTerminalReason(message.stopReason);
+	return terminalReason
+		? replaceTerminalDiagnostics(message, getAssistantTerminalMessage(terminalReason))
+		: message;
+}
+
+export function getAssistantTerminalReason(
+	stopReason: unknown,
+): AssistantTerminalReason | null {
+	return stopReason === "error" || stopReason === "aborted" ? stopReason : null;
+}
+
+export function getAssistantTerminalMessage(reason: AssistantTerminalReason): string {
+	return reason === "error" ? MODEL_FAILURE_MESSAGE : MODEL_CANCELLED_MESSAGE;
 }
 
 /**
@@ -52,7 +60,7 @@ export function protectSessionTerminalMessages(
 /** Commits only the final terminal fact after the SDK has finished retry or recovery work. */
 export function finalizeSessionTerminalMessages(
 	sessionManager: SessionManager,
-	terminalReason: "error" | "aborted" | null,
+	terminalReason: AssistantTerminalReason | null,
 ): void {
 	const state = terminalPersistence.get(sessionManager);
 	if (!state) return;
@@ -68,9 +76,7 @@ export function finalizeSessionTerminalMessages(
 function isTerminalAssistantMessage(
 	message: PersistedMessage,
 ): message is AssistantMessage {
-	return message.role === "assistant" && (
-		message.stopReason === "error" || message.stopReason === "aborted"
-	);
+	return message.role === "assistant" && getAssistantTerminalReason(message.stopReason) !== null;
 }
 
 function replaceTerminalDiagnostics(
