@@ -16,7 +16,7 @@
 | 检索 cache | **复用 [pages.ts](../server/src/pages.ts) 的 `getCachedPages`** | 避免两套 cache 失效时机错位 |
 | `@` 格式契约 | **解析消息中的 `[[wiki/...]]`**（前端 [ChatPanel.tsx:218-230](../web/src/components/ChatPanel.tsx) 已插入此格式） | 不发明新语法 |
 | 上下文上限 | **按 main 模型 contextWindow 的 20% 动态算**；模型未知时 fallback 4000 字符 | 兼顾 glm（4k 级）与 Claude（200k 级） |
-| 验收硬标志 | **日志 + 字符串命中**双重客观可查 | 防止"看起来对实际没注入"的 hallucination 蒙混过关 |
+| 验收硬标志 | **日志元数据 + 检索结果证据**双重客观可查 | 防止"看起来对实际没注入"的 hallucination 蒙混过关，同时不记录提问正文 |
 
 ## 1. 问题
 
@@ -251,7 +251,7 @@ session.prompt(message)
 - 不中断 prompt
 - 降级为裸 `session.prompt(message)`
 - SSE 推 `knowledge_search_error` 事件，前端在状态栏轻量显示"知识库检索失败，已按普通对话处理"
-- 日志（见 §5.7）写完整 error stack
+- 日志（见 §5.7）写稳定失败状态，不写原始错误文本或堆栈
 
 ### 5.7 检索日志
 
@@ -262,16 +262,13 @@ session.prompt(message)
   "ts": 1735000000000,
   "sessionId": "abc12345",
   "kbPath": "~/my-kb",
-  "messagePreview": "这是我自媒体创作的文章...",
   "triggered": true,
-  "explicitRefs": [],
   "results": [{"path": "wiki/synthesis/sessions/x.md", "hitReason": "recent_synthesis", "score": 3.2}],
-  "wrappedCharCount": 4823,
   "error": null
 }
 ```
 
-**作用**：验收脚本、用户反馈复现、长期效果分析都依赖这份日志。
+**作用**：验收脚本、用户反馈复现、长期效果分析都依赖这份日志。默认日志只保留上述诊断元数据；不得写入提问正文、预览、显式引用、长度、编码或指纹，也不得写入原始错误文本或堆栈。失败时 `error` 只写稳定值 `retrieval_failed`。
 
 ### 5.8 新工具 `query_knowledge_base`
 
@@ -327,8 +324,8 @@ pi.registerTool({
 
 每条主对话验收必须同时满足：
 
-1. **日志可查**：`~/.llm-wiki-agent/logs/retrieval/*.jsonl` 中存在对应记录，`triggered` / `results` / `wrappedCharCount` 字段符合预期
-2. **字符串命中**：模型回答中至少出现一次检索结果的页面标题或独特短语（grep 可验）
+1. **日志可查**：`~/.llm-wiki-agent/logs/retrieval/*.jsonl` 中存在对应记录，`sessionId` / `kbPath` / `triggered` / `results` 字段符合预期，且不含提问内容
+2. **结果可查**：模型回答中至少出现一次检索结果的页面标题或独特短语（grep 可验）
 
 无法同时通过这两条的验收一律不算过。
 
@@ -389,7 +386,7 @@ pi.registerTool({
 
 ### 7.8 失败降级
 
-1. mock fs read 失败 → SSE 推 error 事件、回答仍能流式输出、日志写 error stack
+1. mock fs read 失败 → SSE 推 error 事件、回答仍能流式输出、日志写稳定失败状态
 2. 注入字符数超 contextWindow → 自动截断到 budget 内，不抛错
 3. shouldUseKnowledgeBase 抛错（不应发生，但兜底）→ 走裸 prompt
 
