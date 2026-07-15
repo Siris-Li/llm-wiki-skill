@@ -54,4 +54,16 @@
 
 PR 创建后的首次运行用于验证新键的受控冷缓存路径；随后以必要的证据更新触发同一 PR 的常规缓存命中路径。这里只记录真实完成的运行，不点击重跑。PR 合并前不能完成 #235 要求的 main push 复验，也不能提前移动后续任务标签。
 
+### PR #262 冷缓存
+
+- 提交：`dfa7005d403478dbfe8d8cb0f632b5d53d5d8ddf`
+- `browser-main-flows`：run `29432351080`，成功，作业 1 分 53 秒。
+- `quality-and-tests`：run `29432350305`，成功，作业 3 分 29 秒。
+- 浏览器缓存：精确键 `Linux-X64-playwright-1.61.0-chromium-3196eaae49e97b56` 未命中。
+- npm 依赖：11.977 秒；系统依赖：14.033 秒；浏览器下载与安装：11.128 秒；浏览器启动验证：0.784 秒；正式测试：53.918 秒。
+- Chromium 在 0.533 秒开始下载、6.032 秒落盘；FFmpeg 在 6.032 秒开始、7.138 秒落盘；headless shell 在 7.138 秒开始、11.094 秒落盘。
+- 正式测试实际开始并通过；诊断上传步骤成功，11 个脱敏文件进入 artifact `8349936301`。
+
+常规缓存命中证据将在本次记录同步后的 PR 运行中取得；当前仍不宣称 main push 验收完成。
+
 参考：[Playwright 浏览器与系统依赖安装](https://playwright.dev/docs/browsers)、[GitHub Actions dependency caching](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)、[GitHub Actions workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)。
