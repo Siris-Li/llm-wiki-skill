@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -22,6 +22,11 @@ const FAKE_MODEL_MARKER = "browser-foundation-fake-model";
 export interface RunningProcess {
 	child: ChildProcess;
 	output: () => string;
+}
+
+export interface NetworkGuardLaunch {
+	generation: string;
+	probeFile: string;
 }
 
 export async function createKnowledgeBase(path: string, title: string, sharedText: string): Promise<void> {
@@ -56,7 +61,7 @@ export async function createConversation(appDir: string, kbPath: string, message
 	return manager.getSessionId();
 }
 
-export function isolatedEnvironment(home: string, port: number, selectedDirectory: string, networkProbeFile: string): NodeJS.ProcessEnv {
+export function isolatedEnvironment(home: string, port: number, selectedDirectory: string): NodeJS.ProcessEnv {
 	return {
 		HOME: home,
 		HOST: "127.0.0.1",
@@ -66,16 +71,43 @@ export function isolatedEnvironment(home: string, port: number, selectedDirector
 		LANG: "C.UTF-8",
 		LLM_WIKI_BROWSER_SELECTED_DIRECTORY: selectedDirectory,
 		...platformSandboxEnvironment(home),
-		...networkGuardEnvironment(networkProbeFile),
 	};
 }
 
-export function networkGuardEnvironment(probeFile: string): NodeJS.ProcessEnv {
+export async function createNetworkGuardLaunch(probeFile: string): Promise<NetworkGuardLaunch> {
+	const generation = randomUUID();
+	const launch = {
+		generation,
+		probeFile: `${probeFile}.${generation}`,
+	};
+	await rm(launch.probeFile, { force: true });
+	return launch;
+}
+
+export function networkGuardEnvironment(launch: NetworkGuardLaunch): NodeJS.ProcessEnv {
 	return {
 		NODE_OPTIONS: `--import=${NETWORK_GUARD}`,
-		LLM_WIKI_BROWSER_NETWORK_PROBE_FILE: probeFile,
+		LLM_WIKI_BROWSER_NETWORK_PROBE_FILE: launch.probeFile,
 		LLM_WIKI_BROWSER_NETWORK_PROBE_TARGET: "http://192.0.2.1:9",
+		LLM_WIKI_BROWSER_NETWORK_PROBE_GENERATION: launch.generation,
 	};
+}
+
+export async function verifyNetworkGuardLaunch(launch: NetworkGuardLaunch, running: RunningProcess): Promise<void> {
+	await waitUntil(async () => {
+		let content: string;
+		try {
+			content = await readFile(launch.probeFile, "utf8");
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+			throw error;
+		}
+		assert.deepEqual(JSON.parse(content), {
+			generation: launch.generation,
+			result: "BLOCKED",
+		}, "current launch wrote invalid network guard evidence");
+		return true;
+	}, OPERATION_TIMEOUT_MS, "current launch did not produce valid network guard evidence", running.child, running.output);
 }
 
 export async function prepareSandboxDirectories(home: string): Promise<void> {
@@ -149,6 +181,41 @@ export async function startProcess(command: string, args: string[], cwd: string,
 			throw new AggregateError([error, exitError], `${name} failed to start and could not be stopped`, { cause: exitError });
 		}
 		throw new Error(`${String(error)}\n${output}`, { cause: error });
+	}
+}
+
+export async function startNetworkGuardedProcess(
+	command: string,
+	args: string[],
+	cwd: string,
+	env: NodeJS.ProcessEnv,
+	ready: (output: string) => boolean,
+	name: string,
+	probeFile: string,
+): Promise<RunningProcess> {
+	const launch = await createNetworkGuardLaunch(probeFile);
+	const running = await startProcess(
+		command,
+		args,
+		cwd,
+		{ ...env, ...networkGuardEnvironment(launch) },
+		ready,
+		name,
+	);
+	try {
+		await verifyNetworkGuardLaunch(launch, running);
+		return running;
+	} catch (error) {
+		try {
+			await stopProcess(running, [0, 143]);
+		} catch (cleanupError) {
+			throw new AggregateError(
+				[error, cleanupError],
+				`${name} failed network guard verification and cleanup`,
+				{ cause: cleanupError },
+			);
+		}
+		throw error;
 	}
 }
 

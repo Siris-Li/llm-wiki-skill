@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -21,13 +21,11 @@ import {
 	createConversation,
 	createKnowledgeBase,
 	isolatedEnvironment,
-	networkGuardEnvironment,
 	platformSandboxEnvironment,
 	prepareSandboxDirectories,
-	startProcess,
+	startNetworkGuardedProcess,
 	stopProcess,
 	type RunningProcess,
-	waitForFile,
 	waitUntil,
 } from "./support/browser-harness";
 
@@ -135,15 +133,16 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 		lastUsedKbPath: kbA,
 	}, null, 2)}\n`);
 
-	server = await startProcess(
+	server = await startNetworkGuardedProcess(
 		process.execPath,
 		["--import", "tsx", SERVER_ENTRY],
 		REPO_ROOT,
-		isolatedEnvironment(home, backendPort, kbB, serverNetworkProbe),
+		isolatedEnvironment(home, backendPort, kbB),
 		(output) => output.includes("listening on http://"),
 		"browser backend",
+		serverNetworkProbe,
 	);
-	vite = await startProcess(
+	vite = await startNetworkGuardedProcess(
 		process.execPath,
 		[VITE_ENTRY, "--host", "127.0.0.1", "--port", String(WEB_PORT), "--strictPort"],
 		WEB_ROOT,
@@ -155,15 +154,11 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 			LLM_WIKI_AGENT_API_ORIGIN: `http://127.0.0.1:${backendPort}`,
 			LLM_WIKI_AGENT_DISABLE_HMR: "1",
 			...platformSandboxEnvironment(home),
-			...networkGuardEnvironment(viteNetworkProbe),
 		},
 		(output) => output.includes("Local:"),
 		"Vite frontend",
+		viteNetworkProbe,
 	);
-	await waitForFile(serverNetworkProbe, OPERATION_TIMEOUT_MS);
-	await waitForFile(viteNetworkProbe, OPERATION_TIMEOUT_MS);
-	assert.equal(await readFile(serverNetworkProbe, "utf8"), "BLOCKED");
-	assert.equal(await readFile(viteNetworkProbe, "utf8"), "BLOCKED");
 
 	browserServer = await chromium.launchServer({
 		headless: true,

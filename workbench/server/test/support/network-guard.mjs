@@ -3,8 +3,10 @@ import net from "node:net";
 
 const probeFile = process.env.LLM_WIKI_BROWSER_NETWORK_PROBE_FILE;
 const probeTarget = process.env.LLM_WIKI_BROWSER_NETWORK_PROBE_TARGET;
+const probeGeneration = process.env.LLM_WIKI_BROWSER_NETWORK_PROBE_GENERATION;
 delete process.env.LLM_WIKI_BROWSER_NETWORK_PROBE_FILE;
 delete process.env.LLM_WIKI_BROWSER_NETWORK_PROBE_TARGET;
+delete process.env.LLM_WIKI_BROWSER_NETWORK_PROBE_GENERATION;
 
 const originalConnect = net.Socket.prototype.connect;
 net.Socket.prototype.connect = function guardedConnect(...args) {
@@ -15,7 +17,7 @@ net.Socket.prototype.connect = function guardedConnect(...args) {
 	return originalConnect.apply(this, args);
 };
 
-if (probeFile && probeTarget) {
+if (probeFile && probeTarget && probeGeneration) {
 	const target = new URL(probeTarget);
 	const options = { host: target.hostname, port: Number(target.port) };
 	const attempts = [
@@ -27,7 +29,7 @@ if (probeFile && probeTarget) {
 		() => net.createConnection(options.port, options.host),
 	];
 	const result = attempts.every(connectionIsBlocked) ? "BLOCKED" : "ALLOWED";
-	fs.writeFileSync(probeFile, result);
+	fs.writeFileSync(probeFile, JSON.stringify({ generation: probeGeneration, result }));
 }
 
 function connectionDestination(args) {
