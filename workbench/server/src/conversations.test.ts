@@ -56,6 +56,44 @@ test("piMessagesToUIMessages omits empty summaries for messages without tools", 
 	]);
 });
 
+test("piMessagesToUIMessages renders a safe failure for a saved model error", () => {
+	const messages = piMessagesToUIMessages([
+		assistantMessage("", [], {
+			stopReason: "error",
+			errorMessage: "fictional raw provider detail",
+		}),
+	]);
+
+	assert.equal(messages[0]?.content, "生成回复时发生错误，请重试");
+	assert.equal(JSON.stringify(messages).includes("fictional raw provider detail"), false);
+});
+
+test("piMessagesToUIMessages keeps a saved cancellation distinct from completion", () => {
+	const messages = piMessagesToUIMessages([
+		assistantMessage("", [], {
+			stopReason: "aborted",
+			errorMessage: "fictional raw abort detail",
+		}),
+	]);
+
+	assert.equal(messages[0]?.content, "生成已停止");
+	assert.equal(JSON.stringify(messages).includes("fictional raw abort detail"), false);
+});
+
+test("piMessagesToUIMessages hides a saved retry failure when the same turn later succeeds", () => {
+	const messages = piMessagesToUIMessages([
+		userMessage("模拟重试"),
+		assistantMessage("", [], {
+			stopReason: "error",
+			errorMessage: "fictional retryable server error",
+		}),
+		assistantMessage("最终成功回复", []),
+	]);
+
+	assert.equal(messages[1]?.content, "最终成功回复");
+	assert.equal(messages[1]?.content.includes("生成回复时发生错误"), false);
+});
+
 test("piMessagesToUIMessages does not invent details missing from tool results", () => {
 	const messages = piMessagesToUIMessages([
 		assistantMessage("执行命令。", [
@@ -133,13 +171,18 @@ function userMessage(text: string): AgentMessage {
 	} as AgentMessage;
 }
 
-function assistantMessage(text: string, extra: unknown[]): AgentMessage {
+function assistantMessage(
+	text: string,
+	extra: unknown[],
+	terminal?: { stopReason: "error" | "aborted"; errorMessage: string },
+): AgentMessage {
 	return {
 		role: "assistant",
 		content: [
 			...(text ? [{ type: "text", text }] : []),
 			...extra,
 		],
+		...terminal,
 	} as AgentMessage;
 }
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -100,6 +100,9 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 			anthropic: { type: "api_key", key: "fictional-browser-credential" },
 		}, null, 2)}\n`);
 		await chmod(join(authDir, "auth.json"), 0o600);
+		await writeFile(join(authDir, "settings.json"), `${JSON.stringify({
+			retry: { enabled: false },
+		}, null, 2)}\n`);
 		await mkdir(appDir, { recursive: true });
 		await writeFile(join(appDir, "config.json"), `${JSON.stringify({
 			version: 1,
@@ -344,14 +347,51 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		));
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 
-		// Messages: normal send, duplicate while busy, cancellation, disconnect recovery, and failure recovery.
+		// Messages: controlled terminal failures, direct failures, cancellation, disconnect recovery, and normal recovery.
 		await page.getByRole("tab", { name: "对话" }).click();
+		const modelErrorAttemptsFile = join(appDir, "browser-model-error-attempts");
+		const safeFailureMessage = "生成回复时发生错误，请重试";
+		const rawModelFailureDetail = "fictional retryable server error that must not reach the page or session";
+		const rawDiagnosticDetail = "fictional diagnostic detail that must not reach the page or session";
+		const rawDiagnosticStack = "fictional diagnostic stack that must not reach the page or session";
+		const controlledFailureResponse = page.waitForResponse((response) => {
+			const request = response.request();
+			return new URL(response.url()).pathname === "/api/prompt"
+				&& request.method() === "POST"
+				&& request.postData()?.includes("[model-error]") === true;
+		});
+		await startComposerMessage(page, "[model-error] controlled terminal failure");
+		await page.getByText(safeFailureMessage, { exact: true }).waitFor();
+		const controlledFailureSse = await (await controlledFailureResponse).text();
+		assert.equal((controlledFailureSse.match(/event: assistant_error/g) ?? []).length, 1);
+		assert.equal(controlledFailureSse.includes("event: assistant_done"), false);
+		assert.equal(controlledFailureSse.includes(rawModelFailureDetail), false);
+		assert.equal(controlledFailureSse.includes(rawDiagnosticDetail), false);
+		assert.equal(controlledFailureSse.includes(rawDiagnosticStack), false);
+		assert.equal((await readFile(modelErrorAttemptsFile, "utf8")).trim().split("\n").length, 1);
+		assert.equal(await page.getByPlaceholder(/写下想法/).isDisabled(), false);
+		assert.equal((await page.locator("body").textContent())?.includes(rawModelFailureDetail), false);
+		assert.equal((await page.locator("body").textContent())?.includes(rawDiagnosticDetail), false);
+		await waitUntil(async () => (await readConversationSession(appDir, kbA, atlasConversation)).includes(safeFailureMessage), OPERATION_TIMEOUT_MS, "safe model failure was not persisted");
+		const failedSession = await readConversationSession(appDir, kbA, atlasConversation);
+		assert.match(failedSession, /"stopReason":"error"/);
+		assert.equal(failedSession.includes(rawModelFailureDetail), false);
+		assert.equal(failedSession.includes(rawDiagnosticDetail), false);
+		assert.equal(failedSession.includes(rawDiagnosticStack), false);
+		await page.reload({ waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+		await page.getByLabel("当前知识库").getByText("atlas-notes").waitFor({ timeout: START_TIMEOUT_MS });
+		await page.getByText(safeFailureMessage, { exact: true }).waitFor();
+		assert.equal((await page.locator("body").textContent())?.includes(rawModelFailureDetail), false);
+		await sendComposerMessage(page, "after controlled failure recovery");
+
 		const modelFailureFlag = join(appDir, "browser-model-fail");
 		await writeFile(modelFailureFlag, "fail");
-		await startComposerMessage(page, "[fail] controlled failure");
-		await page.getByText("出错", { exact: true }).waitFor();
+		const directFailureCount = await page.getByText(safeFailureMessage, { exact: true }).count();
+		await startComposerMessage(page, "direct model entry failure");
+		await waitUntil(async () => (await page!.getByText(safeFailureMessage, { exact: true }).count()) > directFailureCount, OPERATION_TIMEOUT_MS, "direct model failure was not displayed");
+		assert.equal(await page.getByPlaceholder(/写下想法/).isDisabled(), false);
 		await rm(modelFailureFlag, { force: true });
-		await sendComposerMessage(page, "after failure recovery");
+		await sendComposerMessage(page, "after direct failure recovery");
 		await startComposerMessage(page, "[slow] cancel this response");
 		await page.getByText("生成中", { exact: true }).waitFor();
 		await waitForFile(join(appDir, "browser-model-cancel-started"));
@@ -365,6 +405,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await page.getByRole("button", { name: "停止" }).click();
 		await waitForFile(join(appDir, "browser-model-cancel-settled"));
 		await page.getByPlaceholder(/写下想法/).waitFor({ state: "visible" });
+		assert.equal(await page.getByPlaceholder(/写下想法/).isDisabled(), false);
 		await sendComposerMessage(page, "after cancel recovery");
 		await startComposerMessage(page, "[slow] disconnect this response");
 		await page.getByText("生成中", { exact: true }).waitFor();
@@ -374,6 +415,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		page = await context.newPage();
 		await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
 		await page.getByLabel("当前知识库").getByText("atlas-notes").waitFor({ timeout: START_TIMEOUT_MS });
+		await page.getByText("生成已停止", { exact: true }).last().waitFor();
 		await sendComposerMessage(page, "after disconnect recovery");
 
 		// Artifacts: list, preview, download, missing resource prompt, then recover.
@@ -529,6 +571,15 @@ async function startComposerMessage(page: Page, message: string): Promise<void> 
 async function activeConversationId(page: Page): Promise<string | null> {
 	const result = await page.evaluate(() => fetch("/api/knowledge-base").then((response) => response.json())) as { data: { active: { conversation: { id: string } } | null } };
 	return result.data.active?.conversation.id ?? null;
+}
+
+async function readConversationSession(appDir: string, kbPath: string, conversationId: string): Promise<string> {
+	const hash = createHash("sha256").update(kbPath).digest("hex").slice(0, 16);
+	const sessionDir = join(appDir, "sessions", hash);
+	const files = await readdir(sessionDir);
+	const file = files.find((name) => name.endsWith(`_${conversationId}.jsonl`));
+	assert.ok(file, `session file for ${conversationId} was not found`);
+	return readFile(join(sessionDir, file), "utf8");
 }
 
 async function assertBrowserJson(page: Page, path: string, expectedStatus: number, expectedBody: RegExp): Promise<void> {

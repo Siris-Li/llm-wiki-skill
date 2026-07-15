@@ -68,6 +68,9 @@ interface FakeOptions {
   behavior?:
     | "success"
     | "fail"
+    | "saved-model-error"
+    | "saved-model-abort"
+    | "model-error-then-success"
     | "empty"
     | "late-event"
     | "knowledge-search"
@@ -188,6 +191,35 @@ function createFakeService(options: FakeOptions = {}) {
           },
         } as never)[0];
         await ctx.writer.write(lateDelta ?? null);
+      } else if (behavior === "saved-model-error") {
+        for (const event of ctx.adapter.adapt(
+          assistantMessageEnd(
+            "error",
+            "fictional model detail that must not reach the page",
+          ),
+        )) {
+          await ctx.writer.write(event);
+        }
+        for (const event of ctx.adapter.finishAssistant()) {
+          await ctx.writer.write(event);
+        }
+      } else if (behavior === "saved-model-abort") {
+        for (const event of ctx.adapter.adapt(assistantMessageEnd("aborted"))) {
+          await ctx.writer.write(event);
+        }
+        for (const event of ctx.adapter.finishAssistant()) {
+          await ctx.writer.write(event);
+        }
+      } else if (behavior === "model-error-then-success") {
+        for (const event of ctx.adapter.adapt(assistantMessageEnd("error"))) {
+          await ctx.writer.write(event);
+        }
+        for (const event of ctx.adapter.adapt(assistantMessageEnd("stop"))) {
+          await ctx.writer.write(event);
+        }
+        for (const event of ctx.adapter.finishAssistant()) {
+          await ctx.writer.write(event);
+        }
       } else if (behavior === "knowledge-search") {
         const toolCallId = "knowledge-search-1";
         await ctx.writer.write(
@@ -345,6 +377,39 @@ test("成功流：seq 从 1 连续递增、唯一 terminal、每帧通过共享 
   assert.deepEqual(calls.ended.length, 1);
 });
 
+test("已保存的模型错误终态在 prompt 正常返回后仍只发送 assistant_error", async () => {
+  const { service } = createFakeService({ behavior: "saved-model-error" });
+  const app = createApp({ promptService: service });
+  const res = await app.request("/api/prompt", post({ message: "受控模型错误" }));
+  const frames = await readSse(res);
+
+  assertLifecycle(frames);
+  assert.deepEqual(frames.map((frame) => frame.event), ["assistant_error"]);
+  assert.equal(frames.some((frame) => frame.event === "assistant_done"), false);
+  assert.equal(JSON.stringify(frames).includes("fictional model detail"), false);
+});
+
+test("已保存的 aborted 终态保持取消，不被成功结束覆盖", async () => {
+  const { service } = createFakeService({ behavior: "saved-model-abort" });
+  const app = createApp({ promptService: service });
+  const res = await app.request("/api/prompt", post({ message: "受控取消" }));
+  const frames = await readSse(res);
+
+  assertLifecycle(frames);
+  assert.deepEqual(frames.map((frame) => frame.event), ["assistant_cancelled"]);
+  assert.equal(frames.some((frame) => frame.event === "assistant_done"), false);
+});
+
+test("后续正常助手结束会替代本轮暂存模型错误，最终只发送 assistant_done", async () => {
+  const { service } = createFakeService({ behavior: "model-error-then-success" });
+  const app = createApp({ promptService: service });
+  const res = await app.request("/api/prompt", post({ message: "模拟恢复成功" }));
+  const frames = await readSse(res);
+
+  assertLifecycle(frames);
+  assert.deepEqual(frames.map((frame) => frame.event), ["assistant_done"]);
+});
+
 test("服务遗漏 terminal 时 route 补发唯一 assistant_error", async () => {
   const { service } = createFakeService({ behavior: "empty" });
   const app = createApp({ promptService: service });
@@ -367,7 +432,7 @@ test("terminal 后的 agent event 不会写入 stream", async () => {
     false,
   );
 });
-test("prompt 抛错时发送唯一 assistant_error，不泄露 raw error / stack / 路径，terminal 为最后一帧", async () => {
+test("模型入口直接失败时发送唯一 assistant_error，不泄露 raw error / stack / 路径，terminal 为最后一帧", async () => {
   const { service } = createFakeService({ behavior: "fail" });
   const app = createApp({ promptService: service });
   const res = await app.request("/api/prompt", post({ message: "boom" }));
@@ -434,6 +499,22 @@ test("订阅抛错后释放 run registry，后续请求不会 BUSY", async () =>
     assert.equal(second.status, 200);
   }
 });
+
+function assistantMessageEnd(
+  stopReason: "error" | "aborted" | "stop",
+  errorMessage?: string,
+): Record<string, unknown> {
+  return {
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [],
+      stopReason,
+      ...(errorMessage ? { errorMessage } : {}),
+    },
+  };
+}
+
 async function waitFor(
   condition: () => boolean,
   message: string,

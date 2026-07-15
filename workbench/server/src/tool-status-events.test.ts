@@ -314,8 +314,8 @@ test("knowledge search uses a safe target without query or path", () => {
   assert.deepEqual(event.args, {});
 });
 test("adapter terminal 后拒绝任何后续 prompt 事件", () => {
-  const adapter = createAdapter();
-  const done = adapter.finishAssistant();
+	const adapter = createAdapter();
+	const done = adapter.finishAssistant();
 
   assert.equal(done.at(-1)?.type, "assistant_done");
   assert.equal(adapter.adapt(textDelta("late")).length, 0);
@@ -332,7 +332,41 @@ test("adapter terminal 后拒绝任何后续 prompt 事件", () => {
     adapter.artifactCreated({ id: "late", kind: "html", title: "late" }),
     null,
   );
-  assert.deepEqual(adapter.cancelAssistant(), []);
+	assert.deepEqual(adapter.cancelAssistant(), []);
+});
+
+test("已保存的模型错误结束会在本轮结束时成为唯一安全失败终态，而不是成功完成", () => {
+	const adapter = createAdapter();
+	const intermediate = adapter.adapt(
+		assistantMessageEnd("error", "fictional provider detail that must not reach the page"),
+	);
+	assert.deepEqual(intermediate, []);
+	assert.equal(adapter.isFinished, false);
+	const events = adapter.finishAssistant();
+
+	assert.deepEqual(events.map((event) => event.type), ["assistant_error"]);
+	assert.equal(events[0]?.type, "assistant_error");
+	if (events[0]?.type === "assistant_error") {
+		assert.equal(events[0].message, "生成回复时发生错误，请重试");
+	}
+	assert.equal(JSON.stringify(events).includes("fictional provider detail"), false);
+	assert.deepEqual(adapter.finishAssistant(), []);
+});
+
+test("后续正常助手结束会替代暂存的模型错误，保留正常完成", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("stop")), []);
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_done"]);
+});
+
+test("重试间隙取消会替代暂存模型错误，保持取消终态", () => {
+	const adapter = createAdapter();
+
+	assert.deepEqual(adapter.adapt(assistantMessageEnd("error")), []);
+	adapter.recordCancellation();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_cancelled"]);
 });
 
 test("tool status fixture 的每个事件都通过共享 prompt schema", () => {
@@ -471,6 +505,21 @@ function startEvent(
 		toolName,
 		args,
 	};
+}
+
+function assistantMessageEnd(
+	stopReason: "error" | "aborted" | "stop" | "toolUse",
+	errorMessage?: string,
+): AgentEvent {
+	return {
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [],
+			stopReason,
+			...(errorMessage ? { errorMessage } : {}),
+		},
+	} as unknown as AgentEvent;
 }
 
 function compactEvent(event: ToolStatusContractEvent): Record<string, unknown> {
