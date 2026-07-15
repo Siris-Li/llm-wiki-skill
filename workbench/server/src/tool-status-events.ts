@@ -133,23 +133,28 @@ export class OrderedSseWriter {
 
 	constructor(private readonly writePayload: SsePayloadWriter) {}
 
-  writeContract(event: PromptSseEvent): Promise<void> {
+  writeContract(event: PromptSseEvent): Promise<boolean> {
 		return this.write({ event: event.type, data: JSON.stringify(event) });
 	}
 
-	writeNamed(event: string, data: unknown): Promise<void> {
+  writeNamed(event: string, data: unknown): Promise<boolean> {
     return this.write({
       event,
       data: typeof data === "string" ? data : JSON.stringify(data),
     });
 	}
 
-	write(payload: SsePayload): Promise<void> {
-		if (this.closed) return this.queue;
+	write(payload: SsePayload): Promise<boolean> {
+		if (this.closed) return Promise.resolve(false);
 		const next = this.queue.then(async () => {
-			if (!this.closed) await this.writePayload(payload);
-		});
-		this.queue = next.catch(() => {});
+				if (this.closed) return false;
+				await this.writePayload(payload);
+				return true;
+			});
+		this.queue = next.then(
+			() => {},
+			() => {},
+		);
 		return next;
 	}
 

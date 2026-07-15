@@ -1,3 +1,5 @@
+import { open, readFile, rename, rm } from "node:fs/promises";
+
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
@@ -14,24 +16,46 @@ interface TerminalPersistenceState {
 
 const terminalPersistence = new WeakMap<SessionManager, TerminalPersistenceState>();
 
+/** Tracks text confirmed written to the client for each assistant message. */
+export class PublishedAssistantText {
+	private currentText = "";
+	private finalTerminalText = "";
+
+	append(delta: string): void {
+		this.currentText += delta;
+	}
+
+	endAssistantMessage(stopReason: unknown): void {
+		if (getAssistantTerminalReason(stopReason)) {
+			this.finalTerminalText = this.currentText;
+		}
+		this.currentText = "";
+	}
+
+	get terminalText(): string {
+		return this.finalTerminalText;
+	}
+}
+
 /** Creates a safe persisted copy without changing the live message used for retry decisions. */
 export function sanitizeAssistantTerminalMessage(
 	message: AssistantMessage,
+	visibleAssistantText = "",
 ): AssistantMessage {
-	return sanitizeTerminalMessage(message, message.stopReason === "aborted");
+	return sanitizeTerminalMessage(message, visibleAssistantText);
 }
 
 function sanitizeTerminalMessage(
 	message: AssistantMessage,
-	preservePartialContent: boolean,
+	visibleAssistantText: string,
 ): AssistantMessage {
 	const terminalReason = getAssistantTerminalReason(message.stopReason);
 	return terminalReason
-		? replaceTerminalDiagnostics(
-			message,
-			getAssistantTerminalMessage(terminalReason),
-			preservePartialContent,
-		)
+		? createSafeTerminalMessage(
+				message as unknown as Record<string, unknown>,
+				terminalReason,
+				terminalReason === "aborted" ? visibleAssistantText : "",
+			)
 		: message;
 }
 
@@ -72,6 +96,7 @@ export function protectSessionTerminalMessages(
 export function finalizeSessionTerminalMessages(
 	sessionManager: SessionManager,
 	terminalReason: AssistantTerminalReason | null,
+	visibleAssistantText = "",
 ): void {
 	const state = terminalPersistence.get(sessionManager);
 	if (!state) return;
@@ -83,10 +108,48 @@ export function finalizeSessionTerminalMessages(
 		: { ...pendingMessage, stopReason: terminalReason };
 	const safeMessage = sanitizeTerminalMessage(
 		finalMessage,
-		pendingMessage.stopReason === "aborted",
+		pendingMessage.stopReason === "aborted" ? visibleAssistantText : "",
 	);
 	overwriteAssistantMessage(pendingMessage, safeMessage);
 	state.appendMessage(safeMessage);
+}
+
+/**
+ * Removes unsafe terminal payloads from legacy JSONL records before an SDK session restores them.
+ * The record is rewritten before it can become model context or a foreground conversation.
+ */
+export async function sanitizePersistedSessionTerminalMessages(
+	sessionFile: string,
+): Promise<boolean> {
+	let source: string;
+	try {
+		source = await readFile(sessionFile, "utf8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+		throw error;
+	}
+
+	let changed = false;
+	const rewritten = source
+		.split("\n")
+		.map((line) => {
+			if (!line.trim()) return line;
+			let entry: unknown;
+			try {
+				entry = JSON.parse(line);
+			} catch {
+				return line;
+			}
+			const safeEntry = sanitizePersistedEntry(entry);
+			if (safeEntry === entry) return line;
+			changed = true;
+			return JSON.stringify(safeEntry);
+		})
+		.join("\n");
+	if (!changed) return false;
+
+	await rewriteSessionFileAtomically(sessionFile, rewritten);
+	return true;
 }
 
 function isTerminalAssistantMessage(
@@ -95,23 +158,88 @@ function isTerminalAssistantMessage(
 	return message.role === "assistant" && getAssistantTerminalReason(message.stopReason) !== null;
 }
 
-function replaceTerminalDiagnostics(
-	message: AssistantMessage,
-	errorMessage: string,
-	preservePartialContent: boolean,
+function sanitizePersistedEntry(entry: unknown): unknown {
+	if (!isRecord(entry) || entry.type !== "message" || !isRecord(entry.message)) return entry;
+	const safeMessage = sanitizePersistedTerminalMessage(entry.message);
+	return safeMessage ? { ...entry, message: safeMessage } : entry;
+}
+
+function sanitizePersistedTerminalMessage(
+	message: Record<string, unknown>,
+): AssistantMessage | null {
+	if (message.role !== "assistant") return null;
+	const terminalReason = getAssistantTerminalReason(message.stopReason);
+	return terminalReason
+		? createSafeTerminalMessage(message, terminalReason, "")
+		: null;
+}
+
+function createSafeTerminalMessage(
+	message: Record<string, unknown>,
+	terminalReason: AssistantTerminalReason,
+	visibleAssistantText: string,
 ): AssistantMessage {
-	const { diagnostics: _diagnostics, ...safeMessage } = message;
 	return {
-		...safeMessage,
-		content: preservePartialContent ? visibleTextContent(message) : [],
-		errorMessage,
+		role: "assistant",
+		content:
+			terminalReason === "aborted" && visibleAssistantText
+				? [{ type: "text", text: visibleAssistantText }]
+				: [],
+		api: message.api as AssistantMessage["api"],
+		provider: message.provider as AssistantMessage["provider"],
+		model: typeof message.model === "string" ? message.model : "unknown",
+		...(typeof message.responseModel === "string"
+			? { responseModel: message.responseModel }
+			: {}),
+		usage: sanitizeUsage(message.usage),
+		stopReason: terminalReason,
+		errorMessage: getAssistantTerminalMessage(terminalReason),
+		timestamp: finiteNumber(message.timestamp),
 	};
 }
 
-function visibleTextContent(message: AssistantMessage): AssistantMessage["content"] {
-	return message.content.flatMap((part) =>
-		part.type === "text" ? [{ type: "text" as const, text: part.text }] : [],
-	);
+function sanitizeUsage(value: unknown): AssistantMessage["usage"] {
+	const usage = isRecord(value) ? value : {};
+	const cost = isRecord(usage.cost) ? usage.cost : {};
+	return {
+		input: finiteNumber(usage.input),
+		output: finiteNumber(usage.output),
+		cacheRead: finiteNumber(usage.cacheRead),
+		cacheWrite: finiteNumber(usage.cacheWrite),
+		totalTokens: finiteNumber(usage.totalTokens),
+		cost: {
+			input: finiteNumber(cost.input),
+			output: finiteNumber(cost.output),
+			cacheRead: finiteNumber(cost.cacheRead),
+			cacheWrite: finiteNumber(cost.cacheWrite),
+			total: finiteNumber(cost.total),
+		},
+	};
+}
+
+function finiteNumber(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+async function rewriteSessionFileAtomically(filePath: string, content: string): Promise<void> {
+	const tempPath = `${filePath}.terminal-sanitize.${process.pid}.${Math.random().toString(36).slice(2)}`;
+	try {
+		const handle = await open(tempPath, "w", 0o600);
+		try {
+			await handle.writeFile(content, "utf8");
+			await handle.sync();
+		} finally {
+			await handle.close();
+		}
+		await rename(tempPath, filePath);
+	} catch (error) {
+		await rm(tempPath, { force: true }).catch(() => {});
+		throw error;
+	}
 }
 
 function overwriteAssistantMessage(

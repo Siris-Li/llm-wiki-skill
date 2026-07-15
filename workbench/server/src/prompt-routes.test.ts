@@ -12,10 +12,11 @@ import {
 import { ToolStatusEventAdapter } from "./tool-status-events.js";
 import type {
   PromptActiveContext,
+  PromptEventWriter,
   PromptRunContext,
   PromptRouteService,
 } from "./routes/prompt.js";
-import { defaultPromptRouteService } from "./routes/prompt.js";
+import { defaultPromptRouteService, PromptSessionEventQueue } from "./routes/prompt.js";
 
 interface SseFrame {
   event: string;
@@ -402,7 +403,7 @@ test("已保存的 aborted 终态保持取消，不被成功结束覆盖", async
   assert.equal(frames.some((frame) => frame.event === "assistant_done"), false);
 });
 
-test("传输取消会停止上下文超限自动恢复，并保持取消终态", () => {
+test("传输取消会停止上下文超限自动恢复，并保持取消终态", async () => {
 	const adapter = new ToolStatusEventAdapter({
 		runId: "run-overflow-cancel",
 		messageId: "message-overflow-cancel",
@@ -411,13 +412,14 @@ test("传输取消会停止上下文超限自动恢复，并保持取消终态",
 	adapter.adapt({ type: "compaction_start", reason: "overflow" });
 	const calls: string[] = [];
 
-	defaultPromptRouteService.abortSession({
+	const ctx = {
 		runId: "run-overflow-cancel",
 		messageId: "message-overflow-cancel",
 		message: "受控恢复取消",
 		active: { kbPath: "/fictional/kb", name: "fixture", conversationId: "c-overflow", sessionId: "s-overflow" },
 		adapter,
-		writer: { open: true, write: async () => {}, flush: async () => {} },
+		writer: { open: true, write: async () => true, flush: async () => {} },
+		sessionEvents: new PromptSessionEventQueue(),
 		session: {
 			subscribe: () => () => {},
 			prompt: async () => {},
@@ -425,10 +427,34 @@ test("传输取消会停止上下文超限自动恢复，并保持取消终态",
 			abort: () => calls.push("prompt"),
 			state: {},
 		},
-	} as PromptRunContext);
+	} as PromptRunContext;
+	defaultPromptRouteService.abortSession(ctx);
 
 	assert.deepEqual(calls, ["compaction", "prompt"]);
+	await ctx.sessionEvents.flush();
 	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_cancelled"]);
+});
+
+test("会话事件队列只记录实际写出的最终取消文字", async () => {
+	const adapter = new ToolStatusEventAdapter({
+		runId: "run-delivery",
+		messageId: "message-delivery",
+	});
+	const sessionEvents = new PromptSessionEventQueue();
+	const writer: PromptEventWriter = {
+		open: true,
+		write: async (event) => event?.type !== "assistant_text_delta" || event.delta !== "未写出的虚构文字",
+		flush: async () => {},
+	};
+
+	sessionEvents.enqueueAgentEvent(adapter, writer, textDelta("工具调用前已写出的虚构文字"));
+	sessionEvents.enqueueAgentEvent(adapter, writer, assistantMessageEnd("toolUse"));
+	sessionEvents.enqueueAgentEvent(adapter, writer, textDelta("未写出的虚构文字"));
+	sessionEvents.enqueueAgentEvent(adapter, writer, textDelta("最终已写出的虚构文字"));
+	sessionEvents.enqueueAgentEvent(adapter, writer, assistantMessageEnd("aborted"));
+	await sessionEvents.flush();
+
+	assert.equal(sessionEvents.publishedAssistantText.terminalText, "最终已写出的虚构文字");
 });
 
 test("后续正常助手结束会替代本轮暂存模型错误，最终只发送 assistant_done", async () => {
@@ -532,7 +558,7 @@ test("订阅抛错后释放 run registry，后续请求不会 BUSY", async () =>
 });
 
 function assistantMessageEnd(
-  stopReason: "error" | "aborted" | "stop",
+  stopReason: "error" | "aborted" | "stop" | "toolUse",
   errorMessage?: string,
 ): Record<string, unknown> {
   return {
@@ -542,6 +568,19 @@ function assistantMessageEnd(
       content: [],
       stopReason,
       ...(errorMessage ? { errorMessage } : {}),
+    },
+  };
+}
+
+function textDelta(delta: string): Record<string, unknown> {
+  return {
+    type: "message_update",
+    message: { role: "assistant", content: [] },
+    assistantMessageEvent: {
+      type: "text_delta",
+      contentIndex: 0,
+      delta,
+      partial: { role: "assistant", content: [{ type: "text", text: delta }] },
     },
   };
 }

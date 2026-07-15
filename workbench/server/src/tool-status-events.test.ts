@@ -447,10 +447,24 @@ test("ordered SSE writer serializes mixed async writes", async () => {
 
 	const first = writer.writeNamed("slow", "1");
 	const second = writer.writeNamed("fast", "2");
-	await Promise.all([second, first]);
+	assert.deepEqual(await Promise.all([second, first]), [true, true]);
 	await writer.flush();
 
 	assert.deepEqual(order, ["slow:1", "fast:2"]);
+});
+
+test("ordered SSE writer reports queued writes skipped after transport close", async () => {
+	const written: string[] = [];
+	const writer = new OrderedSseWriter(async (payload) => {
+		written.push(payload.data);
+	});
+
+	const queued = writer.writeNamed("assistant_text_delta", "未展示的虚构文字");
+	writer.close();
+
+	assert.equal(await queued, false);
+	await writer.flush();
+	assert.deepEqual(written, []);
 });
 
 test("prompt run registry rejects same-session concurrency and releases owner", () => {

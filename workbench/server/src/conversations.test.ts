@@ -69,6 +69,28 @@ test("piMessagesToUIMessages renders a safe failure for a saved model error", ()
 	assert.equal(JSON.stringify(messages).includes("虚构的旧失败回复片段"), false);
 });
 
+test("piMessagesToUIMessages omits tool summaries attached to a saved terminal error", () => {
+	const messages = piMessagesToUIMessages([
+		assistantMessage("", [
+			{
+				type: "toolCall",
+				id: "terminal-error-tool",
+				name: "read",
+				arguments: { path: "/fictional/private/case-231-notes.md" },
+			},
+		], {
+			stopReason: "error",
+			errorMessage: "fictional raw provider detail",
+		}),
+		toolResultMessage("terminal-error-tool", "read", "fictional private tool result", false),
+	]);
+
+	assert.equal(messages[0]?.content, "生成回复时发生错误，请重试");
+	assert.deepEqual(messages[0]?.tools, []);
+	assert.equal(JSON.stringify(messages).includes("/fictional/private/case-231-notes.md"), false);
+	assert.equal(JSON.stringify(messages).includes("fictional private tool result"), false);
+});
+
 test("piMessagesToUIMessages keeps a saved cancellation distinct from completion", () => {
 	const messages = piMessagesToUIMessages([
 		assistantMessage("取消前已显示的虚构回复片段", [], {

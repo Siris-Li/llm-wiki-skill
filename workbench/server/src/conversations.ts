@@ -144,11 +144,12 @@ export function piMessagesToUIMessages(messages: AgentMessage[]): UIMessage[] {
 		}
 		} else if (msg.role === "assistant") {
 			const text = extractText(msg).trim();
-			const tools = extractToolSummaries(msg, toolResults);
+			const terminalReason = getAssistantTerminalReason(msg.stopReason);
+			const tools = terminalReason ? [] : extractToolSummaries(msg, toolResults);
 			if (!pending) pending = { assistantParts: [], tools: [] };
 			pending.assistantParts.push({
 				text,
-				terminalReason: getAssistantTerminalReason(msg.stopReason),
+				terminalReason,
 			});
 			pending.tools.push(...tools);
 		}

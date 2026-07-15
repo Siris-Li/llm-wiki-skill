@@ -8,6 +8,7 @@ import {
 
 import { artifactEvents, type ArtifactCreatedEvent } from "../artifacts.js";
 import { finalizeSessionTerminalPersistence, getActive } from "../agent.js";
+import { PublishedAssistantText } from "../extensions/prompt-terminal.js";
 import {
   clearPendingKnowledgeContext,
   runWithPendingKnowledgeContextOwner,
@@ -59,15 +60,65 @@ export interface PromptRunContext extends PromptRunHandle {
   message: string;
   active: PromptActiveContext;
   session: PromptSession;
+  sessionEvents: PromptSessionEventQueue;
 }
 
 export interface PromptEventWriter {
-  /** 写入共享契约事件（含 artifact_created）；terminal 后或 transport 断开后忽略。 */
-  write: (event: PromptSseEvent | null) => Promise<void>;
+  /** 写入共享契约事件；返回是否已实际写入（terminal 后或 transport 断开后为 false）。 */
+  write: (event: PromptSseEvent | null) => Promise<boolean>;
   /** 等待已排队写入落盘。 */
   flush: () => Promise<void>;
   /** writer 是否仍可写（未断开、未写过 terminal）。 */
   readonly open: boolean;
+}
+
+/** Keeps non-awaited SDK listener events in order and records only delivered text. */
+export class PromptSessionEventQueue {
+  private queue: Promise<void> = Promise.resolve();
+  readonly publishedAssistantText = new PublishedAssistantText();
+
+  enqueue(task: () => Promise<void>): void {
+    this.queue = this.queue.then(task).catch(() => {});
+  }
+
+	recordCancellation(adapter: ToolStatusEventAdapter): void {
+		this.enqueue(async () => {
+			adapter.recordCancellation();
+		});
+	}
+
+	enqueueAgentEvent(
+		adapter: ToolStatusEventAdapter,
+		writer: PromptEventWriter,
+		agentEvent: unknown,
+	): void {
+		this.enqueue(async () => {
+			for (const contractEvent of adapter.adapt(agentEvent)) {
+				const delivered = await writer.write(contractEvent);
+				if (delivered && contractEvent.type === "assistant_text_delta") {
+					this.publishedAssistantText.append(contractEvent.delta);
+				}
+			}
+			this.recordAssistantMessageEnd(agentEvent);
+		});
+	}
+
+  recordAssistantMessageEnd(event: unknown): void {
+    const message = getAssistantMessageEnd(event);
+    if (message) this.publishedAssistantText.endAssistantMessage(message.stopReason);
+  }
+
+	flush(): Promise<void> {
+		return this.waitForIdle();
+	}
+
+	private async waitForIdle(): Promise<void> {
+		while (true) {
+			const pending = this.queue;
+			await pending;
+			if (this.queue === pending) return;
+		}
+	}
 }
 
 export interface PromptRunSeed {
@@ -122,7 +173,7 @@ export function createPromptRoutes(service: PromptRouteService): Hono {
           return state.transportOpen && !state.terminalWritten;
         },
         async write(event) {
-          if (!event || state.terminalWritten || !state.transportOpen) return;
+          if (!event || state.terminalWritten || !state.transportOpen) return false;
           if (
             event.type === "assistant_done" ||
             event.type === "assistant_cancelled" ||
@@ -130,7 +181,7 @@ export function createPromptRoutes(service: PromptRouteService): Hono {
           ) {
             state.terminalWritten = true;
           }
-          await rawWriter.writeContract(event);
+          return rawWriter.writeContract(event);
         },
         flush: () => rawWriter.flush(),
       };
@@ -142,6 +193,7 @@ export function createPromptRoutes(service: PromptRouteService): Hono {
         session,
         adapter,
         writer,
+        sessionEvents: new PromptSessionEventQueue(),
       };
 
       let unsubscribeSession: (() => void) | undefined;
@@ -223,14 +275,8 @@ export const defaultPromptRouteService: PromptRouteService = {
   beginRun: (sessionId, runId) => defaultRegistry.begin(sessionId, runId),
   endRun: (sessionId, runId) => defaultRegistry.end(sessionId, runId),
   subscribeSession(ctx) {
-    const listener = async (agentEvent: unknown) => {
-      try {
-        for (const contractEvent of ctx.adapter.adapt(agentEvent)) {
-          await ctx.writer.write(contractEvent);
-        }
-      } catch {
-        // transport 写失败：由 route 的 abort 路径清理。
-      }
+    const listener = (agentEvent: unknown) => {
+			ctx.sessionEvents.enqueueAgentEvent(ctx.adapter, ctx.writer, agentEvent);
     };
     return ctx.session.subscribe(listener);
   },
@@ -369,9 +415,11 @@ export const defaultPromptRouteService: PromptRouteService = {
 			session.prompt(message),
 		);
 	} finally {
+		await ctx.sessionEvents.flush();
 		finalizeSessionTerminalPersistence(
 			session,
 			ctx.adapter.pendingTerminalReason,
+			ctx.sessionEvents.publishedAssistantText.terminalText,
 		);
 	}
     for (const event of ctx.adapter.finishAssistant()) {
@@ -379,7 +427,7 @@ export const defaultPromptRouteService: PromptRouteService = {
     }
   },
   abortSession(ctx) {
-		ctx.adapter.recordCancellation();
+		ctx.sessionEvents.recordCancellation(ctx.adapter);
 		ctx.session.abortCompaction?.();
     ctx.session.abort?.();
   },
@@ -390,3 +438,12 @@ export const defaultPromptRouteService: PromptRouteService = {
     });
   },
 };
+
+function getAssistantMessageEnd(event: unknown): { stopReason: unknown } | null {
+  if (!isRecord(event) || event.type !== "message_end" || !isRecord(event.message)) return null;
+  return event.message.role === "assistant" ? { stopReason: event.message.stopReason } : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}

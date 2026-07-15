@@ -40,6 +40,7 @@ import knowledgeBaseExtension from "./extensions/knowledge-base.js";
 import {
 	finalizeSessionTerminalMessages,
 	protectSessionTerminalMessages,
+	sanitizePersistedSessionTerminalMessages,
 	type AssistantTerminalReason,
 } from "./extensions/prompt-terminal.js";
 import {
@@ -131,9 +132,11 @@ function rememberTerminalSessionManager(
 export function finalizeSessionTerminalPersistence(
 	session: unknown,
 	terminalReason: AssistantTerminalReason | null,
+	visibleAssistantText = "",
 ): void {
 	const sessionManager = terminalSessionManagers.get(session as AgentSession);
-	if (sessionManager) finalizeSessionTerminalMessages(sessionManager, terminalReason);
+	if (sessionManager)
+		finalizeSessionTerminalMessages(sessionManager, terminalReason, visibleAssistantText);
 }
 
 export async function getResourceLoader(): Promise<DefaultResourceLoader> {
@@ -388,6 +391,7 @@ async function selectKbSerial(kbPath: string): Promise<ActiveContext> {
 	let sessionManager: ReturnType<typeof SessionManager.create>;
 	const mostRecent = existing[0];
 	if (mostRecent) {
+		await sanitizePersistedSessionTerminalMessages(mostRecent.path);
 		sessionManager = protectSessionTerminalMessages(
 			SessionManager.open(mostRecent.path),
 		);
@@ -457,6 +461,7 @@ async function selectConversationSerial(
 	const loader = await getResourceLoader();
 
 	const model = await getRoleModel("main");
+	await sanitizePersistedSessionTerminalMessages(target.path);
 	const sessionManager = protectSessionTerminalMessages(
 		SessionManager.open(target.path),
 	);
