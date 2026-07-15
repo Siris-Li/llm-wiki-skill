@@ -38,6 +38,10 @@ import { scanAndRebuildArtifactIndex } from "./artifacts.js";
 import { createArtifactsExtension } from "./extensions/artifacts.js";
 import knowledgeBaseExtension from "./extensions/knowledge-base.js";
 import {
+	finalizeSessionTerminalMessages,
+	protectSessionTerminalMessages,
+} from "./extensions/prompt-terminal.js";
+import {
 	clearCurrentKnowledgeBase,
 	setCurrentKnowledgeBase,
 } from "./extensions/knowledge-base.js";
@@ -100,6 +104,7 @@ let resourceLoaderState: {
 } | null = null;
 let active: ActiveContext | null = null;
 let activeMutationQueue: Promise<void> = Promise.resolve();
+const terminalSessionManagers = new WeakMap<AgentSession, SessionManager>();
 
 async function runActiveMutation<T>(operation: () => Promise<T>): Promise<T> {
 	const previous = activeMutationQueue;
@@ -113,6 +118,21 @@ async function runActiveMutation<T>(operation: () => Promise<T>): Promise<T> {
 	} finally {
 		release();
 	}
+}
+
+function rememberTerminalSessionManager(
+	session: AgentSession,
+	sessionManager: SessionManager,
+): void {
+	terminalSessionManagers.set(session, sessionManager);
+}
+
+export function finalizeSessionTerminalPersistence(
+	session: unknown,
+	terminalReason: "error" | "aborted" | null,
+): void {
+	const sessionManager = terminalSessionManagers.get(session as AgentSession);
+	if (sessionManager) finalizeSessionTerminalMessages(sessionManager, terminalReason);
 }
 
 export async function getResourceLoader(): Promise<DefaultResourceLoader> {
@@ -367,9 +387,13 @@ async function selectKbSerial(kbPath: string): Promise<ActiveContext> {
 	let sessionManager: ReturnType<typeof SessionManager.create>;
 	const mostRecent = existing[0];
 	if (mostRecent) {
-		sessionManager = SessionManager.open(mostRecent.path);
+		sessionManager = protectSessionTerminalMessages(
+			SessionManager.open(mostRecent.path),
+		);
 	} else {
-		sessionManager = SessionManager.create(process.cwd(), dir);
+		sessionManager = protectSessionTerminalMessages(
+			SessionManager.create(process.cwd(), dir),
+		);
 		isNew = true;
 	}
 
@@ -381,6 +405,7 @@ async function selectKbSerial(kbPath: string): Promise<ActiveContext> {
 		modelRegistry,
 		...(model ? { model } : {}),
 	});
+	rememberTerminalSessionManager(session, sessionManager);
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 
 	let kb: ActiveContext["kb"];
@@ -431,13 +456,17 @@ async function selectConversationSerial(
 	const loader = await getResourceLoader();
 
 	const model = await getRoleModel("main");
+	const sessionManager = protectSessionTerminalMessages(
+		SessionManager.open(target.path),
+	);
 	const { session, modelFallbackMessage } = await createAgentSession({
 		resourceLoader: loader,
-		sessionManager: SessionManager.open(target.path),
+		sessionManager,
 		authStorage,
 		modelRegistry,
 		...(model ? { model } : {}),
 	});
+	rememberTerminalSessionManager(session, sessionManager);
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 
 	active = { kb, session, conversationId: session.sessionId, isNew: false };
@@ -462,13 +491,17 @@ async function createNewConversationSerial(kbPath: string): Promise<ActiveContex
 	const loader = await getResourceLoader();
 
 	const model = await getRoleModel("main");
+	const sessionManager = protectSessionTerminalMessages(
+		SessionManager.create(process.cwd(), dir),
+	);
 	const { session, modelFallbackMessage } = await createAgentSession({
 		resourceLoader: loader,
-		sessionManager: SessionManager.create(process.cwd(), dir),
+		sessionManager,
 		authStorage,
 		modelRegistry,
 		...(model ? { model } : {}),
 	});
+	rememberTerminalSessionManager(session, sessionManager);
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 
 	active = { kb, session, conversationId: session.sessionId, isNew: true };

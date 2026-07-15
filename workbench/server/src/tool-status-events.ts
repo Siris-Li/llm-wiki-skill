@@ -8,6 +8,11 @@ import {
   type WorkbenchErrorCode,
 } from "@llm-wiki/workbench-contracts";
 
+import {
+  MODEL_CANCELLED_MESSAGE,
+  MODEL_FAILURE_MESSAGE,
+} from "./extensions/prompt-terminal.js";
+
 export const TOOL_STATUS_SCHEMA_VERSION = 1;
 
 export type ToolStatusKind = PromptSseEvent["type"];
@@ -180,6 +185,7 @@ export class ToolStatusEventAdapter {
 	private readonly redaction: RedactionOptions;
 	private readonly runningTools = new Map<string, RunningToolState>();
 	private readonly completedTools: CompletedToolState[] = [];
+  private pendingAssistantTerminal: "error" | "aborted" | null = null;
   /** 是否已生成 terminal 事件（assistant_done/cancelled/error）。terminal 后不再生成任何事件。 */
   private terminalEmitted = false;
 
@@ -193,6 +199,14 @@ export class ToolStatusEventAdapter {
     return this.terminalEmitted;
   }
 
+	get pendingTerminalReason(): "error" | "aborted" | null {
+		return this.pendingAssistantTerminal;
+	}
+
+	recordCancellation(): void {
+		if (!this.terminalEmitted) this.pendingAssistantTerminal = "aborted";
+	}
+
 	adapt(event: unknown): ToolStatusContractEvent[] {
     if (this.terminalEmitted) return [];
 		if (isAgentEventType(event, "message_update")) {
@@ -204,6 +218,8 @@ export class ToolStatusEventAdapter {
 			}
 			return [];
 		}
+    if (isAgentEventType(event, "message_end"))
+      return this.assistantMessageEnded(event.message);
     if (isAgentEventType(event, "tool_execution_start"))
       return [this.toolStart(event)];
     if (isAgentEventType(event, "tool_execution_update"))
@@ -270,6 +286,9 @@ export class ToolStatusEventAdapter {
 
 	finishAssistant(): ToolStatusContractEvent[] {
     if (this.terminalEmitted) return [];
+		if (this.pendingAssistantTerminal === "error") return this.failAssistant(null);
+		if (this.pendingAssistantTerminal === "aborted")
+			return this.cancelAssistant(MODEL_CANCELLED_MESSAGE);
 		const events: ToolStatusContractEvent[] = [];
 		if (this.completedTools.length > 0 || this.runningTools.size > 0) {
 			events.push(
@@ -343,6 +362,21 @@ export class ToolStatusEventAdapter {
       }),
     );
 	}
+
+  private assistantMessageEnded(message: unknown): ToolStatusContractEvent[] {
+    const record = toRecord(message);
+    if (record.role !== "assistant") return [];
+		if (record.stopReason === "error") {
+			this.pendingAssistantTerminal = "error";
+			return [];
+		}
+		if (record.stopReason === "aborted") {
+			this.pendingAssistantTerminal = "aborted";
+			return [];
+		}
+		this.pendingAssistantTerminal = null;
+    return [];
+  }
 
   private toolStart(
     event: Extract<ToolExecutionEvent, { type: "tool_execution_start" }>,
@@ -740,7 +774,7 @@ function classifyPromptError(
   // 当前所有 prompt 运行期失败统一映射为 INTERNAL_ERROR + 稳定中文文案。
   // 若未来需要区分可公开的 code（如 NO_ACTIVE_KB 已在 pre-stream 处理），
   // 在此扩展，details 也只放白名单字段。
-  return { code: "INTERNAL_ERROR", message: "生成回复时发生错误，请重试" };
+  return { code: "INTERNAL_ERROR", message: MODEL_FAILURE_MESSAGE };
 }
 
 function toRecord(value: unknown): Record<string, unknown> {

@@ -7,7 +7,7 @@ import {
 } from "@llm-wiki/workbench-contracts";
 
 import { artifactEvents, type ArtifactCreatedEvent } from "../artifacts.js";
-import { getActive } from "../agent.js";
+import { finalizeSessionTerminalPersistence, getActive } from "../agent.js";
 import {
   clearPendingKnowledgeContext,
   runWithPendingKnowledgeContextOwner,
@@ -363,14 +363,22 @@ export const defaultPromptRouteService: PromptRouteService = {
     if (knowledgeContext) {
       setPendingKnowledgeContext(knowledgeContext, contextOwner);
     }
-    await runWithPendingKnowledgeContextOwner(contextOwner, () =>
-      session.prompt(message),
-    );
+	try {
+		await runWithPendingKnowledgeContextOwner(contextOwner, () =>
+			session.prompt(message),
+		);
+	} finally {
+		finalizeSessionTerminalPersistence(
+			session,
+			ctx.adapter.pendingTerminalReason,
+		);
+	}
     for (const event of ctx.adapter.finishAssistant()) {
       await ctx.writer.write(event);
     }
   },
   abortSession(ctx) {
+		ctx.adapter.recordCancellation();
     ctx.session.abort?.();
   },
   clearPendingKnowledgeContext(ctx) {
