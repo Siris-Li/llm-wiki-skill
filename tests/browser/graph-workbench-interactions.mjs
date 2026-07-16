@@ -1490,6 +1490,7 @@ async function assertSigmaZoomBounds(page) {
   const beforeMetrics = await browserPageMetrics(page);
   const farPoint = await findSigmaSurfacePoint(page);
   const farBoundary = await dispatchBoundaryDrive(page, farPoint, 100000, "far zoom boundary");
+  const geometryAtFarBoundary = await sigmaNodePairGeometry(page);
   const furtherOut = await dispatchCancelableWheelAt(page, await findSigmaSurfacePoint(page), {
     deltaY: 100000,
     ctrlKey: true
@@ -1497,9 +1498,12 @@ async function assertSigmaZoomBounds(page) {
   assert.equal(furtherOut.cancelled, true, "wheel beyond the far boundary should stay graph-owned");
   assert.equal(furtherOut.defaultPrevented, true, "wheel beyond the far boundary should prevent browser default");
   await waitForBrowserLayoutFrame(page, 2);
+  const geometryBeyondFarBoundary = await sigmaNodePairGeometry(page, geometryAtFarBoundary.nodeIds);
+  assertSigmaNodePairStable(geometryAtFarBoundary, geometryBeyondFarBoundary, "wheel beyond the far zoom boundary");
 
   const nearPoint = await findSigmaSurfacePoint(page);
   const nearBoundary = await dispatchBoundaryDrive(page, nearPoint, -100000, "near zoom boundary");
+  const geometryAtNearBoundary = await sigmaNodePairGeometry(page);
   const furtherIn = await dispatchCancelableWheelAt(page, await findSigmaSurfacePoint(page), {
     deltaY: -100000,
     ctrlKey: true
@@ -1507,6 +1511,8 @@ async function assertSigmaZoomBounds(page) {
   assert.equal(furtherIn.cancelled, true, "wheel beyond the near boundary should stay graph-owned");
   assert.equal(furtherIn.defaultPrevented, true, "wheel beyond the near boundary should prevent browser default");
   await waitForBrowserLayoutFrame(page, 2);
+  const geometryBeyondNearBoundary = await sigmaNodePairGeometry(page, geometryAtNearBoundary.nodeIds);
+  assertSigmaNodePairStable(geometryAtNearBoundary, geometryBeyondNearBoundary, "wheel beyond the near zoom boundary");
 
   const afterMetrics = await browserPageMetrics(page);
   assert.deepEqual(afterMetrics, beforeMetrics, "zoom boundary checks should not change browser page metrics");

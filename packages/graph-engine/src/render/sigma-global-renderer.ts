@@ -197,6 +197,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     screenPointToWorldPoint: (point) => sigmaScreenPointToWorldPoint(sigma, point, rendererCoordinateOptions())
   });
   let sigma: SigmaGlobalSigmaLike;
+  let sigmaInitialized = false;
   let generation = 0;
   let lastHitTarget: GraphGestureTarget | null = null;
   let activeNodeDrag: SigmaGlobalNodeDragSession | null = null;
@@ -240,6 +241,7 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
 
   try {
     sigma = new runtime.Sigma(graph, sigmaRoot, sigmaSettingsForAdapterData(currentTheme, adapterData));
+    sigmaInitialized = true;
     overlayDomController = createSigmaOverlayDomController({
       overlayRoot,
       cloudFilterId,
@@ -273,12 +275,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     syncSigmaRootMetadata();
     overlayDomController.rebuild();
   } catch (error) {
-    destroyed = true;
-    generation += 1;
-    sigmaWheelZoomController?.destroy();
-    sigmaWheelZoomController = null;
+    teardownSigmaRenderer();
     options.onFatalError?.(error);
-    sigmaRoot.remove();
     throw error;
   }
 
@@ -436,11 +434,19 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       }
     },
     destroy() {
-      if (destroyed) return;
-      destroyed = true;
-      generation += 1;
-      sigmaWheelZoomController?.destroy();
-      sigmaWheelZoomController = null;
+      teardownSigmaRenderer();
+    }
+  };
+
+  return renderer;
+
+  function teardownSigmaRenderer(): void {
+    if (destroyed) return;
+    destroyed = true;
+    generation += 1;
+    sigmaWheelZoomController?.destroy();
+    sigmaWheelZoomController = null;
+    if (sigmaInitialized) {
       cancelActiveViewTransition();
       disposeCancelledViewTransitionGuard();
       cancelNodeDrag();
@@ -448,23 +454,23 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       overlayDomController?.destroy();
       overlayDomController = null;
       unbindSigmaEvents();
-      unbindSigmaRootClickFallback();
-      unbindSigmaRootCameraTakeover();
-      cancelScheduledResizeRefresh();
-      cancelOverlayAnimationSettleCheck();
-      cancelDeferredSpotlightCameraUpdate();
-      resizeObserver?.disconnect();
-      resizeObserver = null;
+    }
+    unbindSigmaRootClickFallback();
+    unbindSigmaRootCameraTakeover();
+    cancelScheduledResizeRefresh();
+    cancelOverlayAnimationSettleCheck();
+    cancelDeferredSpotlightCameraUpdate();
+    resizeObserver?.disconnect();
+    resizeObserver = null;
+    if (sigmaInitialized) {
       try {
         sigma.kill?.();
       } catch (error) {
         options.onFatalError?.(error);
       }
-      sigmaRoot.remove();
     }
-  };
-
-  return renderer;
+    sigmaRoot.remove();
+  }
 
   function rendererCoordinateOptions(): Pick<SigmaGlobalRendererCreateOptions, "viewport" | "viewportSize" | "adapterData"> {
     return {
@@ -1504,7 +1510,7 @@ export function sigmaSettingsForTheme(theme: ThemeId): Record<string, unknown> {
     defaultDrawNodeLabel: drawSigmaReadingAwareNodeLabel,
     enableEdgeEvents: false,
     zoomingRatio: SIGMA_BUTTON_ZOOM_RATIO,
-    // Sigma 默认 wheel 的兜底参数：wheel 已被 sigma-wheel-zoom controller 接管（preventSigmaDefault），
+    // Sigma 默认 wheel 的兜底参数：原生 wheel 已由图谱根节点的捕获阶段监听统一接管，
     // zoomingRatio/zoomDuration 只在 Sigma 内置缩放入口（如 animatedZoom）被触发时生效，
     // 日常不走。项目按钮动画用的是 SIGMA_BUTTON_ZOOM_DURATION_MS（140），勿与这里的 120 混淆。
     zoomDuration: 120,

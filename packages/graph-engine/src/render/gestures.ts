@@ -474,7 +474,7 @@ export class GraphWheelController {
         { x: event.clientX, y: event.clientY },
         this.root.getBoundingClientRect()
       );
-      const decision = classifyGraphWheelTargetFromGraphTarget(this.graphTargetForEvent(event.target, screenPoint), event);
+      const decision = classifyGraphWheelTargetFromGraphTarget(resolveGraphTargetForEvent(event.target, screenPoint, this.options), event);
       if (decision.intent !== "zoom") {
         if (event.ctrlKey || event.metaKey) {
           event.preventDefault();
@@ -491,15 +491,6 @@ export class GraphWheelController {
     }
   };
 
-  private graphTargetForEvent(target: EventTarget | null, screenPoint: { x: number; y: number }): GraphGestureTarget {
-    const eventTarget = this.options.targetFromEventTarget
-      ? this.options.targetFromEventTarget(target)
-      : target as GraphGestureTargetLike | null;
-    const domTarget = classifyGraphEventTarget(eventTarget);
-    if (isGraphGestureBlockerTarget(domTarget)) return domTarget;
-    if (domTarget.kind === "aggregation-container") return domTarget;
-    return this.options.graphTargetFromScreenPoint?.(screenPoint) || domTarget;
-  }
 }
 
 export class GraphGestureController {
@@ -556,7 +547,7 @@ export class GraphGestureController {
     if (event.button !== 0) return;
     const screenPoint = this.screenPointFromMouseEvent(event);
     const decision = classifyGraphPointerDownTargetFromGraphTarget(
-      this.graphTargetForEvent(event.target, screenPoint)
+      resolveGraphTargetForEvent(event.target, screenPoint, this.options)
     );
     if (decision.intent === "blocked") return;
     this.recordPointerDown(decision.target, screenPoint, event.timeStamp);
@@ -643,13 +634,6 @@ export class GraphGestureController {
     return this.options.targetFromEventTarget ? this.options.targetFromEventTarget(target) : target as GraphGestureTargetLike | null;
   }
 
-  private graphTargetForEvent(target: EventTarget | null, screenPoint: { x: number; y: number }): GraphGestureTarget {
-    const domTarget = classifyGraphEventTarget(this.eventTarget(target));
-    if (isGraphGestureBlockerTarget(domTarget)) return domTarget;
-    if (domTarget.kind === "aggregation-container") return domTarget;
-    return this.options.graphTargetFromScreenPoint?.(screenPoint) || domTarget;
-  }
-
   private pointerEventFromPointerEvent(event: PointerEvent): GraphPointerEventLike {
     return {
       pointerId: event.pointerId,
@@ -664,6 +648,20 @@ export class GraphGestureController {
       this.root.getBoundingClientRect()
     );
   }
+}
+
+function resolveGraphTargetForEvent(
+  target: EventTarget | null,
+  screenPoint: { x: number; y: number },
+  options: Pick<GraphGestureControllerOptions, "targetFromEventTarget" | "graphTargetFromScreenPoint">
+): GraphGestureTarget {
+  const eventTarget = options.targetFromEventTarget
+    ? options.targetFromEventTarget(target)
+    : target as GraphGestureTargetLike | null;
+  const domTarget = classifyGraphEventTarget(eventTarget);
+  if (isGraphGestureBlockerTarget(domTarget)) return domTarget;
+  if (domTarget.kind === "aggregation-container") return domTarget;
+  return options.graphTargetFromScreenPoint?.(screenPoint) || domTarget;
 }
 
 function closest(target: GraphGestureTargetLike, selector: string): GraphGestureTargetLike | null {

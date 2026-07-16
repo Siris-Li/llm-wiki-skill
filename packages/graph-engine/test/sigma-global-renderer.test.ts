@@ -2830,25 +2830,29 @@ describe("Sigma global renderer production boundary", () => {
     assert.deepEqual(errors, [failure]);
   });
 
-  it("removes the route wheel listener when initialization fails after wheel binding", () => {
+  it("releases all initialized resources when setup fails after wheel binding", () => {
     const failure = new Error("resize observer failed");
+    let disconnectCalls = 0;
     const container = fakeContainer({
       ResizeObserver: class {
         observe(): void {
           throw failure;
         }
 
-        disconnect(): void {}
+        disconnect(): void {
+          disconnectCalls += 1;
+        }
         unobserve(): void {}
       } as unknown as typeof ResizeObserver
     });
+    const runtime = fakeRuntime();
 
     assert.throws(
       () => createSigmaGlobalRenderer({
         container,
         adapterData: adapterDataFixture(),
         theme: "shan-shui",
-        runtime: fakeRuntime()
+        runtime
       }),
       /resize observer failed/
     );
@@ -2856,6 +2860,10 @@ describe("Sigma global renderer production boundary", () => {
     const wheel = emitRootWheel(container, { x: 240, y: 160, deltaY: 80 });
     assert.equal(wheel.prevented, false);
     assert.equal(wheel.propagationStopped, false);
+    assert.equal(disconnectCalls, 1);
+    assert.equal(runtime.instances[0]?.killed, true);
+    assert.equal([...runtime.instances[0].listeners.values()].every((listeners) => listeners.size === 0), true);
+    assert.equal(container.children.length, 0);
   });
 
   it("releases route wheel ownership before destroy callbacks can re-enter", () => {
