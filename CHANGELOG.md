@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.6.73 (2026-07-16)
+
+### 修复
+
+- `/llm-wiki-upgrade` 现在自适应探测 llm-wiki 的实际安装目录：优先用 `CLAUDE_PROJECT_DIR`，再从当前工作目录逐级向上查找最近的 `.claude/skills/llm-wiki`，最后回退 user 级 `$HOME`，并把探测到的路径作为 `install.sh --upgrade --target-dir` 传入；装在 project/vault 级（如 Obsidian 仓库、团队共享仓库）时不再静默升级到 `$HOME` 那份。`CLAUDE_PROJECT_DIR` 为空或 project 级无副本时回退 `$HOME`，user 级行为保持不变。
+
 ## v3.6.72 (2026-07-15)
 
 ### 修复
