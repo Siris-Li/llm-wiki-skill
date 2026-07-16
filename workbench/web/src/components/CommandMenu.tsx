@@ -1,4 +1,4 @@
-import type { CommandItem as CommandItemType } from "../lib/api/legacy";
+import type { CommandItem as CommandItemType } from "@llm-wiki/workbench-contracts";
 import { cn } from "../lib/utils";
 
 interface Props {
@@ -10,7 +10,7 @@ interface Props {
 }
 
 function sourceLabel(item: CommandItemType): string {
-	if (item.source === "builtin") return item.skillPath ? "项目" : "内置";
+	if (item.source === "builtin") return item.isProjectSkill ? "项目" : "内置";
 	if (item.source === "pi-default") return "pi";
 	return "全局";
 }
@@ -19,8 +19,8 @@ export function CommandMenu({ open, query, items, selectedIndex, onSelect }: Pro
 	if (!open) return null;
 
 	const groups = [
-		{ label: "内置", items: items.filter((item) => item.source === "builtin" && !item.skillPath) },
-		{ label: "项目 Skill", items: items.filter((item) => item.source === "builtin" && item.skillPath) },
+		{ label: "内置", items: items.filter((item) => item.source === "builtin" && !item.isProjectSkill) },
+		{ label: "项目 Skill", items: items.filter((item) => item.source === "builtin" && item.isProjectSkill) },
 		{ label: "pi 默认", items: items.filter((item) => item.source === "pi-default") },
 		{ label: "用户全局", items: items.filter((item) => item.source === "user-global") },
 	].filter((group) => group.items.length > 0);

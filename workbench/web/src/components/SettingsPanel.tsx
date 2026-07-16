@@ -5,23 +5,19 @@ import type {
 	AvailableModelInfo,
 } from "@llm-wiki/workbench-contracts";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "./ui/button";
 import {
 	Dialog,
 	DialogContent,
 	DialogDescription,
 	DialogHeader,
 	DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { getAuthStatus } from "@/lib/api/auth";
-import { fetchAvailableModels, getConfig, setConfig } from "@/lib/api/config";
-import {
-	listCommands,
-	setAuthKey,
-	testAuthConnection,
-} from "@/lib/api/legacy";
-import { modelRefToValue, valueToModelRef } from "@/lib/model-roles";
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import { getAuthStatus, setAuthKey, testAuthConnection } from "../lib/api/auth";
+import { fetchAvailableModels, getConfig, setConfig } from "../lib/api/config";
+import { listCommands } from "../lib/api/commands";
+import { modelRefToValue, valueToModelRef } from "../lib/model-roles";
 
 const PROVIDERS = [
 	{ id: "anthropic", label: "Anthropic" },
@@ -64,7 +60,7 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 			digest: modelRefToValue(config.modelRoles?.digest),
 		});
 		setSkillCounts({
-			builtin: allCommands.filter((item) => item.source === "builtin" && item.skillPath).length,
+			builtin: allCommands.filter((item) => item.source === "builtin" && item.isProjectSkill).length,
 			piDefault: allCommands.filter((item) => item.source === "pi-default").length,
 			userGlobal: allCommands.filter((item) => item.source === "user-global").length,
 		});
@@ -97,10 +93,7 @@ export function SettingsPanel({ open, onOpenChange, onConfigChanged }: Props) {
 			setKey("");
 			await refresh();
 			const result = await testAuthConnection(provider);
-			setMessage({
-				type: result.ok ? "success" : "error",
-				text: result.message ?? result.error ?? "测试完成",
-			});
+			setMessage({ type: "success", text: result.message });
 		} catch (err) {
 			setMessage({ type: "error", text: err instanceof Error ? err.message : String(err) });
 		} finally {

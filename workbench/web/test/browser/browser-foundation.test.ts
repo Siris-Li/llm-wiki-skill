@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -21,13 +21,11 @@ import {
 	createConversation,
 	createKnowledgeBase,
 	isolatedEnvironment,
-	networkGuardEnvironment,
 	platformSandboxEnvironment,
 	prepareSandboxDirectories,
-	startProcess,
+	startNetworkGuardedProcess,
 	stopProcess,
 	type RunningProcess,
-	waitForFile,
 	waitUntil,
 } from "./support/browser-harness";
 
@@ -56,6 +54,21 @@ interface BrowserEvidence {
 	promptStatus: number;
 	promptContentType: string | null;
 	promptBody: string;
+}
+
+interface ActiveKnowledgeBaseResponse {
+	ok: boolean;
+	data: {
+		active: {
+			kb: { name: string; path: string };
+			conversation: { id: string };
+		} | null;
+	};
+}
+
+interface ConversationListResponse {
+	ok: boolean;
+	data: Array<{ id: string }>;
 }
 
 test("browser foundation uses real frontend, HTTP, SSE, and backend processing", { timeout: 90_000 }, async (t) => {
@@ -110,6 +123,7 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 
 	await createKnowledgeBase(kbA, "Atlas Notes", "Atlas-only fictional signal");
 	await createKnowledgeBase(kbB, "Harbor Notes", "Harbor-only fictional signal");
+	await installInitSkill(home);
 	await createConversation(appDir, kbA, "Atlas opening message");
 	await createConversation(appDir, kbB, "Harbor opening message");
 	await mkdir(appDir, { recursive: true });
@@ -119,15 +133,16 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 		lastUsedKbPath: kbA,
 	}, null, 2)}\n`);
 
-	server = await startProcess(
+	server = await startNetworkGuardedProcess(
 		process.execPath,
 		["--import", "tsx", SERVER_ENTRY],
 		REPO_ROOT,
-		isolatedEnvironment(home, backendPort, kbB, serverNetworkProbe),
+		isolatedEnvironment(home, backendPort, kbB),
 		(output) => output.includes("listening on http://"),
 		"browser backend",
+		serverNetworkProbe,
 	);
-	vite = await startProcess(
+	vite = await startNetworkGuardedProcess(
 		process.execPath,
 		[VITE_ENTRY, "--host", "127.0.0.1", "--port", String(WEB_PORT), "--strictPort"],
 		WEB_ROOT,
@@ -139,15 +154,11 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 			LLM_WIKI_AGENT_API_ORIGIN: `http://127.0.0.1:${backendPort}`,
 			LLM_WIKI_AGENT_DISABLE_HMR: "1",
 			...platformSandboxEnvironment(home),
-			...networkGuardEnvironment(viteNetworkProbe),
 		},
 		(output) => output.includes("Local:"),
 		"Vite frontend",
+		viteNetworkProbe,
 	);
-	await waitForFile(serverNetworkProbe, OPERATION_TIMEOUT_MS);
-	await waitForFile(viteNetworkProbe, OPERATION_TIMEOUT_MS);
-	assert.equal(await readFile(serverNetworkProbe, "utf8"), "BLOCKED");
-	assert.equal(await readFile(viteNetworkProbe, "utf8"), "BLOCKED");
 
 	browserServer = await chromium.launchServer({
 		headless: true,
@@ -199,7 +210,7 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 		const promptResponse = await fetch("/api/prompt", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ message: "Foundation probe" }),
+			body: JSON.stringify({ message: "[retrieval-owner] [[wiki/entities/shared.md]]" }),
 			signal: AbortSignal.timeout(operationTimeoutMs),
 		});
 		return {
@@ -239,11 +250,12 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 	assert.doesNotMatch(sharedPageB, /Atlas-only fictional signal/);
 	assert.deepEqual(evidence.chosenDirectory, {
 		status: 200,
-		body: { ok: true, path: kbB },
+		body: { ok: true, data: { path: kbB } },
 	});
 	assert.equal(evidence.promptStatus, 200);
 	assert.match(evidence.promptContentType ?? "", /text\/event-stream/);
-	assert.match(evidence.promptBody, /可控的测试回复/);
+	assert.match(evidence.promptBody, /retrieval-owner:atlas/);
+	assert.doesNotMatch(evidence.promptBody, /retrieval-owner:harbor|retrieval-owner:none/);
 	assert.match(evidence.promptBody, /assistant_done/);
 	assert.match(server.output(), new RegExp(FAKE_MODEL_MARKER));
 	assert.equal(apiRequests.has("/api/knowledge-base"), true);
@@ -254,6 +266,93 @@ test("browser foundation uses real frontend, HTTP, SSE, and backend processing",
 		true,
 	);
 
+	await page.getByRole("tab", { name: "图谱" }).click();
+	await page.getByRole("tab", { name: "图谱", selected: true }).waitFor({ timeout: START_TIMEOUT_MS });
+	await page.getByRole("button", { name: "新建知识库" }).click();
+	await page.getByText("在默认目录下创建一个完整的 llm-wiki 知识库。").waitFor();
+	await page.getByPlaceholder("stage2-research").fill("browser-created");
+	await page.getByPlaceholder("研究方向").fill("Browser-created research");
+	const createRequest = page.waitForRequest((request) => (
+		new URL(request.url()).pathname === "/api/knowledge-bases/new" && request.method() === "POST"
+	));
+	await page.getByRole("button", { name: "创建" }).click();
+	assert.deepEqual((await createRequest).postDataJSON(), {
+		name: "browser-created",
+		purpose: "Browser-created research",
+	});
+	await page.getByRole("dialog").waitFor({ state: "detached", timeout: START_TIMEOUT_MS });
+	await page.getByLabel("当前知识库").getByText("browser-created", { exact: true }).waitFor({ timeout: START_TIMEOUT_MS });
+	await page.getByRole("tab", { name: "对话", selected: true }).waitFor({ timeout: START_TIMEOUT_MS });
+	await page.locator(".shell-sidebar").getByText("browser-created", { exact: true }).waitFor({ timeout: START_TIMEOUT_MS });
+	const createdContext = await page.evaluate(async (): Promise<ActiveKnowledgeBaseResponse> => {
+		const response = await fetch("/api/knowledge-base");
+		return response.json();
+	});
+	assert.equal(createdContext.ok, true);
+	assert.equal(createdContext.data.active?.kb.name, "browser-created");
+	assert.ok(createdContext.data.active?.conversation.id);
+	const createdConversations = await page.evaluate(async (kbPath): Promise<ConversationListResponse> => {
+		const response = await fetch(`/api/conversations?kb=${encodeURIComponent(kbPath)}`);
+		return response.json();
+	}, createdContext.data.active?.kb.path ?? "");
+	assert.equal(createdConversations.ok, true);
+	assert.equal(
+		createdConversations.data.some((conversation) => conversation.id === createdContext.data.active?.conversation.id),
+		true,
+	);
+
+	const selectionFailureName = "browser-selection-failure";
+	const rejectNewWikiSelection = async (route: import("playwright").Route) => {
+		const request = route.request();
+		if (
+			request.method() === "POST" &&
+			(request.postDataJSON() as { kbPath?: unknown }).kbPath === join(home, "llm-wiki", selectionFailureName)
+		) {
+			await route.fulfill({
+				status: 500,
+				contentType: "application/json",
+				body: JSON.stringify({
+					ok: false,
+					code: "INTERNAL_ERROR",
+					message: "无法进入新知识库，请重试",
+				}),
+			});
+			return;
+		}
+		await route.continue();
+	};
+	await page.route("**/api/knowledge-base", rejectNewWikiSelection);
+	await page.getByRole("button", { name: "新建知识库" }).click();
+	await page.getByPlaceholder("stage2-research").fill(selectionFailureName);
+	await page.getByPlaceholder("研究方向").fill("Selection failure coverage");
+	const selectionRequest = page.waitForRequest((request) => (
+		new URL(request.url()).pathname === "/api/knowledge-base" &&
+		request.method() === "POST" &&
+		(request.postDataJSON() as { kbPath?: unknown }).kbPath === join(home, "llm-wiki", selectionFailureName)
+	));
+	await page.getByRole("button", { name: "创建" }).click();
+	await selectionRequest;
+	await page.getByText("无法进入新知识库，请重试").waitFor({ timeout: START_TIMEOUT_MS });
+	assert.ok(await page.getByText("无法进入新知识库，请重试").isVisible());
+	assert.ok(await page.getByRole("dialog").isVisible());
+	await page.locator(".shell-sidebar").getByText(selectionFailureName, { exact: true }).waitFor({ timeout: START_TIMEOUT_MS });
+	const failedSelectionContext = await page.evaluate(async (): Promise<ActiveKnowledgeBaseResponse> => {
+		const response = await fetch("/api/knowledge-base");
+		return response.json();
+	});
+	assert.equal(failedSelectionContext.data.active?.kb.name, "browser-created");
+	await page.unroute("**/api/knowledge-base", rejectNewWikiSelection);
+	await page.getByRole("button", { name: "取消" }).click();
+
 	await cleanup();
 	await assertProductionBuildExcludesBrowserFakes();
 });
+
+async function installInitSkill(home: string): Promise<void> {
+	const skillRoot = join(home, ".codex", "skills", "llm-wiki-skill");
+	const scriptPath = join(skillRoot, "scripts", "init-wiki.sh");
+	await mkdir(join(skillRoot, "scripts"), { recursive: true });
+	await cp(join(REPO_ROOT, "scripts", "init-wiki.sh"), scriptPath);
+	await cp(join(REPO_ROOT, "templates"), join(skillRoot, "templates"), { recursive: true });
+	await chmod(scriptPath, 0o755);
+}

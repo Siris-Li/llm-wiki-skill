@@ -3,7 +3,10 @@ import { z } from "zod";
 import {
 	FailureEnvelopeSchema,
 	SuccessEnvelopeSchema,
+	findEndpoint,
+	isMigratedJsonEndpoint,
 	type FailureEnvelope,
+	type MigratedJsonEndpoint,
 	type MigratedJsonPath,
 } from "@llm-wiki/workbench-contracts";
 
@@ -13,7 +16,7 @@ import {
  * 只服务已迁移到统一 JSON envelope（`{ ok:true, data } | { ok:false, code,
  * message, details? }`）的 endpoint（migrated-json）。不吞旧响应格式：遇到旧
  * 格式（无 ok 字段、`{ ok:true, items }` 等）一律判为契约不符并抛
- * ContractMismatchError。未迁移 endpoint 继续走 legacy.ts，互不污染。
+ * ContractMismatchError。SSE 和文件下载继续使用各自专用的调用路径，互不污染。
  */
 
 /** 后端失败 envelope 抛出的错误。业务逻辑用 code 判断，不依赖 message。 */
@@ -40,12 +43,21 @@ export class ContractMismatchError extends Error {
 	}
 }
 
-export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+/** 调用方绕过类型后提供了未登记的 method + path 组合。 */
+export class EndpointContractError extends Error {
+	readonly method: string;
+	readonly path: string;
+	constructor(method: string, path: string) {
+		super(`endpoint contract 未登记（${method} ${path}）`);
+		this.name = "EndpointContractError";
+		this.method = method;
+		this.path = path;
+	}
+}
 
 export interface RequestOptions<T> {
 	/** 响应 data 的 Zod schema；client 用它校验成功 envelope 的 data。 */
 	responseSchema: z.ZodType<T>;
-	method?: HttpMethod;
 	body?: unknown;
 	/** query 参数由 client 编码，避免领域 module 绕过 registry path。 */
 	query?: Record<string, string | number | undefined>;
@@ -61,16 +73,20 @@ export interface RequestOptions<T> {
  * - 失败 envelope -> 抛 ApiError（带 code / details）。
  * - 旧格式 / data 校验失败 -> 抛 ContractMismatchError，绝不静默吞掉。
  *
- * `path` 类型为 MigratedJsonPath（派生自 @llm-wiki/workbench-contracts 的
- * endpoint registry）：编译期锁死，业务代码只能用本 client 调已迁移 endpoint，
- * 误调 legacy endpoint 会被 `npm run typecheck` 拒绝（静态检查）。未迁移
- * endpoint 继续走 legacy.ts，互不污染。
+ * `endpoint` 类型为 MigratedJsonEndpoint（派生自 registry）：编译期把 method +
+ * path 锁成合法组合。运行时在 fetch 前再次核对同一 registry，防止 `as` 或无类型
+ * 调用绕过。SSE 和文件下载继续走各自专用的调用路径，互不污染。
  */
 export async function request<T>(
-	path: MigratedJsonPath,
+	endpoint: MigratedJsonEndpoint,
 	options: RequestOptions<T>,
 ): Promise<T> {
-	const init: RequestInit = { method: options.method ?? "GET" };
+	const snapshot = snapshotEndpoint(endpoint);
+	if (!isMigratedJsonEndpoint(snapshot)) {
+		throw new EndpointContractError(snapshot.method, snapshot.path);
+	}
+	const { method, path } = snapshot;
+	const init: RequestInit = { method };
 	if (options.body !== undefined) {
 		init.headers = { "Content-Type": "application/json" };
 		init.body = JSON.stringify(options.body);
@@ -80,6 +96,15 @@ export async function request<T>(
 	}
 
 	const fetchPath = buildFetchPath(path, options.pathParams, options.query);
+	const normalizedPath = new URL(fetchPath, "http://workbench.invalid").pathname;
+	const matched = findEndpoint(method, normalizedPath);
+	if (
+		matched?.kind !== "migrated-json" ||
+		matched.method !== method ||
+		matched.path !== path
+	) {
+		throw new EndpointContractError(method, normalizedPath);
+	}
 	const res = await fetch(fetchPath, init);
 	const json: unknown = await res.json();
 
@@ -95,6 +120,26 @@ export async function request<T>(
 		throw new ContractMismatchError(path, res.status);
 	}
 	return successParse.data.data;
+}
+
+function snapshotEndpoint(endpoint: unknown): { method: string; path: string } {
+	if (typeof endpoint !== "object" || endpoint === null) {
+		throw new EndpointContractError("<invalid>", "<invalid>");
+	}
+	let method: unknown;
+	let path: unknown;
+	try {
+		({ method, path } = endpoint as { method?: unknown; path?: unknown });
+	} catch {
+		throw new EndpointContractError("<invalid>", "<invalid>");
+	}
+	if (typeof method !== "string" || typeof path !== "string") {
+		throw new EndpointContractError(
+			typeof method === "string" ? method : "<invalid>",
+			typeof path === "string" ? path : "<invalid>",
+		);
+	}
+	return { method, path };
 }
 
 function buildFetchPath(

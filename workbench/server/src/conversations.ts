@@ -21,6 +21,11 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
 
 import { APP_DIR } from "./config.js";
+import {
+	getAssistantTerminalMessage,
+	getAssistantTerminalReason,
+	type AssistantTerminalReason,
+} from "./extensions/prompt-terminal.js";
 import { stripKnowledgeContextForDisplay } from "./retrieval.js";
 import { formatToolDisplay } from "./tool-status-events.js";
 
@@ -94,11 +99,26 @@ export function piMessagesToUIMessages(messages: AgentMessage[]): UIMessage[] {
 
 	// 一轮（两条 user 消息之间）里 pi 往往产出多条 assistant 消息：文字 → 工具调用 →
 	// 续写 …… 直播态把整轮聚合进一个气泡，这里合并成一个 UIMessage 以与直播保持一致。
-	let pending: { texts: string[]; tools: string[] } | null = null;
+	let pending: {
+		assistantParts: Array<{ text: string; terminalReason: AssistantTerminalReason | null }>;
+		tools: string[];
+	} | null = null;
 	const flushAssistant = () => {
 		if (!pending) return;
-		const content = pending.texts.filter((t) => t.trim()).join("\n\n");
-		const tools = pending.tools;
+		const finalPartIndex = pending.assistantParts.length - 1;
+		const finalTerminalReason = pending.assistantParts[finalPartIndex]?.terminalReason ?? null;
+		// 旧会话里的失败条目也可能带有 provider partial；只重放用户主动取消的片段。
+		const texts = pending.assistantParts
+			.filter(
+				(part, index) =>
+					part.terminalReason === null ||
+					(index === finalPartIndex && part.terminalReason === "aborted"),
+			)
+			.map((part) => part.text)
+			.filter((text) => text.trim());
+		if (finalTerminalReason) texts.push(getAssistantTerminalMessage(finalTerminalReason));
+		const content = texts.join("\n\n");
+		const tools = finalTerminalReason ? [] : pending.tools;
 		if (content.trim() || tools.length > 0) {
 			result.push({
 				id: `a-${result.length}`,
@@ -121,12 +141,16 @@ export function piMessagesToUIMessages(messages: AgentMessage[]): UIMessage[] {
 					content: text,
 					tools: [],
 				});
-			}
+		}
 		} else if (msg.role === "assistant") {
-			const text = extractText(msg);
-			const tools = extractToolSummaries(msg, toolResults);
-			if (!pending) pending = { texts: [], tools: [] };
-			if (text.trim()) pending.texts.push(text);
+			const text = extractText(msg).trim();
+			const terminalReason = getAssistantTerminalReason(msg.stopReason);
+			const tools = terminalReason ? [] : extractToolSummaries(msg, toolResults);
+			if (!pending) pending = { assistantParts: [], tools: [] };
+			pending.assistantParts.push({
+				text,
+				terminalReason,
+			});
 			pending.tools.push(...tools);
 		}
 		// toolResult 等：忽略，且不 flush（它夹在 assistant 工具调用与续写之间，flush 会错误拆轮）

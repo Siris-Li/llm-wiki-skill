@@ -9,6 +9,7 @@ import {
 	contextBudgetFromWindow,
 	parseExplicitPageRefs,
 	searchKnowledgeBase,
+	serializeRetrievalLogEntry,
 	shouldUseKnowledgeBase,
 	stripKnowledgeContextForDisplay,
 } from "./retrieval.js";
@@ -56,12 +57,12 @@ test("searchKnowledgeBase finds recent synthesis pages for generic summaries", a
 
 test("searchKnowledgeBase keeps explicit refs first", async () => {
 	const kbPath = await createTestKb();
-	const search = await searchKnowledgeBase(kbPath, "对比一下 [[wiki/synthesis/sessions/kiro.md]]", {
+	const search = await searchKnowledgeBase(kbPath, "对比一下 [[wiki/synthesis/sessions/writing-guide.md]]", {
 		assertRegistered: false,
-		explicitRefs: ["wiki/synthesis/sessions/kiro.md"],
+		explicitRefs: ["wiki/synthesis/sessions/writing-guide.md"],
 		totalBudgetChars: 500,
 	});
-	assert.equal(search.results[0]?.path, "wiki/synthesis/sessions/kiro.md");
+	assert.equal(search.results[0]?.path, "wiki/synthesis/sessions/writing-guide.md");
 	assert.equal(search.results[0]?.hitReason, "explicit");
 });
 
@@ -107,6 +108,50 @@ test("contextBudgetFromWindow follows 20 percent fallback rule", () => {
 	assert.equal(contextBudgetFromWindow("bad"), 4_000);
 });
 
+test("serializeRetrievalLogEntry excludes user-derived and unrecognized data", () => {
+	const shortQuestion = "q9x";
+	const longQuestionPrefix = "fictional-long-question-marker-";
+	const longQuestion = `${longQuestionPrefix}${"fictional-detail-".repeat(32)}fictional-long-question-tail`;
+	const truncatedLongQuestion = longQuestion.slice(0, 120);
+	const sensitiveMarker = "FICTIONAL_SENSITIVE_LOG_MARKER";
+
+	for (const question of [shortQuestion, longQuestion, sensitiveMarker]) {
+		const encodedQuestion = Buffer.from(question).toString("base64");
+		const untrustedEntry = {
+			ts: 1_735_000_000_000,
+			sessionId: "fictional-session",
+			kbPath: "/fictional/knowledge-base",
+			triggered: true,
+			results: [{ path: "wiki/entities/harbor.md", hitReason: "body" as const, score: 1 }],
+			error: "retrieval_failed" as const,
+			messagePreview: question,
+			explicitRefs: [question],
+			wrappedCharCount: question.length,
+			rawError: `failed while processing ${question}`,
+			encodedQuestion,
+		};
+		const serialized = serializeRetrievalLogEntry(untrustedEntry);
+		const forbiddenFragments = [
+			question,
+			encodedQuestion,
+			...(question === longQuestion
+				? [truncatedLongQuestion, Buffer.from(truncatedLongQuestion).toString("base64")]
+				: []),
+		];
+
+		for (const fragment of forbiddenFragments) {
+			assert.equal(serialized.includes(fragment), false);
+		}
+		assert.equal(serialized.includes("messagePreview"), false);
+		assert.equal(serialized.includes("explicitRefs"), false);
+		assert.equal(serialized.includes("rawError"), false);
+		assert.equal(serialized.includes("wrappedCharCount"), false);
+		assert.match(serialized, /fictional-session/);
+		assert.match(serialized, /wiki\/entities\/harbor\.md/);
+		assert.match(serialized, /retrieval_failed/);
+	}
+});
+
 test("buildKnowledgeContextPrompt wraps empty results explicitly", () => {
 	const wrapped = buildKnowledgeContextPrompt({
 		originalMessage: "总结一下",
@@ -138,8 +183,8 @@ async function createTestKb(): Promise<string> {
 	await writeFile(path.join(root, "index.md"), "# 首页\n这是文章创作知识库。\n", "utf8");
 	await writeFile(path.join(root, "wiki", "overview.md"), "# 总览\n收集 AI 创作文章。\n", "utf8");
 	await writeFile(
-		path.join(root, "wiki", "synthesis", "sessions", "kiro.md"),
-		"# Kiro 写作方法\nKiro 文章讨论提示词、AI 编程和内容创作。\n",
+		path.join(root, "wiki", "synthesis", "sessions", "writing-guide.md"),
+		"# 示例写作方法\n示例文章讨论提示词、AI 编程和内容创作。\n",
 		"utf8",
 	);
 	await writeFile(

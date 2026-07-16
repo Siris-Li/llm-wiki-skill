@@ -2,12 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createApp } from "../app.js";
+import { defaultKnowledgeBaseRouteService } from "../routes/knowledge-bases.js";
 import { CAPABILITY_TOKEN_HEADER } from "./token.js";
 import { createSecurityMiddleware } from "./middleware.js";
 
 const TOKEN = "test-capability-token-secret-do-not-log-7f3e";
 const TRUSTED_ORIGIN = "http://localhost:5180";
 const TRUSTED_ORIGINS = new Set([TRUSTED_ORIGIN]);
+const EXAMPLE_SKILL_PATH = "/Users/example/.llm-wiki-agent/skills/project-skill";
+const KNOWLEDGE_BASE_BODY = JSON.stringify({ name: "security-kb", purpose: "security test" });
+const KNOWLEDGE_BASE_INFO = {
+	path: "/fake/default/security-kb",
+	name: "security-kb",
+	origin: "default" as const,
+	valid: true,
+};
 
 type EnvelopeJson = {
 	ok?: boolean;
@@ -22,9 +31,9 @@ type EnvelopeJson = {
  *  - POST /api/config                        state-changing（#168 migrated-json）
  *  - GET /api/models                         read-only（#168 migrated-json）
  *  - GET /api/auth/status                    read-only（#168 migrated-json）
- *  - POST /api/echo                          read-only（POST 不等于要 token）
+ *  - GET /api/commands                       read-only（命令清单不能泄露本机路径）
  *  - GET /api/artifacts/:id/files/:filename  file-download read-only
- *  - POST /api/knowledge-bases/new           state-changing
+ *  - POST /api/knowledge-bases/new/init-existing 与 /api/system/choose-directory state-changing
  *  - POST /api/prompt                        state-changing（SSE 启动）
  */
 function buildApp(
@@ -39,8 +48,19 @@ function buildApp(
 			listAvailableModels: () => [],
 			reloadActiveResources: async () => {},
 		},
+		commandService: {
+			loadConfig: async () => ({ version: 1, externalKnowledgeBases: [] }),
+			listLoadedSkills: async () => [{
+				name: "project-skill",
+				description: "Project capability",
+				source: "builtin" as const,
+				skillPath: EXAMPLE_SKILL_PATH,
+			}],
+		},
 		authService: {
 			getAuthStatus: async () => ({ authFileExists: false, providers: [], envKeys: [] }),
+			setAuthKey: async () => {},
+			testAuthConnection: async () => ({ ok: true, message: "连接成功，模型可用" }),
 		},
 		artifactService: {
 			listArtifacts: () => [],
@@ -51,9 +71,17 @@ function buildApp(
 				sizeBytes: 6,
 			}),
 		},
+		knowledgeBaseService: {
+			...defaultKnowledgeBaseRouteService,
+			createKnowledgeBase: async () => KNOWLEDGE_BASE_INFO,
+			initExistingKnowledgeBase: async () => ({
+				...KNOWLEDGE_BASE_INFO,
+				path: "/fake/external/security-kb",
+				origin: "external" as const,
+			}),
+			chooseDirectory: async () => "/fake/external/chosen",
+		},
 	});
-	app.post("/api/echo", (c) => c.json({ ok: true }));
-	app.post("/api/knowledge-bases/new", (c) => c.json({ ok: true }));
 	app.post("/api/prompt", (c) => c.json({ ok: true }));
 	return app;
 }
@@ -80,18 +108,38 @@ test("public health 即便来源不可信也放行", async () => {
 	assert.equal(res.status, 200);
 });
 
-test("trusted read-only POST /api/echo：可信来源仍需 token", async () => {
+test("知识库列表仍要求 token，不能作为公开后台探测", async () => {
 	const app = buildApp();
-	const denied = await app.request("/api/echo", {
-		method: "POST",
+	const res = await app.request("/api/knowledge-bases", {
+		headers: headers({ origin: TRUSTED_ORIGIN }),
+	});
+	assert.equal(res.status, 403);
+	const json = (await res.json()) as EnvelopeJson;
+	assert.equal(json.ok, false);
+	assert.equal(json.code, "FORBIDDEN_LOCAL_API");
+});
+
+test("命令清单要求可信来源和 token，且不暴露本机路径", async () => {
+	const app = buildApp();
+	const denied = await app.request("/api/commands", {
 		headers: headers({ origin: TRUSTED_ORIGIN }),
 	});
 	assert.equal(denied.status, 403);
-	const allowed = await app.request("/api/echo", {
-		method: "POST",
+	assert.equal(JSON.stringify(await denied.json()).includes(EXAMPLE_SKILL_PATH), false);
+
+	const untrusted = await app.request("/api/commands", {
+		headers: headers({ origin: "http://evil.example", [CAPABILITY_TOKEN_HEADER]: TOKEN }),
+	});
+	assert.equal(untrusted.status, 403);
+	assert.equal(JSON.stringify(await untrusted.json()).includes(EXAMPLE_SKILL_PATH), false);
+
+	const allowed = await app.request("/api/commands", {
 		headers: headers({ origin: TRUSTED_ORIGIN, [CAPABILITY_TOKEN_HEADER]: TOKEN }),
 	});
 	assert.equal(allowed.status, 200);
+	const payload = JSON.stringify(await allowed.json());
+	assert.equal(payload.includes(EXAMPLE_SKILL_PATH), false);
+	assert.equal(payload.includes("skillPath"), false);
 });
 
 test("文件下载 GET：可信来源和 token 缺一不可", async () => {
@@ -117,7 +165,7 @@ test("只读 graph EventSource GET：不可信来源不能观察本地事件", a
 
 test("migrated-json read-only GET：可信来源和 token 同时正确才放行", async () => {
 	const app = buildApp();
-	for (const path of ["/api/config", "/api/models", "/api/auth/status"]) {
+	for (const path of ["/api/config", "/api/models", "/api/auth/status", "/api/commands"]) {
 		const denied = await app.request(path, { headers: headers({ origin: TRUSTED_ORIGIN }) });
 		assert.equal(denied.status, 403, path);
 		const res = await app.request(path, {
@@ -198,6 +246,85 @@ test("#168 migrated-json state-changing POST /api/config 带正确 token + 可�
 	assert.equal(res.status, 200);
 });
 
+test("#205 认证写入和连接测试同时要求可信来源与 token", async () => {
+	const app = buildApp();
+	for (const [path, body] of [
+		["/api/auth/set", { provider: "anthropic", type: "api_key", key: "sk-test" }],
+		["/api/auth/test", { provider: "anthropic" }],
+	] as const) {
+		const missingToken = await app.request(path, {
+			method: "POST",
+			headers: headers({ origin: TRUSTED_ORIGIN, "Content-Type": "application/json" }),
+			body: JSON.stringify(body),
+		});
+		assert.equal(missingToken.status, 403, path);
+		assert.equal(((await missingToken.json()) as EnvelopeJson).code, "FORBIDDEN_LOCAL_API");
+
+		const untrusted = await app.request(path, {
+			method: "POST",
+			headers: headers({
+				origin: "http://evil.example",
+				"Content-Type": "application/json",
+				[CAPABILITY_TOKEN_HEADER]: TOKEN,
+			}),
+			body: JSON.stringify(body),
+		});
+		assert.equal(untrusted.status, 403, path);
+		assert.equal(((await untrusted.json()) as EnvelopeJson).code, "FORBIDDEN_ORIGIN");
+
+		const allowed = await app.request(path, {
+			method: "POST",
+			headers: headers({
+				origin: TRUSTED_ORIGIN,
+				"Content-Type": "application/json",
+				[CAPABILITY_TOKEN_HEADER]: TOKEN,
+			}),
+			body: JSON.stringify(body),
+		});
+		assert.equal(allowed.status, 200, path);
+	}
+});
+
+test("#206 知识库创建、初始化和目录选择同时要求可信来源与 token", async () => {
+	const app = buildApp();
+	for (const [path, body] of [
+		["/api/knowledge-bases/new", { name: "security-kb", purpose: "security test" }],
+		["/api/knowledge-bases/init-existing", { path: "/fake/external", purpose: "security test" }],
+		["/api/system/choose-directory", undefined],
+	] as const) {
+		const missingToken = await app.request(path, {
+			method: "POST",
+			headers: headers({ origin: TRUSTED_ORIGIN, "Content-Type": "application/json" }),
+			...(body === undefined ? {} : { body: JSON.stringify(body) }),
+		});
+		assert.equal(missingToken.status, 403, path);
+		assert.equal(((await missingToken.json()) as EnvelopeJson).code, "FORBIDDEN_LOCAL_API");
+
+		const untrusted = await app.request(path, {
+			method: "POST",
+			headers: headers({
+				origin: "http://evil.example",
+				"Content-Type": "application/json",
+				[CAPABILITY_TOKEN_HEADER]: TOKEN,
+			}),
+			...(body === undefined ? {} : { body: JSON.stringify(body) }),
+		});
+		assert.equal(untrusted.status, 403, path);
+		assert.equal(((await untrusted.json()) as EnvelopeJson).code, "FORBIDDEN_ORIGIN");
+
+		const allowed = await app.request(path, {
+			method: "POST",
+			headers: headers({
+				origin: TRUSTED_ORIGIN,
+				"Content-Type": "application/json",
+				[CAPABILITY_TOKEN_HEADER]: TOKEN,
+			}),
+			...(body === undefined ? {} : { body: JSON.stringify(body) }),
+		});
+		assert.equal(allowed.status, 200, path);
+	}
+});
+
 // ============= token 校验 =============
 
 test("state-changing POST 缺 token -> 403 FORBIDDEN_LOCAL_API", async () => {
@@ -232,8 +359,10 @@ test("state-changing POST 带正确 token + 可信来源 -> 200", async () => {
 		method: "POST",
 		headers: headers({
 			origin: TRUSTED_ORIGIN,
+			"Content-Type": "application/json",
 			[CAPABILITY_TOKEN_HEADER]: TOKEN,
 		}),
+		body: KNOWLEDGE_BASE_BODY,
 	});
 	assert.equal(res.status, 200);
 });
@@ -320,8 +449,10 @@ test("null origin（桌面 WebView）不单独放行：仍需 token（#9）", as
 		method: "POST",
 		headers: headers({
 			origin: "null",
+			"Content-Type": "application/json",
 			[CAPABILITY_TOKEN_HEADER]: TOKEN,
 		}),
+		body: KNOWLEDGE_BASE_BODY,
 	});
 	assert.equal(allowed.status, 200);
 });
@@ -330,7 +461,11 @@ test("缺省 origin 的本地客户端必须用正确 token 证明可信", async
 	const app = buildApp();
 	const res = await app.request("/api/knowledge-bases/new", {
 		method: "POST",
-		headers: headers({ [CAPABILITY_TOKEN_HEADER]: TOKEN }),
+		headers: headers({
+			"Content-Type": "application/json",
+			[CAPABILITY_TOKEN_HEADER]: TOKEN,
+		}),
+		body: KNOWLEDGE_BASE_BODY,
 	});
 	assert.equal(res.status, 200);
 });
@@ -367,8 +502,10 @@ test("错误 token 的失败 envelope 不回显 token；成功响应也不含 to
 		method: "POST",
 		headers: headers({
 			origin: TRUSTED_ORIGIN,
+			"Content-Type": "application/json",
 			[CAPABILITY_TOKEN_HEADER]: TOKEN,
 		}),
+		body: KNOWLEDGE_BASE_BODY,
 	});
 	const allowedBody = JSON.stringify(await allowed.json());
 	assert.equal(allowedBody.includes(TOKEN), false);
@@ -391,8 +528,10 @@ test("请求处理过程中 token 不写入任何 console 输出（不进日志�
 			method: "POST",
 			headers: headers({
 				origin: TRUSTED_ORIGIN,
+				"Content-Type": "application/json",
 				[CAPABILITY_TOKEN_HEADER]: TOKEN,
 			}),
+			body: KNOWLEDGE_BASE_BODY,
 		});
 	} finally {
 		Object.assign(console, originals);

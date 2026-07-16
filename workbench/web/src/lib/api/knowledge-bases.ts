@@ -1,5 +1,10 @@
 import {
 	ActiveKnowledgeBaseDataSchema,
+	ChooseDirectoryDataSchema,
+	CreateKnowledgeBaseBodySchema,
+	CreateKnowledgeBaseDataSchema,
+	InitExistingKnowledgeBaseBodySchema,
+	InitExistingKnowledgeBaseDataSchema,
 	InspectKnowledgeBasePathDataSchema,
 	KnowledgeBaseContextBodySchema,
 	KnowledgeBaseListDataSchema,
@@ -22,13 +27,50 @@ export type {
 } from "@llm-wiki/workbench-contracts";
 
 export function listKnowledgeBases(): Promise<KnowledgeBaseInfo[]> {
-	return request("/api/knowledge-bases", {
+	return request({ method: "GET", path: "/api/knowledge-bases" }, {
 		responseSchema: KnowledgeBaseListDataSchema,
 	});
 }
 
+export async function createKnowledgeBase(
+	name: string,
+	purpose: string,
+): Promise<KnowledgeBaseInfo> {
+	const { info } = await request(
+		{ method: "POST", path: "/api/knowledge-bases/new" },
+		{
+			body: CreateKnowledgeBaseBodySchema.parse({ name, purpose }),
+			responseSchema: CreateKnowledgeBaseDataSchema,
+		},
+	);
+	return info;
+}
+
+export async function initExistingKnowledgeBase(
+	path: string,
+	purpose: string,
+	overwrite = false,
+): Promise<KnowledgeBaseInfo> {
+	const { info } = await request(
+		{ method: "POST", path: "/api/knowledge-bases/init-existing" },
+		{
+			body: InitExistingKnowledgeBaseBodySchema.parse({ path, purpose, overwrite }),
+			responseSchema: InitExistingKnowledgeBaseDataSchema,
+		},
+	);
+	return info;
+}
+
+export async function chooseDirectory(): Promise<string | null> {
+	const { path } = await request(
+		{ method: "POST", path: "/api/system/choose-directory" },
+		{ responseSchema: ChooseDirectoryDataSchema },
+	);
+	return path;
+}
+
 export async function getActiveContext(): Promise<ActiveContext | null> {
-	const { active } = await request("/api/knowledge-base", {
+	const { active } = await request({ method: "GET", path: "/api/knowledge-base" }, {
 		responseSchema: ActiveKnowledgeBaseDataSchema,
 	});
 	return active;
@@ -38,8 +80,7 @@ export async function selectKnowledgeBase(
 	kbPath: string,
 ): Promise<ActiveContext> {
 	const body = KnowledgeBaseContextBodySchema.parse({ kbPath });
-	const { active } = await request("/api/knowledge-base", {
-		method: "POST",
+	const { active } = await request({ method: "POST", path: "/api/knowledge-base" }, {
 		body,
 		responseSchema: ActiveKnowledgeBaseDataSchema,
 	});
@@ -50,8 +91,7 @@ export async function selectKnowledgeBase(
 }
 
 export async function clearActiveContext(): Promise<void> {
-	await request("/api/knowledge-base", {
-		method: "DELETE",
+	await request({ method: "DELETE", path: "/api/knowledge-base" }, {
 		responseSchema: ActiveKnowledgeBaseDataSchema,
 	});
 }
@@ -59,8 +99,7 @@ export async function clearActiveContext(): Promise<void> {
 export async function registerExternalKnowledgeBase(
 	path: string,
 ): Promise<{ registered: boolean; info: KnowledgeBaseInfo }> {
-	const data = await request("/api/knowledge-bases/external", {
-		method: "POST",
+	const data = await request({ method: "POST", path: "/api/knowledge-bases/external" }, {
 		body: KnowledgeBasePathBodySchema.parse({ path }),
 		responseSchema: RegisterExternalKnowledgeBaseDataSchema,
 	});
@@ -70,8 +109,7 @@ export async function registerExternalKnowledgeBase(
 export function inspectKnowledgeBasePath(
 	path: string,
 ): Promise<InspectKnowledgeBasePathData> {
-	return request("/api/knowledge-bases/inspect", {
-		method: "POST",
+	return request({ method: "POST", path: "/api/knowledge-bases/inspect" }, {
 		body: KnowledgeBasePathBodySchema.parse({ path }),
 		responseSchema: InspectKnowledgeBasePathDataSchema,
 	});
@@ -80,8 +118,7 @@ export function inspectKnowledgeBasePath(
 export async function unregisterExternalKnowledgeBase(
 	path: string,
 ): Promise<{ removed: boolean }> {
-	const data = await request("/api/knowledge-bases/external", {
-		method: "DELETE",
+	const data = await request({ method: "DELETE", path: "/api/knowledge-bases/external" }, {
 		body: KnowledgeBasePathBodySchema.parse({ path }),
 		responseSchema: UnregisterExternalKnowledgeBaseDataSchema,
 	});

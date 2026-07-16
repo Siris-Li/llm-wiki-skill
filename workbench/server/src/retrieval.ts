@@ -39,12 +39,9 @@ export interface RetrievalLogEntry {
 	ts: number;
 	sessionId: string;
 	kbPath: string;
-	messagePreview: string;
 	triggered: boolean;
-	explicitRefs: string[];
 	results: Array<{ path: string; hitReason: HitReason; score: number }>;
-	wrappedCharCount: number;
-	error: string | null;
+	error: "retrieval_failed" | null;
 }
 
 const DEFAULT_MAX_PAGES = 6;
@@ -246,9 +243,25 @@ export async function writeRetrievalLog(entry: RetrievalLogEntry): Promise<void>
 	const date = new Date(entry.ts).toISOString().slice(0, 10);
 	const dir = path.join(APP_DIR, "logs", "retrieval");
 	await mkdir(dir, { recursive: true });
-	await writeFile(path.join(dir, `${date}.jsonl`), `${JSON.stringify(entry)}\n`, {
+	await writeFile(path.join(dir, `${date}.jsonl`), `${serializeRetrievalLogEntry(entry)}\n`, {
 		encoding: "utf8",
 		flag: "a",
+	});
+}
+
+/** Keep default retrieval logs metadata-only even if a caller adds extra fields. */
+export function serializeRetrievalLogEntry(entry: RetrievalLogEntry): string {
+	return JSON.stringify({
+		ts: entry.ts,
+		sessionId: entry.sessionId,
+		kbPath: entry.kbPath,
+		triggered: entry.triggered,
+		results: entry.results.map((result) => ({
+			path: result.path,
+			hitReason: result.hitReason,
+			score: result.score,
+		})),
+		error: entry.error === "retrieval_failed" ? "retrieval_failed" : null,
 	});
 }
 

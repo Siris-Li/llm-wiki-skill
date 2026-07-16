@@ -9,7 +9,6 @@ const WEB_FETCH_FILES = new Set([
 	"workbench/web/src/lib/api/client.ts",
 	"workbench/web/src/lib/api/prompt.ts",
 	"workbench/web/src/lib/api/batch-digest.ts",
-	"workbench/web/src/lib/api/legacy.ts",
 ]);
 const WEB_FILE_FETCH_FILES = new Set([
 	"workbench/web/src/components/renderers/HtmlRenderer.tsx",
@@ -18,21 +17,7 @@ const WEB_RESPONSE_PARSER_FILES = new Set([
 	"workbench/web/src/lib/api/client.ts",
 	"workbench/web/src/lib/api/prompt.ts",
 	"workbench/web/src/lib/api/batch-digest.ts",
-	"workbench/web/src/lib/api/legacy.ts",
 ]);
-
-const REMAINING_LEGACY_ENDPOINTS = new Set([
-	"POST /api/echo",
-	"POST /api/knowledge-bases/new",
-	"POST /api/knowledge-bases/init-existing",
-	"GET /api/commands",
-	"POST /api/system/choose-directory",
-	"POST /api/auth/set",
-	"POST /api/auth/test",
-]);
-const REMAINING_LEGACY_PATHS = new Set(
-	[...REMAINING_LEGACY_ENDPOINTS].map((endpoint) => endpoint.slice(endpoint.indexOf(" ") + 1)),
-);
 
 async function sourceFiles(directory) {
 	let entries;
@@ -125,21 +110,10 @@ function fetchCalls(source, file) {
 				}
 			}
 			const argument = node.arguments[0] && unwrapExpression(node.arguments[0]);
-			let apiPath = staticString(argument);
-			let allowedLegacyTemplate = false;
-			if (argument && ts.isTemplateExpression(argument)) {
-				apiPath = argument.head.text;
-				allowedLegacyTemplate =
-					apiPath === "/api/commands" &&
-					argument.templateSpans.length === 1 &&
-					ts.isIdentifier(argument.templateSpans[0].expression) &&
-					argument.templateSpans[0].expression.text === "suffix" &&
-					argument.templateSpans[0].literal.text === "";
-			}
+			const apiPath = staticString(argument);
 			calls.push({
 				apiPath,
 				method,
-				allowedLegacyTemplate,
 				argumentIdentifier:
 					argument && ts.isIdentifier(argument) ? argument.text : null,
 				isDynamicTemplate: Boolean(argument && ts.isTemplateExpression(argument)),
@@ -278,51 +252,6 @@ export async function checkWorkbenchBoundaries(
 			}
 		}
 	}
-	const legacyClientFile = path.join(webRoot, "lib/api/legacy.ts");
-	const registryByEndpoint = new Map(
-		endpointRegistry.map((entry) => [`${entry.method} ${entry.path}`, entry]),
-	);
-	try {
-		const legacyClient = await readFile(legacyClientFile, "utf8");
-		for (const {
-			apiPath,
-			method,
-			allowedLegacyTemplate,
-			isDynamicTemplate,
-		} of fetchCalls(legacyClient, legacyClientFile)) {
-			if (!apiPath?.startsWith("/api/")) {
-				report(
-					"web-legacy-endpoint-not-allowed",
-					legacyClientFile,
-					"legacy client fetch targets must be statically listed",
-				);
-				continue;
-			}
-			if (isDynamicTemplate && !allowedLegacyTemplate) {
-				report(
-					"web-legacy-endpoint-not-allowed",
-					legacyClientFile,
-					"legacy client dynamic fetch targets are restricted to the commands query",
-				);
-				continue;
-			}
-			const endpoint = `${method} ${apiPath}`;
-			if (
-				!REMAINING_LEGACY_PATHS.has(apiPath) ||
-				!REMAINING_LEGACY_ENDPOINTS.has(endpoint) ||
-				registryByEndpoint.get(endpoint)?.kind !== "legacy"
-			) {
-				report(
-					"web-legacy-endpoint-not-allowed",
-					legacyClientFile,
-					`legacy client cannot call migrated endpoint: ${endpoint}`,
-				);
-			}
-		}
-	} catch (error) {
-		if (error?.code !== "ENOENT") throw error;
-	}
-
 	const routesRoot = path.join(absoluteRoot, "workbench/server/src/routes");
 	for (const file of await sourceFiles(routesRoot)) {
 		const source = await readFile(file, "utf8");
@@ -377,28 +306,6 @@ export async function checkWorkbenchBoundaries(
 		}
 	} catch (error) {
 		if (error?.code !== "ENOENT") throw error;
-	}
-
-	const registryFile = path.join(contractsRoot, "endpoints.ts");
-	for (const expected of REMAINING_LEGACY_ENDPOINTS) {
-		if (registryByEndpoint.get(expected)?.kind !== "legacy") {
-			report(
-				"registry-missing-legacy-endpoint",
-				registryFile,
-				`legacy policy and registry disagree: ${expected}`,
-			);
-		}
-	}
-	for (const entry of endpointRegistry) {
-		if (entry.kind !== "legacy") continue;
-		const key = `${entry.method} ${entry.path}`;
-		if (!REMAINING_LEGACY_ENDPOINTS.has(key)) {
-			report(
-				"registry-unexpected-legacy-endpoint",
-				registryFile,
-				`migrated endpoint cannot return to legacy: ${key}`,
-			);
-		}
 	}
 
 	return findings.sort((a, b) =>

@@ -4,11 +4,19 @@ import test from "node:test";
 import { PromptSseEventSchema } from "@llm-wiki/workbench-contracts";
 
 import { createApp } from "./app.js";
+import {
+  clearPendingKnowledgeContext,
+  consumePendingKnowledgeContext,
+  setPendingKnowledgeContext,
+} from "./extensions/knowledge-base.js";
+import { ToolStatusEventAdapter } from "./tool-status-events.js";
 import type {
   PromptActiveContext,
+  PromptEventWriter,
   PromptRunContext,
   PromptRouteService,
 } from "./routes/prompt.js";
+import { defaultPromptRouteService, PromptSessionEventQueue } from "./routes/prompt.js";
 
 interface SseFrame {
   event: string;
@@ -60,8 +68,19 @@ async function readSse(res: Response): Promise<SseFrame[]> {
 interface FakeOptions {
   active?: PromptActiveContext | null;
   /** runPrompt 内部行为；默认写一条 text delta 后 finishAssistant。 */
-  behavior?: "success" | "fail" | "empty" | "late-event" | "knowledge-search";
+  behavior?:
+    | "success"
+    | "fail"
+    | "fail-with-running-tool"
+    | "saved-model-error"
+    | "saved-model-abort"
+    | "model-error-then-success"
+    | "empty"
+    | "late-event"
+    | "knowledge-search"
+    | "pending";
   throwOnSubscribe?: "session" | "artifacts";
+  onClearPendingKnowledgeContext?: (ctx: PromptRunContext) => void;
 }
 
 function createFakeService(options: FakeOptions = {}) {
@@ -76,6 +95,14 @@ function createFakeService(options: FakeOptions = {}) {
       : options.active;
   const behavior = options.behavior ?? "success";
   const throwOnSubscribe = options.throwOnSubscribe;
+  let releasePendingPrompt!: () => void;
+  const pendingPrompt = new Promise<void>((resolve) => {
+    releasePendingPrompt = resolve;
+  });
+  let resolveAbortObserved!: () => void;
+  const abortObserved = new Promise<void>((resolve) => {
+    resolveAbortObserved = resolve;
+  });
   const calls = {
     begun: [] as Array<[string, string]>,
     ended: [] as Array<[string, string]>,
@@ -86,6 +113,7 @@ function createFakeService(options: FakeOptions = {}) {
     artifactSubscribed: 0,
     artifactUnsubscribed: 0,
     cleared: 0,
+    clearOwners: [] as Array<{ runId: string; conversationId: string }>,
   };
   const session = {
     subscribe: () => () => {},
@@ -132,7 +160,9 @@ function createFakeService(options: FakeOptions = {}) {
     },
     runPrompt: async (ctx: PromptRunContext) => {
       calls.prompts.push(ctx.message);
-      if (behavior === "success") {
+      if (behavior === "pending") {
+        await pendingPrompt;
+      } else if (behavior === "success") {
         const delta = ctx.adapter.adapt({
           type: "message_update",
           message: { role: "assistant", content: [] },
@@ -165,6 +195,35 @@ function createFakeService(options: FakeOptions = {}) {
           },
         } as never)[0];
         await ctx.writer.write(lateDelta ?? null);
+      } else if (behavior === "saved-model-error") {
+        for (const event of ctx.adapter.adapt(
+          assistantMessageEnd(
+            "error",
+            "fictional model detail that must not reach the page",
+          ),
+        )) {
+          await ctx.writer.write(event);
+        }
+        for (const event of ctx.adapter.finishAssistant()) {
+          await ctx.writer.write(event);
+        }
+      } else if (behavior === "saved-model-abort") {
+        for (const event of ctx.adapter.adapt(assistantMessageEnd("aborted"))) {
+          await ctx.writer.write(event);
+        }
+        for (const event of ctx.adapter.finishAssistant()) {
+          await ctx.writer.write(event);
+        }
+      } else if (behavior === "model-error-then-success") {
+        for (const event of ctx.adapter.adapt(assistantMessageEnd("error"))) {
+          await ctx.writer.write(event);
+        }
+        for (const event of ctx.adapter.adapt(assistantMessageEnd("stop"))) {
+          await ctx.writer.write(event);
+        }
+        for (const event of ctx.adapter.finishAssistant()) {
+          await ctx.writer.write(event);
+        }
       } else if (behavior === "knowledge-search") {
         const toolCallId = "knowledge-search-1";
         await ctx.writer.write(
@@ -194,17 +253,32 @@ function createFakeService(options: FakeOptions = {}) {
         }
       } else if (behavior === "fail") {
         throw new Error("ENOENT /Users/private/secret\n    at secret stack");
+      } else if (behavior === "fail-with-running-tool") {
+        await ctx.writer.write(
+          ctx.adapter.startTool({
+            toolCallId: "failing-tool",
+            toolName: "read",
+            args: { path: "/fictional/private/failing-tool.md" },
+          }),
+        );
+        throw new Error("fictional model entry failure");
       }
       // empty: 不写任何事件，也不 finish —— 用于测 EOF-without-terminal 由 route 不兜底
     },
     abortSession: () => {
       calls.aborted += 1;
+      resolveAbortObserved();
     },
-    clearPendingKnowledgeContext: () => {
+    clearPendingKnowledgeContext: (ctx) => {
       calls.cleared += 1;
+      calls.clearOwners.push({
+        runId: ctx.runId,
+        conversationId: ctx.active.conversationId,
+      });
+      options.onClearPendingKnowledgeContext?.(ctx);
     },
   };
-  return { service, calls };
+  return { service, calls, abortObserved, releasePendingPrompt };
 }
 
 function assertLifecycle(frames: SseFrame[]): void {
@@ -316,6 +390,93 @@ test("成功流：seq 从 1 连续递增、唯一 terminal、每帧通过共享 
   assert.deepEqual(calls.ended.length, 1);
 });
 
+test("已保存的模型错误终态在 prompt 正常返回后仍只发送 assistant_error", async () => {
+  const { service } = createFakeService({ behavior: "saved-model-error" });
+  const app = createApp({ promptService: service });
+  const res = await app.request("/api/prompt", post({ message: "受控模型错误" }));
+  const frames = await readSse(res);
+
+  assertLifecycle(frames);
+  assert.deepEqual(frames.map((frame) => frame.event), ["assistant_error"]);
+  assert.equal(frames.some((frame) => frame.event === "assistant_done"), false);
+  assert.equal(JSON.stringify(frames).includes("fictional model detail"), false);
+});
+
+test("已保存的 aborted 终态保持取消，不被成功结束覆盖", async () => {
+  const { service } = createFakeService({ behavior: "saved-model-abort" });
+  const app = createApp({ promptService: service });
+  const res = await app.request("/api/prompt", post({ message: "受控取消" }));
+  const frames = await readSse(res);
+
+  assertLifecycle(frames);
+  assert.deepEqual(frames.map((frame) => frame.event), ["assistant_cancelled"]);
+  assert.equal(frames.some((frame) => frame.event === "assistant_done"), false);
+});
+
+test("传输取消会停止上下文超限自动恢复，并保持取消终态", async () => {
+	const adapter = new ToolStatusEventAdapter({
+		runId: "run-overflow-cancel",
+		messageId: "message-overflow-cancel",
+	});
+	adapter.adapt(assistantMessageEnd("error"));
+	adapter.adapt({ type: "compaction_start", reason: "overflow" });
+	const calls: string[] = [];
+
+	const ctx = {
+		runId: "run-overflow-cancel",
+		messageId: "message-overflow-cancel",
+		message: "受控恢复取消",
+		active: { kbPath: "/fictional/kb", name: "fixture", conversationId: "c-overflow", sessionId: "s-overflow" },
+		adapter,
+		writer: { open: true, write: async () => true, flush: async () => {} },
+		sessionEvents: new PromptSessionEventQueue(),
+		session: {
+			subscribe: () => () => {},
+			prompt: async () => {},
+			abortCompaction: () => calls.push("compaction"),
+			abort: () => calls.push("prompt"),
+			state: {},
+		},
+	} as PromptRunContext;
+	defaultPromptRouteService.abortSession(ctx);
+
+	assert.deepEqual(calls, ["compaction", "prompt"]);
+	await ctx.sessionEvents.flush();
+	assert.deepEqual(adapter.finishAssistant().map((event) => event.type), ["assistant_cancelled"]);
+});
+
+test("会话事件队列只记录实际写出的最终取消文字", async () => {
+	const adapter = new ToolStatusEventAdapter({
+		runId: "run-delivery",
+		messageId: "message-delivery",
+	});
+	const sessionEvents = new PromptSessionEventQueue();
+	const writer: PromptEventWriter = {
+		open: true,
+		write: async (event) => event?.type !== "assistant_text_delta" || event.delta !== "未写出的虚构文字",
+		flush: async () => {},
+	};
+
+	sessionEvents.enqueueAgentEvent(adapter, writer, textDelta("工具调用前已写出的虚构文字"));
+	sessionEvents.enqueueAgentEvent(adapter, writer, assistantMessageEnd("toolUse"));
+	sessionEvents.enqueueAgentEvent(adapter, writer, textDelta("未写出的虚构文字"));
+	sessionEvents.enqueueAgentEvent(adapter, writer, textDelta("最终已写出的虚构文字"));
+	sessionEvents.enqueueAgentEvent(adapter, writer, assistantMessageEnd("aborted"));
+	await sessionEvents.flush();
+
+	assert.equal(sessionEvents.publishedAssistantText.terminalText, "最终已写出的虚构文字");
+});
+
+test("后续正常助手结束会替代本轮暂存模型错误，最终只发送 assistant_done", async () => {
+  const { service } = createFakeService({ behavior: "model-error-then-success" });
+  const app = createApp({ promptService: service });
+  const res = await app.request("/api/prompt", post({ message: "模拟恢复成功" }));
+  const frames = await readSse(res);
+
+  assertLifecycle(frames);
+  assert.deepEqual(frames.map((frame) => frame.event), ["assistant_done"]);
+});
+
 test("服务遗漏 terminal 时 route 补发唯一 assistant_error", async () => {
   const { service } = createFakeService({ behavior: "empty" });
   const app = createApp({ promptService: service });
@@ -338,7 +499,7 @@ test("terminal 后的 agent event 不会写入 stream", async () => {
     false,
   );
 });
-test("prompt 抛错时发送唯一 assistant_error，不泄露 raw error / stack / 路径，terminal 为最后一帧", async () => {
+test("模型入口直接失败时发送唯一 assistant_error，不泄露 raw error / stack / 路径，terminal 为最后一帧", async () => {
   const { service } = createFakeService({ behavior: "fail" });
   const app = createApp({ promptService: service });
   const res = await app.request("/api/prompt", post({ message: "boom" }));
@@ -357,6 +518,22 @@ test("prompt 抛错时发送唯一 assistant_error，不泄露 raw error / stack
   assert.equal(serialized.includes("/Users/"), false, "不得泄露 /Users/ 路径");
   assert.equal(serialized.includes("secret stack"), false, "不得泄露 stack");
   assert.equal(serialized.includes("ENOENT"), false, "不得泄露原始错误");
+});
+
+test("模型入口失败会结束运行中的工具，并以失败终态收尾", async () => {
+  const { service } = createFakeService({ behavior: "fail-with-running-tool" });
+  const app = createApp({ promptService: service });
+  const res = await app.request("/api/prompt", post({ message: "工具后失败" }));
+  const frames = await readSse(res);
+
+  assertLifecycle(frames);
+  assert.deepEqual(frames.map((frame) => frame.event), [
+    "tool_status_start",
+    "tool_status_end",
+    "tool_status_summary",
+    "assistant_error",
+  ]);
+  assert.equal(frames.at(-1)?.event, "assistant_error");
 });
 
 test("检索工具事件不回显原始 prompt、知识库路径或结果路径", async () => {
@@ -405,22 +582,87 @@ test("订阅抛错后释放 run registry，后续请求不会 BUSY", async () =>
     assert.equal(second.status, 200);
   }
 });
-test("transport abort 释放 registry，下一个 prompt 可立即开始", async () => {
-  const { service, calls } = createFakeService();
-  const app = createApp({ promptService: service });
-  const controller = new AbortController();
-  const res = await app.request("/api/prompt", post({ message: "你好" }), {
-    signal: controller.signal,
-  });
-  controller.abort();
-  try {
-    await res.text();
-  } catch {
-    // 连接中断读取抛错是正常的
+
+function assistantMessageEnd(
+  stopReason: "error" | "aborted" | "stop" | "toolUse",
+  errorMessage?: string,
+): Record<string, unknown> {
+  return {
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [],
+      stopReason,
+      ...(errorMessage ? { errorMessage } : {}),
+    },
+  };
+}
+
+function textDelta(delta: string): Record<string, unknown> {
+  return {
+    type: "message_update",
+    message: { role: "assistant", content: [] },
+    assistantMessageEvent: {
+      type: "text_delta",
+      contentIndex: 0,
+      delta,
+      partial: { role: "assistant", content: [{ type: "text", text: delta }] },
+    },
+  };
+}
+
+async function waitFor(
+  condition: () => boolean,
+  message: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (condition()) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
-  // registry 必须释放：下一个 prompt 能立即 begin 且成功
+  assert.fail(message);
+}
+
+test("transport abort 只取消并清理所属 run，随后可立即开始新 prompt", async (t) => {
+  const cancelledOwner = { runId: "run-fixed", conversationId: "c-1" };
+  const unaffectedOwner = { runId: "run-other", conversationId: "c-other" };
+  setPendingKnowledgeContext("会被取消的上下文", cancelledOwner);
+  setPendingKnowledgeContext("不受影响的上下文", unaffectedOwner);
+  t.after(() => {
+    clearPendingKnowledgeContext(cancelledOwner);
+    clearPendingKnowledgeContext(unaffectedOwner);
+  });
+
+  const { service, calls, abortObserved, releasePendingPrompt } = createFakeService({
+    behavior: "pending",
+    onClearPendingKnowledgeContext: (ctx) => {
+      clearPendingKnowledgeContext({
+        runId: ctx.runId,
+        conversationId: ctx.active.conversationId,
+      });
+    },
+  });
+  const app = createApp({ promptService: service });
+  const res = await app.request("/api/prompt", post({ message: "你好" }));
+  assert.deepEqual(calls.prompts, ["你好"], "取消前 prompt 必须仍在运行");
+  const body = res.body;
+  assert.ok(body, "SSE response 必须有可取消的 body");
+  await body.cancel();
+  await abortObserved;
+
+  assert.equal(calls.aborted, 1, "取消必须实际调用 agent abort");
+  assert.deepEqual(calls.clearOwners, [cancelledOwner]);
+  assert.equal(consumePendingKnowledgeContext(cancelledOwner), null);
+  assert.equal(
+    consumePendingKnowledgeContext(unaffectedOwner),
+    "不受影响的上下文",
+  );
+
+  releasePendingPrompt();
+  await waitFor(() => calls.ended.length === 1, "取消后的 run 未完成清理");
+
+  // registry 必须释放：下一个 prompt 能立即 begin 且成功。
   const res2 = await app.request("/api/prompt", post({ message: "第二次" }));
   assert.equal(res2.status, 200);
   assert.equal(calls.prompts.includes("第二次"), true);
-  assert.equal(calls.aborted >= 0, true);
+  assertLifecycle(await readSse(res2));
 });

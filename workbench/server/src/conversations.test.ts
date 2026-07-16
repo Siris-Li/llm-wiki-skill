@@ -56,6 +56,104 @@ test("piMessagesToUIMessages omits empty summaries for messages without tools", 
 	]);
 });
 
+test("piMessagesToUIMessages renders a safe failure for a saved model error", () => {
+	const messages = piMessagesToUIMessages([
+		assistantMessage("虚构的旧失败回复片段", [], {
+			stopReason: "error",
+			errorMessage: "fictional raw provider detail",
+		}),
+	]);
+
+	assert.equal(messages[0]?.content, "生成回复时发生错误，请重试");
+	assert.equal(JSON.stringify(messages).includes("fictional raw provider detail"), false);
+	assert.equal(JSON.stringify(messages).includes("虚构的旧失败回复片段"), false);
+});
+
+test("piMessagesToUIMessages omits tool summaries attached to a saved terminal error", () => {
+	const messages = piMessagesToUIMessages([
+		assistantMessage("", [
+			{
+				type: "toolCall",
+				id: "terminal-error-tool",
+				name: "read",
+				arguments: { path: "/fictional/private/case-231-notes.md" },
+			},
+		], {
+			stopReason: "error",
+			errorMessage: "fictional raw provider detail",
+		}),
+		toolResultMessage("terminal-error-tool", "read", "fictional private tool result", false),
+	]);
+
+	assert.equal(messages[0]?.content, "生成回复时发生错误，请重试");
+	assert.deepEqual(messages[0]?.tools, []);
+	assert.equal(JSON.stringify(messages).includes("/fictional/private/case-231-notes.md"), false);
+	assert.equal(JSON.stringify(messages).includes("fictional private tool result"), false);
+});
+
+for (const [stopReason, terminalMessage] of [
+	["error", "生成回复时发生错误，请重试"],
+	["aborted", "生成已停止"],
+] as const) {
+	test(`piMessagesToUIMessages omits earlier tool summaries before a saved ${stopReason} terminal`, () => {
+		const messages = piMessagesToUIMessages([
+			userMessage("继续"),
+			assistantMessage("我先检查。", [
+				{
+					type: "toolCall",
+					id: `prior-${stopReason}-tool`,
+					name: "read",
+					arguments: { path: `/fictional/private/${stopReason}-terminal-input.md` },
+				},
+			]),
+			toolResultMessage(
+				`prior-${stopReason}-tool`,
+				"read",
+				"fictional private tool result",
+				false,
+			),
+			assistantMessage("", [], {
+				stopReason,
+				errorMessage: "fictional raw terminal detail",
+			}),
+		]);
+
+		assert.equal(messages[1]?.content.includes(terminalMessage), true);
+		assert.deepEqual(messages[1]?.tools, []);
+		assert.equal(
+			JSON.stringify(messages).includes(`/fictional/private/${stopReason}-terminal-input.md`),
+			false,
+		);
+		assert.equal(JSON.stringify(messages).includes("fictional private tool result"), false);
+	});
+}
+
+test("piMessagesToUIMessages keeps a saved cancellation distinct from completion", () => {
+	const messages = piMessagesToUIMessages([
+		assistantMessage("取消前已显示的虚构回复片段", [], {
+			stopReason: "aborted",
+			errorMessage: "fictional raw abort detail",
+		}),
+	]);
+
+	assert.equal(messages[0]?.content, "取消前已显示的虚构回复片段\n\n生成已停止");
+	assert.equal(JSON.stringify(messages).includes("fictional raw abort detail"), false);
+});
+
+test("piMessagesToUIMessages hides a saved retry failure when the same turn later succeeds", () => {
+	const messages = piMessagesToUIMessages([
+		userMessage("模拟重试"),
+		assistantMessage("", [], {
+			stopReason: "error",
+			errorMessage: "fictional retryable server error",
+		}),
+		assistantMessage("最终成功回复", []),
+	]);
+
+	assert.equal(messages[1]?.content, "最终成功回复");
+	assert.equal(messages[1]?.content.includes("生成回复时发生错误"), false);
+});
+
 test("piMessagesToUIMessages does not invent details missing from tool results", () => {
 	const messages = piMessagesToUIMessages([
 		assistantMessage("执行命令。", [
@@ -133,13 +231,18 @@ function userMessage(text: string): AgentMessage {
 	} as AgentMessage;
 }
 
-function assistantMessage(text: string, extra: unknown[]): AgentMessage {
+function assistantMessage(
+	text: string,
+	extra: unknown[],
+	terminal?: { stopReason: "error" | "aborted"; errorMessage: string },
+): AgentMessage {
 	return {
 		role: "assistant",
 		content: [
 			...(text ? [{ type: "text", text }] : []),
 			...extra,
 		],
+		...terminal,
 	} as AgentMessage;
 }
 

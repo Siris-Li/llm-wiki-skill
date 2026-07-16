@@ -38,6 +38,12 @@ import { scanAndRebuildArtifactIndex } from "./artifacts.js";
 import { createArtifactsExtension } from "./extensions/artifacts.js";
 import knowledgeBaseExtension from "./extensions/knowledge-base.js";
 import {
+	finalizeSessionTerminalMessages,
+	protectSessionTerminalMessages,
+	sanitizePersistedSessionTerminalMessages,
+	type AssistantTerminalReason,
+} from "./extensions/prompt-terminal.js";
+import {
 	clearCurrentKnowledgeBase,
 	setCurrentKnowledgeBase,
 } from "./extensions/knowledge-base.js";
@@ -100,6 +106,7 @@ let resourceLoaderState: {
 } | null = null;
 let active: ActiveContext | null = null;
 let activeMutationQueue: Promise<void> = Promise.resolve();
+const terminalSessionManagers = new WeakMap<AgentSession, SessionManager>();
 
 async function runActiveMutation<T>(operation: () => Promise<T>): Promise<T> {
 	const previous = activeMutationQueue;
@@ -112,6 +119,44 @@ async function runActiveMutation<T>(operation: () => Promise<T>): Promise<T> {
 		return await operation();
 	} finally {
 		release();
+	}
+}
+
+function rememberTerminalSessionManager(
+	session: AgentSession,
+	sessionManager: SessionManager,
+): void {
+	terminalSessionManagers.set(session, sessionManager);
+}
+
+/** Keeps the active foreground state aligned with a terminal message written after recovery. */
+export function finalizeTerminalSessionState(
+	session: Pick<AgentSession, "state">,
+	sessionManager: SessionManager,
+	terminalReason: AssistantTerminalReason | null,
+	visibleAssistantText = "",
+): boolean {
+	if (!finalizeSessionTerminalMessages(sessionManager, terminalReason, visibleAssistantText)) {
+		return false;
+	}
+	session.state.messages = sessionManager.buildSessionContext().messages;
+	return true;
+}
+
+export function finalizeSessionTerminalPersistence(
+	session: unknown,
+	terminalReason: AssistantTerminalReason | null,
+	visibleAssistantText = "",
+): void {
+	const agentSession = session as AgentSession;
+	const sessionManager = terminalSessionManagers.get(agentSession);
+	if (sessionManager) {
+		finalizeTerminalSessionState(
+			agentSession,
+			sessionManager,
+			terminalReason,
+			visibleAssistantText,
+		);
 	}
 }
 
@@ -367,9 +412,14 @@ async function selectKbSerial(kbPath: string): Promise<ActiveContext> {
 	let sessionManager: ReturnType<typeof SessionManager.create>;
 	const mostRecent = existing[0];
 	if (mostRecent) {
-		sessionManager = SessionManager.open(mostRecent.path);
+		await sanitizePersistedSessionTerminalMessages(mostRecent.path);
+		sessionManager = protectSessionTerminalMessages(
+			SessionManager.open(mostRecent.path),
+		);
 	} else {
-		sessionManager = SessionManager.create(process.cwd(), dir);
+		sessionManager = protectSessionTerminalMessages(
+			SessionManager.create(process.cwd(), dir),
+		);
 		isNew = true;
 	}
 
@@ -381,6 +431,7 @@ async function selectKbSerial(kbPath: string): Promise<ActiveContext> {
 		modelRegistry,
 		...(model ? { model } : {}),
 	});
+	rememberTerminalSessionManager(session, sessionManager);
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 
 	let kb: ActiveContext["kb"];
@@ -431,13 +482,18 @@ async function selectConversationSerial(
 	const loader = await getResourceLoader();
 
 	const model = await getRoleModel("main");
+	await sanitizePersistedSessionTerminalMessages(target.path);
+	const sessionManager = protectSessionTerminalMessages(
+		SessionManager.open(target.path),
+	);
 	const { session, modelFallbackMessage } = await createAgentSession({
 		resourceLoader: loader,
-		sessionManager: SessionManager.open(target.path),
+		sessionManager,
 		authStorage,
 		modelRegistry,
 		...(model ? { model } : {}),
 	});
+	rememberTerminalSessionManager(session, sessionManager);
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 
 	active = { kb, session, conversationId: session.sessionId, isNew: false };
@@ -462,13 +518,17 @@ async function createNewConversationSerial(kbPath: string): Promise<ActiveContex
 	const loader = await getResourceLoader();
 
 	const model = await getRoleModel("main");
+	const sessionManager = protectSessionTerminalMessages(
+		SessionManager.create(process.cwd(), dir),
+	);
 	const { session, modelFallbackMessage } = await createAgentSession({
 		resourceLoader: loader,
-		sessionManager: SessionManager.create(process.cwd(), dir),
+		sessionManager,
 		authStorage,
 		modelRegistry,
 		...(model ? { model } : {}),
 	});
+	rememberTerminalSessionManager(session, sessionManager);
 	if (modelFallbackMessage) console.log(`[agent] ${modelFallbackMessage}`);
 
 	active = { kb, session, conversationId: session.sessionId, isNew: true };

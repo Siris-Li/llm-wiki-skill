@@ -10,7 +10,9 @@ import {
 	findEndpoint,
 	hasTrustedBrowserSource,
 	isExplicitlyUntrustedSource,
+	isMigratedJsonEndpoint,
 	isMigratedJsonPath,
+	MIGRATED_JSON_ENDPOINTS,
 	MIGRATED_JSON_PATHS,
 	requiresCapabilityToken,
 	requiresTrustedSource,
@@ -33,11 +35,12 @@ test("method + path 在 registry 中唯一（没有重复登记）", () => {
 	}
 });
 
-test("registry 覆盖四类 endpoint kind", () => {
+test("registry 只保留统一 JSON、SSE 与下载类型", () => {
 	const kinds = new Set(ENDPOINT_REGISTRY.map((e) => e.kind));
-	for (const expected of EndpointKindSchema.options) {
+	for (const expected of ["migrated-json", "file-download", "sse"] as const) {
 		assert.ok(kinds.has(expected), `missing kind ${expected}`);
 	}
+	assert.equal(EndpointKindSchema.safeParse("legacy").success, false);
 });
 
 test("registry 覆盖公开、可信只读、状态变更三类 safety 分类", () => {
@@ -80,7 +83,66 @@ test("MIGRATED_JSON_PATHS 与 registry 的 migrated-json 子集严格一致（�
 	assert.deepEqual([...MIGRATED_JSON_PATHS], expected);
 });
 
-test("health 与设置/模型/auth status 是 migrated-json endpoint", () => {
+test("MIGRATED_JSON_ENDPOINTS 保留 registry 的 method + path 配对", () => {
+	const expected = ENDPOINT_REGISTRY.filter((entry) => entry.kind === "migrated-json").map(
+		({ method, path }) => ({ method, path }),
+	);
+	assert.deepEqual([...MIGRATED_JSON_ENDPOINTS], expected);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "GET", path: "/api/health" }),
+		true,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "POST", path: "/api/health" }),
+		false,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "GET", path: "/api/commands" }),
+		true,
+	);
+	assert.equal(findEndpoint("POST", "/api/echo"), undefined);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "POST", path: "/api/prompt" }),
+		false,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({
+			method: "GET",
+			path: "/api/artifacts/:id/files/:filename",
+		}),
+		false,
+	);
+});
+
+test("运行时 registry 与派生 allowlist 不可被调用方改写", () => {
+	assert.equal(Object.isFrozen(ENDPOINT_REGISTRY), true);
+	assert.ok(ENDPOINT_REGISTRY.every((entry) => Object.isFrozen(entry)));
+	assert.equal(Object.isFrozen(MIGRATED_JSON_ENDPOINTS), true);
+	assert.ok(MIGRATED_JSON_ENDPOINTS.every((endpoint) => Object.isFrozen(endpoint)));
+	assert.equal(Object.isFrozen(MIGRATED_JSON_PATHS), true);
+
+	assert.throws(
+		() => {
+			(
+				MIGRATED_JSON_ENDPOINTS as unknown as Array<{
+					method: string;
+					path: string;
+				}>
+			).push({ method: "POST", path: "/api/auth/set" });
+		},
+		TypeError,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "POST", path: "/api/auth/set" }),
+		true,
+	);
+	assert.equal(
+		isMigratedJsonEndpoint({ method: "POST", path: "/api/auth/test" }),
+		true,
+	);
+});
+
+test("health 与设置/模型/auth 入口是 migrated-json endpoint", () => {
 	const migrated = ENDPOINT_REGISTRY.filter((e) => e.kind === "migrated-json").map(
 		(e) => `${e.method} ${e.path}`,
 	);
@@ -90,6 +152,8 @@ test("health 与设置/模型/auth status 是 migrated-json endpoint", () => {
 		"POST /api/config",
 		"GET /api/models",
 		"GET /api/auth/status",
+		"POST /api/auth/set",
+		"POST /api/auth/test",
 	]) {
 		assert.ok(migrated.includes(expected), `missing migrated endpoint ${expected}`);
 	}
@@ -100,10 +164,11 @@ test("health 与设置/模型/auth status 是 migrated-json endpoint", () => {
 	assert.equal(health?.safety, "public");
 });
 
-test("isMigratedJsonPath 接受 migrated-json、拒绝 legacy path", () => {
+test("isMigratedJsonPath 接受 migrated-json、拒绝专用响应路径", () => {
 	assert.equal(isMigratedJsonPath("/api/health"), true);
 	assert.equal(isMigratedJsonPath("/api/knowledge-bases"), true);
 	assert.equal(isMigratedJsonPath("/api/knowledge-base"), true);
+	assert.equal(isMigratedJsonPath("/api/commands"), true);
 	assert.equal(isMigratedJsonPath("/api/graph"), true);
 	assert.equal(isMigratedJsonPath("/api/graph/rebuild"), true);
 	assert.equal(isMigratedJsonPath("/api/prompt"), false); // sse，不是 migrated-json
@@ -113,12 +178,14 @@ test("isMigratedJsonPath 接受 migrated-json、拒绝 legacy path", () => {
 	);
 });
 
-test("config / models / auth status 已迁移为 migrated-json，并保持安全分类", () => {
+test("config / models / auth 已迁移为 migrated-json，并保持安全分类", () => {
 	const cases = [
 		{ method: "GET", path: "/api/config", safety: "read-only" },
 		{ method: "POST", path: "/api/config", safety: "state-changing" },
 		{ method: "GET", path: "/api/models", safety: "read-only" },
 		{ method: "GET", path: "/api/auth/status", safety: "read-only" },
+		{ method: "POST", path: "/api/auth/set", safety: "state-changing" },
+		{ method: "POST", path: "/api/auth/test", safety: "state-changing" },
 	] as const;
 	for (const item of cases) {
 		const entry = findEndpoint(item.method, item.path);
@@ -138,6 +205,16 @@ test("knowledge bases 与 active context 路由已迁移并保持安全分类", 
 		{ method: "GET", path: "/api/knowledge-bases", safety: "read-only" },
 		{
 			method: "POST",
+			path: "/api/knowledge-bases/new",
+			safety: "state-changing",
+		},
+		{
+			method: "POST",
+			path: "/api/knowledge-bases/init-existing",
+			safety: "state-changing",
+		},
+		{
+			method: "POST",
 			path: "/api/knowledge-bases/external",
 			safety: "state-changing",
 		},
@@ -149,6 +226,11 @@ test("knowledge bases 与 active context 路由已迁移并保持安全分类", 
 		{
 			method: "DELETE",
 			path: "/api/knowledge-bases/external",
+			safety: "state-changing",
+		},
+		{
+			method: "POST",
+			path: "/api/system/choose-directory",
 			safety: "state-changing",
 		},
 		{ method: "GET", path: "/api/knowledge-base", safety: "read-only" },

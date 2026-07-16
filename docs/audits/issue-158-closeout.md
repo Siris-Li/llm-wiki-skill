@@ -20,6 +20,8 @@ PR #210 合并后的两轮真实进程复审共确认 4 个阻塞问题，编号
 
 ## 2. #193 分流结果
 
+> 本节固定 #193 分流完成时的分类与等待关系，是历史决策记录，不表示这些任务在本文后续追加证据时仍未完成。当前进度和最终状态以本文后续章节及 GitHub 实际状态为准。
+
 | 发现     | 严重程度 | 唯一分类       | 阻止关闭 | 妨碍基础检查                                                   | 处理任务                                                                                                                                                                                             | 预期验证                                                                               |
 | -------- | -------- | -------------- | -------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | FIND-001 | 高       | 保护启用后修复 | 是       | 否；入口一致性检查允许有编号且不能增长的临时例外               | [#205](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/205)、[#206](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/206)、[#207](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/207) | 7 个旧入口全部迁移或安全删除；真实入口、官方清单、后台组装和前台调用一致；旧例外归零   |
@@ -33,9 +35,15 @@ PR #210 合并后的两轮真实进程复审共确认 4 个阻塞问题，编号
 | FIND-009 | 高       | 保护启用前修复 | 是       | 是；缺少的正是线上检查和主线保护                               | [#194](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/194)、[#195](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/195)、[#196](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/196) | 两项线上检查在主线成功并成为必过条件；直接写入和未通过检查的合并被真实阻止             |
 | FIND-010 | 低       | 非阻塞后续     | 否       | 否                                                             | [#193](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/193)                                                                                                                                     | #165 至 #176 正式归入 #158；错误标签清理；任务关系从 GitHub 重新读取后与本表一致       |
 
-### 2.1 永久接受项
+### 2.1 永久接受项与 FIND-008 的用户决定
 
-当前为 **0 项**。没有用户留下明确批准记录，因此 FIND-008 仍是阻塞项；执行者不能把当前事件流做法自行认定为永久例外。
+当前永久接受项为 **0 项**。FIND-008 不是未经批准的永久例外：用户已于 2026-07-13 明确选择按业务类型区分事件结束规则，记录见 [#175 的决定](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/175#issuecomment-4959712274)。
+
+- prompt 仍以 `assistant_done`、`assistant_cancelled`、`assistant_error` 三选一结束；
+- batch digest 仍以 `batch_completed`、`batch_cancelled`、`batch_failed` 三选一结束；
+- graph events 保持长期只读订阅，主动关闭或传输断线结束本次连接；重连必须更换 `streamId` 并从序号 1 开始，不伪造业务终态。
+
+因此，早期把聊天三类终态套用于每条事件流的文字不再适用于 batch digest 和 graph events。#175 将以这项用户决定为准补齐防回退验证，完成前仍阻止最终收口。
 
 ### 2.2 重新打开的原子任务
 
@@ -85,6 +93,21 @@ PR #210 合并后的两轮真实进程复审共确认 4 个阻塞问题，编号
 
 此前三项待验证范围均已在 #197 重新验收中主动执行：图谱重建清理归入 FIND-013，真实资料读取与子进程外网隔离按共同的检查护栏原因归入 FIND-014。当前没有尚未编号的待验证项。
 
-## 5. 最终验收与关闭记录
+## 5. Phase 3 主线保护证据
+
+#166、#197、#198、#199、#194 和 #195 已依次于 2026-07-12 至 2026-07-13 关闭；其中 #197 完成了 FIND-011 至 FIND-014 的保护启用前修复与补充验收。因此，第 2 至第 4 节记录的历史等待关系已经解除。
+
+2026-07-13T07:20:04Z，#196 在确认 #194 与 #195 已合入后，从 GitHub 读取并记录了以下实际结果：
+
+- 验证版本：`8ff9c51a73a021739a4120310b82078a74f0dc62`，当时的 `main` 提交。
+- `quality-and-tests` 在该版本的 `main` push 上成功，检查作业完成时间为 2026-07-13T07:11:42Z；[workflow run 29231096867](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29231096867)。
+- `browser-main-flows` 在该版本的 `main` push 上成功，检查作业完成时间为 2026-07-13T07:10:07Z；[workflow run 29231096879](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29231096879)。
+- GitHub 分支接口返回 `main.protected = true`；[分支保护 API 入口](https://api.github.com/repos/sdyckjq-lab/llm-wiki-skill/branches/main/protection)；[仓库设置入口](https://github.com/sdyckjq-lab/llm-wiki-skill/settings/branches)。
+- 规则要求所有变更通过合并请求进入，但不额外要求人工批准（`required_approving_review_count = 0`）；必过检查为 GitHub Actions 应用（app id `15368`）产生的 `quality-and-tests` 与 `browser-main-flows`，并启用严格状态检查（`strict = true`），要求候选分支先与最新主线同步。
+- 管理员同样受规则约束（`enforce_admins = true`）；保护响应未包含合并请求绕过主体，push restrictions 子资源返回未启用，仓库 rulesets 列表为空。`allow_force_pushes = false`、`allow_deletions = false`，强制推送和删除受保护分支均被禁止。
+
+#196 不制造故意失败的请求。规则对检查未完成或失败状态的真实拦截证据，按规格由第一张真实修复请求取得，并作为 #200 的必过条件。
+
+## 6. 最终验收与关闭记录
 
 尚未开始。#200 固定最终候选并完成全部同版本验收后，由 #201 在此追加每个稳定编号的处理结果、最终证据和关闭判断。

@@ -154,7 +154,7 @@ function renderChatPanel(props: Partial<ChatPanelProps> = {}) {
 	return render(
 		<TooltipProvider>
 			<ChatPanel
-				currentKnowledgeBaseName="AI学习知识库"
+				currentKnowledgeBaseName="示例知识库"
 				currentKnowledgeBasePath="/kb"
 				initialMessages={[]}
 				{...props}
@@ -259,7 +259,7 @@ function installChatFetch(eventsOrStream: StreamEvent[] | ReadableStream<Uint8Ar
 	globalThis.fetch = (async (input) => {
 		const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
 		if (url.includes("/api/commands")) {
-			return jsonResponse({ ok: true, items: [] });
+			return jsonResponse({ ok: true, data: [] });
 		}
 		if (url.includes("/api/prompt")) {
 			const body = Array.isArray(eventsOrStream) ? sseStream(eventsOrStream) : eventsOrStream;

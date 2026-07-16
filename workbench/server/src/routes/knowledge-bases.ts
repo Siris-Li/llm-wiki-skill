@@ -1,11 +1,22 @@
+import { execFile } from "node:child_process";
+import { basename } from "node:path";
+import { promisify } from "node:util";
+
 import { Hono } from "hono";
 
 import {
 	ActiveKnowledgeBaseDataSchema,
+	ChooseDirectoryDataSchema,
+	ConflictDetailsSchema,
+	CreateKnowledgeBaseBodySchema,
+	CreateKnowledgeBaseDataSchema,
+	InitExistingKnowledgeBaseBodySchema,
+	InitExistingKnowledgeBaseDataSchema,
 	InspectKnowledgeBasePathDataSchema,
 	KnowledgeBaseContextBodySchema,
 	KnowledgeBaseListDataSchema,
 	KnowledgeBasePathBodySchema,
+	KnowledgeBaseInfoSchema,
 	RegisterExternalKnowledgeBaseDataSchema,
 	UnregisterExternalKnowledgeBaseDataSchema,
 	type ActiveKnowledgeBaseData,
@@ -44,9 +55,25 @@ import {
 	stopKnowledgeBaseGraphWatcher,
 	watchKnowledgeBaseGraph,
 } from "../graph.js";
+import {
+	createWiki,
+	InitConflictError,
+	KNOWLEDGE_BASE_SETUP_REQUIRED_MESSAGE,
+	initExistingWiki,
+	KnowledgeBaseSetupInputError,
+} from "../wiki-init.js";
+
+const execFileAsync = promisify(execFile);
 
 export interface KnowledgeBaseRouteService {
 	listKnowledgeBases: () => Promise<KnowledgeBaseInfo[]>;
+	createKnowledgeBase: (name: string, purpose: string) => Promise<KnowledgeBaseInfo>;
+	initExistingKnowledgeBase: (
+		path: string,
+		purpose: string,
+		overwrite: boolean,
+	) => Promise<KnowledgeBaseInfo>;
+	chooseDirectory: () => Promise<string | null>;
 	registerExternalKnowledgeBase: (
 		path: string,
 	) => Promise<RegisterExternalKnowledgeBaseData>;
@@ -67,6 +94,25 @@ export interface KnowledgeBaseRouteService {
 export const defaultKnowledgeBaseRouteService: KnowledgeBaseRouteService = {
 	listKnowledgeBases: async () =>
 		KnowledgeBaseListDataSchema.parse(await listKnowledgeBases()),
+	createKnowledgeBase: async (name, purpose) => {
+		const result = await createWiki(name, purpose);
+		return KnowledgeBaseInfoSchema.parse({
+			path: result.path,
+			name: result.name,
+			origin: "default",
+			valid: true,
+		});
+	},
+	initExistingKnowledgeBase: async (path, purpose, overwrite) => {
+		const result = await initExistingWiki(path, purpose, overwrite);
+		return KnowledgeBaseInfoSchema.parse({
+			path: result.path,
+			name: basename(result.path),
+			origin: "external",
+			valid: true,
+		});
+	},
+	chooseDirectory: chooseSystemDirectory,
 	registerExternalKnowledgeBase: async (path) =>
 		RegisterExternalKnowledgeBaseDataSchema.parse(
 			await registerExternalKnowledgeBase(path),
@@ -98,6 +144,44 @@ export function createKnowledgeBaseRoutes(
 			await service.listKnowledgeBases(),
 		);
 		return jsonOk(c, items);
+	});
+
+	router.post("/knowledge-bases/new", async (c) => {
+		const { name, purpose } = await parseValidatedBody(
+			c,
+			CreateKnowledgeBaseBodySchema,
+		);
+		try {
+			return jsonOk(
+				c,
+				CreateKnowledgeBaseDataSchema.parse({
+					info: await service.createKnowledgeBase(name, purpose),
+				}),
+			);
+		} catch (err) {
+			throw mapKnowledgeBaseSetupError(err);
+		}
+	});
+
+	router.post("/knowledge-bases/init-existing", async (c) => {
+		const { path, purpose, overwrite } = await parseValidatedBody(
+			c,
+			InitExistingKnowledgeBaseBodySchema,
+		);
+		try {
+			return jsonOk(
+				c,
+				InitExistingKnowledgeBaseDataSchema.parse({
+					info: await service.initExistingKnowledgeBase(
+						path,
+						purpose,
+						overwrite === true,
+					),
+				}),
+			);
+		} catch (err) {
+			throw mapKnowledgeBaseSetupError(err);
+		}
 	});
 
 	router.post("/knowledge-bases/external", async (c) => {
@@ -139,6 +223,22 @@ export function createKnowledgeBaseRoutes(
 			);
 		} catch (err) {
 			throw mapKnowledgeBaseError(err);
+		}
+	});
+
+	router.post("/system/choose-directory", async (c) => {
+		try {
+			return jsonOk(
+				c,
+				ChooseDirectoryDataSchema.parse({
+					path: await service.chooseDirectory(),
+				}),
+			);
+		} catch (err) {
+			if (isDirectoryPickerCancellation(err)) {
+				return jsonOk(c, ChooseDirectoryDataSchema.parse({ path: null }));
+			}
+			throw mapKnowledgeBaseSetupError(err);
 		}
 	});
 
@@ -215,4 +315,68 @@ function extractModelInfo(
 		return { provider: model.provider, id: model.id };
 	}
 	return null;
+}
+
+function mapKnowledgeBaseSetupError(err: unknown): HttpContractError {
+	if (err instanceof InitConflictError) {
+		return new HttpContractError(
+			"CONFLICT",
+			"目标目录存在需要确认的文件",
+			ConflictDetailsSchema.parse({ conflicts: err.conflicts }),
+		);
+	}
+	if (err instanceof KnowledgeBaseSetupInputError) {
+		return new HttpContractError("INVALID_REQUEST", err.message);
+	}
+	if (err instanceof HttpContractError) return mapKnowledgeBaseError(err);
+
+	const code = (err as { code?: unknown })?.code;
+	if (code === "BUSY") {
+		return new HttpContractError("BUSY", "知识库正在初始化，请稍后重试");
+	}
+	if (code === "SETUP_REQUIRED") {
+		return new HttpContractError(
+			"INVALID_REQUEST",
+			KNOWLEDGE_BASE_SETUP_REQUIRED_MESSAGE,
+		);
+	}
+	if (code === "ENOTSUP" || code === "UNSUPPORTED_PLATFORM") {
+		return new HttpContractError(
+			"UNSUPPORTED_PLATFORM",
+			"当前系统暂不支持文件夹选择器",
+		);
+	}
+	if (code === "EMPTY_SELECTION") {
+		return new HttpContractError("INVALID_REQUEST", "没有选择文件夹");
+	}
+	return mapKnowledgeBaseError(err);
+}
+
+async function chooseSystemDirectory(): Promise<string | null> {
+	if (process.platform !== "darwin") {
+		throw Object.assign(new Error("当前系统暂不支持文件夹选择器"), {
+			code: "ENOTSUP",
+		});
+	}
+	try {
+		const { stdout } = await execFileAsync("osascript", [
+			"-e",
+			'POSIX path of (choose folder with prompt "选择知识库文件夹")',
+		]);
+		const selectedPath = stdout.trim();
+		if (!selectedPath) {
+			throw Object.assign(new Error("没有选择文件夹"), {
+				code: "EMPTY_SELECTION",
+			});
+		}
+		return selectedPath;
+	} catch (err) {
+		if (isDirectoryPickerCancellation(err)) return null;
+		throw err;
+	}
+}
+
+function isDirectoryPickerCancellation(err: unknown): boolean {
+	const message = err instanceof Error ? err.message : String(err);
+	return message.includes("-128") || message.toLowerCase().includes("user canceled");
 }

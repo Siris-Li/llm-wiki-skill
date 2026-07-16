@@ -74,10 +74,25 @@ describe("pages / artifacts API module", () => {
 			(err) => err instanceof ApiError && err.code === "NOT_FOUND",
 		);
 
+		stubFetch({
+			ok: true,
+			items: [{ path: "wiki/topics/a.md", name: "a", category: "topics", title: "A" }],
+		});
+		await assert.rejects(
+			() => listRefs("/kb/registered", "A", 20),
+			(err) => err instanceof ContractMismatchError && err.path === "/api/refs",
+		);
+
+		stubFetch({ ok: true, content: "# 页面" });
+		await assert.rejects(
+			() => readPage("/kb/registered", "wiki/topics/a.md"),
+			(err) => err instanceof ContractMismatchError && err.path === "/api/page",
+		);
+
 		stubFetch({ ok: true, items: [manifest] });
 		await assert.rejects(
 			() => listArtifacts(),
-			(err) => err instanceof ContractMismatchError,
+			(err) => err instanceof ContractMismatchError && err.path === "/api/artifacts",
 		);
 	});
 

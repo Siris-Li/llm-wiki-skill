@@ -10,7 +10,7 @@ Based on [Andrej Karpathy](https://karpathy.ai/)'s [llm-wiki methodology](https:
 
 Turn scattered information into a growing, interconnected knowledge base
 
-[![version](https://img.shields.io/badge/v3.6.53-Browser%20main%20flows-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.69-Model%20Failure%20Status-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-multi--platform-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -91,9 +91,15 @@ The key difference: knowledge is **compiled once, maintained continuously** — 
 |---|---|---|
 | 🧭 | **Community Close-up Map** | Entering a community now feels like zooming into the same region from the global graph; positions, tiers, labels, and return highlights stay stable, then fade after the global view settles |
 | 🧩 | **Global Intent Feedback** | Hovering a global node lightly previews first-order real relationships; clicking fixes that emphasis with the summary drawer; selecting a community reveals only a small internal and bridge preview instead of full reading |
+| 🛡️ | **Safe Streaming Chat** | Prompts, tool states, artifacts, and terminal states use one streaming contract; a model failure is shown as a failure rather than a completion, while normal completion, cancellation, reconnect recovery, and follow-up chat remain available |
+| / | **Private Retrieval Logs** | Default retrieval logs retain only the session, knowledge base, trigger state, result information, and stable failure status needed for diagnosis; they do not retain user questions or recoverable derivatives |
 | 🔒 | **Local Workbench Access Protection** | Local settings, conversations, pages, graph events, files, and state changes require both a trusted source and the current startup credential |
+| 🧷 | **Workbench Request Boundaries** | The frontend only sends registered method-and-endpoint combinations; artifact manifests and downloads reject invalid IDs consistently, while file downloads and event streams retain their dedicated handling |
+| / | **Workbench Command List** | The chat `/` menu and settings skill counts use the same protected read path, and the list never shows local skill paths |
+| 📚 | **Workbench Knowledge Base Setup** | The sidebar separately creates a knowledge base in the default directory or adds an existing folder; initializing an existing directory and batch digestion remain independent, while cancellation, duplicate names, in-progress same-name requests, conflicts, and failures do not reveal local paths or internal details |
 | ✅ | **Reliable Workbench Startup** | The server listens locally, failed launches preserve the active credential, restarts rotate it and restore the last knowledge base, and shutdown ends open streams and graph rebuild processes |
-| 🧪 | **Real Workbench Browser Checks** | Automated checks cover seven primary workflows plus isolation, cancellation, disconnects, busy states, and failure recovery through the real frontend and backend |
+| 🧪 | **Real Workbench Browser Checks** | Automated checks cover seven primary workflows plus isolation, cancellation, disconnects, busy states, and failure recovery through the real frontend and backend; Paper visual checks follow page search into the right reading drawer, confirm that page content is visible, exercise artifact, configuration, and model reads, reject old response shapes, and keep the composer usable without text or send-button overlap when the reading drawer is open on a tablet |
+| 🔎 | **Unified Workbench Quality Check** | Local and GitHub checks now block private paths and known private material clues before running frontend, backend, graph, boundary, type, lint, and build verification; graph interaction settlement is confirmed from the actual viewport commit, so brief load cannot make it finish early |
 
 ---
 
@@ -142,6 +148,9 @@ Each platform has its own setup guide:
 - **Batch Digestion** — Give a folder path, process all files at once
 - **Reliable Workbench Event Streams** — Batch progress and live graph updates now have explicit ordering and lifecycle rules; per-file failures can continue, overall failure or cancellation closes cleanly, and damaged connections stop or reconnect safely
 - **Local Workbench Access Protection** — Local content and state changes require both source and startup-credential checks, so untrusted web pages cannot read or alter them
+- **Workbench Request Boundaries** — The frontend only sends registered method-and-endpoint combinations; artifact manifests and downloads reject invalid IDs consistently, while file downloads and event streams remain on their own isolated paths
+- **Workbench Command List** — The chat `/` menu and settings skill counts use the same protected read path, and the list never shows local skill paths
+- **Workbench Authentication Settings** — Saving an API key and testing its connection use the same protection and clear failure messages; failures do not expose local details, keys, or underlying errors
 - **Reliable Workbench Startup** — Formal launches and automated checks share one restore and shutdown flow; failed launches preserve active credentials, shutdown ends open streams and graph rebuilds, and checks actively block real-user reads, writes outside the disposable home, and external network access
 - **Real Workbench Browser Checks** — A disposable user environment runs seven primary workflows through the real frontend, backend, ports, HTTP, and event stream, including isolation, cancellation, disconnects, busy states, and failure recovery; external model and system folder boundaries are replaced only in tests and never enter ordinary startup or production builds
 - **Knowledge Base Health Check** — Scripts detect orphan pages, broken links, index consistency; plus AI-level contradiction and cross-reference checks

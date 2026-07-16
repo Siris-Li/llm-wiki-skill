@@ -20,6 +20,45 @@ export const KnowledgeBasePathBodySchema = z
 	.strict();
 export type KnowledgeBasePathBody = z.infer<typeof KnowledgeBasePathBodySchema>;
 
+/** 在默认根目录创建知识库。空研究方向仍由服务端回退为知识库名称。 */
+export const CreateKnowledgeBaseBodySchema = z
+	.object({
+		name: z.string(),
+		purpose: z.string(),
+	})
+	.strict();
+export type CreateKnowledgeBaseBody = z.infer<typeof CreateKnowledgeBaseBodySchema>;
+
+export const CreateKnowledgeBaseDataSchema = z.object({
+	info: KnowledgeBaseInfoSchema,
+});
+export type CreateKnowledgeBaseData = z.infer<typeof CreateKnowledgeBaseDataSchema>;
+
+/** 初始化尚未登记的候选目录，因此保持 `path` 而不是 active context 的 `kbPath`。 */
+export const InitExistingKnowledgeBaseBodySchema = z
+	.object({
+		path: z.string().trim().min(1),
+		purpose: z.string(),
+		overwrite: z.boolean().optional(),
+	})
+	.strict();
+export type InitExistingKnowledgeBaseBody = z.infer<
+	typeof InitExistingKnowledgeBaseBodySchema
+>;
+
+export const InitExistingKnowledgeBaseDataSchema = z.object({
+	info: KnowledgeBaseInfoSchema,
+});
+export type InitExistingKnowledgeBaseData = z.infer<
+	typeof InitExistingKnowledgeBaseDataSchema
+>;
+
+/** 目录选择器取消是成功结果的一种，不应转换成失败请求。 */
+export const ChooseDirectoryDataSchema = z.object({
+	path: z.string().nullable(),
+});
+export type ChooseDirectoryData = z.infer<typeof ChooseDirectoryDataSchema>;
+
 /**
  * 后续 pages / graph / conversations / prompt / rebuild 统一复用的知识库上下文输入。
  * JSON body 固定使用 `kbPath`；GET query 固定使用 `kb`，两者不再各自兼容别名。

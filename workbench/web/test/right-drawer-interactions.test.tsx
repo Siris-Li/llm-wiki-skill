@@ -89,7 +89,7 @@ describe("RightDrawer interactions", () => {
 				<SearchPanel
 					open
 					refs={[{ path: "wiki/paper.md", name: "paper", title: "Paper", category: "entities" }]}
-					knowledgeBaseName="AI学习知识库"
+					knowledgeBaseName="示例知识库"
 					onOpenPage={noopString}
 					onClose={() => searchCloses.push("search")}
 				/>

@@ -17,6 +17,7 @@ import {
 } from "./run-quality-and-tests.mjs";
 
 const REQUIRED_STEPS = [
+	"repository-privacy",
 	"build-contracts",
 	"build-graph",
 	"build-server",
@@ -57,6 +58,13 @@ test("quality entrypoint covers every required check in a stable sequence", () =
 	const startup = QUALITY_STEPS.find((step) => step.id === "startup-isolation");
 	assert.ok(startup.commands[0].args.includes("workbench/server/test/startup-isolation.test.ts"));
 	assert.ok(startup.commands[0].args.includes("workbench/server/test/linux-child-isolation.test.mjs"));
+	const privacy = QUALITY_STEPS.find((step) => step.id === "repository-privacy");
+	const privacyArgs = privacy.commands.flatMap((item) => item.args);
+	assert.ok(privacyArgs.includes("workbench/scripts/check-repository-privacy.test.mjs"));
+	assert.ok(privacyArgs.includes("workbench/scripts/check-repository-privacy.mjs"));
+	const negativeControls = QUALITY_STEPS.find((step) => step.id === "boundary-negative-controls");
+	const negativeControlArgs = negativeControls.commands.flatMap((item) => item.args);
+	assert.ok(negativeControlArgs.includes("workbench/scripts/run-browser-main-flows-ci.test.mjs"));
 });
 
 test("quality entrypoint covers every backend test file exactly once", async () => {

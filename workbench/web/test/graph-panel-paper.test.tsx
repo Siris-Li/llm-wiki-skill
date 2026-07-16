@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import React from "react";
+import { act } from "@testing-library/react";
+import { createGraphEngine } from "@llm-wiki/graph-engine";
 
 import { GraphPanel } from "../src/components/GraphPanel";
 import { click, pressKey, render, screen, waitFor } from "./render";
@@ -177,6 +179,276 @@ describe("GraphPanel Paper shell", () => {
 		});
 	});
 
+	it("does not let an older graph read overwrite a newer build error", async () => {
+		let resolveGraph!: (response: Response) => void;
+		const graphResponse = new Promise<Response>((resolve) => {
+			resolveGraph = resolve;
+		});
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: { version: 2, pins: {}, updatedAt: "2026-07-15T12:00:00.000Z" },
+				});
+			}
+			if (url.startsWith("/api/graph?")) return graphResponse;
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+
+		const { rerender } = render(
+			<GraphPanel
+				currentKnowledgeBaseName="Fictional notes"
+				currentKnowledgeBasePath="/fictional/kb"
+				theme="light"
+			/>,
+		);
+		rerender(
+			<GraphPanel
+				currentKnowledgeBaseName="Fictional notes"
+				currentKnowledgeBasePath="/fictional/kb"
+				theme="light"
+				graphBuildError={{
+					kbPath: "/fictional/kb",
+					message: "图谱重建失败",
+					rebuiltAt: "2026-07-15T12:01:00.000Z",
+				}}
+			/>,
+		);
+		await screen.getByText("图谱暂时不可用");
+
+		await act(async () => {
+			resolveGraph(jsonResponse({
+				ok: true,
+				data: readyGraphResult(),
+			}));
+			await graphResponse;
+		});
+
+		assert.notEqual(screen.queryByText("图谱暂时不可用"), null);
+		assert.equal(screen.queryByText("1 节点 · 0 关联"), null);
+	});
+
+	it("applies one authoritative snapshot and discards an older queued graph update", async () => {
+		let graphReads = 0;
+		let resolveOlderGraph!: (response: Response) => void;
+		const olderGraphResponse = new Promise<Response>((resolve) => {
+			resolveOlderGraph = resolve;
+		});
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: { version: 2, pins: {}, updatedAt: "2026-07-15T12:00:00.000Z" },
+				});
+			}
+			if (url.startsWith("/api/graph?")) {
+				graphReads += 1;
+				if (graphReads === 1) return jsonResponse({ ok: true, data: readyGraphResult() });
+				if (graphReads === 2) return olderGraphResponse;
+			}
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+
+		const props = {
+			currentKnowledgeBaseName: "Fictional notes",
+			currentKnowledgeBasePath: "/fictional/kb",
+			theme: "light" as const,
+		};
+		const staleDiff = {
+			addedNodes: ["wiki/stale.md"],
+			removedNodes: [],
+			recoloredNodes: [],
+			addedEdges: [],
+			removedEdges: [],
+			newCommunities: [],
+			stats: { nodeCount: 2, edgeCount: 0, communityCount: 0 },
+		};
+		const { rerender } = render(<GraphPanel {...props} refreshToken={0} />);
+		await screen.findByText("1 节点 · 0 关联");
+
+		rerender(<GraphPanel {...props} refreshToken={1} pendingDiff={staleDiff} />);
+		await waitFor(() => {
+			assert.equal(document.querySelector("[data-graph-animation='queued']") !== null, true);
+			assert.equal(graphReads, 2);
+		});
+
+		rerender(
+			<GraphPanel
+				{...props}
+				refreshToken={1}
+				authoritativeSnapshot={{
+					kbPath: "/fictional/kb",
+					result: readyGraphResult(["wiki/current.md", "wiki/current-detail.md"]),
+				}}
+			/>,
+		);
+		await screen.findByText("2 节点 · 0 关联");
+		assert.notEqual(document.querySelector("[data-graph-animation='idle']"), null);
+		assert.equal(graphReads, 2, "the panel must not repeat the authoritative graph read");
+
+		await act(async () => {
+			resolveOlderGraph(jsonResponse({ ok: true, data: readyGraphResult() }));
+			await olderGraphResponse;
+		});
+		assert.notEqual(screen.queryByText("2 节点 · 0 关联"), null);
+		assert.equal(screen.queryByText("图谱更新待播放"), null);
+	});
+
+	it("does not let an older playing animation finish the current authoritative animation", async () => {
+		let graphResult = readyGraphResult();
+		const animationResolvers: Array<() => void> = [];
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: { version: 2, pins: {}, updatedAt: "2026-07-15T12:00:00.000Z" },
+				});
+			}
+			if (url.startsWith("/api/graph?")) return jsonResponse({ ok: true, data: graphResult });
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+		const engineFactory: typeof createGraphEngine = (container, options) => ({
+			...createGraphEngine(container, options),
+			applyDiff: () => new Promise<void>((resolve) => animationResolvers.push(resolve)),
+		});
+		const props = {
+			currentKnowledgeBaseName: "Fictional notes",
+			currentKnowledgeBasePath: "/fictional/kb",
+			theme: "light" as const,
+			engineFactory,
+		};
+		const firstDiff = graphDiff("wiki/first-update.md", 2);
+		const currentDiff = graphDiff("wiki/current-update.md", 3);
+		const { rerender } = render(<GraphPanel {...props} refreshToken={0} />);
+		await screen.findByText("1 节点 · 0 关联");
+
+		graphResult = readyGraphResult(["wiki/fictional.md", "wiki/first-update.md"]);
+		rerender(<GraphPanel {...props} refreshToken={1} pendingDiff={firstDiff} />);
+		await waitFor(() => {
+			assert.notEqual(document.querySelector("[data-graph-animation='playing']"), null);
+			assert.equal(animationResolvers.length, 1);
+		});
+
+		const currentResult = readyGraphResult([
+			"wiki/fictional.md",
+			"wiki/first-update.md",
+			"wiki/current-update.md",
+		]);
+		graphResult = currentResult;
+		rerender(
+			<GraphPanel
+				{...props}
+				refreshToken={1}
+				authoritativeSnapshot={{ kbPath: "/fictional/kb", result: currentResult }}
+			/>,
+		);
+		await screen.findByText("3 节点 · 0 关联");
+		rerender(<GraphPanel {...props} refreshToken={2} pendingDiff={currentDiff} />);
+		await waitFor(() => {
+			assert.notEqual(document.querySelector("[data-graph-animation='playing']"), null);
+			assert.equal(animationResolvers.length, 2);
+		});
+
+		await act(async () => {
+			animationResolvers[0]!();
+			await Promise.resolve();
+		});
+		assert.notEqual(document.querySelector("[data-graph-animation='playing']"), null);
+		await act(async () => {
+			animationResolvers[1]!();
+			await Promise.resolve();
+		});
+		await waitFor(() => assert.notEqual(document.querySelector("[data-graph-animation='idle']"), null));
+	});
+
+	it("clears stale graph state after calibration failure and recovers on the next update", async () => {
+		let graphResult = readyGraphResult();
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: { version: 2, pins: {}, updatedAt: "2026-07-15T12:00:00.000Z" },
+				});
+			}
+			if (url.startsWith("/api/graph?")) return jsonResponse({ ok: true, data: graphResult });
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+
+		const props = {
+			currentKnowledgeBaseName: "Fictional notes",
+			currentKnowledgeBasePath: "/fictional/kb",
+			theme: "light" as const,
+		};
+		const { rerender } = render(<GraphPanel {...props} refreshToken={0} />);
+		await screen.findByText("1 节点 · 0 关联");
+
+		rerender(
+			<GraphPanel
+				{...props}
+				refreshToken={0}
+				graphBuildError={{
+					kbPath: "/fictional/kb",
+					message: "图谱状态校准失败，请重新连接后重试",
+					rebuiltAt: "2026-07-15T12:01:00.000Z",
+				}}
+			/>,
+		);
+		await screen.findByText("图谱暂时不可用");
+		assert.equal(screen.queryByText("1 节点 · 0 关联"), null);
+		assert.notEqual(document.querySelector("[data-graph-animation='idle']"), null);
+
+		graphResult = readyGraphResult(["wiki/recovered.md", "wiki/recovered-detail.md"]);
+		rerender(<GraphPanel {...props} refreshToken={1} graphBuildError={null} />);
+		await screen.findByText("2 节点 · 0 关联");
+		assert.equal(screen.queryByText("图谱暂时不可用"), null);
+	});
+
+	it("loads a saved authoritative error and recovers after an active rebuild", async () => {
+		let graphResult: unknown = {
+			state: {
+				status: "error",
+				message: "图谱重建失败",
+				rebuiltAt: "2026-07-15T12:00:00.000Z",
+			},
+		};
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: { version: 2, pins: {}, updatedAt: "2026-07-15T12:00:00.000Z" },
+				});
+			}
+			if (url.startsWith("/api/graph?")) {
+				return jsonResponse({ ok: true, data: graphResult });
+			}
+			if (url.startsWith("/api/graph/rebuild")) {
+				return jsonResponse({ ok: true, data: { status: "started" } });
+			}
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+
+		const props = {
+			currentKnowledgeBaseName: "Fictional notes",
+			currentKnowledgeBasePath: "/fictional/kb",
+			theme: "light" as const,
+		};
+		const { rerender } = render(<GraphPanel {...props} refreshToken={0} />);
+		await screen.findByText("图谱暂时不可用");
+		assert.equal((screen.getByRole("button", { name: "重构" }) as HTMLButtonElement).disabled, false);
+
+		await click(screen.getByRole("button", { name: "重构" }));
+		graphResult = readyGraphResult();
+		rerender(<GraphPanel {...props} refreshToken={1} />);
+
+		await screen.findByText("1 节点 · 0 关联");
+		assert.equal(screen.queryByText("图谱暂时不可用"), null);
+	});
+
 	it("notifies the app to close the community summary drawer when entering a community", async () => {
 		mockGraphFetch();
 		const selectionChanges: unknown[] = [];
@@ -262,17 +534,21 @@ function mockGraphFetch(options: { needsBuild?: boolean } = {}) {
 				data: { version: 2, pins: {}, updatedAt: "2026-06-20T00:00:00.000Z" },
 			});
 		}
-		if (url.startsWith("/api/graph?")) {
-			if (options.needsBuild) {
+			if (url.startsWith("/api/graph?")) {
+				if (options.needsBuild) {
+					return jsonResponse({
+						ok: true,
+						data: {
+							state: { status: "ready", rebuiltAt: null },
+							needsBuild: true,
+						},
+					});
+				}
 				return jsonResponse({
 					ok: true,
-					data: { needsBuild: true },
-				});
-			}
-			return jsonResponse({
-				ok: true,
-				data: {
-					needsBuild: false,
+					data: {
+						state: { status: "ready", rebuiltAt: null },
+						needsBuild: false,
 					data: {
 						meta: {
 							build_date: "2026-06-20T00:00:00.000Z",
@@ -301,6 +577,40 @@ function mockGraphFetch(options: { needsBuild?: boolean } = {}) {
 		}
 		return jsonResponse({ ok: false, error: `Unexpected request: ${url}` }, 500);
 	}) as typeof fetch;
+}
+
+function readyGraphResult(nodeIds = ["wiki/fictional.md"]) {
+	return {
+		state: { status: "ready", rebuiltAt: "2026-07-15T12:00:00.000Z" },
+		needsBuild: false,
+		data: {
+			meta: {
+				build_date: "2026-07-15T12:00:00.000Z",
+				wiki_title: "Fictional notes",
+				total_nodes: nodeIds.length,
+				total_edges: 0,
+			},
+			nodes: nodeIds.map((id, index) => ({
+				id,
+				label: `Fictional ${index + 1}`,
+				type: "topic",
+				source_path: id,
+			})),
+			edges: [],
+		},
+	};
+}
+
+function graphDiff(nodeId: string, nodeCount: number) {
+	return {
+		addedNodes: [nodeId],
+		removedNodes: [],
+		recoloredNodes: [],
+		addedEdges: [],
+		removedEdges: [],
+		newCommunities: [],
+		stats: { nodeCount, edgeCount: 0, communityCount: 0 },
+	};
 }
 
 function jsonResponse(payload: unknown, status = 200) {

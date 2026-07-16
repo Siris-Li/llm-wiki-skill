@@ -13,6 +13,7 @@ web_pid=""
 server_port="${GRAPH_COMMUNITY_EXPERIENCE_SERVER_PORT:-18790}"
 web_port="${GRAPH_COMMUNITY_EXPERIENCE_WEB_PORT:-15183}"
 artifact_dir="${GRAPH_COMMUNITY_EXPERIENCE_ARTIFACT_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/llm-wiki-community-experience.XXXXXX")}"
+capability_token_file="$tmp_dir/home/.llm-wiki-agent/runtime/capability-token"
 
 cleanup() {
     if [ -d "$artifact_dir" ]; then
@@ -54,7 +55,7 @@ const kb = process.argv[2];
 const nodes = [];
 const edges = [];
 const communities = [
-  { id: "dense-agent", label: "AI Agent 对比分析", color_index: 0 },
+  { id: "dense-agent", label: "示例密集社区", color_index: 0 },
   { id: "small-chain", label: "小型概念链", color_index: 1 },
   { id: "long-title", label: "长标题节点社区", color_index: 2 },
   { id: "edge-dense", label: "高密关系社区", color_index: 3 },
@@ -83,7 +84,7 @@ function addEdge(id, from, to, relation_type = "依赖", weight = 0.8, confidenc
 }
 
 [
-  ["dense-overview", "AI Agent 对比分析总览", "topic", 40, 38, 96],
+  ["dense-overview", "示例密集社区总览", "topic", 40, 38, 96],
   ["dense-source-1", "AI Agent 实践案例", "source", 31, 48, 88],
   ["dense-framework", "Agent 框架谱系", "entity", 47, 46, 82],
   ["dense-eval", "Agent 评测维度", "topic", 58, 39, 76],
@@ -201,7 +202,7 @@ const graph = {
     entry: { recommended_start_node_id: "dense-overview", recommended_start_reason: "密集社区入口", default_mode: "global" },
     views: {
       path: { enabled: false, start_node_id: null, node_ids: [], degraded: true },
-      community: { enabled: true, community_id: "dense-agent", label: "AI Agent 对比分析", node_ids: communityPayload[0].members, is_weak: false, degraded: false },
+      community: { enabled: true, community_id: "dense-agent", label: "示例密集社区", node_ids: communityPayload[0].members, is_weak: false, degraded: false },
       global: { enabled: true, node_ids: nodes.map((node) => node.id), degraded: false }
     },
     communities: communityPayload
@@ -225,15 +226,18 @@ HOME="$tmp_dir/home" LLM_WIKI_AGENT_API_ORIGIN="http://127.0.0.1:$server_port" L
 web_pid="$!"
 
 for _ in $(seq 1 120); do
-    if curl -fsS "http://127.0.0.1:$server_port/api/knowledge-bases" >/dev/null 2>&1 \
+    if curl -fsS "http://127.0.0.1:$server_port/api/health" >/dev/null 2>&1 \
+        && [ -s "$capability_token_file" ] \
         && curl -fsS "http://127.0.0.1:$web_port" >/dev/null 2>&1; then
         break
     fi
     sleep 0.25
 done
 
-curl -fsS "http://127.0.0.1:$server_port/api/knowledge-bases" >/dev/null 2>&1 \
+curl -fsS "http://127.0.0.1:$server_port/api/health" >/dev/null 2>&1 \
     || fail "workbench server did not start; see $tmp_dir/server.log"
+[ -s "$capability_token_file" ] \
+    || fail "workbench server did not finish startup; see $tmp_dir/server.log"
 curl -fsS "http://127.0.0.1:$web_port" >/dev/null 2>&1 \
     || fail "workbench web did not start; see $tmp_dir/web.log"
 

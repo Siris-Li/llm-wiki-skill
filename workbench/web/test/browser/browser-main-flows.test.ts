@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { chromium, type Browser, type BrowserContext, type BrowserServer, type Page } from "playwright";
+import type { GraphReadData } from "@llm-wiki/workbench-contracts";
 
 import {
 	OPERATION_TIMEOUT_MS,
@@ -22,11 +23,10 @@ import {
 	createConversation,
 	createKnowledgeBase as createBaseKnowledgeBase,
 	isolatedEnvironment,
-	networkGuardEnvironment,
 	platformSandboxEnvironment,
 	prepareSandboxDirectories,
 	sanitizeBrowserOutput,
-	startProcess,
+	startNetworkGuardedProcess,
 	stopProcess,
 	type RunningProcess,
 	waitForFile,
@@ -100,6 +100,9 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 			anthropic: { type: "api_key", key: "fictional-browser-credential" },
 		}, null, 2)}\n`);
 		await chmod(join(authDir, "auth.json"), 0o600);
+		await writeFile(join(authDir, "settings.json"), `${JSON.stringify({
+			retry: { enabled: false },
+		}, null, 2)}\n`);
 		await mkdir(appDir, { recursive: true });
 		await writeFile(join(appDir, "config.json"), `${JSON.stringify({
 			version: 1,
@@ -111,7 +114,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		}, null, 2)}\n`);
 
 		server = await startBackend(home, backendPort, kbB, serverNetworkProbe);
-		vite = await startProcess(
+		vite = await startNetworkGuardedProcess(
 			process.execPath,
 			[VITE_ENTRY, "--host", "127.0.0.1", "--port", String(webPort), "--strictPort"],
 			WEB_ROOT,
@@ -123,14 +126,11 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 				LLM_WIKI_AGENT_API_ORIGIN: `http://127.0.0.1:${backendPort}`,
 				LLM_WIKI_AGENT_DISABLE_HMR: "1",
 				...platformSandboxEnvironment(home),
-				...networkGuardEnvironment(viteNetworkProbe),
 			},
 			(output) => output.includes("Local:"),
 			"Vite frontend",
+			viteNetworkProbe,
 		);
-		await Promise.all([waitForFile(serverNetworkProbe), waitForFile(viteNetworkProbe)]);
-		assert.equal(await readFile(serverNetworkProbe, "utf8"), "BLOCKED");
-		assert.equal(await readFile(viteNetworkProbe, "utf8"), "BLOCKED");
 
 		browserServer = await chromium.launchServer({
 			headless: true,
@@ -148,14 +148,26 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await blockExternalBrowserTraffic(context, blockedExternalRequests);
 		page = await context.newPage();
 		const apiRequests = new Set<string>();
+		let browserGraphReadCount = 0;
 		let graphEventsSeen = false;
+		const graphEventReceipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
 		page.on("request", (request) => {
 			const url = new URL(request.url());
 			if (url.pathname.startsWith("/api/")) apiRequests.add(url.pathname);
+			if (url.pathname === "/api/graph" && request.method() === "GET") browserGraphReadCount += 1;
 			if (url.pathname === "/api/events") graphEventsSeen = true;
 		});
 		await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
 		await page.getByText("atlas-notes", { exact: false }).first().waitFor({ timeout: START_TIMEOUT_MS });
+		await waitUntil(
+			() => apiRequests.has("/api/commands"),
+			OPERATION_TIMEOUT_MS,
+			"command list was not loaded",
+		);
+		const composer = page.getByPlaceholder(/写下想法/);
+		await composer.fill("/");
+		await page.getByRole("option", { name: /sediment_to_wiki/ }).waitFor();
+		await composer.fill("");
 
 		// Knowledge bases: selection, clearing, restart recovery, and isolation.
 		await page.getByText("harbor-notes", { exact: true }).click();
@@ -169,16 +181,25 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await page.getByText("wiki/entities/shared.md", { exact: true }).last().click();
 		await page.getByText("Harbor-only fictional signal", { exact: false }).waitFor();
 		await page.getByLabel("关闭").last().click();
+		const shortQuestion = "q9x";
+		const longQuestionPrefix = "fictional-long-question-marker-";
+		const longQuestion = `${longQuestionPrefix}${"fictional-detail-".repeat(32)}fictional-long-question-tail`;
+		const sensitiveMarker = "FICTIONAL_SENSITIVE_LOG_MARKER";
+		const sensitiveQuestion = `${sensitiveMarker} fictional confidential topic`;
+		await sendComposerMessage(page, shortQuestion);
+		await sendComposerMessage(page, longQuestion);
+		await sendComposerMessage(page, sensitiveQuestion);
 		await waitUntil(
 			() => readdir(retrievalLogDir).then((files) => files.some((file) => file.endsWith(".jsonl")), () => false),
 			OPERATION_TIMEOUT_MS,
 			"retrieval log did not appear",
 		);
-		const retrievalEntries = (await Promise.all(
+		const retrievalLogContents = await Promise.all(
 			(await readdir(retrievalLogDir))
 				.filter((file) => file.endsWith(".jsonl"))
 				.map((file) => readFile(join(retrievalLogDir, file), "utf8")),
-		)).flatMap((content) => content.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as {
+		);
+		const retrievalEntries = retrievalLogContents.flatMap((content) => content.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as {
 			sessionId: string;
 			kbPath: string;
 			triggered: boolean;
@@ -190,6 +211,14 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 			&& entry.triggered
 			&& entry.results.some((result) => result.path === "wiki/entities/shared.md")
 		)), true);
+		const serializedRetrievalLogs = retrievalLogContents.join("\n");
+		for (const fragment of [shortQuestion, longQuestionPrefix, sensitiveMarker]) {
+			assert.equal(
+				serializedRetrievalLogs.includes(fragment),
+				false,
+				`default retrieval logs must not contain ${fragment}`,
+			);
+		}
 		await page.getByRole("tab", { name: "图谱" }).click();
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 		await page.getByText("2 节点 · 0 关联", { exact: true }).waitFor();
@@ -257,38 +286,220 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await page.getByRole("tab", { name: "图谱" }).click();
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 		await page.getByText("1 节点 · 0 关联", { exact: true }).waitFor();
-		const rebuildRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/graph/rebuild" && request.method() === "POST");
-		const rebuildClick = page.getByRole("button", { name: "重构" }).click();
-		await rebuildRequest;
-		const busyResponses = await page.evaluate((kbPath) => Promise.all([0, 1].map(() => fetch(`/api/graph/rebuild?kb=${encodeURIComponent(kbPath)}`, { method: "POST" }).then(async (response) => ({ status: response.status, body: await response.text() })))), kbA);
-		await rebuildClick;
+		await page.evaluate(() => {
+			const receipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
+			const source = new EventSource("/api/events");
+			source.onmessage = (message) => receipts.push(JSON.parse(message.data));
+			Object.assign(window, { __graphEventReceipts: receipts });
+		});
+		await waitForGraphEvent(page, graphEventReceipts, (event) => event.type === "graph_stream_ready");
+		const firstResponsePromise = waitForGraphRebuildResponse(page, kbA);
+		await page.getByRole("button", { name: "重构" }).click();
+		assert.equal((await firstResponsePromise).status, "started");
+		const busyResponses = await page.evaluate((kbPath) => Promise.all([0, 1].map(() => fetch(`/api/graph/rebuild?kb=${encodeURIComponent(kbPath)}`, { method: "POST" }).then(async (response) => ({ status: response.status, body: await response.json() })))), kbA);
 		assert.equal(busyResponses.every((response) => response.status === 200), true);
-		assert.equal(busyResponses.some((response) => /queued/.test(response.body)), true);
+		assert.equal(busyResponses.some((response) => response.body.data.status === "queued"), true);
 		await assertBrowserJson(page, `/api/graph?kb=${encodeURIComponent(join(home, "missing-kb"))}`, 404, /知识库/);
-		await waitUntil(() => graphEventsSeen, OPERATION_TIMEOUT_MS, "browser did not open graph events");
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+		await page.goto("about:blank");
+		server = await restartBackend(server, home, backendPort, kbB, serverNetworkProbe);
+		graphEventsSeen = false;
+		await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+		await page.getByLabel("当前知识库").getByText("atlas-notes").waitFor({ timeout: START_TIMEOUT_MS });
+		await page.getByRole("tab", { name: "图谱" }).click();
+		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+		await page.evaluate(() => {
+			const receipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
+			const source = new EventSource("/api/events");
+			source.onmessage = (message) => receipts.push(JSON.parse(message.data));
+			Object.assign(window, { __graphEventReceipts: receipts });
+		});
+		await waitForGraphEvent(page, graphEventReceipts, (event) => event.type === "graph_stream_ready");
 		const graphDataPath = join(kbA, "wiki", "graph-data.json");
 		const graphData = await readFile(graphDataPath, "utf8");
 		await rm(graphDataPath, { force: true });
 		await mkdir(graphDataPath);
 		try {
+			await refreshGraphEventReceipts(page, graphEventReceipts);
+			const failureBaseline = graphEventReceipts.length;
+			const failureResponsePromise = waitForGraphRebuildResponse(page, kbA);
 			await page.getByRole("button", { name: "重构" }).click();
+			assert.equal((await failureResponsePromise).status, "started");
+			await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
+				index >= failureBaseline && event.type === "graph_error" && event.kbPath === kbA
+			));
 			await page.locator("[data-graph-status='error']").waitFor({ timeout: START_TIMEOUT_MS });
 		} finally {
 			await rm(graphDataPath, { recursive: true, force: true });
 			await writeFile(graphDataPath, graphData);
 		}
+		await refreshGraphEventReceipts(page, graphEventReceipts);
+		const recoveryBaseline = graphEventReceipts.length;
+		const recoveryResponsePromise = waitForGraphRebuildResponse(page, kbA);
 		await page.getByRole("button", { name: "重构" }).click();
+		assert.equal((await recoveryResponsePromise).status, "started");
+		await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
+			index >= recoveryBaseline && event.type === "graph_updated" && event.kbPath === kbA
+		));
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 
-		// Messages: normal send, duplicate while busy, cancellation, disconnect recovery, and failure recovery.
+		// Graph reconnect: terminal events missed while offline are reconciled from GET /api/graph.
+		const capabilityToken = (await readFile(join(appDir, "runtime", "capability-token"), "utf8")).trim();
+			const cdp = await context.newCDPSession(page);
+			await cdp.send("Network.enable");
+			const setBrowserOffline = async (offline: boolean) => {
+				await cdp.send("Network.emulateNetworkConditions", {
+					offline,
+				latency: 0,
+				downloadThroughput: -1,
+				uploadThroughput: -1,
+			});
+			await waitUntil(
+				() => page!.evaluate(() => navigator.onLine).then((online) => online === !offline),
+					OPERATION_TIMEOUT_MS,
+					`browser did not become ${offline ? "offline" : "online"}`,
+				);
+				await page!.evaluate((eventType) => window.dispatchEvent(new Event(eventType)), offline ? "offline" : "online");
+			};
+		const readAuthoritativeGraph = () => backendGraphRead(backendPort, capabilityToken, kbA);
+		const triggerAuthoritativeGraphRebuild = () => backendGraphRebuild(backendPort, capabilityToken, kbA);
+
+		await setBrowserOffline(true);
+		const offlineGraphData = await readFile(graphDataPath, "utf8");
+		await rm(graphDataPath, { force: true });
+		await mkdir(graphDataPath);
+		try {
+			assert.equal((await triggerAuthoritativeGraphRebuild()).status, "started");
+			await waitUntil(
+				async () => (await tryBackendGraphRead(backendPort, capabilityToken, kbA))?.state.status === "error",
+				OPERATION_TIMEOUT_MS,
+				"graph error did not become authoritative while the browser was offline",
+			);
+			const errorCalibration = page.waitForResponse(async (response) => {
+				if (new URL(response.url()).pathname !== "/api/graph" || response.status() !== 200) return false;
+				const body = await response.json() as { data?: { state?: { status?: string } } };
+				return body.data?.state?.status === "error";
+			});
+			const errorGraphReadBaseline = browserGraphReadCount;
+			await setBrowserOffline(false);
+			await errorCalibration;
+			await page.locator("[data-graph-status='error']").waitFor({ timeout: START_TIMEOUT_MS });
+			await page.getByText("图谱重建失败", { exact: true }).waitFor();
+			assert.equal(browserGraphReadCount, errorGraphReadBaseline + 1);
+		} finally {
+			await rm(graphDataPath, { recursive: true, force: true });
+			await writeFile(graphDataPath, offlineGraphData);
+		}
+
+		await setBrowserOffline(true);
+		await writeFile(join(kbA, "wiki", "entities", "reconnect.md"), "# Reconnect page\n\nFictional reconnect-only graph node.\n");
+		const offlineUpdateBuild = await triggerAuthoritativeGraphRebuild();
+		assert.equal(["started", "queued"].includes(offlineUpdateBuild.status), true);
+		await waitUntil(
+			async () => {
+				const snapshot = await readAuthoritativeGraph();
+				return snapshot.state.status === "ready"
+					&& "needsBuild" in snapshot
+					&& snapshot.needsBuild === false
+					&& snapshot.data.nodes.some((node) => node.id.includes("reconnect"));
+			},
+			OPERATION_TIMEOUT_MS,
+			"graph update did not become authoritative while the browser was offline",
+		);
+			const readyCalibration = page.waitForResponse(async (response) => {
+			if (new URL(response.url()).pathname !== "/api/graph" || response.status() !== 200) return false;
+			const body = await response.json() as {
+				data?: { state?: { status?: string }; data?: { nodes?: Array<{ id?: string }> } };
+			};
+			return body.data?.state?.status === "ready"
+					&& body.data.data?.nodes?.some((node) => node.id?.includes("reconnect")) === true;
+			});
+			const readyGraphReadBaseline = browserGraphReadCount;
+			await setBrowserOffline(false);
+			await readyCalibration;
+			await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+			await page.getByText("2 节点 · 0 关联", { exact: true }).waitFor();
+			assert.equal(browserGraphReadCount, readyGraphReadBaseline + 1);
+
+			await setBrowserOffline(true);
+			const calibrationFailure = page.waitForResponse((response) => (
+				new URL(response.url()).pathname === "/api/graph" && response.status() === 503
+			));
+			await page.route("**/api/graph?*", async (route) => {
+				await route.fulfill({
+					status: 503,
+					contentType: "application/json",
+					body: JSON.stringify({ ok: false, code: "GRAPH_READ_FAILED", message: "Fictional internal detail" }),
+				});
+			});
+			const failedGraphReadBaseline = browserGraphReadCount;
+			await setBrowserOffline(false);
+			await calibrationFailure;
+			await page.locator("[data-graph-status='error']").waitFor({ timeout: START_TIMEOUT_MS });
+			await page.getByTestId("graph-state")
+				.getByText("图谱状态校准失败，请重新连接后重试", { exact: true })
+				.waitFor();
+			assert.equal((await page.locator("body").textContent())?.includes("Fictional internal detail"), false);
+			assert.equal(browserGraphReadCount, failedGraphReadBaseline + 1);
+			await page.unroute("**/api/graph?*");
+
+			const eventRecoveryRead = page.waitForResponse(async (response) => {
+				if (new URL(response.url()).pathname !== "/api/graph" || response.status() !== 200) return false;
+				const body = await response.json() as { data?: { state?: { status?: string } } };
+				return body.data?.state?.status === "ready";
+			});
+			assert.equal((await triggerAuthoritativeGraphRebuild()).status, "started");
+			await eventRecoveryRead;
+			await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+			await page.getByText("2 节点 · 0 关联", { exact: true }).waitFor();
+			assert.equal(await page.locator(".sidebar-error").count(), 0);
+			await cdp.detach();
+
+		// Messages: controlled terminal failures, direct failures, cancellation, disconnect recovery, and normal recovery.
 		await page.getByRole("tab", { name: "对话" }).click();
+		const modelErrorAttemptsFile = join(appDir, "browser-model-error-attempts");
+		const safeFailureMessage = "生成回复时发生错误，请重试";
+		const rawModelFailureDetail = "fictional retryable server error that must not reach the page or session";
+		const rawDiagnosticDetail = "fictional diagnostic detail that must not reach the page or session";
+		const rawDiagnosticStack = "fictional diagnostic stack that must not reach the page or session";
+		const controlledFailureResponse = page.waitForResponse((response) => {
+			const request = response.request();
+			return new URL(response.url()).pathname === "/api/prompt"
+				&& request.method() === "POST"
+				&& request.postData()?.includes("[model-error]") === true;
+		});
+		await startComposerMessage(page, "[model-error] controlled terminal failure");
+		await page.getByText(safeFailureMessage, { exact: true }).waitFor();
+		const controlledFailureSse = await (await controlledFailureResponse).text();
+		assert.equal((controlledFailureSse.match(/event: assistant_error/g) ?? []).length, 1);
+		assert.equal(controlledFailureSse.includes("event: assistant_done"), false);
+		assert.equal(controlledFailureSse.includes(rawModelFailureDetail), false);
+		assert.equal(controlledFailureSse.includes(rawDiagnosticDetail), false);
+		assert.equal(controlledFailureSse.includes(rawDiagnosticStack), false);
+		assert.equal((await readFile(modelErrorAttemptsFile, "utf8")).trim().split("\n").length, 1);
+		assert.equal(await page.getByPlaceholder(/写下想法/).isDisabled(), false);
+		assert.equal((await page.locator("body").textContent())?.includes(rawModelFailureDetail), false);
+		assert.equal((await page.locator("body").textContent())?.includes(rawDiagnosticDetail), false);
+		await waitUntil(async () => (await readConversationSession(appDir, kbA, atlasConversation)).includes(safeFailureMessage), OPERATION_TIMEOUT_MS, "safe model failure was not persisted");
+		const failedSession = await readConversationSession(appDir, kbA, atlasConversation);
+		assert.match(failedSession, /"stopReason":"error"/);
+		assert.equal(failedSession.includes(rawModelFailureDetail), false);
+		assert.equal(failedSession.includes(rawDiagnosticDetail), false);
+		assert.equal(failedSession.includes(rawDiagnosticStack), false);
+		await page.reload({ waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+		await page.getByLabel("当前知识库").getByText("atlas-notes").waitFor({ timeout: START_TIMEOUT_MS });
+		await page.getByText(safeFailureMessage, { exact: true }).waitFor();
+		assert.equal((await page.locator("body").textContent())?.includes(rawModelFailureDetail), false);
+		await sendComposerMessage(page, "after controlled failure recovery");
+
 		const modelFailureFlag = join(appDir, "browser-model-fail");
 		await writeFile(modelFailureFlag, "fail");
-		await startComposerMessage(page, "[fail] controlled failure");
-		await page.getByText("出错", { exact: true }).waitFor();
+		const directFailureCount = await page.getByText(safeFailureMessage, { exact: true }).count();
+		await startComposerMessage(page, "direct model entry failure");
+		await waitUntil(async () => (await page!.getByText(safeFailureMessage, { exact: true }).count()) > directFailureCount, OPERATION_TIMEOUT_MS, "direct model failure was not displayed");
+		assert.equal(await page.getByPlaceholder(/写下想法/).isDisabled(), false);
 		await rm(modelFailureFlag, { force: true });
-		await sendComposerMessage(page, "after failure recovery");
+		await sendComposerMessage(page, "after direct failure recovery");
 		await startComposerMessage(page, "[slow] cancel this response");
 		await page.getByText("生成中", { exact: true }).waitFor();
 		await waitForFile(join(appDir, "browser-model-cancel-started"));
@@ -302,6 +513,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await page.getByRole("button", { name: "停止" }).click();
 		await waitForFile(join(appDir, "browser-model-cancel-settled"));
 		await page.getByPlaceholder(/写下想法/).waitFor({ state: "visible" });
+		assert.equal(await page.getByPlaceholder(/写下想法/).isDisabled(), false);
 		await sendComposerMessage(page, "after cancel recovery");
 		await startComposerMessage(page, "[slow] disconnect this response");
 		await page.getByText("生成中", { exact: true }).waitFor();
@@ -311,6 +523,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		page = await context.newPage();
 		await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
 		await page.getByLabel("当前知识库").getByText("atlas-notes").waitFor({ timeout: START_TIMEOUT_MS });
+		await page.getByText("生成已停止", { exact: true }).last().waitFor();
 		await sendComposerMessage(page, "after disconnect recovery");
 
 		// Artifacts: list, preview, download, missing resource prompt, then recover.
@@ -335,6 +548,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		// Settings and models: persisted setting, model list, and redacted auth status.
 		await page.getByRole("button", { name: "设置" }).last().click();
 		await page.getByText("auth.json：已存在", { exact: true }).waitFor();
+		await page.getByText(/项目内置 \d+ 个 \/ pi 默认 \d+ 个 \/ 用户全局 \d+ 个/).waitFor();
 		assert.equal((await page.locator("select").nth(1).locator("option").allTextContents()).length > 1, true);
 		const skillsToggle = page.getByRole("checkbox");
 		await skillsToggle.check();
@@ -364,13 +578,14 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 });
 
 async function startBackend(home: string, port: number, selectedDirectory: string, networkProbeFile: string) {
-	return startProcess(
+	return startNetworkGuardedProcess(
 		process.execPath,
 		["--import", "tsx", SERVER_ENTRY],
 		REPO_ROOT,
-		isolatedEnvironment(home, port, selectedDirectory, networkProbeFile),
+		isolatedEnvironment(home, port, selectedDirectory),
 		(output) => output.includes("listening on http://"),
 		"browser backend",
+		networkProbeFile,
 	);
 }
 
@@ -411,6 +626,76 @@ async function createArtifacts(appDir: string, conversationId: string, kbPath: s
 	}
 }
 
+async function waitForGraphRebuildResponse(page: Page, kbPath: string): Promise<{ status: "started" | "queued" }> {
+	const response = await page.waitForResponse((candidate) => {
+		const request = candidate.request();
+		const url = new URL(candidate.url());
+		return url.pathname === "/api/graph/rebuild"
+			&& url.searchParams.get("kb") === kbPath
+			&& request.method() === "POST";
+	});
+	assert.equal(response.status(), 200);
+	const body = await response.json() as { data: { status: "started" | "queued" } };
+	return body.data;
+}
+
+async function refreshGraphEventReceipts(
+	page: Page,
+	receipts: Array<{ type: string; kbPath?: string; seq: number }>,
+): Promise<void> {
+	receipts.splice(0, receipts.length, ...await page.evaluate(() => (
+		(window as typeof window & { __graphEventReceipts?: Array<{ type: string; kbPath?: string; seq: number }> }).__graphEventReceipts ?? []
+	)));
+}
+
+async function waitForGraphEvent(
+	page: Page,
+	receipts: Array<{ type: string; kbPath?: string; seq: number }>,
+	predicate: (event: { type: string; kbPath?: string; seq: number }, index: number) => boolean,
+): Promise<void> {
+	await waitUntil(async () => {
+		await refreshGraphEventReceipts(page, receipts);
+		return receipts.some(predicate);
+	}, OPERATION_TIMEOUT_MS, "expected graph event did not arrive");
+}
+
+async function backendGraphRead(
+	port: number,
+	token: string,
+	kbPath: string,
+): Promise<GraphReadData> {
+	const snapshot = await tryBackendGraphRead(port, token, kbPath);
+	assert.notEqual(snapshot, null);
+	return snapshot!;
+}
+
+async function tryBackendGraphRead(
+	port: number,
+	token: string,
+	kbPath: string,
+): Promise<GraphReadData | null> {
+	const response = await fetch(`http://127.0.0.1:${port}/api/graph?kb=${encodeURIComponent(kbPath)}`, {
+		headers: { "X-LLM-Wiki-Workbench-Token": token },
+	});
+	if (response.status !== 200) return null;
+	const body = await response.json() as { data: GraphReadData };
+	return body.data;
+}
+
+async function backendGraphRebuild(
+	port: number,
+	token: string,
+	kbPath: string,
+): Promise<{ status: "started" | "queued" }> {
+	const response = await fetch(`http://127.0.0.1:${port}/api/graph/rebuild?kb=${encodeURIComponent(kbPath)}`, {
+		method: "POST",
+		headers: { "X-LLM-Wiki-Workbench-Token": token },
+	});
+	assert.equal(response.status, 200);
+	const body = await response.json() as { data: { status: "started" | "queued" } };
+	return body.data;
+}
+
 async function sendComposerMessage(page: Page, message: string): Promise<void> {
 	const responsePromise = page.waitForResponse((response) => {
 		const request = response.request();
@@ -432,6 +717,15 @@ async function startComposerMessage(page: Page, message: string): Promise<void> 
 async function activeConversationId(page: Page): Promise<string | null> {
 	const result = await page.evaluate(() => fetch("/api/knowledge-base").then((response) => response.json())) as { data: { active: { conversation: { id: string } } | null } };
 	return result.data.active?.conversation.id ?? null;
+}
+
+async function readConversationSession(appDir: string, kbPath: string, conversationId: string): Promise<string> {
+	const hash = createHash("sha256").update(kbPath).digest("hex").slice(0, 16);
+	const sessionDir = join(appDir, "sessions", hash);
+	const files = await readdir(sessionDir);
+	const file = files.find((name) => name.endsWith(`_${conversationId}.jsonl`));
+	assert.ok(file, `session file for ${conversationId} was not found`);
+	return readFile(join(sessionDir, file), "utf8");
 }
 
 async function assertBrowserJson(page: Page, path: string, expectedStatus: number, expectedBody: RegExp): Promise<void> {

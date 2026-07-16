@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
 	BookOpen,
+	Download,
 	MessagesSquare,
 	Network,
 	PanelLeftClose,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { AddExternalDialog } from "./AddExternalDialog";
+import { NewWikiDialog } from "./NewWikiDialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import type { MainView } from "./MainViewTabs";
 import type {
@@ -34,6 +36,7 @@ interface Props {
 	onOpenSettings?: () => void;
 	onToggleCollapsed: () => void;
 	onAddExternal: (path: string) => Promise<void>;
+	onCreateWiki: (name: string, purpose: string) => Promise<void>;
 	onStartBatchDigest?: (input: {
 		kbPath: string;
 		filePaths: string[];
@@ -59,9 +62,11 @@ export function Sidebar({
 	onOpenSettings,
 	onToggleCollapsed,
 	onAddExternal,
+	onCreateWiki,
 	onStartBatchDigest,
 }: Props) {
-	const [dialogOpen, setDialogOpen] = useState(false);
+	const [addExternalOpen, setAddExternalOpen] = useState(false);
+	const [newWikiOpen, setNewWikiOpen] = useState(false);
 
 	const currentKb = knowledgeBases.find((item) => item.path === currentKbPath) ?? null;
 
@@ -107,13 +112,21 @@ export function Sidebar({
 					<RailButton label="设置" onClick={onOpenSettings}>
 						<Settings />
 					</RailButton>
-					<RailButton label="新建知识库" onClick={() => setDialogOpen(true)}>
+					<RailButton label="新建知识库" onClick={() => setNewWikiOpen(true)}>
 						<Plus />
 					</RailButton>
+					<RailButton label="添加现有库" onClick={() => setAddExternalOpen(true)}>
+						<Download />
+					</RailButton>
 				</div>
+				<NewWikiDialog
+					open={newWikiOpen}
+					onOpenChange={setNewWikiOpen}
+					onSubmit={onCreateWiki}
+				/>
 				<AddExternalDialog
-					open={dialogOpen}
-					onOpenChange={setDialogOpen}
+					open={addExternalOpen}
+					onOpenChange={setAddExternalOpen}
 					onSubmit={onAddExternal}
 					onStartBatchDigest={onStartBatchDigest}
 				/>
@@ -201,19 +214,32 @@ export function Sidebar({
 					<Settings className="size-4" />
 					<span>设置</span>
 				</button>
-				<button
-					type="button"
-					className="sidebar-footer-btn sidebar-footer-btn-primary"
-					onClick={() => setDialogOpen(true)}
-				>
-					<Plus className="size-4" />
-					<span>新建知识库</span>
-				</button>
-			</div>
+					<button
+						type="button"
+						className="sidebar-footer-btn sidebar-footer-btn-primary"
+						onClick={() => setNewWikiOpen(true)}
+					>
+						<Plus className="size-4" />
+						<span>新建知识库</span>
+					</button>
+					<button
+						type="button"
+						className="sidebar-footer-btn"
+						onClick={() => setAddExternalOpen(true)}
+					>
+						<Download className="size-4" />
+						<span>添加现有库</span>
+					</button>
+				</div>
 
+			<NewWikiDialog
+				open={newWikiOpen}
+				onOpenChange={setNewWikiOpen}
+				onSubmit={onCreateWiki}
+			/>
 			<AddExternalDialog
-				open={dialogOpen}
-				onOpenChange={setDialogOpen}
+				open={addExternalOpen}
+				onOpenChange={setAddExternalOpen}
 				onSubmit={onAddExternal}
 				onStartBatchDigest={onStartBatchDigest}
 			/>

@@ -18,6 +18,7 @@ type PaperVisualCase = {
 	name: string;
 	description: string;
 	prefs: PaperPrefs;
+	apiReadProbe?: boolean;
 	viewport?: { width: number; height: number };
 	view?: "chat" | "graph";
 	fonts?: "normal" | "blocked";
@@ -31,12 +32,14 @@ const updateBaseline = process.argv.includes("--update");
 const actualDir = resolve(process.cwd(), "test-results/paper-ui/actual");
 const baselineDir = resolve(process.cwd(), "test-results/paper-ui/baseline");
 const referenceDir = resolve(process.cwd(), "test-results/paper-ui/reference-v2");
-const v2PrototypeUrl = process.env.PAPER_V2_PROTOTYPE_URL
-	?? "file:///Users/kangjiaqi/designs/llm-wiki-skill/bright/paper-final-v2.html";
+const v2PrototypeUrl = process.env.PAPER_V2_PROTOTYPE_URL;
 const staticFallbackUrl = "http://paper-ui.local/";
 const distDir = resolve(process.cwd(), "dist");
 const visualKbPath = "/visual/ai-learning";
 const evaluateNameHelper = "globalThis.__name = (fn) => fn;";
+const paperApiReadPaths = ["/api/artifacts", "/api/config", "/api/models"] as const;
+type PaperApiReadPath = (typeof paperApiReadPaths)[number];
+type PaperApiReadRequest = `GET ${PaperApiReadPath}`;
 const defaultPrefs: PaperPrefs = {
 	theme: "light",
 	paper: "clean",
@@ -54,6 +57,7 @@ const cases: PaperVisualCase[] = [
 			name: `${theme}-${paper}-1440`,
 			description: `${theme} theme with ${paper} paper`,
 			prefs: { ...defaultPrefs, theme, paper },
+			apiReadProbe: theme === "light" && paper === "clean",
 			fonts: "normal" as const,
 		})),
 	),
@@ -235,47 +239,56 @@ try {
 
 async function captureCase(browser: Browser, visualCase: PaperVisualCase, url: string, useStaticFallback: boolean) {
 	const viewport = visualCase.viewport ?? { width: 1440, height: 900 };
+	const apiReads = new Set<PaperApiReadRequest>();
 	const context = await browser.newContext({
 		deviceScaleFactor: 1,
 		viewport,
 	});
 	await context.addInitScript(evaluateNameHelper);
+	await context.addInitScript((prefs) => {
+		localStorage.setItem(prefs.themeStorageKey, prefs.theme);
+		localStorage.setItem(`${prefs.appearanceStoragePrefix}paper`, prefs.paper);
+		localStorage.setItem(`${prefs.appearanceStoragePrefix}accent`, prefs.accent);
+		localStorage.setItem(`${prefs.appearanceStoragePrefix}userbubble`, prefs.userbubble);
+		localStorage.setItem(`${prefs.appearanceStoragePrefix}hand`, prefs.hand);
+		localStorage.setItem(`${prefs.appearanceStoragePrefix}density`, prefs.density);
+		localStorage.setItem(prefs.mainViewStorageKey, prefs.view);
+		localStorage.setItem(prefs.sidebarCollapsedStorageKey, prefs.sidebarCollapsed);
+	}, {
+		...visualCase.prefs,
+		view: visualCase.view ?? "chat",
+		sidebarCollapsed: visualCase.sidebar === "collapsed" ? "true" : "false",
+		themeStorageKey: THEME_STORAGE_KEY,
+		appearanceStoragePrefix: APPEARANCE_STORAGE_PREFIX,
+		mainViewStorageKey: MAIN_VIEW_STORAGE_KEY,
+		sidebarCollapsedStorageKey: SIDEBAR_COLLAPSED_STORAGE_KEY,
+	});
 	if (useStaticFallback) {
-		await installStaticFallbackRoutes(context);
+		await installStaticFallbackRoutes(context, apiReads);
 	} else {
-		await installVisualApiRoutes(context, new URL(url).origin);
+		await installVisualApiRoutes(context, new URL(url).origin, apiReads);
 	}
 	if (visualCase.fonts === "blocked") {
 		await context.route(/fonts\.(googleapis|gstatic)\.com/, (route: Route) => route.abort());
 	}
 	const page = await context.newPage();
 	try {
+		const artifactRead = visualCase.apiReadProbe
+			? page.waitForResponse((response) =>
+				response.request().method() === "GET" && new URL(response.url()).pathname === "/api/artifacts",
+			)
+			: null;
 		await page.goto(url, { waitUntil: "domcontentloaded" });
-		await page.evaluate((prefs) => {
-			localStorage.setItem(prefs.themeStorageKey, prefs.theme);
-			localStorage.setItem(`${prefs.appearanceStoragePrefix}paper`, prefs.paper);
-			localStorage.setItem(`${prefs.appearanceStoragePrefix}accent`, prefs.accent);
-			localStorage.setItem(`${prefs.appearanceStoragePrefix}userbubble`, prefs.userbubble);
-			localStorage.setItem(`${prefs.appearanceStoragePrefix}hand`, prefs.hand);
-			localStorage.setItem(`${prefs.appearanceStoragePrefix}density`, prefs.density);
-			localStorage.setItem(prefs.mainViewStorageKey, prefs.view ?? "chat");
-			localStorage.setItem(prefs.sidebarCollapsedStorageKey, prefs.sidebar === "collapsed" ? "true" : "false");
-		}, {
-			...visualCase.prefs,
-			view: visualCase.view,
-			sidebar: visualCase.sidebar,
-			themeStorageKey: THEME_STORAGE_KEY,
-			appearanceStoragePrefix: APPEARANCE_STORAGE_PREFIX,
-			mainViewStorageKey: MAIN_VIEW_STORAGE_KEY,
-			sidebarCollapsedStorageKey: SIDEBAR_COLLAPSED_STORAGE_KEY,
-		});
-		await page.reload({ waitUntil: "domcontentloaded" });
+		if (artifactRead) await artifactRead;
 		await page.waitForSelector(".app-shell", { timeout: 15_000 });
 		await page.waitForSelector(visualCase.view === "graph" ? ".graph-screen" : ".chat-screen", { timeout: 15_000 });
 		await page.evaluate(async () => {
 			await document.fonts?.ready;
 		});
 		await waitForStableVisualState(page, visualCase);
+		if (visualCase.apiReadProbe) {
+			await verifyPaperApiReads(page, apiReads);
+		}
 		if (visualCase.drawer === "wiki") {
 			await openWikiDrawerFromSearch(page);
 			await waitForStableVisualState(page, visualCase);
@@ -412,25 +425,62 @@ async function captureCase(browser: Browser, visualCase: PaperVisualCase, url: s
 	}
 }
 
+async function verifyPaperApiReads(page: Page, apiReads: Set<PaperApiReadRequest>) {
+	const modelButton = page.locator(".topbar-model");
+	await modelButton.click();
+	const modelList = page.getByRole("listbox", { name: "主对话模型" });
+	const configuredModel = modelList.getByRole("option", {
+		name: /anthropic\/claude-sonnet-4\.6/,
+	});
+	await configuredModel.waitFor({ state: "visible", timeout: 10_000 });
+	if (await configuredModel.getAttribute("aria-selected") !== "true") {
+		throw new Error("Paper API fixture: configured model was not selected");
+	}
+	for (const path of paperApiReadPaths) {
+		const request: PaperApiReadRequest = `GET ${path}`;
+		if (!apiReads.has(request)) throw new Error(`Paper API fixture: ${request} was not requested`);
+	}
+	if (await page.locator(".sidebar-error").count() > 0) {
+		throw new Error("Paper API fixture: artifact read failed during startup");
+	}
+	await modelButton.click();
+	await modelList.waitFor({ state: "detached", timeout: 5_000 });
+}
+
 async function openWikiDrawerFromSearch(page: Page) {
 	await page.keyboard.press(process.platform === "darwin" ? "Meta+K" : "Control+K");
 	await page.waitForSelector(".search-panel", { timeout: 5_000 });
-	await page.waitForSelector(".search-result-main", { timeout: 10_000 });
-	await page.locator(".search-result-main").first().click();
-	await page.waitForSelector(".drawer-panel-open", { timeout: 10_000 });
+	const firstResult = page.locator(".search-result-main").first();
+	await firstResult.waitFor({ state: "visible", timeout: 10_000 });
+	const resultPath = await firstResult.locator(".search-result-path").textContent();
+	if (resultPath !== "wiki/concepts/mamba.md") {
+		throw new Error(`expected Mamba page result, got ${resultPath ?? "no path"}`);
+	}
+	await firstResult.click();
+	const drawer = page.locator(".drawer-panel-open");
+	await drawer.waitFor({ state: "visible", timeout: 10_000 });
+	await drawer.getByText("Mamba 是选择性状态空间模型", { exact: false }).waitFor({
+		state: "visible",
+		timeout: 10_000,
+	});
 	await page.waitForSelector(".search-panel", { state: "detached", timeout: 5_000 }).catch(() => undefined);
 }
 
 async function captureReferenceForCase(browser: Browser, visualCase: PaperVisualCase): Promise<string | null> {
 	if (!visualCase.name.startsWith("v2-")) return null;
+	if (!v2PrototypeUrl) return null;
 	const viewport = visualCase.viewport ?? { width: 1440, height: 900 };
 	if (!referenceCache.has(viewport.width)) {
-		referenceCache.set(viewport.width, captureReference(browser, viewport));
+		referenceCache.set(viewport.width, captureReference(browser, viewport, v2PrototypeUrl));
 	}
 	return referenceCache.get(viewport.width) ?? null;
 }
 
-async function captureReference(browser: Browser, viewport: { width: number; height: number }): Promise<string> {
+async function captureReference(
+	browser: Browser,
+	viewport: { width: number; height: number },
+	prototypeUrl: string,
+): Promise<string> {
 	const context = await browser.newContext({
 		deviceScaleFactor: 1,
 		viewport,
@@ -438,7 +488,7 @@ async function captureReference(browser: Browser, viewport: { width: number; hei
 	await context.addInitScript(evaluateNameHelper);
 	const page = await context.newPage();
 	try {
-		await page.goto(v2PrototypeUrl, { waitUntil: "domcontentloaded" });
+		await page.goto(prototypeUrl, { waitUntil: "domcontentloaded" });
 		await page.evaluate(async () => {
 			await document.fonts?.ready;
 		});
@@ -455,19 +505,23 @@ async function captureReference(browser: Browser, viewport: { width: number; hei
 	}
 }
 
-async function installVisualApiRoutes(context: BrowserContext, origin: string) {
+async function installVisualApiRoutes(
+	context: BrowserContext,
+	origin: string,
+	apiReads: Set<PaperApiReadRequest>,
+) {
 	await context.route(`${origin}/api/**`, async (route) => {
 		const request = route.request();
-		await fulfillMockApi(route, new URL(request.url()), request.method());
+		await fulfillMockApi(route, new URL(request.url()), request.method(), apiReads);
 	});
 }
 
-async function installStaticFallbackRoutes(context: BrowserContext) {
+async function installStaticFallbackRoutes(context: BrowserContext, apiReads: Set<PaperApiReadRequest>) {
 	await context.route("http://paper-ui.local/**", async (route) => {
 		const request = route.request();
 		const url = new URL(request.url());
 		if (url.pathname.startsWith("/api/")) {
-			await fulfillMockApi(route, url, request.method());
+			await fulfillMockApi(route, url, request.method(), apiReads);
 			return;
 		}
 		const path = url.pathname === "/" ? "/index.html" : url.pathname;
@@ -488,22 +542,48 @@ async function installStaticFallbackRoutes(context: BrowserContext) {
 	});
 }
 
-async function fulfillMockApi(route: Route, url: URL, method: string) {
-	const pathname = url.pathname;
-	if (method === "HEAD") {
-		await route.fulfill({ status: 200, body: "" });
-		return;
+async function beginPaperApiRead(
+	json: (body: unknown, status?: number) => Promise<void>,
+	apiReads: Set<PaperApiReadRequest>,
+	path: PaperApiReadPath,
+	method: string,
+): Promise<boolean> {
+	if (method !== "GET") {
+		await json({
+			ok: false,
+			code: "INVALID_REQUEST",
+			message: `Paper API fixture only accepts GET ${path}`,
+		}, 405);
+		return false;
 	}
+	apiReads.add(`GET ${path}`);
+	return true;
+}
+
+function isPaperApiReadPath(pathname: string): pathname is PaperApiReadPath {
+	return paperApiReadPaths.includes(pathname as PaperApiReadPath);
+}
+
+async function fulfillMockApi(route: Route, url: URL, method: string, apiReads: Set<PaperApiReadRequest>) {
+	const pathname = url.pathname;
 	const json = (body: unknown, status = 200) => route.fulfill({
 		status,
 		contentType: "application/json",
 		body: JSON.stringify(body),
 	});
+	if (method === "HEAD") {
+		if (isPaperApiReadPath(pathname)) {
+			await beginPaperApiRead(json, apiReads, pathname, method);
+			return;
+		}
+		await route.fulfill({ status: 200, body: "" });
+		return;
+	}
 	if (pathname === "/api/knowledge-bases") {
 		await json({
 			ok: true,
 			data: [
-				{ path: visualKbPath, name: "AI 学习知识库", origin: "default", valid: true },
+				{ path: visualKbPath, name: "示例知识库", origin: "default", valid: true },
 				{ path: "/visual/design", name: "设计灵感库", origin: "external", valid: true },
 			],
 		});
@@ -532,23 +612,25 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		return;
 	}
 	if (pathname === "/api/artifacts") {
-		await json({ ok: true, items: [] });
+		if (!(await beginPaperApiRead(json, apiReads, "/api/artifacts", method))) return;
+		await json({ ok: true, data: [] });
 		return;
 	}
 	if (pathname === "/api/commands") {
 		await json({
 			ok: true,
-			items: [
-				{ slug: "/sediment", name: "sediment_to_wiki", description: "把当前对话整理成页面", source: "builtin", skillPath: null },
-				{ slug: "/html", name: "html", description: "导出 HTML 页面", source: "builtin", skillPath: null },
+			data: [
+				{ slug: "/sediment", name: "sediment_to_wiki", description: "把当前对话整理成页面", source: "builtin", isProjectSkill: false },
+				{ slug: "/html", name: "html", description: "导出 HTML 页面", source: "builtin", isProjectSkill: false },
 			],
 		});
 		return;
 	}
 	if (pathname === "/api/config") {
+		if (!(await beginPaperApiRead(json, apiReads, "/api/config", method))) return;
 		await json({
 			ok: true,
-			config: {
+			data: {
 				version: 1,
 				externalKnowledgeBases: [],
 				lastUsedKbPath: visualKbPath,
@@ -558,9 +640,10 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		return;
 	}
 	if (pathname === "/api/models") {
+		if (!(await beginPaperApiRead(json, apiReads, "/api/models", method))) return;
 		await json({
 			ok: true,
-			items: [
+			data: [
 				{
 					provider: "anthropic",
 					modelId: "claude-sonnet-4.6",
@@ -577,7 +660,7 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 	if (pathname === "/api/refs") {
 		await json({
 			ok: true,
-			items: [
+			data: [
 				{ path: "wiki/concepts/mamba.md", name: "mamba", title: "Mamba", category: "concept" },
 				{ path: "wiki/concepts/transformer.md", name: "transformer", title: "Transformer", category: "concept" },
 				{ path: "wiki/concepts/rag.md", name: "rag", title: "RAG 检索增强", category: "concept" },
@@ -586,22 +669,36 @@ async function fulfillMockApi(route: Route, url: URL, method: string) {
 		return;
 	}
 	if (pathname === "/api/page") {
+		if (url.searchParams.get("path") !== "wiki/concepts/mamba.md") {
+			await json({
+				ok: false,
+				code: "NOT_FOUND",
+				message: "Unexpected Paper page fixture request",
+			}, 404);
+			return;
+		}
 		await json({
 			ok: true,
-			content: [
-				"# Mamba",
-				"",
-				"Mamba 是选择性状态空间模型，把序列压缩成固定大小的隐状态，实现线性复杂度的长序列建模。",
-				"",
-				"属于「序列建模」社区，桥接「状态空间模型」。与 [[wiki/concepts/transformer.md]] 路径相反。",
-			].join("\n"),
+			data: {
+				content: [
+					"# Mamba",
+					"",
+					"Mamba 是选择性状态空间模型，把序列压缩成固定大小的隐状态，实现线性复杂度的长序列建模。",
+					"",
+					"属于「序列建模」社区，桥接「状态空间模型」。与 [[wiki/concepts/transformer.md]] 路径相反。",
+				].join("\n"),
+			},
 		});
 		return;
 	}
 	if (pathname === "/api/graph") {
 		await json({
 			ok: true,
-			data: { needsBuild: false, data: visualGraphData() },
+			data: {
+				state: { status: "ready", rebuiltAt: null },
+				needsBuild: false,
+				data: visualGraphData(),
+			},
 		});
 		return;
 	}
@@ -693,14 +790,14 @@ function assertState(visualCase: PaperVisualCase, state: Record<string, unknown>
 			assertTextIncludes(labels, "图谱活地图", visualCase.name);
 			assertTextIncludes(labels, "设置", visualCase.name);
 			assertTextIncludes(labels, "新建知识库", visualCase.name);
+			assertTextIncludes(labels, "添加现有库", visualCase.name);
 			assertTextExcludes(labels, "刷新", visualCase.name);
-			assertTextExcludes(labels, "添加现有库", visualCase.name);
 		} else {
 			if (state.sidebarKbRowIconCount !== 0) {
 				throw new Error(`${visualCase.name}: expanded notebook rows still render leading icons`);
 			}
 			assertTextIncludes(stringOrNull(state.sidebarFooterText), "新建知识库", visualCase.name);
-			assertTextExcludes(stringOrNull(state.sidebarFooterText), "添加现有库", visualCase.name);
+			assertTextIncludes(stringOrNull(state.sidebarFooterText), "添加现有库", visualCase.name);
 			assertTextIncludes(stringOrNull(state.sidebarText), "笔记本", visualCase.name);
 			assertTextIncludes(stringOrNull(state.sidebarText), "会话", visualCase.name);
 			assertTextIncludes(stringOrNull(state.sidebarText), "图谱活地图", visualCase.name);
@@ -737,7 +834,17 @@ function assertState(visualCase: PaperVisualCase, state: Record<string, unknown>
 	if (visualCase.drawer === "wiki") {
 		const drawer = asRect(state.drawerRect);
 		const composer = asRect(state.composerRect);
-		if (!state.drawerOpen || !drawer || !composer) throw new Error(`${visualCase.name}: expected drawer and composer geometry`);
+		const textarea = asRect(state.textareaRect);
+		const send = asRect(state.sendRect);
+		if (!state.drawerOpen || !drawer || !composer || !textarea || !send) {
+			throw new Error(`${visualCase.name}: expected drawer and composer geometry`);
+		}
+		if (Math.abs(send.width - 36) > 1 || Math.abs(send.height - 36) > 1) {
+			throw new Error(`${visualCase.name}: send button should be 36x36`);
+		}
+		if (textarea.right > send.left - 4) {
+			throw new Error(`${visualCase.name}: textarea collides with send button`);
+		}
 		const viewportWidth = Number(state.viewportWidth);
 		if (viewportWidth >= 1024 && composer.right > drawer.left - 8) {
 			throw new Error(`${visualCase.name}: drawer overlaps composer`);
@@ -794,7 +901,7 @@ function stringOrNull(value: unknown): string | null {
 
 function visualActiveContext() {
 	return {
-		kb: { path: visualKbPath, name: "AI 学习知识库" },
+		kb: { path: visualKbPath, name: "示例知识库" },
 		conversation: {
 			id: "visual-conversation",
 			messages: [
@@ -820,7 +927,7 @@ function visualGraphData() {
 	return {
 		meta: {
 			build_date: "2026-06-20T00:00:00.000Z",
-			wiki_title: "AI 学习知识库",
+			wiki_title: "示例知识库",
 			total_nodes: 4,
 			total_edges: 3,
 		},

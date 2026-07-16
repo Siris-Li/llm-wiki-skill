@@ -8,6 +8,13 @@ import {
   type WorkbenchErrorCode,
 } from "@llm-wiki/workbench-contracts";
 
+import {
+	getAssistantTerminalMessage,
+	getAssistantTerminalReason,
+	MODEL_FAILURE_MESSAGE,
+	type AssistantTerminalReason,
+} from "./extensions/prompt-terminal.js";
+
 export const TOOL_STATUS_SCHEMA_VERSION = 1;
 
 export type ToolStatusKind = PromptSseEvent["type"];
@@ -126,23 +133,28 @@ export class OrderedSseWriter {
 
 	constructor(private readonly writePayload: SsePayloadWriter) {}
 
-  writeContract(event: PromptSseEvent): Promise<void> {
+  writeContract(event: PromptSseEvent): Promise<boolean> {
 		return this.write({ event: event.type, data: JSON.stringify(event) });
 	}
 
-	writeNamed(event: string, data: unknown): Promise<void> {
+  writeNamed(event: string, data: unknown): Promise<boolean> {
     return this.write({
       event,
       data: typeof data === "string" ? data : JSON.stringify(data),
     });
 	}
 
-	write(payload: SsePayload): Promise<void> {
-		if (this.closed) return this.queue;
+	write(payload: SsePayload): Promise<boolean> {
+		if (this.closed) return Promise.resolve(false);
 		const next = this.queue.then(async () => {
-			if (!this.closed) await this.writePayload(payload);
-		});
-		this.queue = next.catch(() => {});
+				if (this.closed) return false;
+				await this.writePayload(payload);
+				return true;
+			});
+		this.queue = next.then(
+			() => {},
+			() => {},
+		);
 		return next;
 	}
 
@@ -180,6 +192,8 @@ export class ToolStatusEventAdapter {
 	private readonly redaction: RedactionOptions;
 	private readonly runningTools = new Map<string, RunningToolState>();
 	private readonly completedTools: CompletedToolState[] = [];
+	private pendingAssistantTerminal: AssistantTerminalReason | null = null;
+	private recoveringPendingAssistantError = false;
   /** 是否已生成 terminal 事件（assistant_done/cancelled/error）。terminal 后不再生成任何事件。 */
   private terminalEmitted = false;
 
@@ -193,8 +207,42 @@ export class ToolStatusEventAdapter {
     return this.terminalEmitted;
   }
 
+	get pendingTerminalReason(): AssistantTerminalReason | null {
+		return this.pendingAssistantTerminal;
+	}
+
+	recordCancellation(): void {
+		if (
+			!this.terminalEmitted
+			&& (this.pendingAssistantTerminal !== "error" || this.recoveringPendingAssistantError)
+		) {
+			this.pendingAssistantTerminal = "aborted";
+		}
+	}
+
 	adapt(event: unknown): ToolStatusContractEvent[] {
     if (this.terminalEmitted) return [];
+		const eventRecord = toRecord(event);
+		if (eventRecord.type === "auto_retry_start") {
+			this.recoveringPendingAssistantError = this.pendingAssistantTerminal === "error";
+			return [];
+		}
+		if (eventRecord.type === "auto_retry_end") {
+			this.recoveringPendingAssistantError = false;
+			return [];
+		}
+		if (eventRecord.type === "compaction_start") {
+			if (eventRecord.reason === "overflow") {
+				this.recoveringPendingAssistantError = this.pendingAssistantTerminal === "error";
+			}
+			return [];
+		}
+		if (eventRecord.type === "compaction_end") {
+			if (eventRecord.reason === "overflow" && eventRecord.willRetry !== true) {
+				this.recoveringPendingAssistantError = false;
+			}
+			return [];
+		}
 		if (isAgentEventType(event, "message_update")) {
 			const inner = event.assistantMessageEvent;
 			if (inner.type === "text_delta") {
@@ -204,6 +252,8 @@ export class ToolStatusEventAdapter {
 			}
 			return [];
 		}
+    if (isAgentEventType(event, "message_end"))
+      return this.assistantMessageEnded(event.message);
     if (isAgentEventType(event, "tool_execution_start"))
       return [this.toolStart(event)];
     if (isAgentEventType(event, "tool_execution_update"))
@@ -270,16 +320,12 @@ export class ToolStatusEventAdapter {
 
 	finishAssistant(): ToolStatusContractEvent[] {
     if (this.terminalEmitted) return [];
+		if (this.pendingAssistantTerminal === "error") return this.failAssistant(null);
+		if (this.pendingAssistantTerminal === "aborted")
+			return this.cancelAssistant(getAssistantTerminalMessage("aborted"));
 		const events: ToolStatusContractEvent[] = [];
-		if (this.completedTools.length > 0 || this.runningTools.size > 0) {
-			events.push(
-				this.makeEvent({
-					type: "tool_status_summary",
-					items: this.completedTools.map((item) => ({ ...item })),
-					remainingRunningCount: this.runningTools.size,
-				}),
-			);
-		}
+		const summary = this.toolSummary();
+		if (summary) events.push(summary);
 		events.push(this.makeEvent({ type: "assistant_done" }));
 		return events;
 	}
@@ -292,7 +338,11 @@ export class ToolStatusEventAdapter {
 	failAssistant(error: unknown): ToolStatusContractEvent[] {
     if (this.terminalEmitted) return [];
     const { code, message } = classifyPromptError(error, this.redaction);
-    return [this.makeEvent({ type: "assistant_error", code, message })];
+		const events: ToolStatusContractEvent[] = [...this.failActiveTools(message)];
+		const summary = this.toolSummary();
+		if (summary) events.push(summary);
+		events.push(this.makeEvent({ type: "assistant_error", code, message }));
+		return events;
 	}
 
 	cancelAssistant(reason = "cancelled"): ToolStatusContractEvent[] {
@@ -307,12 +357,30 @@ export class ToolStatusEventAdapter {
 	}
 
 	cancelActiveTools(reason = "cancelled"): ToolStatusEndEvent[] {
+		return this.finishActiveTools("cancelled", reason);
+	}
+
+	private failActiveTools(reason: string): ToolStatusEndEvent[] {
+		return this.finishActiveTools("failed", reason);
+	}
+
+	private finishActiveTools(
+		status: Exclude<ToolRunStatus, "running" | "done">,
+		reason: string,
+	): ToolStatusEndEvent[] {
     if (this.terminalEmitted) return [];
 		const events: ToolStatusEndEvent[] = [];
 		for (const tool of [...this.runningTools.values()]) {
 			this.runningTools.delete(tool.toolCallId);
 			const summary = redactText(reason, this.redaction, 160);
-			this.completedTools.push({ ...tool, status: "cancelled", summary });
+			this.completedTools.push({
+				toolCallId: tool.toolCallId,
+				toolName: tool.toolName,
+				action: tool.action,
+				target: tool.target,
+				status,
+				summary,
+			});
 			events.push(
 				this.makeEvent({
 					type: "tool_status_end",
@@ -320,10 +388,10 @@ export class ToolStatusEventAdapter {
 					toolName: tool.toolName,
 					action: tool.action,
 					target: tool.target,
-					status: "cancelled",
+					status,
 					result: null,
 					summary,
-					error: null,
+					error: status === "failed" ? summary : null,
 					durationMs: Math.max(0, this.now() - tool.startedAt),
 					runningToolCount: this.runningTools.size,
 					otherRunningCount: this.runningTools.size,
@@ -331,6 +399,15 @@ export class ToolStatusEventAdapter {
 			);
 		}
 		return events;
+	}
+
+	private toolSummary(): ToolStatusSummaryEvent | null {
+		if (this.completedTools.length === 0 && this.runningTools.size === 0) return null;
+		return this.makeEvent({
+			type: "tool_status_summary",
+			items: this.completedTools.map((item) => ({ ...item })),
+			remainingRunningCount: this.runningTools.size,
+		});
 	}
 
 	getRunningTools(): ToolDisplay[] {
@@ -343,6 +420,20 @@ export class ToolStatusEventAdapter {
       }),
     );
 	}
+
+	private assistantMessageEnded(message: unknown): ToolStatusContractEvent[] {
+		const record = toRecord(message);
+		if (record.role !== "assistant") return [];
+		const terminalReason = getAssistantTerminalReason(record.stopReason);
+		if (terminalReason) {
+			this.pendingAssistantTerminal = terminalReason;
+			this.recoveringPendingAssistantError = false;
+			return [];
+		}
+		this.pendingAssistantTerminal = null;
+		this.recoveringPendingAssistantError = false;
+    return [];
+  }
 
   private toolStart(
     event: Extract<ToolExecutionEvent, { type: "tool_execution_start" }>,
@@ -740,7 +831,7 @@ function classifyPromptError(
   // 当前所有 prompt 运行期失败统一映射为 INTERNAL_ERROR + 稳定中文文案。
   // 若未来需要区分可公开的 code（如 NO_ACTIVE_KB 已在 pre-stream 处理），
   // 在此扩展，details 也只放白名单字段。
-  return { code: "INTERNAL_ERROR", message: "生成回复时发生错误，请重试" };
+  return { code: "INTERNAL_ERROR", message: MODEL_FAILURE_MESSAGE };
 }
 
 function toRecord(value: unknown): Record<string, unknown> {

@@ -20,6 +20,7 @@ Object.defineProperties(globalThis, {
 	HTMLInputElement: { configurable: true, value: window.HTMLInputElement },
 	HTMLTextAreaElement: { configurable: true, value: window.HTMLTextAreaElement },
 	Node: { configurable: true, value: window.Node },
+	NodeFilter: { configurable: true, value: window.NodeFilter },
 	Event: { configurable: true, value: window.Event },
 	KeyboardEvent: { configurable: true, value: window.KeyboardEvent },
 	MouseEvent: { configurable: true, value: window.MouseEvent },

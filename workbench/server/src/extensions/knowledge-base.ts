@@ -13,6 +13,7 @@
  *   Extension 是单例（一个 process 一份），所以 module state 等价于应用状态。
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
@@ -33,17 +34,28 @@ interface KnowledgeBaseState {
 	name: string;
 }
 
-interface PendingKnowledgeContextOwner {
+export interface PendingKnowledgeContextOwner {
   runId: string;
   conversationId: string;
 }
 
-interface PendingKnowledgeContext extends PendingKnowledgeContextOwner {
-  context: string;
+let current: KnowledgeBaseState | null = null;
+const pendingKnowledgeContexts = new Map<string, string>();
+const pendingKnowledgeContextOwner =
+	new AsyncLocalStorage<PendingKnowledgeContextOwner>();
+
+function pendingKnowledgeContextKey(
+	owner: PendingKnowledgeContextOwner,
+): string {
+	return JSON.stringify([owner.runId, owner.conversationId]);
 }
 
-let current: KnowledgeBaseState | null = null;
-let pendingKnowledgeContext: PendingKnowledgeContext | null = null;
+export function runWithPendingKnowledgeContextOwner<T>(
+	owner: PendingKnowledgeContextOwner,
+	operation: () => T,
+): T {
+	return pendingKnowledgeContextOwner.run(owner, operation);
+}
 
 export function getCurrentKnowledgeBase(): KnowledgeBaseState | null {
 	return current;
@@ -71,25 +83,23 @@ export function setPendingKnowledgeContext(
   context: string,
   owner: PendingKnowledgeContextOwner,
 ): void {
-  pendingKnowledgeContext = { context, ...owner };
+	pendingKnowledgeContexts.set(pendingKnowledgeContextKey(owner), context);
 }
 
 export function clearPendingKnowledgeContext(
-  owner?: PendingKnowledgeContextOwner,
+  owner: PendingKnowledgeContextOwner,
 ): void {
-  if (
-    !owner ||
-    (pendingKnowledgeContext?.runId === owner.runId &&
-      pendingKnowledgeContext.conversationId === owner.conversationId)
-  ) {
-    pendingKnowledgeContext = null;
-  }
+	pendingKnowledgeContexts.delete(pendingKnowledgeContextKey(owner));
 }
 
-export function consumePendingKnowledgeContext(): string | null {
-  const pending = pendingKnowledgeContext;
-	pendingKnowledgeContext = null;
-  return pending?.context ?? null;
+export function consumePendingKnowledgeContext(
+  owner: PendingKnowledgeContextOwner,
+): string | null {
+	const key = pendingKnowledgeContextKey(owner);
+	const context = pendingKnowledgeContexts.get(key);
+	if (context === undefined) return null;
+	pendingKnowledgeContexts.delete(key);
+	return context;
 }
 
 // ============= Extension =============
@@ -146,7 +156,9 @@ async function listMarkdownFiles(
 
 export default function knowledgeBaseExtension(pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event) => {
-    const context = consumePendingKnowledgeContext();
+		const owner = pendingKnowledgeContextOwner.getStore();
+		if (!owner) return undefined;
+		const context = consumePendingKnowledgeContext(owner);
 		if (!context) return undefined;
 		return {
 			systemPrompt: `${event.systemPrompt}\n\n${context}`,

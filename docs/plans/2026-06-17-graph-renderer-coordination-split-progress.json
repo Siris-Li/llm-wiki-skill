@@ -362,7 +362,7 @@
               "evidence": "PASS: graph community wash interaction regression"
             },
             {
-              "command": "GRAPH_STAGE_4_5_CHROME_EXECUTABLE=/Users/kangjiaqi/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell bash tests/graph-browser-stage-4-5.regression-1.sh --target offline",
+              "command": "GRAPH_STAGE_4_5_CHROME_EXECUTABLE=/Users/example/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell bash tests/graph-browser-stage-4-5.regression-1.sh --target offline",
               "exit": 0,
               "evidence": "PASS: stage 4.5 browser regression (offline); dense wheel fps 60.1 using the same browser check with retained artifact JSON"
             }
@@ -720,7 +720,7 @@
               "evidence": "PASS: graph community wash interaction regression"
             },
             {
-              "command": "GRAPH_STAGE_4_5_CHROME_EXECUTABLE=/Users/kangjiaqi/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell bash /tmp/s45-followup-shell.sh --target offline",
+              "command": "GRAPH_STAGE_4_5_CHROME_EXECUTABLE=/Users/example/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell bash /tmp/s45-followup-shell.sh --target offline",
               "exit": 0,
               "evidence": "PASS: stage 4.5 browser regression (offline); retained artifact reports dense wheel fps 60.1 and idle fps 60.3, above fps floor 45 and above baseline*0.9 = 45.18"
             },

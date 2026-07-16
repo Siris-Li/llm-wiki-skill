@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, Files, Send, Square, X } from "lucide-react";
-import type { PageRef, UIMessage } from "@llm-wiki/workbench-contracts";
+import type { CommandItem, PageRef, UIMessage } from "@llm-wiki/workbench-contracts";
 
 import { CommandMenu } from "./CommandMenu";
 import { ExportButtons } from "./ExportButtons";
@@ -13,7 +13,7 @@ import {
 	inspectKnowledgeBasePath,
 	type InspectPathResult,
 } from "../lib/api/knowledge-bases";
-import { listCommands, type CommandItem } from "../lib/api/legacy";
+import { listCommands } from "../lib/api/commands";
 import { listRefs } from "../lib/api/pages";
 import { streamPrompt } from "../lib/api/prompt";
 import {
@@ -294,8 +294,8 @@ export function ChatPanel({
 			);
 		});
 		return [
-			...filtered.filter((item) => item.source === "builtin" && !item.skillPath),
-			...filtered.filter((item) => item.source === "builtin" && item.skillPath),
+			...filtered.filter((item) => item.source === "builtin" && !item.isProjectSkill),
+			...filtered.filter((item) => item.source === "builtin" && item.isProjectSkill),
 			...filtered.filter((item) => item.source === "pi-default"),
 			...filtered.filter((item) => item.source === "user-global"),
 		];
@@ -463,7 +463,13 @@ export function ChatPanel({
 						break;
 					case "assistant_error":
 						applyToolStatusEvent(assistantId, event);
-						setErrorMsg(event.message);
+						setMessages((prev) =>
+							prev.map((message) =>
+								message.id === assistantId ? { ...message, content: event.message } : message,
+							),
+						);
+						// The terminal message already renders the safe failure in the conversation.
+						setErrorMsg(null);
 						setStatus("error");
 						break;
 					default:

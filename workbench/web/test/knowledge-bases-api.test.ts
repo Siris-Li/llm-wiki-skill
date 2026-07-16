@@ -3,8 +3,11 @@ import assert from "node:assert/strict";
 
 import { ApiError, ContractMismatchError } from "../src/lib/api/client";
 import {
+	chooseDirectory,
 	clearActiveContext,
+	createKnowledgeBase,
 	getActiveContext,
+	initExistingKnowledgeBase,
 	inspectKnowledgeBasePath,
 	listKnowledgeBases,
 	registerExternalKnowledgeBase,
@@ -104,6 +107,57 @@ describe("knowledge bases / active context API module", () => {
 		});
 		assert.equal(calls[0]?.init?.method, "DELETE");
 		assert.deepEqual(requestBody(calls), { path: knowledgeBase.path });
+	});
+
+	it("创建、初始化和目录选择通过知识库领域 API 使用统一 envelope", async () => {
+		let calls = stubFetch({ ok: true, data: { info: knowledgeBase } });
+		assert.deepEqual(await createKnowledgeBase("research", "topic"), knowledgeBase);
+		assert.equal(calls[0]?.url, "/api/knowledge-bases/new");
+		assert.equal(calls[0]?.init?.method, "POST");
+		assert.deepEqual(requestBody(calls), { name: "research", purpose: "topic" });
+
+		calls = stubFetch({ ok: true, data: { info: knowledgeBase } });
+		assert.deepEqual(
+			await initExistingKnowledgeBase("/kb/candidate", "topic", true),
+			knowledgeBase,
+		);
+		assert.equal(calls[0]?.url, "/api/knowledge-bases/init-existing");
+		assert.equal(calls[0]?.init?.method, "POST");
+		assert.deepEqual(requestBody(calls), {
+			path: "/kb/candidate",
+			purpose: "topic",
+			overwrite: true,
+		});
+
+		calls = stubFetch({ ok: true, data: { path: null } });
+		assert.equal(await chooseDirectory(), null);
+		assert.equal(calls[0]?.url, "/api/system/choose-directory");
+		assert.equal(calls[0]?.init?.method, "POST");
+	});
+
+	it("初始化冲突保留稳定 code 和公开文件列表，旧成功格式会被拒绝", async () => {
+		stubFetch(
+			{
+				ok: false,
+				code: "CONFLICT",
+				message: "目标目录存在需要确认的文件",
+				details: { conflicts: ["index.md"] },
+			},
+			409,
+		);
+		await assert.rejects(
+			() => initExistingKnowledgeBase("/kb/candidate", "topic"),
+			(err) =>
+				err instanceof ApiError &&
+				err.code === "CONFLICT" &&
+				(err.details as { conflicts?: unknown[] })?.conflicts?.[0] === "index.md",
+		);
+
+		stubFetch({ ok: true, info: knowledgeBase });
+		await assert.rejects(
+			() => createKnowledgeBase("research", "topic"),
+			(err) => err instanceof ContractMismatchError,
+		);
 	});
 
 	it("clearActiveContext 校验响应，不再吞掉失败", async () => {
