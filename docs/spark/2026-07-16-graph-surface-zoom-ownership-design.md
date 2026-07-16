@@ -1,7 +1,7 @@
 # 图谱全区域缩放归属修复设计
 
-日期：2026-07-16  
-分支：`codex/fix-graph-cloud-zoom`  
+日期：2026-07-16
+分支：`codex/fix-graph-cloud-zoom`
 状态：已确认
 
 ## 背景
