@@ -259,8 +259,8 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
       activeNodeDragId: () => activeNodeDrag?.nodeId ?? null
     });
     sigmaWheelZoomController = bindSigmaWheelZoomController({
-      sigma,
-      root: sigmaRoot,
+      root: options.container,
+      viewportRoot: sigmaRoot,
       isDestroyed: () => destroyed,
       currentRatio: () => readCameraState(sigma)?.ratio ?? 1,
       onZoomAtPoint: (point, nextRatio) => zoomSigmaCameraAtViewportPoint(point, nextRatio, false),
@@ -273,6 +273,10 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     syncSigmaRootMetadata();
     overlayDomController.rebuild();
   } catch (error) {
+    destroyed = true;
+    generation += 1;
+    sigmaWheelZoomController?.destroy();
+    sigmaWheelZoomController = null;
     options.onFatalError?.(error);
     sigmaRoot.remove();
     throw error;
@@ -433,14 +437,14 @@ export function createSigmaGlobalRenderer(options: SigmaGlobalRendererCreateOpti
     },
     destroy() {
       if (destroyed) return;
-      cancelActiveViewTransition();
-      disposeCancelledViewTransitionGuard();
-      cancelNodeDrag();
-      clearSuppressedNodeClick();
       destroyed = true;
       generation += 1;
       sigmaWheelZoomController?.destroy();
       sigmaWheelZoomController = null;
+      cancelActiveViewTransition();
+      disposeCancelledViewTransitionGuard();
+      cancelNodeDrag();
+      clearSuppressedNodeClick();
       overlayDomController?.destroy();
       overlayDomController = null;
       unbindSigmaEvents();
