@@ -32,7 +32,7 @@ try {
 
   const nodeShortcutWheel = await assertShortcutWheelZoomsGraph(page, await visibleNodeCenter(page), "node", { ctrlKey: true });
   const blankShortcutWheel = await assertShortcutWheelZoomsGraph(page, await findBlankPoint(page), "blank graph", { metaKey: true });
-  const searchWheel = await assertShortcutWheelDoesNotZoomGraph(page, ".graph-search-input", "search input", { ctrlKey: true });
+  const searchWheel = await assertShortcutWheelBlocksPageZoomWithoutZoomingGraph(page, ".graph-search-input", "search input", { ctrlKey: true });
   const blankDrag = await assertBlankDragDoesNotSelectText(page);
   const cancellationBoundaries = await assertCancellationAndBlockerBoundaries(page);
   const fastReleaseDrag = await assertFastReleasePinsFinalPointerPosition(page);
@@ -109,7 +109,7 @@ async function assertModifiedMouseWheelZoomsGraph(page, point, label, options) {
   };
 }
 
-async function assertShortcutWheelDoesNotZoomGraph(page, selector, label, options) {
+async function assertShortcutWheelBlocksPageZoomWithoutZoomingGraph(page, selector, label, options) {
   const beforeMetrics = await pageMetrics(page);
   const beforeTransform = await layerTransform(page);
   const eventResult = await dispatchWheelOnSelector(page, selector, {
@@ -117,7 +117,7 @@ async function assertShortcutWheelDoesNotZoomGraph(page, selector, label, option
     ctrlKey: options.ctrlKey === true,
     metaKey: options.metaKey === true
   });
-  assert.equal(eventResult.cancelled, false, `shortcut wheel over ${label} should remain a blocker`);
+  assert.equal(eventResult.cancelled, true, `shortcut wheel over ${label} should block browser zoom`);
   await page.waitForTimeout(80);
   const afterTransform = await layerTransform(page);
   const afterMetrics = await pageMetrics(page);
