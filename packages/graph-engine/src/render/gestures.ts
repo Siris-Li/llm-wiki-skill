@@ -22,6 +22,7 @@ export type GraphGestureTargetOwnership = "graph-owned" | "graph-blocker";
 
 export interface GraphGestureTargetLike {
   closest?: (selector: string) => GraphGestureTargetLike | null;
+  parentElement?: GraphGestureTargetLike | null;
   dataset?: Record<string, string | undefined>;
   tagName?: string;
   type?: string;
@@ -63,6 +64,7 @@ export const GRAPH_GESTURE_SELECTORS = {
   textControl: "textarea, select, [contenteditable=\"true\"], [data-graph-text-control=\"true\"]",
   search: ".graph-search",
   toolbar: ".graph-toolbar",
+  zoomControls: ".graph-zoom-controls",
   legend: ".community-legend",
   drawer: ".graph-reader, .graph-selection-panel, [data-graph-drawer=\"true\"]",
   minimap: ".mini-map",
@@ -107,6 +109,17 @@ export interface GraphGestureControllerOptions {
   onGestureIntents: (intents: GraphGestureIntent[], event: PointerEvent | null) => void;
   onActiveStateChange?: (active: GraphGestureActiveState) => void;
   onBlankDoubleClick?: (event: MouseEvent) => void;
+}
+
+export interface GraphWheelControllerOptions {
+  capture?: boolean;
+  stopPropagation?: boolean;
+  isEnabled?: () => boolean;
+  targetFromEventTarget?: (target: EventTarget | null) => GraphGestureTargetLike | null;
+  graphTargetFromScreenPoint?: (screenPoint: { x: number; y: number }) => GraphGestureTarget;
+  screenPointFromEvent?: (event: WheelEvent) => { x: number; y: number };
+  onWheelZoom: (event: WheelEvent, decision: Extract<GraphWheelTargetDecision, { intent: "zoom" }>, screenPoint: { x: number; y: number }) => void;
+  onFatalError?: (error: unknown) => void;
 }
 
 export type GraphGestureActiveState =
@@ -162,6 +175,7 @@ export function classifyGraphEventTarget(target: GraphGestureTargetLike | null |
   if (isTextEditingTarget(target) || closest(target, GRAPH_GESTURE_SELECTORS.textControl)) return { kind: "text-control" };
   if (closest(target, GRAPH_GESTURE_SELECTORS.search)) return { kind: "search" };
   if (closest(target, GRAPH_GESTURE_SELECTORS.legend)) return { kind: "legend" };
+  if (closest(target, GRAPH_GESTURE_SELECTORS.zoomControls)) return { kind: "toolbar" };
   if (closest(target, GRAPH_GESTURE_SELECTORS.toolbar)) return { kind: "toolbar" };
   if (closest(target, GRAPH_GESTURE_SELECTORS.drawer)) return { kind: "drawer" };
   if (closest(target, GRAPH_GESTURE_SELECTORS.minimap)) return { kind: "minimap" };
@@ -433,10 +447,57 @@ export class GraphGestureStateMachine {
   }
 }
 
+export class GraphWheelController {
+  private readonly root: HTMLElement;
+  private readonly options: GraphWheelControllerOptions;
+  private destroyed = false;
+
+  constructor(root: HTMLElement, options: GraphWheelControllerOptions) {
+    this.root = root;
+    this.options = options;
+    this.root.addEventListener("wheel", this.handleWheel, {
+      capture: options.capture === true,
+      passive: false
+    });
+  }
+
+  destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.root.removeEventListener("wheel", this.handleWheel, this.options.capture === true);
+  }
+
+  private readonly handleWheel = (event: WheelEvent): void => {
+    if (this.destroyed || this.options.isEnabled?.() === false) return;
+    try {
+      const screenPoint = this.options.screenPointFromEvent?.(event) || rootClientPointToScreenPoint(
+        { x: event.clientX, y: event.clientY },
+        this.root.getBoundingClientRect()
+      );
+      const decision = classifyGraphWheelTargetFromGraphTarget(resolveGraphTargetForEvent(event.target, screenPoint, this.options), event);
+      if (decision.intent !== "zoom") {
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          if (this.options.stopPropagation) event.stopPropagation();
+        }
+        return;
+      }
+      event.preventDefault();
+      if (this.options.stopPropagation) event.stopPropagation();
+      this.options.onWheelZoom(event, decision, screenPoint);
+    } catch (error) {
+      if (!this.options.onFatalError) throw error;
+      this.options.onFatalError(error);
+    }
+  };
+
+}
+
 export class GraphGestureController {
   private readonly root: HTMLElement;
   private readonly options: GraphGestureControllerOptions;
   private readonly stateMachine: GraphGestureStateMachine;
+  private readonly wheelController: GraphWheelController;
   private lastBlankDoubleClick: { x: number; y: number; timeStamp: number } | null = null;
   private readonly recentPointerDownTargets: Array<{ x: number; y: number; timeStamp: number; target: GraphGestureTarget }> = [];
   private destroyed = false;
@@ -445,7 +506,11 @@ export class GraphGestureController {
     this.root = root;
     this.options = options;
     this.stateMachine = options.stateMachine || new GraphGestureStateMachine();
-    this.root.addEventListener("wheel", this.handleWheel, { passive: false });
+    this.wheelController = new GraphWheelController(root, {
+      targetFromEventTarget: options.targetFromEventTarget,
+      graphTargetFromScreenPoint: options.graphTargetFromScreenPoint,
+      onWheelZoom: options.onWheelZoom
+    });
     this.root.addEventListener("pointerdown", this.handlePointerDown);
     this.root.addEventListener("pointermove", this.handlePointerMove);
     this.root.addEventListener("pointerup", this.handlePointerUp);
@@ -458,7 +523,7 @@ export class GraphGestureController {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.root.removeEventListener("wheel", this.handleWheel);
+    this.wheelController.destroy();
     this.root.removeEventListener("pointerdown", this.handlePointerDown);
     this.root.removeEventListener("pointermove", this.handlePointerMove);
     this.root.removeEventListener("pointerup", this.handlePointerUp);
@@ -478,19 +543,11 @@ export class GraphGestureController {
     return intents;
   }
 
-  private readonly handleWheel = (event: WheelEvent): void => {
-    const screenPoint = this.screenPointFromMouseEvent(event);
-    const decision = classifyGraphWheelTargetFromGraphTarget(this.graphTargetForEvent(event.target, screenPoint), event);
-    if (decision.intent !== "zoom") return;
-    event.preventDefault();
-    this.options.onWheelZoom(event, decision, screenPoint);
-  };
-
   private readonly handlePointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return;
     const screenPoint = this.screenPointFromMouseEvent(event);
     const decision = classifyGraphPointerDownTargetFromGraphTarget(
-      this.graphTargetForEvent(event.target, screenPoint)
+      resolveGraphTargetForEvent(event.target, screenPoint, this.options)
     );
     if (decision.intent === "blocked") return;
     this.recordPointerDown(decision.target, screenPoint, event.timeStamp);
@@ -577,13 +634,6 @@ export class GraphGestureController {
     return this.options.targetFromEventTarget ? this.options.targetFromEventTarget(target) : target as GraphGestureTargetLike | null;
   }
 
-  private graphTargetForEvent(target: EventTarget | null, screenPoint: { x: number; y: number }): GraphGestureTarget {
-    const domTarget = classifyGraphEventTarget(this.eventTarget(target));
-    if (isGraphGestureBlockerTarget(domTarget)) return domTarget;
-    if (domTarget.kind === "aggregation-container") return domTarget;
-    return this.options.graphTargetFromScreenPoint?.(screenPoint) || domTarget;
-  }
-
   private pointerEventFromPointerEvent(event: PointerEvent): GraphPointerEventLike {
     return {
       pointerId: event.pointerId,
@@ -600,8 +650,23 @@ export class GraphGestureController {
   }
 }
 
+function resolveGraphTargetForEvent(
+  target: EventTarget | null,
+  screenPoint: { x: number; y: number },
+  options: Pick<GraphGestureControllerOptions, "targetFromEventTarget" | "graphTargetFromScreenPoint">
+): GraphGestureTarget {
+  const eventTarget = options.targetFromEventTarget
+    ? options.targetFromEventTarget(target)
+    : target as GraphGestureTargetLike | null;
+  const domTarget = classifyGraphEventTarget(eventTarget);
+  if (isGraphGestureBlockerTarget(domTarget)) return domTarget;
+  if (domTarget.kind === "aggregation-container") return domTarget;
+  return options.graphTargetFromScreenPoint?.(screenPoint) || domTarget;
+}
+
 function closest(target: GraphGestureTargetLike, selector: string): GraphGestureTargetLike | null {
-  return typeof target.closest === "function" ? target.closest(selector) : null;
+  if (typeof target.closest === "function") return target.closest(selector);
+  return typeof target.parentElement?.closest === "function" ? target.parentElement.closest(selector) : null;
 }
 
 function dataValue(target: GraphGestureTargetLike, ...keys: string[]): string | null {

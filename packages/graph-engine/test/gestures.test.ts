@@ -61,6 +61,7 @@ describe("graph gesture target classifier", () => {
     ]);
     assert.equal(GRAPH_GESTURE_SELECTORS.node, ".node");
     assert.equal(GRAPH_GESTURE_SELECTORS.communityWash, ".community-wash");
+    assert.equal(GRAPH_GESTURE_SELECTORS.zoomControls, ".graph-zoom-controls");
     assert.equal(GRAPH_GESTURE_SELECTORS.drawer, ".graph-reader, .graph-selection-panel, [data-graph-drawer=\"true\"]");
   });
 
@@ -103,6 +104,7 @@ describe("graph gesture target classifier", () => {
 
     assert.deepEqual(classifyGraphEventTarget(controlTarget(".mini-map")), { kind: "minimap" });
     assert.deepEqual(classifyGraphEventTarget(controlTarget(".graph-toolbar")), { kind: "toolbar" });
+    assert.deepEqual(classifyGraphEventTarget(controlTarget(".graph-zoom-controls")), { kind: "toolbar" });
     assert.deepEqual(classifyGraphEventTarget(controlTarget(".graph-search")), { kind: "search" });
     assert.deepEqual(classifyGraphEventTarget(controlTarget(".community-legend")), { kind: "legend" });
     assert.deepEqual(classifyGraphEventTarget(controlTarget(".graph-reader, .graph-selection-panel, [data-graph-drawer=\"true\"]")), { kind: "drawer" });
@@ -139,6 +141,7 @@ describe("graph gesture target classifier", () => {
     for (const target of [
       controlTarget(".graph-search"),
       controlTarget(".graph-toolbar"),
+      controlTarget(".graph-zoom-controls"),
       controlTarget(".community-legend"),
       controlTarget(".graph-reader, .graph-selection-panel, [data-graph-drawer=\"true\"]"),
       controlTarget(".mini-map"),
@@ -365,7 +368,7 @@ describe("graph gesture controller", () => {
     assert.deepEqual(zoomed, [{ target: "node", deltaY: 24 }]);
   });
 
-  it("prevents browser default zoom for shortcut wheels over graph-owned targets", () => {
+  it("prevents browser default zoom for shortcut wheels over graph-owned targets and graph controls", () => {
     const root = new FakeGestureRoot();
     const zoomed: Array<{ target: string; ctrlKey: boolean; metaKey: boolean }> = [];
     const controller = new GraphGestureController(root as unknown as HTMLElement, {
@@ -387,7 +390,11 @@ describe("graph gesture controller", () => {
 
     const searchWheel = wheelDomEvent(controlTarget(".graph-search"), -8, { ctrlKey: true });
     root.dispatch("wheel", searchWheel);
-    assert.equal(searchWheel.defaultPrevented, false);
+    assert.equal(searchWheel.defaultPrevented, true);
+
+    const searchScroll = wheelDomEvent(controlTarget(".graph-search"), 8);
+    root.dispatch("wheel", searchScroll);
+    assert.equal(searchScroll.defaultPrevented, false);
 
     assert.deepEqual(zoomed, [
       { target: "node", ctrlKey: true, metaKey: false },

@@ -212,17 +212,17 @@ HOME="$tmp_dir/home" LLM_WIKI_AGENT_DISABLE_HMR=1 LLM_WIKI_AGENT_API_ORIGIN="htt
 web_pid="$!"
 
 for _ in $(seq 1 120); do
-    if curl -fsS "http://127.0.0.1:$server_port/api/knowledge-bases" >/dev/null 2>&1 \
+    if curl -fsS "http://127.0.0.1:$server_port/api/health" >/dev/null 2>&1 \
         && curl -fsS "http://127.0.0.1:$web_port" >/dev/null 2>&1; then
         break
     fi
     sleep 0.25
 done
 
-curl -fsS "http://127.0.0.1:$server_port/api/knowledge-bases" >/dev/null 2>&1 \
-    || fail "workbench server did not start; see $tmp_dir/server.log"
+curl -fsS "http://127.0.0.1:$server_port/api/health" >/dev/null 2>&1 \
+    || { dump_dev_logs; fail "workbench server did not start"; }
 curl -fsS "http://127.0.0.1:$web_port" >/dev/null 2>&1 \
-    || fail "workbench web did not start; see $tmp_dir/web.log"
+    || { dump_dev_logs; fail "workbench web did not start"; }
 
 artifact_dir="$tmp_dir/artifacts"
 mkdir -p "$artifact_dir"

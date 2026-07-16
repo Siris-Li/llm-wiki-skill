@@ -1,18 +1,17 @@
 import type { GraphScreenPoint } from "./geometry";
-import { preventSigmaDefault } from "./sigma-events";
-import type { SigmaGlobalSigmaLike } from "./sigma-global-types";
+import { GraphWheelController } from "./gestures";
 import { sigmaWheelZoomRatio, type SigmaWheelDeltaLike } from "./sigma-zoom";
 
 interface SigmaGlobalWheelPayload {
-  x?: unknown;
-  y?: unknown;
-  delta?: unknown;
-  original?: {
-    deltaY?: unknown;
-    deltaMode?: unknown;
-    target?: unknown;
-  };
-  preventSigmaDefault?: () => void;
+  clientX?: unknown;
+  clientY?: unknown;
+  ctrlKey?: unknown;
+  metaKey?: unknown;
+  deltaY?: unknown;
+  deltaMode?: unknown;
+  target?: unknown;
+  preventDefault?: () => void;
+  stopPropagation?: () => void;
 }
 
 export interface SigmaWheelZoomController {
@@ -20,8 +19,8 @@ export interface SigmaWheelZoomController {
 }
 
 export interface SigmaWheelZoomControllerInput {
-  sigma: SigmaGlobalSigmaLike;
   root: HTMLElement;
+  viewportRoot: HTMLElement;
   isDestroyed: () => boolean;
   currentRatio: () => number;
   onZoomAtPoint: (point: GraphScreenPoint, nextRatio: number) => void;
@@ -29,66 +28,50 @@ export interface SigmaWheelZoomControllerInput {
 }
 
 export function bindSigmaWheelZoomController(input: SigmaWheelZoomControllerInput): SigmaWheelZoomController {
-  const captor = input.sigma.getMouseCaptor?.();
-  if (!captor?.on) return { destroy: () => undefined };
-  const listener = (payload?: unknown): void => {
-    if (input.isDestroyed()) return;
-    try {
-      const wheel = sigmaWheelInputFromPayload(payload, sigmaViewportCenter(input.root));
+  const controller = new GraphWheelController(input.root, {
+    capture: true,
+    stopPropagation: true,
+    isEnabled: () => !input.isDestroyed(),
+    screenPointFromEvent: (event) => sigmaWheelInputFromPayload(event, input.viewportRoot)?.point || sigmaViewportCenter(input.viewportRoot),
+    onWheelZoom: (event, _decision, point) => {
+      const wheel = sigmaWheelInputFromPayload(event, input.viewportRoot);
       if (!wheel) return;
-      preventSigmaDefault(payload);
-      if (sigmaWheelTargetIsZoomControl(payload)) return;
       const nextRatio = sigmaWheelZoomRatio(input.currentRatio(), wheel.delta);
-      input.onZoomAtPoint(wheel.point, nextRatio);
-    } catch (error) {
-      input.onFatalError?.(error);
-    }
-  };
-  captor.on("wheel", listener);
+      input.onZoomAtPoint(point, nextRatio);
+    },
+    onFatalError: input.onFatalError
+  });
   return {
     destroy() {
-      captor.off?.("wheel", listener);
+      controller.destroy();
     }
   };
 }
 
-export function sigmaWheelInputFromPayload(payload: unknown, fallbackPoint: GraphScreenPoint): {
+export function sigmaWheelInputFromPayload(payload: unknown, viewportRoot: HTMLElement): {
   point: GraphScreenPoint;
   delta: SigmaWheelDeltaLike;
 } | null {
   const wheel = payload as SigmaGlobalWheelPayload | null;
-  const originalDeltaY = wheel?.original?.deltaY;
-  const fallbackDelta = wheel?.delta;
-  const deltaY = typeof originalDeltaY === "number"
-    ? originalDeltaY
-    : typeof fallbackDelta === "number"
-      ? -fallbackDelta * 120
-      : null;
+  const deltaY = typeof wheel?.deltaY === "number" ? wheel.deltaY : null;
   if (deltaY == null || !Number.isFinite(deltaY)) return null;
 
-  const x = finiteNumber(wheel?.x, Number.NaN);
-  const y = finiteNumber(wheel?.y, Number.NaN);
-  const point = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : fallbackPoint;
-  const originalDeltaMode = wheel?.original?.deltaMode;
+  const rect = typeof viewportRoot.getBoundingClientRect === "function" ? viewportRoot.getBoundingClientRect() : null;
+  const clientX = finiteNumber(wheel?.clientX, Number.NaN);
+  const clientY = finiteNumber(wheel?.clientY, Number.NaN);
+  const point = Number.isFinite(clientX) && Number.isFinite(clientY)
+    ? {
+        x: clientX - finiteNumber(rect?.left, 0),
+        y: clientY - finiteNumber(rect?.top, 0)
+      }
+    : sigmaViewportCenter(viewportRoot);
   return {
     point,
     delta: {
       deltaY,
-      deltaMode: typeof originalDeltaMode === "number" ? originalDeltaMode : 0
+      deltaMode: typeof wheel?.deltaMode === "number" ? wheel.deltaMode : 0
     }
   };
-}
-
-export function sigmaWheelTargetIsZoomControl(payload: unknown): boolean {
-  const wheel = payload as SigmaGlobalWheelPayload | null;
-  const target = wheel?.original?.target as {
-    closest?: (selector: string) => unknown;
-    parentElement?: { closest?: (selector: string) => unknown };
-  } | null | undefined;
-  return Boolean(
-    target?.closest?.("[data-control=\"sigma-zoom\"]") ||
-    target?.parentElement?.closest?.("[data-control=\"sigma-zoom\"]")
-  );
 }
 
 export function sigmaViewportCenter(root: HTMLElement): GraphScreenPoint {

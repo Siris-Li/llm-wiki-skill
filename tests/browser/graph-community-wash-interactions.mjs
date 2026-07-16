@@ -25,6 +25,7 @@ try {
   assert.equal(initial.aggregationButtonCount, 0, "Sigma global should not expose aggregation buttons");
 
   const communityId = await firstCommunityRegionId(page);
+  const zoomOwnership = await assertCommunityRegionOwnsWheel(page, communityId);
   const regionPoint = await findCommunityRegionPoint(page, communityId);
   await page.mouse.click(regionPoint.x, regionPoint.y);
   await waitForCommunitySelection(page, communityId);
@@ -32,6 +33,11 @@ try {
   assert.equal(selected.focus, "", "clicking a community region should not enter a DOM community route");
   assert.equal(selected.selectedCommunityId, communityId, "clicking a community region should select that community");
   assert.equal(selected.oldDomNodeCount, 0, "community selection should keep the Sigma global route mounted");
+
+  // The zoom ownership check deliberately changes the camera. Restart the legacy
+  // click checks from the fixture's ordinary view so their node coordinates stay visible.
+  await page.reload();
+  await waitForSigmaGlobal(page);
 
   await setSearchQuery(page, "节点A");
   await page.waitForSelector('.sigma-global-node-hit-target[data-node-id="A"]');
@@ -53,6 +59,7 @@ try {
   console.log(JSON.stringify({
     communityId,
     initial,
+    zoomOwnership,
     regionPoint,
     selected,
     nodeSelected,
@@ -132,6 +139,98 @@ async function findCommunityRegionPoint(page, communityId) {
       height: rect.height
     })}`);
   }, communityId);
+}
+
+async function assertCommunityRegionOwnsWheel(page, communityId) {
+  const point = await findCommunityRegionPoint(page, communityId);
+  const before = await communityRegionGeometry(page, communityId);
+  const beforeMetrics = await browserPageMetrics(page);
+  const wheel = await page.evaluate(({ point, communityId }) => {
+    const target = document.elementFromPoint(point.x, point.y);
+    if (!(target instanceof Element)) throw new Error(`Missing wheel target at ${JSON.stringify(point)}`);
+    const event = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      clientX: point.x,
+      clientY: point.y,
+      deltaY: -80,
+      deltaMode: 0,
+      ctrlKey: true
+    });
+    const dispatchResult = target.dispatchEvent(event);
+    return {
+      cancelled: !dispatchResult,
+      defaultPrevented: event.defaultPrevented,
+      communityId: target.closest(".sigma-global-community-region")?.getAttribute("data-community-id") || "",
+      expectedCommunityId: communityId,
+      targetClass: target.getAttribute("class") || ""
+    };
+  }, { point, communityId });
+  assert.equal(wheel.communityId, communityId, "offline wheel should start on the exposed community background");
+  assert.equal(wheel.cancelled, true, "offline community background should cancel browser zoom");
+  assert.equal(wheel.defaultPrevented, true, "offline community background should prevent browser default");
+
+  const after = await waitForCommunityRegionGeometryChange(page, communityId, before);
+  const afterMetrics = await browserPageMetrics(page);
+  assert.deepEqual(afterMetrics, beforeMetrics, "offline community wheel should not change browser page metrics");
+
+  const trustedPoint = await findCommunityRegionPoint(page, communityId);
+  const beforeTrusted = await communityRegionGeometry(page, communityId);
+  await page.mouse.move(trustedPoint.x, trustedPoint.y);
+  await page.mouse.wheel(0, -48);
+  const afterTrusted = await waitForCommunityRegionGeometryChange(page, communityId, beforeTrusted);
+  const trustedMetrics = await browserPageMetrics(page);
+  assert.deepEqual(trustedMetrics, beforeMetrics, "trusted offline community wheel should stay inside the graph");
+
+  return {
+    point,
+    wheel,
+    before,
+    after,
+    trustedPoint,
+    beforeTrusted,
+    afterTrusted,
+    beforeMetrics,
+    afterMetrics,
+    trustedMetrics
+  };
+}
+
+async function communityRegionGeometry(page, communityId) {
+  return page.evaluate((communityId) => {
+    const region = document.querySelector(`.sigma-global-community-region[data-community-id="${CSS.escape(communityId)}"]`);
+    if (!(region instanceof Element)) throw new Error(`Missing Sigma community region ${communityId}`);
+    const rect = region.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      diagonal: Math.hypot(rect.width, rect.height)
+    };
+  }, communityId);
+}
+
+async function waitForCommunityRegionGeometryChange(page, communityId, before) {
+  await page.waitForFunction(({ communityId, diagonal }) => {
+    const region = document.querySelector(`.sigma-global-community-region[data-community-id="${CSS.escape(communityId)}"]`);
+    if (!(region instanceof Element)) return false;
+    const rect = region.getBoundingClientRect();
+    return Math.abs(Math.hypot(rect.width, rect.height) - diagonal) > Math.max(1, diagonal * 0.01);
+  }, { communityId, diagonal: before.diagonal }, { timeout: 3000 });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  return communityRegionGeometry(page, communityId);
+}
+
+async function browserPageMetrics(page) {
+  return page.evaluate(() => ({
+    devicePixelRatio: window.devicePixelRatio,
+    visualViewportScale: window.visualViewport?.scale || 1,
+    clientWidth: document.documentElement.clientWidth,
+    clientHeight: document.documentElement.clientHeight,
+    scrollX: window.scrollX,
+    scrollY: window.scrollY
+  }));
 }
 
 async function communityLabelCenter(page, communityId) {
