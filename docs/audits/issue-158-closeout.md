@@ -110,4 +110,96 @@ PR #210 合并后的两轮真实进程复审共确认 4 个阻塞问题，编号
 
 ## 6. 最终验收与关闭记录
 
-尚未开始。#200 固定最终候选并完成全部同版本验收后，由 #201 在此追加每个稳定编号的处理结果、最终证据和关闭判断。
+#200 已完成最终候选固定和全部同版本验收；#201 的最终封存尚未开始，后续由 #201 在此追加每个稳定编号的处理结果、最终证据和关闭判断。
+
+### 6.1 #200 最终候选固定记录
+
+2026-07-16，#200 开工前先从远端读取 `main`，得到 `f78d7efbcc8aeffafe18ea25c75a46fb99cbec66`。当时唯一未合并请求为 Skill 范围的 #242，不涉及 #158 工作台 HTTP/路由契约；用户随后明确确认近期没有 #158 相关待合并请求，并同意固定候选。因此：
+
+- `FINAL_CANDIDATE_SHA = f78d7efbcc8aeffafe18ea25c75a46fb99cbec66`；
+- #263 的 Skill companion 改动已经包含在该提交中，但不作为本次工作台验收对象；
+- 验收分支为 `verify/200-final-candidate-acceptance`，从该提交直接创建；
+- 在本地检查、Mac 实操、真实模型验收及证据整理后的各次回读中，`origin/main` 始终保持该提交；
+- 固定后没有改动产品程序、配置或正式检查方式；本分支只追加本节候选验收证据。
+
+本轮没有发现新的产品问题，`FIND-*` 仍为 FIND-001 至 FIND-014，没有新增晚发现编号；初次报告未改写，其 SHA-256 复核仍为 `73491fa9cbeb02503e27f6e99436b0e89d0ab19937025c3cdd58f2f91501b811`。
+
+### 6.2 固定环境清单
+
+| 项目 | 最终候选验收环境 |
+| --- | --- |
+| 本机系统 | macOS 26.3.1（build `25D771280a`），Apple Silicon `arm64` |
+| 线上系统 | GitHub Actions `ubuntu-24.04`，runner image `ubuntu24/20260714.240`；两项检查各用独立一次性环境 |
+| Node / npm | Node `22.19.0`（严格按 `.nvmrc`），npm `10.9.8`；本机使用一次性 Node 22.19.0 环境执行，不使用机器默认版本代替 |
+| 依赖锁 | `package-lock.json` SHA-256 `428d96688e033dc3fac288af8a0a39ffcff851681c72d31a969180c4e9e4d331`；本机与线上均先执行 `npm ci` |
+| 浏览器 | 本机系统文件夹选择：Google Chrome `150.0.7871.115`；浏览器自动验收与真实模型页面：Playwright `1.61.0` 的 Chrome for Testing `149.0.7827.55`（Chromium revision `1228`） |
+| 检查命令 | `npm ci`；`npm run quality-and-tests`；线上 `node workbench/scripts/run-browser-main-flows-ci.mjs browser-tests` |
+| 自动测试数据 | 临时 HOME；`atlas-notes`、`harbor-notes` 两个虚构知识库；虚构页面、图谱、对话、产出物、认证和模型替身；外部网络被阻止 |
+| Mac 实操数据 | 空的临时文件夹，只验证系统选择成功及路径回填；没有初始化或登记 |
+| 真实模型数据 | 临时知识库，只含虚构最小内容；页面发送无敏感最小问题；不在报告中保存问题或答复正文 |
+
+### 6.3 两项 GitHub 必过检查与本地双绿
+
+两项权威运行都来自最终候选 SHA 的 `main` push，不是旧提交或手动重跑：
+
+| 检查 | 运行记录 | 时间（UTC） | 结果 |
+| --- | --- | --- | --- |
+| `quality-and-tests` | [run 29468513890](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29468513890) | 2026-07-16T03:14:34Z 开始，03:17:43Z 作业完成 | 成功 |
+| `browser-main-flows` | [run 29468513863](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29468513863) | 2026-07-16T03:14:34Z 开始，03:15:56Z 作业完成 | 成功 |
+
+本机在同一候选提交上使用 Node 22.19.0 先执行 `npm ci`，随后执行与线上相同的 `npm run quality-and-tests`，退出状态为 0，最终输出 `all checks passed`。这与上表的线上 `quality-and-tests` 构成本地和 GitHub 双绿证据。
+
+`browser-main-flows` 的线上日志进一步确认：
+
+- 当前启动和重启都产生新的隔离防护证据，2 项进程防护测试全部成功；
+- 真实前台、真实 HTTP/SSE、真实后台与 Playwright 之间的七类旅程全部成功，覆盖知识库、对话、页面、图谱、消息、产出物、设置与模型；
+- 作业使用虚构数据和临时 HOME，正式浏览器旅程 1 项成功、0 失败，结束时输出 `all journeys passed`；
+- 线上 Linux 一次性环境是“真实进程隔离 + 七类旅程”的权威证据，本机 macOS 未重复运行整套 Linux 隔离旅程。
+
+以上证据补齐 FIND-006、FIND-007、FIND-009 所等待的最终同版本关卡，并为 REQ-026、REQ-032、REQ-035、REQ-036、REQ-040 至 REQ-042、REQ-048、REQ-052 及 EP-001 至 EP-034 提供最终候选复验证据；每行最终关闭结论仍由 #201 统一封存。
+
+### 6.4 主线保护实际拦截证据
+
+2026-07-16 从 GitHub 分支保护接口重新读取 `main`，实际生效规则为：
+
+- 必过检查只有 `quality-and-tests` 与 `browser-main-flows`，均绑定 GitHub Actions app id `15368`；
+- `strict = true`，候选分支必须基于最新主线；
+- `enforce_admins = true`，管理员不能绕过；
+- 必须通过合并请求进入主线，`required_pull_request_reviews` 已启用；当前不额外要求批准票数（`required_approving_review_count = 0`）；
+- 必须解决讨论，禁止强推和删除受保护主线。
+
+真实拦截使用 [PR #228](https://github.com/sdyckjq-lab/llm-wiki-skill/pull/228) 的历史：提交 `ad58b4a2cb9a0ca18aa276f466dd54258adb2b7b` 上 `browser-main-flows` [run 29234490297](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29234490297) 失败时，请求保持未合并，并明确记录“应保持未合并”；修复进入主线并同步后，最新提交 `7773a204529e59f0847ef74a6bbafae138f94e32` 的 [browser-main-flows run 29248599663](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29248599663) 与 [quality-and-tests run 29248599645](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29248599645) 同时成功，请求才由 `BLOCKED` 变为 `CLEAN` 并合并；[最终合并记录](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/196#issuecomment-4957880066) 固定了这一状态变化。
+
+后续主线冷环境曾在正式浏览器测试开始前因依赖安装耗尽时限而失败，[#235](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/235) 保留了 [run 29248894869](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29248894869)；[PR #262](https://github.com/sdyckjq-lab/llm-wiki-skill/pull/262) 修复检查时限与诊断边界后，两项必过检查在其最新提交同时成功并才获合并。最终候选上的两项新主线运行又同时成功，因此没有用过期成功或自动重跑替代当前证据。
+
+### 6.5 Mac 系统文件夹选择实操
+
+2026-07-16T13:31+08:00，在最终候选的隔离本机实例中，由用户本人通过 Chrome 打开“添加现有库”，点击“选择文件夹”，在 macOS 系统窗口中选择临时文件夹。系统窗口成功返回，页面输入框自动显示所选目录，并进入“不是知识库，可初始化”的正常检查状态。用户按要求没有继续初始化或登记；截图不进入仓库，临时实例和文件夹随后已清理。
+
+取消与不支持平台路径由 `workbench/server/src/knowledge-base-routes.test.ts` 的请求测试覆盖；该测试同时进入本机与 GitHub 的 `quality-and-tests`，两处均成功。因此 EP-034、REQ-021、REQ-035、REQ-041 的 Mac 成功路径和自动错误路径均有最终候选证据。
+
+### 6.6 最终真实模型验收与凭证红线
+
+用户在 2026-07-16 明确回复“授权执行 F，一次真实请求”后才开始本项。结果如下：
+
+| 项目 | 结果 |
+| --- | --- |
+| 时间 | 2026-07-16T06:10:08Z 至 06:10:10Z |
+| 服务商 / 模型 | `deepseek` / `deepseek-v4-flash` |
+| 实际发往模型服务的请求 | 尝试 1 次、实际送达 1 次；第二次请求硬上限未触发；未自动重试 |
+| 页面主流程 | 从页面发送无敏感最小问题；收到唯一 `assistant_done`；页面显示完整非空答复 |
+| 刷新持久化 | 使用同一对话刷新，完整答复仍在，对话 id 未变化 |
+| 凭证载入 | 真实 `auth.json` 只载入认证存储 1 次；只保留在内存，不复制到临时 HOME、日志或报告 |
+| 凭证完整性 | 前后权限均为 `0600`；前后内容校验与文件身份、大小、修改时间比较一致 |
+| 内存释放 | 认证覆盖先清除，后台正常退出；承载凭证的进程结束，内存凭证随进程释放 |
+| 临时资料 | 临时知识库、应用资料和验收脚本均已删除；本机端口已释放 |
+
+页面验收第一次读取原始 SSE 文本时，Playwright 对中文增量使用了错误编码；该检查已经在确认唯一 `assistant_done`、非空答复和页面正确显示之后才因字符串比较停下。没有重发模型请求，而是只重新打开并刷新已保存对话，完成显示和持久化复核。该现象不影响工作台页面显示、事件结束或会话保存，也没有形成新的产品发现。
+
+私密安全证据登记为 `SEC-158-001`，仅保存结果和请求次数，不含凭证、内容校验值、问题正文或答复正文。它位于仓库外的审查目录，目录权限 `0700`、文件权限 `0600`；暂定清理日期为 2026-08-15，若 #158 晚于 2026-07-16 关闭，则 #201 必须把日期顺延到关闭后 30 天。
+
+### 6.7 #200 退出判断与 #201 移交
+
+#200 的退出关卡已全部满足：候选版本固定且主线未移动；两项 GitHub 必过检查来自该候选并成功；本机与 GitHub 的统一质量检查双绿；真实进程隔离和七类旅程成功；主线保护有真实先阻止、后放行记录；Mac 文件夹选择成功；真实模型只发送一次且页面、结束事件、刷新保存与凭证完整性均通过；初次报告未改写。
+
+本节是“候选版本验收证据”，移交给 #201 完成 REQ-001 至 REQ-053、EP-001 至 EP-034、FIND-001 至 FIND-014 的逐项最终状态、#165 至 #176 的最终验收记录，以及 #201、#190、#158 的封存与关闭顺序。#200 的证据请求只使用 `Refs #200`，不关闭 #200，也不代替 #201；本任务不主动合并。
