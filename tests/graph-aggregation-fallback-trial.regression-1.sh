@@ -42,5 +42,5 @@ GRAPH_AGGREGATION_TRIAL_ARTIFACT_DIR="$artifact_dir" \
 GRAPH_AGGREGATION_TRIAL_CHROME_EXECUTABLE="$chrome_executable" \
 node --import tsx tests/browser/graph-aggregation-fallback-trial.ts
 
-node tests/browser/validate-graph-trial-result.mjs "$artifact_dir/aggregation-fallback-trial-results.json"
+node --import tsx tests/browser/validate-graph-trial-result.mjs "$artifact_dir/aggregation-fallback-trial-results.json"
 echo "PASS: aggregation fallback performance trial ($artifact_dir/aggregation-fallback-trial-results.json)"

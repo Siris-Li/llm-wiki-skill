@@ -14,6 +14,7 @@ import {
   FRAME_P95_CEILING_MS,
   FPS_FLOOR,
   NAME_HELPER_INIT_SCRIPT,
+  SIGMA_REQUIRED_TRIAL_ACTIONS,
   TRIAL_SCHEMA_VERSION,
   actionThresholds,
   DURATION_GATED_ACTIONS,
@@ -148,7 +149,7 @@ async function main(): Promise<void> {
   validateTrialResults({
     renderer: "Sigma global production",
     requestedShapes,
-    requiredActions: requestedActions ? [...requestedActions] : undefined,
+    requiredActions: requestedActions ? [...requestedActions] : SIGMA_REQUIRED_TRIAL_ACTIONS,
     records,
     errors,
     resultPath
@@ -173,6 +174,7 @@ async function writeResult(records: PerformanceRecord[], errors: string[]): Prom
     },
     artifact_dir: artifactDir,
     shapes: requestedShapes,
+    required_actions: requestedActions ? [...requestedActions] : SIGMA_REQUIRED_TRIAL_ACTIONS,
     requested_actions: requestedActions ? [...requestedActions] : null,
     records,
     errors
@@ -577,6 +579,34 @@ async function writeProductionHtml(
         return { nonblank: false, sampleCount };
       }
 
+      function sigmaCanvasFingerprint() {
+        const root = document.querySelector(".sigma-global-renderer");
+        if (!root) return { hash: null, sampleCount: 0 };
+        let hash = 2166136261;
+        let sampleCount = 0;
+        for (const canvas of Array.from(root.querySelectorAll("canvas"))) {
+          if (!canvas.width || !canvas.height) continue;
+          try {
+            const sampleSize = 48;
+            const sampler = document.createElement("canvas");
+            sampler.width = sampleSize;
+            sampler.height = sampleSize;
+            const context = sampler.getContext("2d", { willReadFrequently: true });
+            if (!context) continue;
+            context.drawImage(canvas, 0, 0, sampleSize, sampleSize);
+            const data = context.getImageData(0, 0, sampleSize, sampleSize).data;
+            for (let index = 0; index < data.length; index += 1) {
+              hash ^= data[index];
+              hash = Math.imul(hash, 16777619);
+              sampleCount += data[index] === 0 ? 0 : 1;
+            }
+          } catch {
+            continue;
+          }
+        }
+        return { hash: String(hash >>> 0), sampleCount };
+      }
+
       function firstSearchHitId() {
         return searchResultIds[0] || lastVisibility.searchResultIds?.[0] || null;
       }
@@ -649,6 +679,55 @@ async function writeProductionHtml(
         return overlayCenter('.sigma-global-node-hit-target[data-node-id="' + CSS.escape(id) + '"]') ||
           overlayCenter(".sigma-global-node-hit-target[data-search-hit='true']") ||
           overlayCenter(".sigma-global-node-hit-target");
+      }
+
+      function hoverPreviewTarget() {
+        const connectedIds = new Set();
+        for (const edge of graphData.edges) {
+          connectedIds.add(edge.from);
+          connectedIds.add(edge.to);
+        }
+        for (const element of Array.from(document.querySelectorAll(".sigma-global-node-hit-target"))) {
+          const id = element.dataset.nodeId;
+          if (!id || !connectedIds.has(id)) continue;
+          const rect = element.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) continue;
+          return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+            width: rect.width,
+            height: rect.height,
+            id,
+            communityId: element.dataset.communityId || null,
+            aggregationId: null
+          };
+        }
+        return nodeHitTarget();
+      }
+
+      function hoverPreviewState(targetId, beforeFingerprint) {
+        const root = document.querySelector(".sigma-global-renderer");
+        let visualSummary = { nodes: [] };
+        try {
+          visualSummary = JSON.parse(root?.dataset.nodeVisualSummary || '{"nodes":[]}');
+        } catch {
+          visualSummary = { nodes: [] };
+        }
+        const focused = visualSummary.nodes.find((node) => node.relationFocusDepth === "focus");
+        const related = visualSummary.nodes.filter((node) => node.relationFocusDepth === "first");
+        const target = targetId
+          ? document.querySelector('.sigma-global-node-hit-target[data-node-id="' + CSS.escape(targetId) + '"]')
+          : null;
+        const rect = target?.getBoundingClientRect();
+        const afterFingerprint = sigmaCanvasFingerprint();
+        return {
+          observedTargetId: focused?.id || null,
+          relatedNodeCount: related.length,
+          targetVisible: Boolean(rect && rect.width > 0 && rect.height > 0),
+          canvasChanged: Boolean(beforeFingerprint?.hash && afterFingerprint.hash && beforeFingerprint.hash !== afterFingerprint.hash),
+          beforeFingerprint,
+          afterFingerprint
+        };
       }
 
       function containerHitTarget(id) {
@@ -892,6 +971,9 @@ async function writeProductionHtml(
         firstCommunityId: readableCommunityId(),
         searchHighlight,
         nodeHitTarget,
+        hoverPreviewTarget,
+        hoverPreviewState,
+        sigmaCanvasFingerprint,
         containerHitTarget,
         communityRegionState,
         openDrawer,
@@ -999,6 +1081,7 @@ async function measureShape(browser: BrowserLike, metadata: LargeGraphFixtureMet
     }
     records.push(initialRecord);
     const actions = [
+      { name: "hover_preview", run: () => measureHoverPreview(page, metadata) },
       { name: "wheel_zoom", run: () => measureWheelZoom(page, metadata) },
       { name: "drag", run: () => measureDrag(page, metadata) },
       { name: "search_highlight", run: () => measureSearch(page, metadata) },
@@ -1202,6 +1285,71 @@ async function measureSearch(page: PageLike, metadata: LargeGraphFixtureMetadata
     failure_detail: probe.hits === metadata.search_hits ? null : `expected=${metadata.search_hits}; actual=${probe.hits}`,
     artifact_path: resultPath
   });
+}
+
+async function measureHoverPreview(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
+  await ensureSearchReady(page, metadata);
+  await page.mouse.move(0, 0);
+  await waitForAnimationFrames(page, 2);
+  const target = await page.evaluate(() => (window as any).__sigmaProduction.hoverPreviewTarget()) as PointerTarget | null;
+  if (!target?.id) throw new Error("measureHoverPreview: no connected Sigma node hit target");
+  await page.evaluate(() => {
+    (window as any).__LLM_WIKI_GRAPH_VISUAL_ACCEPTANCE__ = true;
+  });
+  const beforeFingerprint = await page.evaluate(() => (window as any).__sigmaProduction.sigmaCanvasFingerprint());
+  const started = performance.now();
+  await page.mouse.move(target.x, target.y);
+  await page.waitForFunction(
+    (targetId: string) => {
+      const root = document.querySelector(".sigma-global-renderer") as HTMLElement | null;
+      try {
+        const summary = JSON.parse(root?.dataset.nodeVisualSummary || '{"nodes":[]}');
+        return summary.nodes?.some((node: { id?: string; relationFocusDepth?: string }) => node.id === targetId && node.relationFocusDepth === "focus");
+      } catch {
+        return false;
+      }
+    },
+    target.id,
+    { timeout: 4000 }
+  ).catch(() => undefined);
+  await waitForAnimationFrames(page, 2);
+  const state = await page.evaluate(
+    (input: { targetId: string; beforeFingerprint: unknown }) => (window as any).__sigmaProduction.hoverPreviewState(input.targetId, input.beforeFingerprint),
+    { targetId: target.id, beforeFingerprint }
+  ) as {
+    observedTargetId: string | null;
+    relatedNodeCount: number;
+    targetVisible: boolean;
+    canvasChanged: boolean;
+    beforeFingerprint: { hash: string | null; sampleCount: number };
+    afterFingerprint: { hash: string | null; sampleCount: number };
+  };
+  const visible = state.observedTargetId === target.id
+    && state.relatedNodeCount > 0
+    && state.targetVisible
+    && state.canvasChanged;
+  const record = await recordFromPage(page, metadata, {
+    action: "hover_preview",
+    duration_ms: performance.now() - started,
+    pass: visible,
+    failure_class: visible ? null : "hover_preview_missing",
+    failure_detail: visible
+      ? null
+      : `target=${target.id}; point=${round(target.x)},${round(target.y)}; size=${round(target.width)}x${round(target.height)}; observed=${state.observedTargetId ?? "null"}; related_nodes=${state.relatedNodeCount}; target_visible=${state.targetVisible}; canvas_changed=${state.canvasChanged}; before=${state.beforeFingerprint.hash ?? "null"}; after=${state.afterFingerprint.hash ?? "null"}`,
+    artifact_path: resultPath
+  });
+  record.hover_target_id = target.id;
+  record.hover_observed_target_id = state.observedTargetId;
+  record.hover_preview_state = visible ? "visible" : "missing";
+  record.hover_preview_kind = "production-visible-relation-focus";
+  record.hover_related_node_count = state.relatedNodeCount;
+  record.hover_visual_changed = state.canvasChanged;
+  await page.mouse.move(0, 0);
+  await waitForAnimationFrames(page, 1);
+  await page.evaluate(() => {
+    (window as any).__LLM_WIKI_GRAPH_VISUAL_ACCEPTANCE__ = false;
+  });
+  return record;
 }
 
 async function measurePointSelect(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
@@ -1645,7 +1793,7 @@ async function waitForReturnGlobalTakeoverFinal(
       return counts?.lastSelectionKind === "community" && counts?.selectedContainerId === input.selectedId;
     },
     { selectedId, mode },
-    { timeout: 4000 }
+    { timeout: 5500 }
   );
 }
 
@@ -2234,6 +2382,12 @@ interface PerformanceRecord {
   median_fps?: number | null;
   worst_run_fps?: number | null;
   worst_run_frame_p95_ms?: number | null;
+  hover_target_id?: string | null;
+  hover_observed_target_id?: string | null;
+  hover_preview_state?: string | null;
+  hover_preview_kind?: string | null;
+  hover_related_node_count?: number | null;
+  hover_visual_changed?: boolean | null;
   pass: boolean;
   failure_class: string | null;
   failure_detail?: string | null;

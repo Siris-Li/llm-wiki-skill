@@ -75,7 +75,7 @@ const STATIC_RENDERER_CSS = `
 .sigma-global-overlay {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 10;
   pointer-events: none;
 }
 .sigma-global-node-hit-target,

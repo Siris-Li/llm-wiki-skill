@@ -42,5 +42,5 @@ GRAPH_VIS_TRIAL_ARTIFACT_DIR="$artifact_dir" \
 GRAPH_VIS_TRIAL_CHROME_EXECUTABLE="$chrome_executable" \
 node --import tsx tests/browser/graph-vis-network-trial.ts
 
-node tests/browser/validate-graph-trial-result.mjs "$artifact_dir/vis-network-trial-results.json"
+node --import tsx tests/browser/validate-graph-trial-result.mjs "$artifact_dir/vis-network-trial-results.json"
 echo "PASS: vis-network performance trial ($artifact_dir/vis-network-trial-results.json)"

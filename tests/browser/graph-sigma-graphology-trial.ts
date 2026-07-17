@@ -14,6 +14,7 @@ import {
   FRAME_P95_CEILING_MS,
   FPS_FLOOR,
   NAME_HELPER_INIT_SCRIPT,
+  SIGMA_REQUIRED_TRIAL_ACTIONS,
   TRIAL_SCHEMA_VERSION,
   actionThresholds,
   DURATION_GATED_ACTIONS,
@@ -124,6 +125,7 @@ async function main(): Promise<void> {
   validateTrialResults({
     renderer: "Sigma/Graphology",
     requestedShapes,
+    requiredActions: SIGMA_REQUIRED_TRIAL_ACTIONS,
     records,
     errors,
     resultPath
@@ -148,6 +150,7 @@ async function writeResult(records: PerformanceRecord[], errors: string[]): Prom
     },
     artifact_dir: artifactDir,
     shapes: requestedShapes,
+    required_actions: SIGMA_REQUIRED_TRIAL_ACTIONS,
     records,
     errors
   }, null, 2)}\n`);
@@ -199,7 +202,10 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
         searchHit: node.searchHit,
         selected: node.selected,
         pinned: node.pinned,
-        aggregationIds: node.aggregationIds
+        aggregationIds: node.aggregationIds,
+        relationFocusDepth: "none",
+        baseSize: node.size,
+        baseColor: node.color
       });
     }
     for (const edge of model.edges) {
@@ -207,7 +213,10 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
         graph.addEdgeWithKey(edge.id, edge.source, edge.target, {
           color: edge.color,
           size: edge.size,
-          relationType: edge.relationType
+          relationType: edge.relationType,
+          relationFocusDepth: "none",
+          baseSize: edge.size,
+          baseColor: edge.color
         });
       }
     }
@@ -221,12 +230,87 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
     });
     let selectedNodeId = model.nodes.find((node) => node.selected)?.id || null;
     let selectedContainerId = null;
+    let hoverTouchedNodeIds = [];
+    let hoverTouchedEdgeIds = [];
+    let lastHoverPreview = null;
     function cameraState() {
       const camera = renderer.getCamera();
       return camera && typeof camera.getState === "function" ? camera.getState() : {};
     }
     function refresh() {
       if (typeof renderer.refresh === "function") renderer.refresh();
+    }
+    function clearHoverPreview() {
+      for (const id of hoverTouchedNodeIds) {
+        if (!graph.hasNode(id)) continue;
+        graph.mergeNodeAttributes(id, {
+          relationFocusDepth: "none",
+          size: graph.getNodeAttribute(id, "baseSize"),
+          color: graph.getNodeAttribute(id, "baseColor")
+        });
+      }
+      for (const id of hoverTouchedEdgeIds) {
+        if (!graph.hasEdge(id)) continue;
+        graph.mergeEdgeAttributes(id, {
+          relationFocusDepth: "none",
+          size: graph.getEdgeAttribute(id, "baseSize"),
+          color: graph.getEdgeAttribute(id, "baseColor")
+        });
+      }
+      hoverTouchedNodeIds = [];
+      hoverTouchedEdgeIds = [];
+    }
+    function hoverPreview(id) {
+      clearHoverPreview();
+      if (!id || !graph.hasNode(id)) return { targetId: id || null, observedTargetId: null, relatedNodeCount: 0, relatedEdgeCount: 0, visible: false };
+      const relatedNodeIds = new Set();
+      const incidentEdgeIds = graph.edges(id);
+      for (const edgeId of incidentEdgeIds) {
+        const source = graph.source(edgeId);
+        const target = graph.target(edgeId);
+        const relatedId = source === id ? target : source;
+        if (graph.hasNode(relatedId)) {
+          relatedNodeIds.add(relatedId);
+          graph.mergeNodeAttributes(relatedId, {
+            relationFocusDepth: "first",
+            size: Math.max(graph.getNodeAttribute(relatedId, "baseSize") || 2, 3.5),
+            color: "#64748b"
+          });
+        }
+        graph.mergeEdgeAttributes(edgeId, {
+          relationFocusDepth: "first",
+          size: Math.max(graph.getEdgeAttribute(edgeId, "baseSize") || 1, 2.5),
+          color: "#334155"
+        });
+      }
+      graph.mergeNodeAttributes(id, {
+        relationFocusDepth: "focus",
+        size: Math.max(graph.getNodeAttribute(id, "baseSize") || 2, 5),
+        color: "#dc2626"
+      });
+      hoverTouchedNodeIds = [id, ...relatedNodeIds];
+      hoverTouchedEdgeIds = [...incidentEdgeIds];
+      refresh();
+      const observedTargetId = graph.getNodeAttribute(id, "relationFocusDepth") === "focus" ? id : null;
+      return {
+        targetId: id,
+        observedTargetId,
+        relatedNodeCount: relatedNodeIds.size,
+        relatedEdgeCount: incidentEdgeIds.length,
+        visible: observedTargetId === id && relatedNodeIds.size > 0 && incidentEdgeIds.length > 0
+      };
+    }
+    renderer.on("enterNode", ({ node }) => {
+      lastHoverPreview = hoverPreview(node);
+    });
+    renderer.on("leaveNode", () => {
+      clearHoverPreview();
+      refresh();
+    });
+    function triggerHoverPreview(id) {
+      lastHoverPreview = null;
+      renderer.emit("enterNode", { node: id, event: null });
+      return lastHoverPreview || { targetId: id || null, observedTargetId: null, relatedNodeCount: 0, relatedEdgeCount: 0, visible: false };
     }
     function setNodeVisual(id, patch) {
       if (!graph.hasNode(id)) return;
@@ -348,6 +432,8 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
       openDrawer,
       enterCommunity,
       returnGlobal,
+      triggerHoverPreview,
+      hoverTargetNodeId: model.edges.find((edge) => graph.hasNode(edge.source) && graph.hasNode(edge.target))?.source || model.nodes[0]?.id || null,
       firstNodeId: model.nodes[0]?.id || null,
       firstCommunityId: model.communities[0]?.id || null,
       firstContainerId: model.aggregations[0]?.id || model.communities[0]?.id || null,
@@ -395,14 +481,17 @@ async function measureShape(browser: BrowserLike, metadata: LargeGraphFixtureMet
       artifact_path: resultPath
     }));
     for (const action of [
+      () => measureHoverPreview(page, metadata),
       () => measureWheelZoom(page, metadata),
       () => measureDrag(page, metadata),
       () => measureSearch(page, metadata),
       () => measurePointSelect(page, metadata),
       () => measureContainerSelect(page, metadata),
+      () => measureSpotlightAnimation(page, metadata),
       () => measureDrawerOpen(page, metadata),
       () => measureEnterCommunity(page, metadata),
-      () => measureReturnGlobal(page, metadata)
+      () => measureReturnGlobal(page, metadata),
+      () => measureReturnGlobalTakeover(page, metadata)
     ]) {
       records.push(await safeMeasure(page, metadata, action));
     }
@@ -476,6 +565,38 @@ async function measureSearch(page: PageLike, metadata: LargeGraphFixtureMetadata
   });
 }
 
+async function measureHoverPreview(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
+  const started = performance.now();
+  const result = await page.evaluate(() => {
+    const trial = (window as any).__sigmaTrial;
+    return trial.triggerHoverPreview(trial.hoverTargetNodeId);
+  }) as {
+    targetId: string | null;
+    observedTargetId: string | null;
+    relatedNodeCount: number;
+    relatedEdgeCount: number;
+    visible: boolean;
+  };
+  await waitForAnimationFrames(page, 2);
+  const record = await recordFromPage(page, metadata, {
+    action: "hover_preview",
+    duration_ms: performance.now() - started,
+    pass: result.visible && result.observedTargetId === result.targetId,
+    failure_class: result.visible && result.observedTargetId === result.targetId ? null : "hover_preview_missing",
+    failure_detail: result.visible && result.observedTargetId === result.targetId
+      ? null
+      : `target=${result.targetId ?? "null"}; observed=${result.observedTargetId ?? "null"}; related_nodes=${result.relatedNodeCount}; related_edges=${result.relatedEdgeCount}`,
+    artifact_path: resultPath
+  });
+  record.hover_target_id = result.targetId;
+  record.hover_observed_target_id = result.observedTargetId;
+  record.hover_preview_state = result.visible ? "visible" : "missing";
+  record.hover_preview_kind = "sigma-enter-node-relation-focus";
+  record.hover_related_node_count = result.relatedNodeCount;
+  record.hover_related_edge_count = result.relatedEdgeCount;
+  return record;
+}
+
 async function measurePointSelect(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
   const started = performance.now();
   const result = await page.evaluate(() => {
@@ -512,6 +633,23 @@ async function measureContainerSelect(page: PageLike, metadata: LargeGraphFixtur
     pass: Boolean(expected) && actual === expected,
     failure_class: Boolean(expected) && actual === expected ? null : "selected_container_mismatch",
     failure_detail: Boolean(expected) && actual === expected ? null : `expected=${expected ?? "null"}; actual=${actual ?? "null"}`,
+    artifact_path: resultPath
+  });
+}
+
+async function measureSpotlightAnimation(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
+  const started = performance.now();
+  const result = await page.evaluate(() => {
+    const trial = (window as any).__sigmaTrial;
+    return trial.containerSelect(trial.firstContainerId);
+  }) as { selectedContainerId: string | null; nodeCount: number };
+  await waitForAnimationFrames(page, 2);
+  return recordFromPage(page, metadata, {
+    action: "spotlight_animation",
+    duration_ms: performance.now() - started,
+    pass: Boolean(result.selectedContainerId) && result.nodeCount > 0,
+    failure_class: Boolean(result.selectedContainerId) && result.nodeCount > 0 ? null : "spotlight_state_missing",
+    failure_detail: Boolean(result.selectedContainerId) && result.nodeCount > 0 ? null : `selected=${result.selectedContainerId ?? "null"}; nodes=${result.nodeCount}`,
     artifact_path: resultPath
   });
 }
@@ -573,6 +711,26 @@ async function measureReturnGlobal(page: PageLike, metadata: LargeGraphFixtureMe
     pass: selectedContainerId == null,
     failure_class: selectedContainerId == null ? null : "global_return_incomplete",
     failure_detail: selectedContainerId == null ? null : `selectedContainerId=${selectedContainerId}`,
+    artifact_path: resultPath
+  });
+}
+
+async function measureReturnGlobalTakeover(page: PageLike, metadata: LargeGraphFixtureMetadata): Promise<PerformanceRecord> {
+  await page.evaluate(() => {
+    const trial = (window as any).__sigmaTrial;
+    trial.enterCommunity(trial.firstCommunityId);
+  });
+  await waitForAnimationFrames(page, 2);
+  const started = performance.now();
+  await page.evaluate(() => (window as any).__sigmaTrial.returnGlobal());
+  await waitForAnimationFrames(page, 2);
+  const counts = await page.evaluate(() => (window as any).__sigmaTrial.counts()) as { selectedContainerId: string | null };
+  return recordFromPage(page, metadata, {
+    action: "return_global_takeover",
+    duration_ms: performance.now() - started,
+    pass: counts.selectedContainerId == null,
+    failure_class: counts.selectedContainerId == null ? null : "global_takeover_incomplete",
+    failure_detail: counts.selectedContainerId == null ? null : `selectedContainerId=${counts.selectedContainerId}`,
     artifact_path: resultPath
   });
 }
@@ -941,6 +1099,12 @@ interface PerformanceRecord {
   median_fps?: number | null;
   worst_run_fps?: number | null;
   worst_run_frame_p95_ms?: number | null;
+  hover_target_id?: string | null;
+  hover_observed_target_id?: string | null;
+  hover_preview_state?: string | null;
+  hover_preview_kind?: string | null;
+  hover_related_node_count?: number | null;
+  hover_related_edge_count?: number | null;
   pass: boolean;
   failure_class: string | null;
   failure_detail?: string | null;

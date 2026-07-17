@@ -42,7 +42,7 @@ GRAPH_SIGMA_PRODUCTION_ARTIFACT_DIR="$artifact_dir" \
 GRAPH_SIGMA_PRODUCTION_CHROME_EXECUTABLE="$chrome_executable" \
 node --import tsx tests/browser/graph-sigma-global-production.ts
 
-node tests/browser/validate-graph-trial-result.mjs "$artifact_dir/sigma-global-production-results.json"
+node --import tsx tests/browser/validate-graph-trial-result.mjs "$artifact_dir/sigma-global-production-results.json"
 node - "$artifact_dir/sigma-global-production-results.json" <<'NODE'
 const fs = require("fs");
 const resultPath = process.argv[2];
