@@ -7,12 +7,12 @@ import {
 } from "./nodes";
 import { paintDomSvgGraph, type DomSvgGraphPaintHandlers } from "./dom-svg-renderer";
 import {
-  makeEdgePathFromPoints,
   nodeDisplayModeForDensity,
   screenEffectiveDensityMode,
   type RenderableGraph,
   type RenderPositionMap
 } from "./render-policy";
+import { makeEdgePathFromPoints } from "../layout/edge-geometry";
 import { buildRenderableGraph } from "./model";
 import {
   applyRendererViewportTransform,

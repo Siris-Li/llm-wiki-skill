@@ -14,9 +14,9 @@ import type {
 } from "../types";
 import { PinState } from "../sim";
 import {
-  createRenderPathCache,
   type RenderableGraph
 } from "./render-policy";
+import { createRenderPathCache } from "../layout/edge-geometry";
 import { buildRenderableGraph } from "./model";
 import {
   DEFAULT_RENDERER_VIEWPORT,

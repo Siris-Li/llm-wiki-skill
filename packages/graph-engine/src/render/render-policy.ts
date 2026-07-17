@@ -11,11 +11,23 @@ import {
 } from "../model/atlas";
 import { atlasNodePoint, type AtlasLayout } from "../layout/initial-layout";
 import { applyAtlasTypeAndTemporaryVisibility } from "../model/visibility";
-import { graphEdgeControlPoint } from "../layout/edge-geometry";
+import {
+  createRenderPathCache,
+  edgeCurveOffset,
+  edgeRelationClass,
+  edgeStrokeWidth,
+  edgeVisualOpacity,
+  edgeVisualStrokeWidth,
+  makeEdgePath,
+  makeEdgePathFromPoints,
+  normalizeEdgeRelationText,
+  normalizedEdgeWeight as clampWeight,
+  type RenderPathCache
+} from "../layout/edge-geometry";
 import { wikiPathForGraphNode } from "../graph-node";
 import { getCommunityColor } from "../themes";
 import { computeCommunityWash } from "./community-wash";
-import { GRAPH_WORLD_SIZE, worldBoundsForPoints, worldPointToCssPercentPoint, worldPointToMinimapPoint, type GraphWorldBounds } from "./geometry";
+import { worldBoundsForPoints, worldPointToCssPercentPoint, worldPointToMinimapPoint, type GraphWorldBounds } from "./geometry";
 import { pinPositionToWorldPoint } from "./pin-position";
 import { resolveGraphRelationFocus, resolveGraphSelectedNodeRelations, type GraphRelationFocusDepth } from "./relation-focus";
 
@@ -436,11 +448,6 @@ export interface RenderPolicyInput {
   options?: RenderPolicyOptions;
 }
 
-export interface RenderPathCache {
-  getEdgeCurve(edge: { id: string; source: string; target: string; weight?: number }, source: RenderPosition, target: RenderPosition): number;
-  clear(): void;
-}
-
 const MINIMAP_PATH = "M8 40 C34 20 54 36 76 22 C98 8 118 24 150 12";
 
 export const GRAPH_RENDER_BUDGETS: Record<GraphRenderBudgetView, GraphRenderBudgetLimits> = {
@@ -506,23 +513,6 @@ function structureSkeletonBudget(nodeCount: number): number {
   if (count <= 24) return 14;
   if (count <= 60) return 22;
   return 32;
-}
-
-export function createRenderPathCache(): RenderPathCache {
-  const edgeCurves = new Map<string, number>();
-  return {
-    getEdgeCurve(edge, source, target): number {
-      const key = edge.id || `${edge.source}->${edge.target}`;
-      const existing = edgeCurves.get(key);
-      if (existing != null) return existing;
-      const curve = edgeCurveOffset(source, target, edge);
-      edgeCurves.set(key, curve);
-      return curve;
-    },
-    clear(): void {
-      edgeCurves.clear();
-    }
-  };
 }
 
 export function resolveRenderPolicyVisibility(
@@ -1214,56 +1204,6 @@ export function resolveCommunityFocusScale(focus: GraphFocusInput, focusedCommun
   };
 }
 
-export function makeEdgePath(source: AtlasNode, target: AtlasNode, edge: { weight?: number }): string {
-  const sourcePoint = atlasNodePoint(source);
-  const targetPoint = atlasNodePoint(target);
-  return makeEdgePathFromPoints(sourcePoint, targetPoint, edgeCurveOffset(sourcePoint, targetPoint, edge));
-}
-
-export function makeEdgePathFromPoints(sourcePoint: RenderPosition, targetPoint: RenderPosition, curveOffset: number): string {
-  const x1 = sourcePoint.x;
-  const y1 = sourcePoint.y;
-  const x2 = targetPoint.x;
-  const y2 = targetPoint.y;
-  const control = graphEdgeControlPoint(sourcePoint, targetPoint, curveOffset);
-  return `M ${round(x1)} ${round(y1)} Q ${round(control.x)} ${round(control.y)} ${round(x2)} ${round(y2)}`;
-}
-
-export function edgeStrokeWidth(edge: { weight?: number }): number {
-  return round(1.1 + clampWeight(edge.weight) * 1.8);
-}
-
-export function edgeOpacity(edge: { weight?: number }): number {
-  return round(0.32 + clampWeight(edge.weight) * 0.44);
-}
-
-export function edgeVisualStrokeWidth(edge: { weight?: number }, focusedView: boolean): number {
-  if (focusedView) return edgeStrokeWidth(edge);
-  return round(0.95 + clampWeight(edge.weight) * 0.75);
-}
-
-export function edgeVisualOpacity(edge: { weight?: number }, focusedView: boolean): number {
-  if (focusedView) return edgeOpacity(edge);
-  return round(0.2 + clampWeight(edge.weight) * 0.22);
-}
-
-export function edgeRelationClass(relationType: unknown): string {
-  switch (normalizeEdgeRelationText(relationType)) {
-    case "实现":
-      return "relation-implementation";
-    case "依赖":
-      return "relation-dependency";
-    case "衍生":
-      return "relation-derivation";
-    case "对比":
-      return "relation-contrast";
-    case "矛盾":
-      return "relation-conflict";
-    default:
-      return "relation-dependency";
-  }
-}
-
 export function screenEffectiveDensityMode(visibleNodeCount: number, viewportScale: number): DensityMode {
   const count = Number.isFinite(Number(visibleNodeCount)) ? Math.max(0, Number(visibleNodeCount)) : 0;
   const scale = Number.isFinite(Number(viewportScale)) ? clamp(Number(viewportScale), 0.25, 4) : 1;
@@ -1301,26 +1241,8 @@ function normalizeEdgeRelationType(edge: AtlasEdge): string {
   return normalizeEdgeRelationText(edge.relation_type || "依赖");
 }
 
-function normalizeEdgeRelationText(relationType: unknown): string {
-  const value = String(relationType || "依赖").trim();
-  return value || "依赖";
-}
-
 function pinKeyForNode(node: { source_path?: unknown; path?: unknown; source?: unknown; id: string }): WikiPath {
   return wikiPathForGraphNode(node);
-}
-
-function edgeCurveOffset(sourcePoint: RenderPosition, targetPoint: RenderPosition, edge: { weight?: number }, worldBounds: GraphWorldBounds = {
-  minX: 0,
-  minY: 0,
-  maxX: GRAPH_WORLD_SIZE.width,
-  maxY: GRAPH_WORLD_SIZE.height,
-  width: GRAPH_WORLD_SIZE.width,
-  height: GRAPH_WORLD_SIZE.height
-}): number {
-  const sourceYPercent = (sourcePoint.y - worldBounds.minY) / worldBounds.height * 100;
-  const targetYPercent = (targetPoint.y - worldBounds.minY) / worldBounds.height * 100;
-  return Math.max(-76, Math.min(76, (sourceYPercent - targetYPercent) * 1.8 + (clampWeight(edge.weight) - 0.5) * 24));
 }
 
 function resolveSelectedNodeIds(
@@ -1830,12 +1752,6 @@ function nodeVisualRole(
   if (previewNodeId && node.id === previewNodeId) return "index-slip";
   if (importantNodeIds[node.id]) return "index-slip";
   return "landmark";
-}
-
-function clampWeight(value: unknown): number {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return 0.6;
-  return clamp(numeric, 0, 1);
 }
 
 function clamp(value: number, min: number, max: number): number {

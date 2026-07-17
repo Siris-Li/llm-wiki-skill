@@ -10,7 +10,7 @@ import {
 import type { GraphScreenPoint } from "./geometry";
 import type { GraphGestureTarget } from "./gestures";
 import type { GraphRendererAdapterData } from "./adapter";
-import { edgeRelationClass } from "./render-policy";
+import { edgeRelationClass } from "../layout/edge-geometry";
 import { DEFAULT_RENDERER_VIEWPORT, type RendererViewport, type RendererViewportSize } from "./viewport";
 import {
   emptyGraphFirstOrderRelationFocusTouched,
