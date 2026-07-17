@@ -1,5 +1,4 @@
 import {
-  buildGraphRendererAdapterData,
   buildGraphRendererBehaviorContract,
   type GraphRendererBehaviorContract
 } from "../src/render";
@@ -12,6 +11,7 @@ import type {
   PinMap,
   SelectionInput
 } from "../src/types";
+import { prepareRendererAdapterDataForTest } from "./support/prepared-renderer-adapter";
 
 export interface AggregationFallbackTrialOptions {
   pins?: PinMap;
@@ -108,7 +108,7 @@ export function buildAggregationFallbackTrialModel(
   data: GraphData,
   options: AggregationFallbackTrialOptions = {}
 ): AggregationFallbackTrialModel {
-  const adapter = buildGraphRendererAdapterData(data, {
+  const adapter = prepareRendererAdapterDataForTest(data, {
     ...options,
     focus: options.focus ?? { kind: "global" }
   });

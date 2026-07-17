@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import GraphologyGraph from "graphology";
 
 import type { GraphRendererAdapterData } from "../src";
-import { buildGraphRendererAdapterData } from "../src/render";
+import { prepareRendererAdapterDataForTest } from "./support/prepared-renderer-adapter";
 import {
   buildSigmaGlobalGraphologyGraph,
   canPatchSigmaGlobalGraphAttributes,
@@ -119,8 +119,8 @@ describe("Sigma graphology render model", () => {
       "wiki/alpha.md": { x: 111, y: 222, coordinateSpace: "world" as const }
     };
     const data = sigmaCommunityReadingGraphData();
-    const globalAdapter = buildGraphRendererAdapterData(data, { theme: "shan-shui", pins });
-    const communityAdapter = buildGraphRendererAdapterData(data, {
+    const globalAdapter = prepareRendererAdapterDataForTest(data, { theme: "shan-shui", pins });
+    const communityAdapter = prepareRendererAdapterDataForTest(data, {
       theme: "shan-shui",
       pins,
       focus: { kind: "community", id: "community-a" },
@@ -148,7 +148,7 @@ describe("Sigma graphology render model", () => {
   });
 
   it("renders global selected-node relation focus through final Sigma attributes", () => {
-    const adapter = buildGraphRendererAdapterData(multiSelectCommunityGraphData(), {
+    const adapter = prepareRendererAdapterDataForTest(multiSelectCommunityGraphData(), {
       theme: "shan-shui",
       selection: { kind: "node", id: "a" }
     });
@@ -172,7 +172,7 @@ describe("Sigma graphology render model", () => {
     const data = sigmaCommunityReadingGraphData();
     const longLabel = "一个标题非常长用来测试社区阅读标签截断是否稳定的核心节点";
     data.nodes = data.nodes.map((node) => node.id === "alpha" ? { ...node, label: longLabel } : node);
-    const adapter = buildGraphRendererAdapterData(data, {
+    const adapter = prepareRendererAdapterDataForTest(data, {
       theme: "shan-shui",
       focus: { kind: "community", id: "community-a" },
       sourceCommunityId: "community-a",
@@ -689,7 +689,7 @@ describe("sigmaGlobalEdgeStyle community reading layers", () => {
   });
 
   it("renders skeleton edges thicker than background edges end-to-end in Sigma community reading", () => {
-    const adapter = buildGraphRendererAdapterData(sigmaLayerCommunityGraphData(), {
+    const adapter = prepareRendererAdapterDataForTest(sigmaLayerCommunityGraphData(), {
       theme: "shan-shui",
       focus: { kind: "community", id: "community-a" },
       sourceCommunityId: "community-a"
@@ -921,7 +921,7 @@ function multiSelectCommunityGraphData(): GraphData {
 // involvement. Exercises the full model → adapter → Sigma graphology path.
 describe("Sigma community reading Shift multi-select (#136)", () => {
   it("renders real between-selected edges thicker than other community edges", () => {
-    const adapter = buildGraphRendererAdapterData(multiSelectCommunityGraphData(), {
+    const adapter = prepareRendererAdapterDataForTest(multiSelectCommunityGraphData(), {
       theme: "shan-shui",
       focus: { kind: "community", id: "c1" },
       sourceCommunityId: "c1",

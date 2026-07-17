@@ -13,6 +13,7 @@ import {
   normalizeGraphLayoutFile,
   normalizeGraphPinMap,
   projectGraphInput,
+  resolveGraphRendererSemantics,
   resolveAtlasVisibleSnapshot,
   type AtlasModel,
   type GraphData,
@@ -34,7 +35,11 @@ const renderable: RenderableGraph = buildRenderableGraph(graph, { pins });
 const layoutBounds = renderable.layout.layoutBounds;
 const contentBounds = renderable.contentBounds;
 const framingBounds = renderable.framingBounds;
-const adapter: GraphRendererAdapterData = buildGraphRendererAdapterData(graph, { pins });
+const adapter: GraphRendererAdapterData = buildGraphRendererAdapterData({
+  renderable,
+  ...resolveGraphRendererSemantics(graph, { pins }),
+  sourceCommunityId: null
+});
 const layout = normalizeGraphLayoutFile({ version: 2, pins });
 const diff = diffGraphData(graph, graph);
 const unknownGraph: unknown = graph;

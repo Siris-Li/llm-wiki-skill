@@ -74,7 +74,7 @@ export type {
   GraphRendererAdapterData,
   GraphRendererAdapterEdge,
   GraphRendererAdapterNode,
-  GraphRendererAdapterOptions,
+  GraphRendererAdapterInput,
   GraphRendererAdapterRoute,
   GraphRendererBehaviorContract,
   GraphRendererContainerSelectBehavior,

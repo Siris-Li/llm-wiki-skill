@@ -313,6 +313,43 @@ export interface GraphAggregationMarker {
   totalCount?: number;
 }
 
+export interface GraphResolvedAggregation {
+  id: string;
+  label: string;
+  communityId: CommunityId | null;
+  nodeIds: NodeId[];
+  selectedNodeIds: NodeId[];
+  searchResultIds: NodeId[];
+  pinnedNodeIds: NodeId[];
+  totalCount: number;
+  pinHints: GraphPinHint[];
+}
+
+export interface GraphRendererNodeSemantics {
+  id: NodeId;
+  communityId: CommunityId | null;
+}
+
+export interface GraphRendererEdgeSemantics {
+  id: EdgeId;
+  sourceNodeId: NodeId;
+  targetNodeId: NodeId;
+  sourceCommunityId: CommunityId | null;
+  targetCommunityId: CommunityId | null;
+  relationType: GraphRelationType | null;
+  confidence: Confidence | null;
+  weight: number;
+}
+
+export interface GraphRendererSemantics {
+  selection: GraphSummarySelectionState;
+  searchResultIds: NodeId[];
+  pinHints: GraphPinHint[];
+  aggregations: GraphResolvedAggregation[];
+  nodes: GraphRendererNodeSemantics[];
+  edges: GraphRendererEdgeSemantics[];
+}
+
 export interface GraphRelationSummary {
   edgeId: EdgeId;
   fromNodeId: NodeId;

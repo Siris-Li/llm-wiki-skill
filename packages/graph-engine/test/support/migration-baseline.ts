@@ -3,7 +3,6 @@ import {
   atlasNodeKind,
   atlasTypeLabel,
   buildAtlasModel,
-  buildGraphRendererAdapterData,
   buildRenderableGraph,
   cardDims,
   deriveAtlasLayout,
@@ -18,6 +17,7 @@ import {
 } from "../../src";
 import type { AtlasLayout, AtlasModel, AtlasNode, AtlasVisibleSnapshot, RenderableGraph } from "../../src";
 import type { GraphRendererAdapterData } from "../../src/render";
+import { prepareRendererAdapterDataForTest } from "./prepared-renderer-adapter";
 
 export function captureSupportedMigrationBehavior(input: GraphData): unknown {
   const projection = projectGraphInput(input);
@@ -46,7 +46,7 @@ export function captureSupportedMigrationBehavior(input: GraphData): unknown {
   };
   const renderable = buildRenderableGraph(input, renderOptions);
   const adapterInput = supportedAdapterInput(input);
-  const adapter = buildGraphRendererAdapterData(adapterInput, renderOptions);
+  const adapter = prepareRendererAdapterDataForTest(adapterInput, renderOptions);
 
   return stableClone({
     text: {

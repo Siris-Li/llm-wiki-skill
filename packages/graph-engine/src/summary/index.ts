@@ -16,6 +16,7 @@ import type {
   GraphNodeSummaryPayload,
   GraphPinHint,
   GraphRelationSummary,
+  GraphRendererSemantics,
   GraphSearchResultsPayload,
   GraphSummaryCommand,
   GraphSummaryObjectRef,
@@ -244,6 +245,69 @@ export function buildCommunityAggregationMarkers(
         totalCount: Number(community?.node_count ?? nodeIds.length)
       };
     });
+}
+
+export function resolveGraphRendererSemantics(
+  data: GraphData,
+  options: {
+    selection?: SelectionInput | null;
+    searchResultIds?: NodeId[];
+    pins?: PinMap;
+    aggregationMarkers?: GraphAggregationMarker[];
+  } = {}
+): GraphRendererSemantics {
+  const selection = selectionStateForObject(data, null, options.selection);
+  const searchResultIds = [...(options.searchResultIds ?? [])];
+  const pinHints = pinHintsForNodeIds(data, data.nodes.map((node) => node.id), options.pins);
+  const pinnedNodeIds = pinHints.map((hint) => hint.nodeId);
+  const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
+  const nodes = [...nodeById.values()].map((node) => ({
+    id: node.id,
+    communityId: node.community ?? null
+  }));
+  const firstEdgeById = new Map<EdgeId, GraphEdge>();
+  for (const edge of data.edges) {
+    if (!firstEdgeById.has(edge.id)) firstEdgeById.set(edge.id, edge);
+  }
+  const edges = data.edges.map((edge) => {
+    const sourceNodeId = endpointId(edge.from) ?? "";
+    const targetNodeId = endpointId(edge.to) ?? "";
+    const source = nodeById.get(sourceNodeId);
+    const target = nodeById.get(targetNodeId);
+    const firstEdge = firstEdgeById.get(edge.id) ?? edge;
+    return {
+      id: edge.id,
+      sourceNodeId,
+      targetNodeId,
+      sourceCommunityId: source?.community ?? null,
+      targetCommunityId: target?.community ?? null,
+      relationType: firstEdge.relation_type ?? null,
+      confidence: firstEdge.confidence ?? firstEdge.type ?? null,
+      weight: numericWeight(firstEdge.weight)
+    };
+  });
+  return {
+    selection,
+    searchResultIds,
+    pinHints,
+    nodes,
+    edges,
+    aggregations: (options.aggregationMarkers ?? []).map((marker) => {
+      const resolvedPinnedNodeIds = stableIntersection(marker.nodeIds, marker.pinnedNodeIds ?? pinnedNodeIds);
+      const resolvedPinnedNodeSet = new Set(resolvedPinnedNodeIds);
+      return {
+        id: marker.id,
+        label: marker.label ?? marker.id,
+        communityId: marker.communityId ?? null,
+        nodeIds: [...marker.nodeIds],
+        selectedNodeIds: stableIntersection(marker.nodeIds, marker.selectedNodeIds ?? selection.selectedNodeIds),
+        searchResultIds: stableIntersection(marker.nodeIds, marker.searchResultIds ?? searchResultIds),
+        pinnedNodeIds: resolvedPinnedNodeIds,
+        totalCount: marker.totalCount ?? marker.nodeIds.length,
+        pinHints: pinHints.filter((hint) => resolvedPinnedNodeSet.has(hint.nodeId))
+      };
+    })
+  };
 }
 
 function buildSummaryIndex(data: GraphData): SummaryIndex {
@@ -480,6 +544,11 @@ function communityIdForNode(node: GraphNode): CommunityId {
 function stableExistingNodeIds(data: GraphData, ids: NodeId[]): NodeId[] {
   const requested = new Set(ids);
   return data.nodes.map((node) => node.id).filter((id) => requested.has(id));
+}
+
+function stableIntersection(sourceIds: NodeId[], candidateIds: NodeId[]): NodeId[] {
+  const candidates = new Set(candidateIds);
+  return sourceIds.filter((id) => candidates.has(id));
 }
 
 function communityIds(data: GraphData): CommunityId[] {

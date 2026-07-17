@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildAtlasModel, projectGraphInput } from "../src/model/atlas";
-import { buildGraphRendererAdapterData } from "../src/render/adapter";
 import { resolveSelectionForCapabilities } from "../src/select";
 import { summarizeGraphNode } from "../src/summary";
+import { prepareRendererAdapterDataForTest } from "./support/prepared-renderer-adapter";
 
 describe("runtime graph input projection", () => {
   it("turns unknown roots and non-array collections into an empty compatible graph", () => {
@@ -66,7 +66,7 @@ describe("runtime graph input projection", () => {
     assert.deepEqual((projection.data as Record<string, unknown>).future_top_level_field, { preserved: true });
     assert.equal((projection.data.meta as unknown as Record<string, unknown>).future_meta_field, "kept");
 
-    const drawing = buildGraphRendererAdapterData(projection.data);
+    const drawing = prepareRendererAdapterDataForTest(projection.data);
     assert.deepEqual(drawing.nodes.map((node) => node.id), ["node-0", "node-1", "node-2", "node-1"]);
     assert.deepEqual(drawing.edges.map((edge) => edge.id), ["edge-1"]);
   });
@@ -216,7 +216,7 @@ describe("runtime graph input projection", () => {
 
     assert.deepEqual(projection.data.nodes.map((node) => node.id), ["hostile", "safe"]);
     assert.doesNotThrow(() => buildAtlasModel(projection.data));
-    assert.doesNotThrow(() => buildGraphRendererAdapterData(projection.data));
+    assert.doesNotThrow(() => prepareRendererAdapterDataForTest(projection.data));
     assert.deepEqual(resolveSelectionForCapabilities(projection.data, { kind: "node", id: "safe" }, { canAsk: false }).nodeIds, ["safe"]);
     assert.equal(summarizeGraphNode(projection.data, "safe").kind, "node-summary");
   });

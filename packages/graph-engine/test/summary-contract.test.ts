@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildCommunityAggregationMarkers,
+  resolveGraphRendererSemantics,
   summarizeExcludedGraphObject,
   summarizeGraphCommunity,
   summarizeGraphGlobal,
@@ -21,6 +22,53 @@ import { UNGROUPED_COMMUNITY_ID } from "../src/types";
 import type { GraphAggregationMarker, GraphData, GraphSummaryCommand, GraphSummaryObjectRef, GraphTypeFilters, PinMap, SelectionInput, ThemeId } from "../src/types";
 
 describe("graph summary contract", () => {
+  it("resolves selection, Pin, search, and aggregation semantics before renderer adaptation", () => {
+    const semantics = resolveGraphRendererSemantics(graphFixture(), {
+      selection: { kind: "nodes", ids: ["a", "d"] },
+      searchResultIds: ["b", "d"],
+      pins: {
+        "wiki/alpha/a.md": { x: 12, y: 34, coordinateSpace: "world" }
+      },
+      aggregationMarkers: [{
+        id: "agg-alpha",
+        label: "Alpha overflow",
+        communityId: "alpha",
+        nodeIds: ["a", "b"],
+        totalCount: 7
+      }, {
+        id: "agg-beta",
+        communityId: "beta",
+        nodeIds: ["c", "d"],
+        selectedNodeIds: ["c"],
+        searchResultIds: ["c"],
+        pinnedNodeIds: ["d"]
+      }]
+    });
+
+    assert.equal(semantics.selection.selectionId, "nodes:a,d");
+    assert.deepEqual(semantics.selection.selectedNodeIds, ["a", "d"]);
+    assert.deepEqual(semantics.pinHints.filter((hint) => hint.pinned).map((hint) => hint.nodeId), ["a"]);
+    assert.deepEqual(semantics.aggregations[0], {
+      id: "agg-alpha",
+      label: "Alpha overflow",
+      communityId: "alpha",
+      nodeIds: ["a", "b"],
+      selectedNodeIds: ["a"],
+      searchResultIds: ["b"],
+      pinnedNodeIds: ["a"],
+      totalCount: 7,
+      pinHints: [{
+        nodeId: "a",
+        wikiPath: "wiki/alpha/a.md",
+        pinned: true,
+        position: { x: 12, y: 34, coordinateSpace: "world" }
+      }]
+    });
+    assert.deepEqual(semantics.aggregations[1].selectedNodeIds, ["c"]);
+    assert.deepEqual(semantics.aggregations[1].searchResultIds, ["c"]);
+    assert.deepEqual(semantics.aggregations[1].pinnedNodeIds, ["d"]);
+  });
+
   it("preserves node identity, selection, search hits, Pin hints, relations, and aggregation markers", () => {
     const pins: PinMap = {
       "wiki/alpha/a.md": { x: 12, y: 34, coordinateSpace: "world" }

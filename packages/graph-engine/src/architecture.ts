@@ -57,6 +57,7 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
       "final positions, content bounds, and viewport framing",
       "shared density, display mode, and render budgets",
       "stable cross-object priorities and community hierarchy",
+      "combine prepared render snapshots with resolved renderer semantics",
       "DOM/SVG drawing",
       "node, edge, wash, toolbar, overlay, reader painting",
       "render-only CSS state"
@@ -64,6 +65,7 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
     entrypoints: [
       "src/render/render-policy.ts",
       "src/render/model.ts",
+      "src/render/adapter.ts",
       "src/render/graph-renderer-root.ts",
       "src/render/render-pipeline.ts",
       "src/render/overlays-presenter.ts",
@@ -79,6 +81,7 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
       "host callbacks",
       "selection semantics",
       "browser default policy",
+      "raw node or edge rereading during renderer adaptation",
       "graph normalization, layout, or semantic visibility algorithms"
     ]
   },
