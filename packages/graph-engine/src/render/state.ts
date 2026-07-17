@@ -1,5 +1,5 @@
 import type { CommunityId, NodeId, PinMap, SelectionInput } from "../types";
-import type { RenderPositionMap } from "./model";
+import type { RenderPositionMap } from "./render-policy";
 import { DEFAULT_RENDERER_VIEWPORT, normalizeRendererViewport, type RendererViewport } from "./viewport";
 
 export type GraphRuntimeHoverTarget =

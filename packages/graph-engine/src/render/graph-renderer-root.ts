@@ -14,10 +14,10 @@ import type {
 } from "../types";
 import { PinState } from "../sim";
 import {
-  buildRenderableGraph,
   createRenderPathCache,
   type RenderableGraph
-} from "./model";
+} from "./render-policy";
+import { buildRenderableGraph } from "./model";
 import {
   DEFAULT_RENDERER_VIEWPORT,
   createViewportFrameCommitter

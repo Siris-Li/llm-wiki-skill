@@ -1,6 +1,6 @@
 import type { LiveGraphSimulation, PinState } from "../sim";
 import type { NodeId, PinMap, PinPosition } from "../types";
-import type { RenderPositionMap } from "./model";
+import type { RenderPositionMap } from "./render-policy";
 
 export interface GraphNodeDragSession {
   pointerId: number;

@@ -1,6 +1,6 @@
 import type { GraphNode, NodeId, SelectionInput } from "../types";
 import { resolveSelectionForCapabilities } from "../select";
-import type { RenderableGraph, RenderableNode } from "./model";
+import type { RenderableGraph, RenderableNode } from "./render-policy";
 import { buildHoverPreview } from "./preview";
 import { createEdgeHoverPreviewContent, createHoverPreviewContent } from "./hover-card";
 import { renderOfflineReader, renderOfflineSelectionPanel } from "./offline-reader";

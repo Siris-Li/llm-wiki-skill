@@ -2,7 +2,7 @@ import type { GraphAggregationMarker, GraphData, GraphDiff, GraphSummaryObjectRe
 import type { LiveGraphSimulation, PinState } from "../sim";
 import type { GraphHitTargetResolver } from "./hit-testing";
 import type { GraphGestureController, GraphGestureStateMachine } from "./gestures";
-import type { DensityMode, RenderableGraph, RenderPathCache } from "./model";
+import type { DensityMode, RenderableGraph, RenderPathCache } from "./render-policy";
 import type { resolveGraphSearchState } from "./search";
 import type { GraphRendererSurface } from "./renderer-surface";
 import type { GraphRuntimeState } from "./state";

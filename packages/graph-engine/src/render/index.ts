@@ -1,5 +1,4 @@
 export {
-  buildRenderableGraph,
   createRenderPathCache,
   edgeOpacity,
   edgeRelationClass,
@@ -16,7 +15,8 @@ export {
   resolveCommunityFocusScale,
   resolveGraphRenderBudget,
   screenEffectiveDensityMode
-} from "./model";
+} from "./render-policy";
+export { buildRenderableGraph } from "./model";
 export type {
   CommunityMapEdgeLayer,
   CommunityMapEdgeRule,
@@ -53,7 +53,7 @@ export type {
   RenderPathCache,
   RenderPosition,
   RenderPositionMap
-} from "./model";
+} from "./render-policy";
 export { resolvePositionAndRangePolicy } from "./render-policy";
 export type { PositionAndRangePolicy, PositionAndRangePolicyInput } from "./render-policy";
 export { buildCommunityLegend } from "./legend";

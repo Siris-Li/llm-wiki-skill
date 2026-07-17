@@ -68,4 +68,13 @@ describe("graph architecture layer contract", () => {
     assert.ok(data?.owns.includes("semantic visible node and edge sets"));
     assert.ok(data?.mustNotOwn.includes("drawing budgets"));
   });
+
+  it("assigns cross-object render decisions to the shared render policy", () => {
+    const renderer = GRAPH_ARCHITECTURE_LAYERS.find((layer) => layer.id === "renderer");
+
+    assert.ok(renderer?.owns.includes("shared density, display mode, and render budgets"));
+    assert.ok(renderer?.owns.includes("stable cross-object priorities and community hierarchy"));
+    assert.ok(renderer?.owns.includes("final positions, content bounds, and viewport framing"));
+    assert.ok(renderer?.mustNotOwn.includes("graph normalization, layout, or semantic visibility algorithms"));
+  });
 });

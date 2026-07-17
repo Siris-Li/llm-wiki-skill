@@ -26,13 +26,5 @@
     }
   ],
   "internalModelBarrelReferences": [],
-  "rendererRouteBypasses": [
-    {
-      "source": "render/sigma-global-renderer.ts",
-      "target": "render/model.ts",
-      "specifier": "./model",
-      "kind": "import",
-      "typeOnly": false
-    }
-  ]
+  "rendererRouteBypasses": []
 }

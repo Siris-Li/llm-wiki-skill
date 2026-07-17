@@ -9,8 +9,8 @@ import type {
   GraphRendererAdapterEdge,
   GraphRendererAdapterNode
 } from "./adapter";
-import { edgeRelationClass } from "./model";
-import type { CommunityMapEdgeLayer, CommunityMapNodeTier } from "./model";
+import { edgeRelationClass } from "./render-policy";
+import type { CommunityMapEdgeLayer, CommunityMapNodeTier } from "./render-policy";
 import type { SigmaGlobalGraphologyGraph, SigmaGlobalGraphologyRuntime } from "./sigma-global-types";
 
 export interface SigmaGlobalGraphologyNodeAttributes {

@@ -3,7 +3,7 @@ import { createGraphAggregationContainerElement, type GraphAggregationContainerE
 import { createCommunityWashElement } from "./community-washes";
 import { createGraphEdgeElement, type GraphEdgeElementHandlers } from "./edges";
 import { createGraphMinimap } from "./minimap";
-import type { RenderableGraph } from "./model";
+import type { RenderableGraph } from "./render-policy";
 import { createGraphNodeElement, type GraphNodeElementHandlers } from "./nodes";
 import type { PaintedGraphDom } from "./render-context";
 

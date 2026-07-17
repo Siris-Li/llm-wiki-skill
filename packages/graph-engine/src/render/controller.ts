@@ -8,7 +8,7 @@ import {
   type GraphGestureTargetLike
 } from "./gestures";
 import { classifyGraphKeyboardIntent, isTextEditingElement } from "./keyboard";
-import type { RenderPositionMap } from "./model";
+import type { RenderPositionMap } from "./render-policy";
 import {
   cancelFrozenGraphNodeDrag,
   cancelGraphNodeDrag,
