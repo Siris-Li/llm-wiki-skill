@@ -5,6 +5,7 @@ import type {
   AtlasVisibleSnapshot,
   AtlasVisibleState
 } from "./atlas";
+import { resolveAtlasSemanticVisibility } from "./visibility";
 
   var LABEL_CJK_WIDTH = 15;
   var LABEL_LATIN_WIDTH = 8.5;
@@ -1198,49 +1199,14 @@ import type {
     var safeModel = model && typeof model === "object" ? model : buildAtlasModel({});
     var safeUI = uiState && typeof uiState === "object" ? uiState : {};
     var activeCommunityId = safeUI.activeCommunityId == null ? "all" : String(safeUI.activeCommunityId);
-    var query = typeof safeUI.query === "string" ? safeUI.query.trim().toLowerCase() : "";
-    var focusMode = safeUI.focusMode || "all";
     var selectedNodeId = safeUI.selectedNodeId == null ? null : String(safeUI.selectedNodeId);
-    var filters = safeUI.filters && typeof safeUI.filters === "object" ? safeUI.filters : {};
-
-    var baseNodes = safeModel.nodes.filter(function (node) {
-      if (activeCommunityId !== "all" && node.community !== activeCommunityId) return false;
-      if (focusMode === "source" && node.type !== "source") return false;
-      return true;
-    });
-
-    if (focusMode === "core" && baseNodes.length > 8) {
-      var keepCount = Math.max(8, Math.ceil(baseNodes.length * 0.45));
-      var keep = {};
-      baseNodes.slice().sort(function (left, right) {
-        return (right.priority || 0) - (left.priority || 0);
-      }).slice(0, keepCount).forEach(function (node) {
-        keep[node.id] = true;
-      });
-      if (selectedNodeId && safeModel.byId[selectedNodeId]) keep[selectedNodeId] = true;
-      baseNodes = baseNodes.filter(function (node) { return !!keep[node.id]; });
-    }
-
-    var baseIdSet = {};
-    baseNodes.forEach(function (node) { baseIdSet[node.id] = true; });
-    var searchIndex = buildAtlasSearchIndex(baseNodes);
-    var matchedIds = {};
-    var visibleNodes = !query
-      ? baseNodes
-      : searchIndex.filter(function (entry) {
-          return entry.haystack.indexOf(query) !== -1;
-        }).map(function (entry) {
-          matchedIds[entry.node.id] = true;
-          return entry.node;
-        });
+    var semanticVisibility = resolveAtlasSemanticVisibility(safeModel, safeUI);
+    var searchIndex = semanticVisibility.searchIndex;
+    var matchedIds = semanticVisibility.matchedNodeIds;
+    var visibleNodes = semanticVisibility.nodes;
     var visibleIdSet = {};
     visibleNodes.forEach(function (node) { visibleIdSet[node.id] = true; });
-
-    var visibleEdges = safeModel.edges.filter(function (edge) {
-      var edgeType = edge.type || "EXTRACTED";
-      if (filters[edgeType] === false) return false;
-      return !!(visibleIdSet[edge.source] && visibleIdSet[edge.target]);
-    });
+    var visibleEdges = semanticVisibility.edges;
 
     var densityMode = getAtlasDensityMode(visibleNodes.length);
     var labelBudget = atlasLabelBudget(densityMode, visibleNodes.length);

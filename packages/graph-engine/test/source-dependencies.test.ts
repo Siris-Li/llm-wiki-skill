@@ -156,4 +156,17 @@ describe("issue #159 source dependency gate", () => {
       ["stale-legacy-reference"]
     );
   });
+
+  it("keeps semantic visibility independent from layout, camera, rendering, and hosts", async () => {
+    const graph = await readTypeScriptModuleGraph(path.join(PACKAGE_ROOT, "src"));
+    const visibilityEdges = graph.edges.filter((edge) => edge.source === "model/visibility.ts");
+
+    assert.deepEqual(
+      visibilityEdges.map((edge) => [edge.target, edge.typeOnly]),
+      [
+        ["types.ts", true],
+        ["model/atlas.ts", true]
+      ]
+    );
+  });
 });
