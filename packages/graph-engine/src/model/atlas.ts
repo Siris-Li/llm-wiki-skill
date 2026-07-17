@@ -117,9 +117,9 @@ export interface AtlasModel {
   meta: AtlasModelMeta;
   nodes: AtlasNode[];
   edges: AtlasEdge[];
-  byId: Record<NodeId, AtlasNode>;
+  byId: Partial<Record<NodeId, AtlasNode>>;
   communities: AtlasCommunity[];
-  communityById: Record<CommunityId, AtlasCommunity>;
+  communityById: Partial<Record<CommunityId, AtlasCommunity>>;
   starts: AtlasStart[];
   searchIndex: AtlasSearchIndexEntry[];
   insights: AtlasInsights;
@@ -196,7 +196,7 @@ const ATLAS_CONFIDENCES = new Set<AtlasConfidence>([
 export function buildAtlasModel(input: unknown): AtlasModel {
   const raw = objectRecord(input);
   const nodes = mapArrayValues(raw.nodes, normalizeAtlasNode);
-  const byId: Record<NodeId, AtlasNode> = Object.create(null) as Record<NodeId, AtlasNode>;
+  const byId: Partial<Record<NodeId, AtlasNode>> = Object.create(null) as Partial<Record<NodeId, AtlasNode>>;
   const groupedByCommunity: Record<CommunityId, AtlasCommunityGroup> = Object.create(null) as Record<CommunityId, AtlasCommunityGroup>;
 
   nodes.forEach((node) => {
@@ -218,7 +218,7 @@ export function buildAtlasModel(input: unknown): AtlasModel {
   });
 
   const communities = deriveAtlasCommunities(raw, groupedByCommunity);
-  const communityById: Record<CommunityId, AtlasCommunity> = Object.create(null) as Record<CommunityId, AtlasCommunity>;
+  const communityById: Partial<Record<CommunityId, AtlasCommunity>> = Object.create(null) as Partial<Record<CommunityId, AtlasCommunity>>;
   for (const community of communities) communityById[community.id] = community;
 
   const rawMeta = objectRecord(raw.meta);
@@ -372,7 +372,7 @@ function deriveAtlasCommunities(
 function buildAtlasStarts(
   rawGraph: Record<string, unknown>,
   nodes: AtlasNode[],
-  byId: Record<NodeId, AtlasNode>,
+  byId: Partial<Record<NodeId, AtlasNode>>,
   communities: AtlasCommunity[]
 ): AtlasStart[] {
   const starts: AtlasStart[] = [];
@@ -416,7 +416,7 @@ function normalizeAtlasModelInsights(value: unknown): AtlasInsights {
   const raw = objectRecord(value);
   const rawMeta = objectRecord(raw.meta);
   return {
-    surprising_connections: objectArray(raw.surprising_connections).map((item) => ({
+    surprising_connections: mapObjectArrayValues(raw.surprising_connections, (item) => ({
       ...item,
       from: compatibleString(item.from, ""),
       to: compatibleString(item.to, ""),
@@ -424,28 +424,28 @@ function normalizeAtlasModelInsights(value: unknown): AtlasInsights {
       from_community: nullableString(item.from_community),
       to_community: nullableString(item.to_community)
     })),
-    isolated_nodes: objectArray(raw.isolated_nodes).map((item) => ({
+    isolated_nodes: mapObjectArrayValues(raw.isolated_nodes, (item) => ({
       ...item,
       id: compatibleString(item.id, ""),
       label: compatibleString(item.label, compatibleString(item.id, "")),
       degree: finiteNumber(item.degree, 0),
       community: nullableString(item.community)
     })),
-    bridge_nodes: objectArray(raw.bridge_nodes).map((item) => ({
+    bridge_nodes: mapObjectArrayValues(raw.bridge_nodes, (item) => ({
       ...item,
       id: compatibleString(item.id, ""),
       label: compatibleString(item.label, compatibleString(item.id, "")),
       community: nullableString(item.community),
-      connected_communities: arrayValues(item.connected_communities).map((id) => compatibleString(id, "")),
+      connected_communities: mapArrayValues(item.connected_communities, (id) => compatibleString(id, "")),
       community_count: finiteNumber(item.community_count, 0)
     })),
-    sparse_communities: objectArray(raw.sparse_communities).map((item) => ({
+    sparse_communities: mapObjectArrayValues(raw.sparse_communities, (item) => ({
       ...item,
       id: compatibleString(item.id, ""),
       label: compatibleString(item.label, compatibleString(item.id, "")),
       node_count: finiteNumber(item.node_count, 0),
       density: finiteNumber(item.density, 0),
-      members: arrayValues(item.members).map((id) => compatibleString(id, "")),
+      members: mapArrayValues(item.members, (id) => compatibleString(id, "")),
       internal_edges: finiteNumber(item.internal_edges, 0)
     })),
     meta: {
@@ -708,7 +708,7 @@ function projectInsights(value: unknown): GraphInsights {
   const raw = objectRecord(value);
   const meta = objectRecord(raw.meta);
   return {
-    surprising_connections: objectEntries(raw.surprising_connections).map((item) => ({
+    surprising_connections: mapObjectArrayValues(raw.surprising_connections, (item) => ({
       ...item,
       from: compatibleString(item.from, ""),
       to: compatibleString(item.to, ""),
@@ -716,14 +716,14 @@ function projectInsights(value: unknown): GraphInsights {
       from_community: nullableString(item.from_community),
       to_community: nullableString(item.to_community)
     })),
-    isolated_nodes: objectEntries(raw.isolated_nodes).map((item) => ({
+    isolated_nodes: mapObjectArrayValues(raw.isolated_nodes, (item) => ({
       ...item,
       id: compatibleString(item.id, ""),
       label: compatibleString(item.label, compatibleString(item.id, "")),
       degree: compatibleCount(item.degree, 0),
       community: nullableString(item.community)
     })),
-    bridge_nodes: objectEntries(raw.bridge_nodes).map((item) => ({
+    bridge_nodes: mapObjectArrayValues(raw.bridge_nodes, (item) => ({
       ...item,
       id: compatibleString(item.id, ""),
       label: compatibleString(item.label, compatibleString(item.id, "")),
@@ -733,7 +733,7 @@ function projectInsights(value: unknown): GraphInsights {
         : [],
       community_count: compatibleCount(item.community_count, 0)
     })),
-    sparse_communities: objectEntries(raw.sparse_communities).map((item) => ({
+    sparse_communities: mapObjectArrayValues(raw.sparse_communities, (item) => ({
       ...item,
       id: compatibleString(item.id, ""),
       label: compatibleString(item.label, compatibleString(item.id, "")),
@@ -751,12 +751,6 @@ function projectInsights(value: unknown): GraphInsights {
       max_insight_edges: compatibleCount(meta.max_insight_edges, 0)
     }
   };
-}
-
-function objectEntries(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value)
-    ? arrayValues(value).filter((entry) => entry != null && typeof entry === "object").map((entry) => objectRecord(entry))
-    : [];
 }
 
 function regularSearchHaystack(rawNode: Record<string, unknown>, fallbackId: string): string {
@@ -857,6 +851,29 @@ function mapArrayValues<T>(value: unknown, mapper: (entry: unknown, index: numbe
         output[index] = mapper(value[index], index);
       } catch {
         output[index] = mapper(undefined, index);
+      }
+    }
+    return output;
+  } catch {
+    return [];
+  }
+}
+
+function mapObjectArrayValues<T>(
+  value: unknown,
+  mapper: (entry: Record<string, unknown>, index: number) => T
+): T[] {
+  try {
+    if (!Array.isArray(value)) return [];
+    const output = new Array<T>(value.length);
+    for (let index = 0; index < value.length; index += 1) {
+      try {
+        if (!(index in value)) continue;
+        const entry = value[index];
+        if (entry == null || typeof entry !== "object") continue;
+        output[index] = mapper(objectRecord(entry), index);
+      } catch {
+        // An unreadable entry remains an empty position so later entries keep their indexes.
       }
     }
     return output;

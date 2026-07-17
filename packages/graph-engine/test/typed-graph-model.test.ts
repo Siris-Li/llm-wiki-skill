@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildAtlasModel } from "../src/model/atlas";
+import { buildAtlasModel, projectGraphInput } from "../src/model/atlas";
 
 describe("typed graph model", () => {
   it("preserves sparse node array holes without inventing graph facts", () => {
@@ -120,5 +120,48 @@ describe("typed graph model", () => {
       max_insight_nodes: 0,
       max_insight_edges: 4
     });
+  });
+
+  it("preserves sparse insight array positions without inventing graph IDs", () => {
+    const surprisingConnections: unknown[] = new Array(3);
+    surprisingConnections[2] = { from: "a", to: "b", weight: 0.5 };
+    const connectedCommunities: unknown[] = new Array(2);
+    connectedCommunities[1] = "c2";
+    const bridgeNodes: unknown[] = new Array(2);
+    bridgeNodes[1] = {
+      id: "a",
+      connected_communities: connectedCommunities
+    };
+    const members: unknown[] = new Array(3);
+    members[2] = "a";
+    const sparseCommunities: unknown[] = new Array(3);
+    sparseCommunities[2] = { id: "c1", members };
+
+    const input = {
+      insights: {
+        surprising_connections: surprisingConnections,
+        bridge_nodes: bridgeNodes,
+        sparse_communities: sparseCommunities
+      }
+    };
+    const models = [
+      buildAtlasModel(input),
+      buildAtlasModel(projectGraphInput(input).data)
+    ];
+
+    for (const model of models) {
+      assert.equal(model.insights.surprising_connections.length, 3);
+      assert.deepEqual(Object.keys(model.insights.surprising_connections), ["2"]);
+      assert.equal(model.insights.bridge_nodes.length, 2);
+      assert.deepEqual(Object.keys(model.insights.bridge_nodes), ["1"]);
+      assert.equal(model.insights.bridge_nodes[1]?.connected_communities.length, 2);
+      assert.deepEqual(Object.keys(model.insights.bridge_nodes[1]?.connected_communities ?? []), ["1"]);
+      assert.equal(model.insights.bridge_nodes[1]?.connected_communities[1], "c2");
+      assert.equal(model.insights.sparse_communities.length, 3);
+      assert.deepEqual(Object.keys(model.insights.sparse_communities), ["2"]);
+      assert.equal(model.insights.sparse_communities[2]?.members.length, 3);
+      assert.deepEqual(Object.keys(model.insights.sparse_communities[2]?.members ?? []), ["2"]);
+      assert.equal(model.insights.sparse_communities[2]?.members[2], "a");
+    }
   });
 });

@@ -1171,7 +1171,7 @@ export function nodeDisplayModeForDensity(
 
 function normalizeGraphFocus(
   focus: GraphFocusInput | undefined,
-  model: { communityById: Record<string, AtlasCommunity> }
+  model: { communityById: Partial<Record<string, AtlasCommunity>> }
 ): GraphFocusInput {
   if (!focus || focus.kind !== "community") return null;
   const id = String(focus.id || "");
@@ -1273,7 +1273,7 @@ function finitePositionCoordinate(value: unknown): number {
 }
 
 function resolveSelectedNodeIds(
-  model: { byId: Record<string, AtlasNode>; nodes: AtlasNode[] },
+  model: { byId: Partial<Record<string, AtlasNode>>; nodes: AtlasNode[] },
   options: BuildRenderableGraphOptions
 ): string[] {
   if (options.selection?.kind === "node" && model.byId[options.selection.id]) return [options.selection.id];
