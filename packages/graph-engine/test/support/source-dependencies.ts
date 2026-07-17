@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
 
-export type SourceDependencyKind = "import" | "dynamic-import" | "re-export";
+export type SourceDependencyKind = "import" | "dynamic-import" | "import-type" | "re-export" | "require";
 
 export interface SourceDependencyEdge {
   source: string;
@@ -22,7 +22,10 @@ export interface GraphDependencyFinding {
   rule:
     | "legacy-reference-growth"
     | "internal-model-barrel-growth"
-    | "renderer-route-bypasses-shared-snapshot";
+    | "renderer-route-bypasses-shared-snapshot"
+    | "stale-legacy-reference"
+    | "stale-internal-model-barrel-reference"
+    | "stale-renderer-route-bypass";
   edge: SourceDependencyEdge;
 }
 
@@ -66,8 +69,25 @@ export async function readTypeScriptModuleGraph(root: string): Promise<TypeScrip
           && clause.namedBindings.elements.every((element) => element.isTypeOnly)
         );
         addEdge(node.moduleSpecifier.text, "import", typeOnly);
+      } else if (
+        ts.isImportEqualsDeclaration(node)
+        && ts.isExternalModuleReference(node.moduleReference)
+        && node.moduleReference.expression
+        && ts.isStringLiteral(node.moduleReference.expression)
+      ) {
+        addEdge(node.moduleReference.expression.text, "import", node.isTypeOnly);
       } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-        addEdge(node.moduleSpecifier.text, "re-export", node.isTypeOnly);
+        const clause = node.exportClause;
+        const typeOnly = node.isTypeOnly || Boolean(
+          clause
+          && ts.isNamedExports(clause)
+          && clause.elements.length > 0
+          && clause.elements.every((element) => element.isTypeOnly)
+        );
+        addEdge(node.moduleSpecifier.text, "re-export", typeOnly);
+      } else if (ts.isImportTypeNode(node)) {
+        const specifier = importTypeSpecifier(node);
+        if (specifier) addEdge(specifier, "import-type", true);
       } else if (
         ts.isCallExpression(node)
         && node.expression.kind === ts.SyntaxKind.ImportKeyword
@@ -75,6 +95,14 @@ export async function readTypeScriptModuleGraph(root: string): Promise<TypeScrip
         && ts.isStringLiteral(node.arguments[0])
       ) {
         addEdge(node.arguments[0].text, "dynamic-import");
+      } else if (
+        ts.isCallExpression(node)
+        && ts.isIdentifier(node.expression)
+        && node.expression.text === "require"
+        && node.arguments.length === 1
+        && ts.isStringLiteral(node.arguments[0])
+      ) {
+        addEdge(node.arguments[0].text, "require");
       }
       ts.forEachChild(node, visit);
     };
@@ -92,24 +120,29 @@ export function auditGraphSourceDependencies(
   const legacyBaseline = new Set(baseline.legacyReferences.map(edgeKey));
   const barrelBaseline = new Set(baseline.internalModelBarrelReferences.map(edgeKey));
   const rendererBypassBaseline = new Set((baseline.rendererRouteBypasses ?? []).map(edgeKey));
+  const currentLegacy = new Set(graph.edges.filter(isLegacyReference).map(edgeKey));
+  const currentBarrel = new Set(graph.edges.filter(isInternalModelBarrelReference).map(edgeKey));
+  const currentRendererBypass = new Set(graph.edges.filter(isRendererRouteBypass).map(edgeKey));
 
   for (const edge of graph.edges) {
-    if (edge.target === "model/legacy-helpers.ts" && !legacyBaseline.has(edgeKey(edge))) {
+    if (isLegacyReference(edge) && !legacyBaseline.has(edgeKey(edge))) {
       findings.push({ rule: "legacy-reference-growth", edge });
     }
-    if (
-      edge.target === "model/index.ts"
-      && edge.source !== "index.ts"
-      && !barrelBaseline.has(edgeKey(edge))
-    ) {
+    if (isInternalModelBarrelReference(edge) && !barrelBaseline.has(edgeKey(edge))) {
       findings.push({ rule: "internal-model-barrel-growth", edge });
     }
-    const rendererBypass = isRendererRoute(edge.source)
-      && !edge.typeOnly
-      && (edge.target.startsWith("model/") || edge.target === "render/model.ts");
-    if (rendererBypass && !rendererBypassBaseline.has(edgeKey(edge))) {
+    if (isRendererRouteBypass(edge) && !rendererBypassBaseline.has(edgeKey(edge))) {
       findings.push({ rule: "renderer-route-bypasses-shared-snapshot", edge });
     }
+  }
+  for (const edge of baseline.legacyReferences) {
+    if (!currentLegacy.has(edgeKey(edge))) findings.push({ rule: "stale-legacy-reference", edge });
+  }
+  for (const edge of baseline.internalModelBarrelReferences) {
+    if (!currentBarrel.has(edgeKey(edge))) findings.push({ rule: "stale-internal-model-barrel-reference", edge });
+  }
+  for (const edge of baseline.rendererRouteBypasses ?? []) {
+    if (!currentRendererBypass.has(edgeKey(edge))) findings.push({ rule: "stale-renderer-route-bypass", edge });
   }
 
   return findings.sort((left, right) => {
@@ -122,7 +155,10 @@ export function auditGraphSourceDependencies(
 function findingRuleOrder(rule: GraphDependencyFinding["rule"]): number {
   if (rule === "legacy-reference-growth") return 0;
   if (rule === "internal-model-barrel-growth") return 1;
-  return 2;
+  if (rule === "renderer-route-bypasses-shared-snapshot") return 2;
+  if (rule === "stale-legacy-reference") return 3;
+  if (rule === "stale-internal-model-barrel-reference") return 4;
+  return 5;
 }
 
 function edgeKey(edge: SourceDependencyEdge): string {
@@ -131,9 +167,27 @@ function edgeKey(edge: SourceDependencyEdge): string {
 }
 
 function isRendererRoute(source: string): boolean {
-  return source === "graph-routes/sigma-global-route.ts"
-    || source === "render/sigma-global-renderer.ts"
-    || source === "render/dom-svg-renderer.ts";
+  return source.startsWith("graph-routes/") || /^render\/[^/]*renderer\.(?:ts|tsx|mts|cts)$/.test(source);
+}
+
+function importTypeSpecifier(node: ts.ImportTypeNode): string | null {
+  return ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)
+    ? node.argument.literal.text
+    : null;
+}
+
+function isLegacyReference(edge: SourceDependencyEdge): boolean {
+  return edge.target === "model/legacy-helpers.ts";
+}
+
+function isInternalModelBarrelReference(edge: SourceDependencyEdge): boolean {
+  return edge.target === "model/index.ts" && edge.source !== "index.ts";
+}
+
+function isRendererRouteBypass(edge: SourceDependencyEdge): boolean {
+  return isRendererRoute(edge.source)
+    && !edge.typeOnly
+    && (edge.target.startsWith("model/") || edge.target === "render/model.ts");
 }
 
 async function listTypeScriptFiles(root: string): Promise<string[]> {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import ts from "typescript";
@@ -42,6 +43,36 @@ describe("issue #159 supported graph-engine exports", () => {
     }
     assert.equal(graphEngine.createGraphRenderer, graphEngine.createStaticGraphRenderer);
   });
+
+  it("records namespace imports independently", async () => {
+    assert.deepEqual(await fixturePackageImports("consumer.mts", [
+      'import * as graphEngine from "@llm-wiki/graph-engine";',
+      "void graphEngine;"
+    ].join("\n")), ["*"]);
+  });
+
+  it("records named package re-exports independently", async () => {
+    assert.deepEqual(
+      await fixturePackageImports("named-re-export.mts", 'export { createGraphEngine as engine } from "@llm-wiki/graph-engine";\n'),
+      ["createGraphEngine"]
+    );
+  });
+
+  it("records star package re-exports independently", async () => {
+    assert.deepEqual(
+      await fixturePackageImports("star-re-export.mts", 'export * from "@llm-wiki/graph-engine";\n'),
+      ["*"]
+    );
+  });
+
+  it("records dynamic imports and import-type export use", async () => {
+    assert.deepEqual(await fixturePackageImports("lazy-consumer.cts", [
+      'type Data = import("@llm-wiki/graph-engine").GraphData;',
+      'const modulePromise = import("@llm-wiki/graph-engine");',
+      "void (null as unknown as Data);",
+      "void modulePromise;"
+    ].join("\n")), ["*", "GraphData"]);
+  });
 });
 
 async function readBaseline(): Promise<SupportedExportsBaseline> {
@@ -53,19 +84,69 @@ async function packageImports(root: string): Promise<string[]> {
   for (const file of await sourceFiles(root)) {
     const source = ts.createSourceFile(file, await readFile(file, "utf8"), ts.ScriptTarget.Latest, true);
     for (const statement of source.statements) {
-      if (
-        !ts.isImportDeclaration(statement)
-        || !ts.isStringLiteral(statement.moduleSpecifier)
-        || statement.moduleSpecifier.text !== "@llm-wiki/graph-engine"
-      ) continue;
-      const clause = statement.importClause;
-      if (clause?.name) names.add(clause.name.text);
-      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-        for (const element of clause.namedBindings.elements) names.add((element.propertyName ?? element.name).text);
+      if (ts.isImportDeclaration(statement) && isGraphEngineSpecifier(statement.moduleSpecifier)) {
+        const clause = statement.importClause;
+        if (clause?.name) names.add("default");
+        if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) names.add("*");
+        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+          for (const element of clause.namedBindings.elements) names.add((element.propertyName ?? element.name).text);
+        }
+      } else if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && isGraphEngineSpecifier(statement.moduleSpecifier)) {
+        const clause = statement.exportClause;
+        if (!clause || ts.isNamespaceExport(clause)) names.add("*");
+        else for (const element of clause.elements) names.add((element.propertyName ?? element.name).text);
       }
     }
+    const visit = (node: ts.Node): void => {
+      if (ts.isImportTypeNode(node) && isGraphEngineImportType(node)) {
+        names.add(node.qualifier ? rootExportName(node.qualifier) : "*");
+      } else if (
+        ts.isCallExpression(node)
+        && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+          || (ts.isIdentifier(node.expression) && node.expression.text === "require"))
+        && node.arguments.length === 1
+        && isGraphEngineSpecifier(node.arguments[0])
+      ) {
+        names.add("*");
+      } else if (
+        ts.isImportEqualsDeclaration(node)
+        && ts.isExternalModuleReference(node.moduleReference)
+        && node.moduleReference.expression
+        && isGraphEngineSpecifier(node.moduleReference.expression)
+      ) {
+        names.add("*");
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
   }
   return [...names].sort();
+}
+
+function isGraphEngineSpecifier(node: ts.Expression): node is ts.StringLiteral {
+  return ts.isStringLiteral(node) && node.text === "@llm-wiki/graph-engine";
+}
+
+function isGraphEngineImportType(node: ts.ImportTypeNode): boolean {
+  return ts.isLiteralTypeNode(node.argument)
+    && ts.isStringLiteral(node.argument.literal)
+    && node.argument.literal.text === "@llm-wiki/graph-engine";
+}
+
+function rootExportName(name: ts.EntityName): string {
+  let current = name;
+  while (ts.isQualifiedName(current)) current = current.left;
+  return current.text;
+}
+
+async function fixturePackageImports(filename: string, source: string): Promise<string[]> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "llm-wiki-supported-exports-"));
+  try {
+    await writeFile(path.join(root, filename), source);
+    return await packageImports(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
 async function sourceFiles(root: string): Promise<string[]> {
@@ -74,7 +155,7 @@ async function sourceFiles(root: string): Promise<string[]> {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const absolute = path.join(directory, entry.name);
       if (entry.isDirectory()) await visit(absolute);
-      else if (entry.isFile() && /\.tsx?$/.test(entry.name)) files.push(absolute);
+      else if (entry.isFile() && /\.(?:ts|tsx|mts|cts)$/.test(entry.name)) files.push(absolute);
     }
   };
   await visit(root);

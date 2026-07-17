@@ -16,7 +16,7 @@ import {
   type GraphVisibilityState,
   type PinMap,
   type RenderableGraph
-} from "../../dist/index.js";
+} from "@llm-wiki/graph-engine";
 
 const graph: GraphData = {
   meta: { build_date: "", wiki_title: "dist consumer", total_nodes: 1, total_edges: 0 },
