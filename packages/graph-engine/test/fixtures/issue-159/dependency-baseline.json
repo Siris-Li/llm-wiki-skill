@@ -1,0 +1,69 @@
+{
+  "legacyReferences": [
+    {
+      "source": "model/atlas.ts",
+      "target": "model/legacy-helpers.ts",
+      "specifier": "./legacy-helpers",
+      "kind": "re-export"
+    },
+    {
+      "source": "model/labels.ts",
+      "target": "model/legacy-helpers.ts",
+      "specifier": "./legacy-helpers",
+      "kind": "re-export"
+    },
+    {
+      "source": "model/learning.ts",
+      "target": "model/legacy-helpers.ts",
+      "specifier": "./legacy-helpers",
+      "kind": "re-export"
+    },
+    {
+      "source": "model/queue.ts",
+      "target": "model/legacy-helpers.ts",
+      "specifier": "./legacy-helpers",
+      "kind": "re-export"
+    },
+    {
+      "source": "model/storage.ts",
+      "target": "model/legacy-helpers.ts",
+      "specifier": "./legacy-helpers",
+      "kind": "re-export"
+    },
+    {
+      "source": "model/visibility.ts",
+      "target": "model/legacy-helpers.ts",
+      "specifier": "./legacy-helpers",
+      "kind": "re-export"
+    },
+    {
+      "source": "render/search.ts",
+      "target": "model/legacy-helpers.ts",
+      "specifier": "../model/legacy-helpers",
+      "kind": "import"
+    }
+  ],
+  "internalModelBarrelReferences": [
+    {
+      "source": "render/model.ts",
+      "target": "model/index.ts",
+      "specifier": "../model",
+      "kind": "import"
+    },
+    {
+      "source": "render/viewport.ts",
+      "target": "model/index.ts",
+      "specifier": "../model",
+      "kind": "import"
+    }
+  ],
+  "rendererRouteBypasses": [
+    {
+      "source": "render/sigma-global-renderer.ts",
+      "target": "render/model.ts",
+      "specifier": "./model",
+      "kind": "import",
+      "typeOnly": false
+    }
+  ]
+}

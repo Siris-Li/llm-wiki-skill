@@ -1,0 +1,8 @@
+{
+  "baseline_commit": "c641953b92be2d916bd77f3e65011943c2c1a091",
+  "build_command": "npm run build -w @llm-wiki/graph-engine",
+  "artifacts": {
+    "dist/engine.esm.js": 414412,
+    "dist/engine.iife.js": 495136
+  }
+}
