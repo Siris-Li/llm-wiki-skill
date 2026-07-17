@@ -2429,6 +2429,7 @@ async function runStatePreservationCheck(page) {
   assert.equal(returned.nodeAPinned, "true", "fixed node should survive community return");
   assertPointStable(returned.nodeABox, afterDrag.nodeABox, "dragged fixed node should remain at the released global position after community return", 10);
   assert.equal(returned.oldDomGlobalNodeCount, 0, "state-preserving return should still use Sigma, not old DOM global");
+  await waitForPersistedGraphPin(page, "wiki/entities/A.md");
 
   await page.reload();
   await waitForSigmaGlobal(page);
@@ -2611,7 +2612,7 @@ async function reloadPinDiagnostics(page, nodeId) {
       route: document.querySelector(".sigma-global-route")?.getAttribute("data-route") || "",
       renderer: document.querySelector(".sigma-global-renderer")?.getAttribute("data-renderer") || "",
       layoutUrl,
-      layoutPins: layoutPayload?.layout?.pins || null,
+      layoutPins: layoutPayload?.data?.pins || null,
       allTargets: [...document.querySelectorAll(".sigma-global-node-hit-target")].map((node) => ({
         id: node.getAttribute("data-node-id") || "",
         pinned: node.getAttribute("data-pinned") || "",
@@ -2635,7 +2636,7 @@ async function waitForPersistedGraphPin(page, pinKey) {
       const response = await fetch(layoutUrl);
       if (!response.ok) return false;
       const payload = await response.json();
-      return Boolean(payload?.layout?.pins?.[pinKey]);
+      return Boolean(payload?.data?.pins?.[pinKey]);
     }, pinKey, { timeout: 5000 });
   } catch (err) {
     const diagnostics = await page.evaluate(async (pinKey) => {
