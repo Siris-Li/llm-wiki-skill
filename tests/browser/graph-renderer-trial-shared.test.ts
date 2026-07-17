@@ -7,12 +7,129 @@ import path from "node:path";
 
 import {
   DURATION_GATED_ACTIONS,
+  REQUIRED_TRIAL_ACTIONS,
+  SIGMA_REQUIRED_TRIAL_ACTIONS,
   durationLimitMs,
   validateTrialResults,
   type TrialRecordLike
 } from "./graph-renderer-trial-shared";
 
 describe("graph renderer browser trial gates", () => {
+  it("requires hover_preview only for Sigma trials", () => {
+    const records = passingRecords(REQUIRED_TRIAL_ACTIONS);
+
+    assert.throws(
+      () => validateTrialResults({
+        renderer: "sigma-graphology-webgl-trial",
+        requestedShapes: ["shape"],
+        requiredActions: SIGMA_REQUIRED_TRIAL_ACTIONS,
+        records,
+        errors: [],
+        resultPath: "/tmp/sigma-result.json"
+      }),
+      /missing action hover_preview/
+    );
+
+    assert.doesNotThrow(() => validateTrialResults({
+      renderer: "vis-network-trial",
+      requestedShapes: ["shape"],
+      records,
+      errors: [],
+      resultPath: "/tmp/vis-result.json"
+    }));
+  });
+
+  it("does not let a Sigma artifact downgrade its declared required actions", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-wiki-sigma-action-downgrade-"));
+    const resultPath = path.join(tmpDir, "result.json");
+    try {
+      fs.writeFileSync(resultPath, `${JSON.stringify({
+        schema_version: "1.1.0",
+        renderer: "sigma-graphology-webgl-trial",
+        production_path: false,
+        shapes: ["shape"],
+        required_actions: REQUIRED_TRIAL_ACTIONS,
+        requested_actions: null,
+        records: passingRecords(REQUIRED_TRIAL_ACTIONS),
+        errors: []
+      }, null, 2)}\n`);
+
+      const result = spawnSync("node", ["--import", "tsx", "tests/browser/validate-graph-trial-result.mjs", resultPath], {
+        cwd: path.resolve(import.meta.dirname, "../.."),
+        encoding: "utf8"
+      });
+
+      assert.notEqual(result.status, 0, result.stdout);
+      assert.match(result.stderr, /missing action hover_preview/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a Sigma hover_preview record for the wrong target", () => {
+    const records = passingRecords(SIGMA_REQUIRED_TRIAL_ACTIONS);
+    const hoverRecord = records.find((record) => record.action === "hover_preview");
+    assert.ok(hoverRecord);
+    hoverRecord.hover_target_id = "node-a";
+    hoverRecord.hover_observed_target_id = "node-b";
+    hoverRecord.hover_preview_state = "visible";
+
+    assert.throws(
+      () => validateTrialResults({
+        renderer: "sigma-graphology-webgl-trial",
+        requestedShapes: ["shape"],
+        requiredActions: SIGMA_REQUIRED_TRIAL_ACTIONS,
+        records,
+        errors: [],
+        resultPath: "/tmp/sigma-result.json"
+      }),
+      /hover_target_mismatch/
+    );
+  });
+
+  it("rejects a Sigma hover_preview record when the preview state never appears", () => {
+    const records = passingRecords(SIGMA_REQUIRED_TRIAL_ACTIONS);
+    const hoverRecord = records.find((record) => record.action === "hover_preview");
+    assert.ok(hoverRecord);
+    hoverRecord.hover_target_id = "node-a";
+    hoverRecord.hover_observed_target_id = "node-a";
+    hoverRecord.hover_preview_state = "missing";
+
+    assert.throws(
+      () => validateTrialResults({
+        renderer: "sigma-global-production",
+        requestedShapes: ["shape"],
+        requiredActions: SIGMA_REQUIRED_TRIAL_ACTIONS,
+        records,
+        errors: [],
+        resultPath: "/tmp/sigma-result.json"
+      }),
+      /hover_state_missing/
+    );
+  });
+
+  it("rejects a Sigma hover_preview record without a measured duration", () => {
+    const records = passingRecords(SIGMA_REQUIRED_TRIAL_ACTIONS);
+    const hoverRecord = records.find((record) => record.action === "hover_preview");
+    assert.ok(hoverRecord);
+    hoverRecord.duration_ms = null;
+    hoverRecord.hover_target_id = "node-a";
+    hoverRecord.hover_observed_target_id = "node-a";
+    hoverRecord.hover_preview_state = "visible";
+
+    assert.throws(
+      () => validateTrialResults({
+        renderer: "sigma-global-production",
+        requestedShapes: ["shape"],
+        requiredActions: SIGMA_REQUIRED_TRIAL_ACTIONS,
+        records,
+        errors: [],
+        resultPath: "/tmp/sigma-result.json"
+      }),
+      /hover_duration_missing/
+    );
+  });
+
   it("standalone artifact validator requires return_global_takeover records", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-wiki-trial-validator-"));
     const resultPath = path.join(tmpDir, "result.json");
@@ -63,7 +180,7 @@ describe("graph renderer browser trial gates", () => {
         errors: []
       }, null, 2)}\n`);
 
-      const result = spawnSync("node", ["tests/browser/validate-graph-trial-result.mjs", resultPath], {
+      const result = spawnSync("node", ["--import", "tsx", "tests/browser/validate-graph-trial-result.mjs", resultPath], {
         cwd: path.resolve(import.meta.dirname, "../.."),
         encoding: "utf8"
       });
@@ -108,3 +225,24 @@ describe("graph renderer browser trial gates", () => {
     );
   });
 });
+
+function passingRecords(actions: readonly string[]): TrialRecordLike[] {
+  return actions.map((action) => ({
+    graph_shape: "shape",
+    action,
+    pass: true,
+    nodes: 1000,
+    fps: 60,
+    frame_p95_ms: 12,
+    duration_ms: 10,
+    memory_growth_mb: 1,
+    failure_class: null,
+    schema_version: "1.0.0",
+    production_path: false,
+    thresholds: {},
+    browser: "chromium",
+    build_commit: "test",
+    run_started_at: "2026-07-06T00:00:00.000Z",
+    run_finished_at: "2026-07-06T00:00:01.000Z"
+  }));
+}

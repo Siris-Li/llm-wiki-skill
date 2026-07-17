@@ -322,10 +322,12 @@ describe("renderer and facade boundary contract", () => {
     assert.match(stylesText, /\.sigma-global-route\.llm-wiki-graph-engine\s*\{\s*min-height: 0;\s*\}/);
   });
 
-  it("keeps Sigma node hit targets above passive community overlays", async () => {
+  it("keeps Sigma node hit targets above the mouse-capture canvas and passive community overlays", async () => {
     const stylesText = await readFile(join(SRC, "render/render-styles.ts"), "utf8");
+    const overlayBlock = stylesText.match(/\.sigma-global-overlay\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
     const nodeHitTargetBlock = stylesText.match(/\.sigma-global-node-hit-target\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
 
+    assert.match(overlayBlock, /z-index:\s*10;/);
     assert.match(nodeHitTargetBlock, /pointer-events:\s*auto;/);
     assert.match(nodeHitTargetBlock, /z-index:\s*2;/);
   });
