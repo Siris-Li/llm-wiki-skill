@@ -195,28 +195,27 @@ const ATLAS_CONFIDENCES = new Set<AtlasConfidence>([
 
 export function buildAtlasModel(input: unknown): AtlasModel {
   const raw = objectRecord(input);
-  const nodes = arrayValues(raw.nodes).map(normalizeAtlasNode);
+  const nodes = mapArrayValues(raw.nodes, normalizeAtlasNode);
   const byId: Record<NodeId, AtlasNode> = Object.create(null) as Record<NodeId, AtlasNode>;
   const groupedByCommunity: Record<CommunityId, AtlasCommunityGroup> = Object.create(null) as Record<CommunityId, AtlasCommunityGroup>;
 
-  for (const node of nodes) {
+  nodes.forEach((node) => {
     byId[node.id] = node;
     const group = groupedByCommunity[node.community] ?? { id: node.community, nodes: [] };
     group.nodes.push(node);
     groupedByCommunity[node.community] = group;
-  }
+  });
 
-  const edges = arrayValues(raw.edges)
-    .map(normalizeAtlasEdge)
+  const edges = mapArrayValues(raw.edges, normalizeAtlasEdge)
     .filter((edge) => Boolean(byId[edge.source] && byId[edge.target]));
 
   for (const edge of edges) {
     byId[edge.source]!.degree += 1;
     byId[edge.target]!.degree += 1;
   }
-  for (const node of nodes) {
+  nodes.forEach((node) => {
     node.priority = node.degree * 12 + node.weight + (node.type === "topic" ? 12 : node.type === "source" ? 6 : 0);
-  }
+  });
 
   const communities = deriveAtlasCommunities(raw, groupedByCommunity);
   const communityById: Record<CommunityId, AtlasCommunity> = Object.create(null) as Record<CommunityId, AtlasCommunity>;
@@ -846,6 +845,24 @@ function arrayValues(value: unknown): unknown[] {
     return [];
   }
   return output;
+}
+
+function mapArrayValues<T>(value: unknown, mapper: (entry: unknown, index: number) => T): T[] {
+  try {
+    if (!Array.isArray(value)) return [];
+    const output = new Array<T>(value.length);
+    for (let index = 0; index < value.length; index += 1) {
+      try {
+        if (!(index in value)) continue;
+        output[index] = mapper(value[index], index);
+      } catch {
+        output[index] = mapper(undefined, index);
+      }
+    }
+    return output;
+  } catch {
+    return [];
+  }
 }
 
 function copyCompatibleStrings(

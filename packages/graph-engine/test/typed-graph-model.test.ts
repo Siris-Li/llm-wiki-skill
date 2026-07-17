@@ -4,6 +4,22 @@ import { describe, it } from "node:test";
 import { buildAtlasModel } from "../src/model/atlas";
 
 describe("typed graph model", () => {
+  it("preserves sparse node array holes without inventing graph facts", () => {
+    const nodes: unknown[] = [];
+    nodes.length = 3;
+    nodes[2] = { id: "real", label: "Real", community: "c1" };
+
+    const model = buildAtlasModel({ nodes, edges: [] });
+
+    assert.equal(model.nodes.length, 3);
+    assert.deepEqual(Object.keys(model.nodes), ["2"]);
+    assert.deepEqual(Object.keys(model.byId), ["real"]);
+    assert.deepEqual(model.communities.map((community) => community.id), ["c1"]);
+    assert.deepEqual(model.starts.map((entry) => entry.node.id), ["real"]);
+    assert.equal(model.searchIndex.length, 3);
+    assert.deepEqual(Object.keys(model.searchIndex), ["2"]);
+  });
+
   it("normalizes malformed model input without changing collision and index semantics", () => {
     const model = buildAtlasModel({
       meta: { wiki_title: "Compatibility" },
