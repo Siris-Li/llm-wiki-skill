@@ -51,6 +51,7 @@ export const QUALITY_STEPS = [
 		commands: [
 			command([VITE, "build"], path.join(REPO_ROOT, "packages/graph-engine")),
 			command([TSC, "-p", "packages/graph-engine/tsconfig.json", "--emitDeclarationOnly"]),
+			command([TSC, "-p", "packages/graph-engine/test-types/dist-consumer/tsconfig.json"]),
 		],
 	},
 	{
@@ -143,7 +144,10 @@ export const QUALITY_STEPS = [
 	{
 		id: "types-graph",
 		timeoutMs: COMMAND_TIMEOUT_MS,
-		commands: [command([TSC, "-p", "packages/graph-engine/tsconfig.json", "--noEmit"])],
+		commands: [
+			command([TSC, "-p", "packages/graph-engine/tsconfig.json", "--noEmit"]),
+			command([TSC, "-p", "packages/graph-engine/tsconfig.type-tests.json"]),
+		],
 	},
 	{
 		id: "types-server",
