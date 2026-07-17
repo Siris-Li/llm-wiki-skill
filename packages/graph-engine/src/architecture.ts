@@ -32,7 +32,7 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
   {
     id: "layout",
     name: "GraphLayout",
-    owns: ["immutable initial world positions", "layout bounds", "community wash geometry", "spatial hit testing"],
+    owns: ["immutable initial world positions", "layout bounds", "community wash and local-map geometry", "spatial hit testing"],
     entrypoints: ["src/layout/initial-layout.ts", "src/layout/spatial-index.ts", "src/render/community-wash.ts", "src/sim/"],
     mustNotOwn: ["host callbacks", "browser default policy", "screen projection"]
   },

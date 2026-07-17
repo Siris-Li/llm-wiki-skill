@@ -14,7 +14,6 @@ import {
   resolveAtlasVisibleSnapshot,
   resolvePositionAndRangePolicy,
   resolveRenderPolicy,
-  resolveRenderPolicyVisibility,
   resolveRegularSearchMatches,
   type GraphData,
   type GraphEngine,
@@ -98,7 +97,7 @@ const renderPolicyInput: RenderPolicyInput = {
   data: graph,
   model: typedModel,
   layout: typedLayout,
-  visibility: resolveRenderPolicyVisibility(typedModel, typedLayout)
+  visibility: typedVisible
 };
 const sharedPolicyRenderable: RenderableGraph = resolveRenderPolicy(renderPolicyInput);
 const renderable: RenderableGraph = buildRenderableGraph(graph, { positions, pins });

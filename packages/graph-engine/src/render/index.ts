@@ -5,7 +5,6 @@ export {
   GRAPH_RENDER_BUDGETS,
   nodeDisplayModeForDensity,
   resolveRenderPolicy,
-  resolveRenderPolicyVisibility,
   resolveCommunityFocusScale,
   resolveGraphRenderBudget,
   screenEffectiveDensityMode

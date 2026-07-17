@@ -70,8 +70,10 @@ describe("graph architecture layer contract", () => {
   });
 
   it("assigns cross-object render decisions to the shared render policy", () => {
+    const layout = GRAPH_ARCHITECTURE_LAYERS.find((layer) => layer.id === "layout");
     const renderer = GRAPH_ARCHITECTURE_LAYERS.find((layer) => layer.id === "renderer");
 
+    assert.ok(layout?.owns.includes("community wash and local-map geometry"));
     assert.ok(renderer?.owns.includes("shared density, display mode, and render budgets"));
     assert.ok(renderer?.owns.includes("stable cross-object priorities and community hierarchy"));
     assert.ok(renderer?.owns.includes("final positions, content bounds, and viewport framing"));

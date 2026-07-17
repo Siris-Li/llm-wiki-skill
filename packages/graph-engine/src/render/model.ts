@@ -5,7 +5,6 @@ import {
   resolveRenderPolicy,
   resolveRenderPolicyVisibility,
   type RenderableGraph,
-  type RenderPolicyInput,
   type RenderPolicyOptions
 } from "./render-policy";
 
@@ -26,7 +25,7 @@ const DEFAULT_RENDER_MODEL_STAGES: RenderModelAssemblyStages<AtlasModel, AtlasLa
   buildModel: buildAtlasModel,
   deriveLayout: deriveAtlasLayout,
   resolveVisibility: resolveRenderPolicyVisibility,
-  resolvePolicy: (input) => resolveRenderPolicy(input as RenderPolicyInput)
+  resolvePolicy: resolveRenderPolicy
 };
 
 // GraphData -> typed model -> layout + semantic visibility -> shared render policy -> renderable snapshot

@@ -1,11 +1,11 @@
+import type { AtlasNode } from "../model/atlas";
+import { atlasNodePoint } from "./initial-layout";
+import { GRAPH_WORLD_SIZE, type GraphWorldBounds } from "../render/geometry";
+
 export interface GraphEdgeGeometryPoint {
   x: number;
   y: number;
 }
-
-import type { AtlasNode } from "../model/atlas";
-import { atlasNodePoint } from "./initial-layout";
-import { GRAPH_WORLD_SIZE, type GraphWorldBounds } from "../render/geometry";
 
 export interface RenderPathCache {
   getEdgeCurve(
