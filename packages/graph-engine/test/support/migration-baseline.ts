@@ -16,6 +16,8 @@ import {
   projectGraphInput,
   type GraphData
 } from "../../src";
+import type { AtlasLayout, AtlasModel, AtlasNode, AtlasVisibleSnapshot, RenderableGraph } from "../../src";
+import type { GraphRendererAdapterData } from "../../src/render";
 
 export function captureSupportedMigrationBehavior(input: GraphData): unknown {
   const projection = projectGraphInput(input);
@@ -70,12 +72,71 @@ export function captureSupportedMigrationBehavior(input: GraphData): unknown {
       after500: resolveGraphSearchState(projection.data.nodes, "only-atlas-501", undefined, projection.regularSearchByNode).matchIds
     },
     model: modelBeforeLayout,
-    layout,
-    visible,
-    atlasSearch,
-    renderable,
-    adapter
+    layout: legacyLayoutProjection(layout),
+    visible: legacyVisibleProjection(visible, layout),
+    atlasSearch: legacyVisibleProjection(atlasSearch, layout),
+    renderable: legacyRenderableProjection(renderable),
+    adapter: legacyAdapterProjection(adapter)
   });
+}
+
+// The immutable layout contract intentionally separates positions from model facts.
+// Compare the new staged result in the legacy baseline's representation so the
+// checked-in fixture remains fixed while every user-visible value stays exact.
+function legacyLayoutProjection(layout: AtlasLayout): Omit<AtlasLayout, "layoutBounds" | "nodePositions"> & {
+  nodePositions: Record<string, { x: number | null; y: number | null }>;
+} {
+  return {
+    nodes: layout.nodes,
+    edges: layout.edges,
+    nodePositions: Object.fromEntries(layout.nodes.map((node) => [node.id, { x: node.x, y: node.y }]))
+  };
+}
+
+function legacyVisibleProjection(snapshot: AtlasVisibleSnapshot, layout: AtlasLayout): AtlasVisibleSnapshot {
+  return {
+    ...snapshot,
+    nodes: snapshot.nodes.map((node) => positionedNode(node, layout)),
+    searchIndex: snapshot.searchIndex.map((entry) => ({
+      ...entry,
+      node: positionedNode(entry.node, layout)
+    })),
+    starts: snapshot.starts.map((entry) => ({
+      ...entry,
+      node: positionedNode(entry.node, layout)
+    }))
+  };
+}
+
+function legacyRenderableProjection(renderable: RenderableGraph): Omit<RenderableGraph, "contentBounds" | "framingBounds"> {
+  const { contentBounds: _contentBounds, framingBounds: _framingBounds, ...legacy } = renderable;
+  return {
+    ...legacy,
+    model: positionedModel(renderable.model, renderable.layout),
+    layout: legacyLayoutProjection(renderable.layout) as AtlasLayout
+  };
+}
+
+function legacyAdapterProjection(adapter: GraphRendererAdapterData): GraphRendererAdapterData {
+  return {
+    ...adapter,
+    renderable: legacyRenderableProjection(adapter.renderable) as RenderableGraph
+  };
+}
+
+function positionedModel(model: AtlasModel, layout: AtlasLayout): AtlasModel {
+  return {
+    ...model,
+    nodes: model.nodes.map((node) => positionedNode(node, layout)),
+    byId: Object.fromEntries(Object.entries(model.byId).map(([id, node]) => [id, positionedNode(node, layout)])),
+    starts: model.starts.map((entry) => ({ ...entry, node: positionedNode(entry.node, layout) })),
+    searchIndex: model.searchIndex.map((entry) => ({ ...entry, node: positionedNode(entry.node, layout) }))
+  };
+}
+
+function positionedNode(node: AtlasNode, layout: AtlasLayout): AtlasNode {
+  const positioned = layout.nodes.find((candidate) => candidate.idx === node.idx);
+  return positioned ? { ...node, x: positioned.x, y: positioned.y } : { ...node };
 }
 
 function supportedAdapterInput(input: GraphData): GraphData {

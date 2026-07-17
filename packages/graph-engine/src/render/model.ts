@@ -1,23 +1,25 @@
 import type { EdgeId, GraphAggregationMarker, GraphData, GraphFocusInput, GraphPinHint, GraphSummaryObjectRef, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
 import {
-  atlasNodePoint,
   buildAtlasModel,
-  deriveAtlasLayout,
   getAtlasDensityMode,
   resolveAtlasVisibleSnapshot,
   type AtlasCommunity,
   type AtlasDensityMode,
   type AtlasEdge,
-  type AtlasLayout,
   type AtlasModel,
   type AtlasNode
 } from "../model/atlas";
+import { atlasNodePoint, deriveAtlasLayout, type AtlasLayout } from "../layout/initial-layout";
 import { graphEdgeControlPoint } from "../layout/edge-geometry";
 import { wikiPathForGraphNode } from "../graph-node";
 import { getCommunityColor } from "../themes";
 import { computeCommunityWash } from "./community-wash";
 import { GRAPH_WORLD_SIZE, worldBoundsForPoints, worldPointToCssPercentPoint, worldPointToMinimapPoint, type GraphWorldBounds } from "./geometry";
-import { pinPositionToWorldPoint } from "./pin-position";
+import {
+  resolvePositionAndRangePolicy,
+  type RenderPosition,
+  type RenderPositionMap
+} from "./render-policy";
 import { resolveGraphRelationFocus, resolveGraphSelectedNodeRelations, type GraphRelationFocusDepth } from "./relation-focus";
 
 type NodeFlagLookup = Partial<Record<NodeId, boolean>>;
@@ -115,6 +117,8 @@ export interface GraphCommunityQuality {
 export interface RenderableGraph {
   model: AtlasModel;
   layout: AtlasLayout;
+  contentBounds: GraphWorldBounds;
+  framingBounds: GraphWorldBounds;
   worldBounds: GraphWorldBounds;
   selectedNodeId: string | null;
   focus: GraphFocusInput;
@@ -332,12 +336,7 @@ interface BuildRenderableGraphOptions {
   sourceCommunityId?: string | null;
 }
 
-export interface RenderPosition {
-  x: number;
-  y: number;
-}
-
-export type RenderPositionMap = Record<NodeId, RenderPosition>;
+export type { RenderPosition, RenderPositionMap } from "./render-policy";
 
 export interface RenderPathCache {
   getEdgeCurve(edge: { id: string; source: string; target: string; weight?: number }, source: RenderPosition, target: RenderPosition): number;
@@ -470,21 +469,22 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   };
 
   const allFilteredNodes = model.nodes.filter((node) => typeFilters[node.type] !== false || temporaryVisibleNodeIds.has(node.id));
-  const pointById = new Map(allFilteredNodes.map((node) => [node.id, renderPointForNode(node, options)]));
+  const positionPolicy = resolvePositionAndRangePolicy({
+    nodes: allFilteredNodes,
+    initialPositions: layout.nodePositions,
+    pins: options.pins,
+    positions: options.positions,
+    viewportSize: options.viewportSize,
+    frameToViewport: focus?.kind === "community"
+  });
+  const pointById = new Map(allFilteredNodes.map((node) => [
+    node.id,
+    positionPolicy.nodePositions[node.id] ?? { x: 0, y: 0 }
+  ]));
   const communityColorById = new Map(
     model.communities.map((community, index) => [community.id, getCommunityColor(theme, Number(community.color_index ?? index))])
   );
-  // fit-aware: focus=community 时把 worldBounds aspect-lock 到 viewport 宽高比，
-  // 消除 DOM 层各轴独立归一化（CSS%）造成的各向异性畸变。sigma-global 路由不调
-  // buildRenderableGraph（用独立 graphology graph + 相机），此条件化不影响它。
-  const communityViewportAspect =
-    focus?.kind === "community" && options.viewportSize && options.viewportSize.width > 0 && options.viewportSize.height > 0
-      ? options.viewportSize.width / options.viewportSize.height
-      : undefined;
-  const worldBounds = worldBoundsForPoints(
-    [...pointById.values()],
-    communityViewportAspect ? { aspectRatio: communityViewportAspect } : {}
-  );
+  const worldBounds = positionPolicy.framingBounds;
   const pinnedNodeSet = resolvePinnedNodeIds(model.nodes, options.pins);
   const searchResultSet = new Set(options.searchResultIds || []);
   const activeRelationFocusNodeId = options.relationFocusNodeId ?? selectedNodeId;
@@ -632,7 +632,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
       cardNodeIds: cardNodeSet,
       labelNodeIds: labelNodeSet
     });
-    const point = pointById.get(node.id) || renderPointForNode(node, options);
+    const point = pointById.get(node.id) ?? { x: 0, y: 0 };
     const cssPoint = worldPointToCssPercentPoint(point, worldBounds);
     return {
       id: node.id,
@@ -865,6 +865,8 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   return {
     model,
     layout,
+    contentBounds: positionPolicy.contentBounds,
+    framingBounds: positionPolicy.framingBounds,
     worldBounds,
     selectedNodeId,
     focus,
@@ -1241,21 +1243,6 @@ function pinKeyForNode(node: { source_path?: unknown; path?: unknown; source?: u
   return wikiPathForGraphNode(node);
 }
 
-function renderPointForNode(node: AtlasNode, options: Pick<BuildRenderableGraphOptions, "positions" | "pins">): RenderPosition {
-  const position = options.positions?.[node.id];
-  if (position) {
-    return {
-      x: finitePositionCoordinate(position.x),
-      y: finitePositionCoordinate(position.y)
-    };
-  }
-  const pin = options.pins?.[pinKeyForNode(node)];
-  if (pin) {
-    return pinPositionToWorldPoint(pin);
-  }
-  return atlasNodePoint(node);
-}
-
 function edgeCurveOffset(sourcePoint: RenderPosition, targetPoint: RenderPosition, edge: { weight?: number }, worldBounds: GraphWorldBounds = {
   minX: 0,
   minY: 0,
@@ -1267,11 +1254,6 @@ function edgeCurveOffset(sourcePoint: RenderPosition, targetPoint: RenderPositio
   const sourceYPercent = (sourcePoint.y - worldBounds.minY) / worldBounds.height * 100;
   const targetYPercent = (targetPoint.y - worldBounds.minY) / worldBounds.height * 100;
   return Math.max(-76, Math.min(76, (sourceYPercent - targetYPercent) * 1.8 + (clampWeight(edge.weight) - 0.5) * 24));
-}
-
-function finitePositionCoordinate(value: unknown): number {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 function resolveSelectedNodeIds(

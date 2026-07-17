@@ -22,7 +22,6 @@ import {
 } from "./labels";
 
 export {
-  deriveAtlasLayout,
   resolveAtlasVisibleSnapshot,
   normalizeAtlasViewport,
   getAtlasModelBounds,
@@ -35,6 +34,9 @@ export {
   minimapPointToAtlasPoint,
   atlasViewportToMinimapRect
 } from './legacy-helpers';
+
+export { atlasNodePoint, deriveAtlasLayout } from "../layout/initial-layout";
+export type { AtlasLayout } from "../layout/initial-layout";
 
 export type AtlasNodeType = "entity" | "topic" | "source" | "comparison" | "synthesis" | "query";
 export type AtlasNodeKind = "ENTITY" | "TOPIC" | "SOURCE" | "COMPARISON" | "SYNTHESIS" | "QUERY";
@@ -128,12 +130,6 @@ export interface AtlasModel {
 export interface AtlasPoint {
   x: number;
   y: number;
-}
-
-export interface AtlasLayout {
-  nodes: AtlasNode[];
-  edges: AtlasEdge[];
-  nodePositions: Partial<Record<NodeId, AtlasPoint>>;
 }
 
 export interface AtlasVisibleState {
@@ -257,13 +253,6 @@ export function getAtlasDensityMode(count: unknown): AtlasDensityMode {
   if (nodeCount > 200) return "point-plus-focus";
   if (nodeCount > 80) return "compact-card";
   return "card";
-}
-
-export function atlasNodePoint(node: Pick<AtlasNode, "x" | "y">): AtlasPoint {
-  return {
-    x: clampAtlasModelNumber(node.x, 50, 0, 100) / 100 * 1000,
-    y: clampAtlasModelNumber(node.y, 50, 0, 100) / 100 * 680
-  };
 }
 
 function normalizeAtlasNode(value: unknown, index: number): AtlasNode {

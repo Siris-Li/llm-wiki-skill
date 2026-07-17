@@ -54,6 +54,8 @@ export type {
   RenderPosition,
   RenderPositionMap
 } from "./model";
+export { resolvePositionAndRangePolicy } from "./render-policy";
+export type { PositionAndRangePolicy, PositionAndRangePolicyInput } from "./render-policy";
 export { buildCommunityLegend } from "./legend";
 export type { CommunityLegendRow } from "./legend";
 export {

@@ -31,6 +31,9 @@ const graph: GraphData = {
 };
 const pins: PinMap = normalizeGraphPinMap({ "wiki/a.md": { x: 1, y: 2 } });
 const renderable: RenderableGraph = buildRenderableGraph(graph, { pins });
+const layoutBounds = renderable.layout.layoutBounds;
+const contentBounds = renderable.contentBounds;
+const framingBounds = renderable.framingBounds;
 const adapter: GraphRendererAdapterData = buildGraphRendererAdapterData(graph, { pins });
 const layout = normalizeGraphLayoutFile({ version: 2, pins });
 const diff = diffGraphData(graph, graph);
@@ -50,4 +53,4 @@ const standalone = createGraphStandaloneCapabilities();
 declare const visibility: GraphVisibilityState;
 
 engine.setData(unknownGraph);
-void [renderable, adapter, layout, diff, inputProjection, model, visible, engine, renderer, staticRenderer, workbench, offline, standalone, visibility];
+void [renderable, layoutBounds, contentBounds, framingBounds, adapter, layout, diff, inputProjection, model, visible, engine, renderer, staticRenderer, workbench, offline, standalone, visibility];
