@@ -6,6 +6,7 @@ import { createGraphMinimap } from "./minimap";
 import type { RenderableGraph } from "./render-policy";
 import { createGraphNodeElement, type GraphNodeElementHandlers } from "./nodes";
 import type { PaintedGraphDom } from "./render-context";
+import type { GraphRendererAdapterData } from "./adapter";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -21,14 +22,19 @@ export interface DomSvgGraphPaintHandlers extends GraphNodeElementHandlers, Grap
 export interface PaintDomSvgGraphInput {
   ownerDocument: Document;
   root: HTMLElement;
-  graph: RenderableGraph;
+  adapterData: GraphRendererAdapterData;
   theme: ThemeId;
   hasHostReader: boolean;
   handlers: DomSvgGraphPaintHandlers;
 }
 
 export function paintDomSvgGraph(input: PaintDomSvgGraphInput): PaintedGraphDom {
-  const { ownerDocument, root, graph, handlers } = input;
+  const { ownerDocument, root, adapterData, handlers } = input;
+  const graph = adapterData.renderable;
+  const adapterNodeById = new Map(adapterData.nodes.map((node) => [node.id, node]));
+  const adapterEdgeById = new Map(adapterData.edges.map((edge) => [edge.id, edge]));
+  const adapterCommunityById = new Map(adapterData.communities.map((community) => [community.id, community]));
+  const adapterAggregationById = new Map(adapterData.aggregations.map((aggregation) => [aggregation.id, aggregation]));
   root.replaceChildren();
   root.dataset.theme = input.theme;
   root.dataset.baseDensity = graph.densityMode;
@@ -52,6 +58,18 @@ export function paintDomSvgGraph(input: PaintDomSvgGraphInput): PaintedGraphDom 
   root.dataset.communityMapBounds = graph.communityMap.current
     ? JSON.stringify(graph.communityMap.current.layout.bounds)
     : "";
+  root.dataset.adapterCounts = JSON.stringify(adapterData.counts);
+  root.dataset.adapterSelection = JSON.stringify(adapterData.selection);
+  root.dataset.adapterAggregations = JSON.stringify(adapterData.aggregations.map((aggregation) => ({
+    id: aggregation.id,
+    communityId: aggregation.communityId,
+    nodeIds: aggregation.nodeIds,
+    selectedNodeIds: aggregation.selectedNodeIds,
+    searchResultIds: aggregation.searchResultIds,
+    pinnedNodeIds: aggregation.pinnedNodeIds,
+    totalCount: aggregation.totalCount,
+    selected: aggregation.selected
+  })));
 
   const painted = emptyPaintedDom();
   const contentLayer = ownerDocument.createElement("div");
@@ -72,6 +90,13 @@ export function paintDomSvgGraph(input: PaintDomSvgGraphInput): PaintedGraphDom 
   for (const community of graph.communities) {
     const ellipse = createCommunityWashElement(ownerDocument, community);
     if (!ellipse) continue;
+    const adapted = adapterCommunityById.get(community.id);
+    if (adapted) {
+      ellipse.dataset.adapterSelected = adapted.selected ? "true" : "false";
+      ellipse.dataset.adapterSearchResultIds = adapted.searchResultIds.join(",");
+      ellipse.dataset.adapterPinnedNodeIds = adapted.pinHints.map((hint) => hint.nodeId).join(",");
+      ellipse.dataset.adapterAggregationIds = adapted.aggregationIds.join(",");
+    }
     washLayer.appendChild(ellipse);
     painted.communityWashElements.set(community.id, ellipse);
   }
@@ -81,6 +106,14 @@ export function paintDomSvgGraph(input: PaintDomSvgGraphInput): PaintedGraphDom 
   edgeLayer.setAttribute("class", "edge-layer");
   for (const edge of graph.edges) {
     const path = createGraphEdgeElement(ownerDocument, edge, handlers);
+    const adapted = adapterEdgeById.get(edge.id);
+    if (adapted) {
+      path.dataset.adapterSourceCommunityId = adapted.sourceCommunityId ?? "";
+      path.dataset.adapterTargetCommunityId = adapted.targetCommunityId ?? "";
+      path.dataset.adapterRelationType = adapted.relationType ?? "";
+      path.dataset.adapterConfidence = adapted.confidence ?? "";
+      path.dataset.adapterWeight = String(adapted.weight);
+    }
     edgeLayer.appendChild(path);
     painted.edgeElements.set(edge.id, path);
   }
@@ -91,6 +124,13 @@ export function paintDomSvgGraph(input: PaintDomSvgGraphInput): PaintedGraphDom 
   nodeLayer.className = "node-layer";
   for (const container of graph.aggregationContainers) {
     const button = createGraphAggregationContainerElement(ownerDocument, container, handlers);
+    const adapted = adapterAggregationById.get(container.id);
+    if (adapted) {
+      button.dataset.adapterNodeIds = adapted.nodeIds.join(",");
+      button.dataset.adapterSearchResultIds = adapted.searchResultIds.join(",");
+      button.dataset.adapterPinnedNodeIds = adapted.pinnedNodeIds.join(",");
+      button.dataset.adapterTotalCount = String(adapted.totalCount);
+    }
     painted.aggregationContainerElements.set(container.id, button);
     nodeLayer.appendChild(button);
   }
@@ -98,6 +138,14 @@ export function paintDomSvgGraph(input: PaintDomSvgGraphInput): PaintedGraphDom 
     const button = createGraphNodeElement(ownerDocument, node, handlers, {
       communityMap: graph.focus?.kind === "community"
     });
+    const adapted = adapterNodeById.get(node.id);
+    if (adapted) {
+      button.dataset.adapterSelected = adapted.selected ? "true" : "false";
+      button.dataset.adapterSearchHit = adapted.searchHit ? "true" : "false";
+      button.dataset.adapterPinned = adapted.pinHint.pinned ? "true" : "false";
+      button.dataset.adapterAggregationIds = adapted.aggregationIds.join(",");
+      button.dataset.adapterCommunityId = adapted.communityId ?? "";
+    }
     painted.nodeElements.set(node.id, button);
     painted.basePoints.set(node.id, node.point);
     nodeLayer.appendChild(button);

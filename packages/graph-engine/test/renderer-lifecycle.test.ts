@@ -8,7 +8,7 @@ import type {
   SigmaGlobalRendererRuntime,
   SigmaGlobalSigmaLike
 } from "../src/render/sigma-global-types";
-import { createGraphRenderer } from "../src/render";
+import { createGraphRenderer, prepareGraphRendererAdapterData } from "../src/render";
 import { createSigmaGlobalFacadeRenderer } from "../src/graph-routes/sigma-global-route";
 import { SIGMA_COMMUNITY_RETURN_GLOBAL_TRANSITION_MS } from "../src/render/sigma-global-camera";
 import { renderOfflineReader } from "../src/render/offline-reader";
@@ -17,6 +17,7 @@ import {
   type GraphFacadeRenderer,
   type GraphFacadeRouteRendererFactoryInput
 } from "../src/facade";
+import { prepareRendererAdapterDataForTest } from "./support/prepared-renderer-adapter";
 
 describe("graph renderer lifecycle", () => {
   it("builds one drawing model for initial DOM creation and for each data update", () => {
@@ -104,6 +105,200 @@ describe("graph renderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("lets real Sigma and DOM/SVG consumers use the same prepared adapter result", async () => {
+    const preparedData = graphDataForReturnGlobal();
+    const preparedAdapterData = prepareRendererAdapterDataForTest(preparedData, {
+      pins: { "wiki/a.md": { x: 120, y: 140, coordinateSpace: "world" } },
+      selection: { kind: "node", id: "a" },
+      searchResultIds: ["b"],
+      aggregationMarkers: [{
+        id: "prepared-aggregation",
+        label: "Prepared aggregation",
+        communityId: "community-a",
+        nodeIds: ["a", "b"],
+        totalCount: 7
+      }],
+      viewportSize: { width: 960, height: 640 },
+      sourceCommunityId: "community-a"
+    });
+    const decoyData = graphData(["raw-route-decoy"]);
+    const ownerDocument = new FakeDocument();
+    const domContainer = ownerDocument.createElement("div");
+    const sigmaContainer = ownerDocument.createElement("div");
+    const domRenderer = createGraphRenderer(domContainer as unknown as HTMLElement, {
+      data: decoyData,
+      preparedAdapterData,
+      prepareAdapterData: () => preparedAdapterData,
+      theme: "shan-shui",
+      live: false
+    });
+    const sigmaRuntime = fakeSigmaRouteRuntime();
+    const sigmaRenderer = createSigmaGlobalFacadeRenderer({
+      container: sigmaContainer as unknown as HTMLElement,
+      sigmaRuntime,
+      preparedAdapterData,
+      prepareAdapterData: () => preparedAdapterData,
+      options: {
+        ...projectGraphInput(decoyData),
+        pins: {},
+        theme: "shan-shui",
+        focus: null,
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: null,
+        sourceCommunityId: null,
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {}
+      }
+    });
+
+    await Promise.resolve();
+
+    const sigmaGraph = sigmaRuntime.instances[0]?.getGraph();
+    assert.ok(sigmaGraph);
+    assert.deepEqual(sigmaGraph.nodes(), ["a", "b", "c"]);
+    assert.deepEqual(
+      collectNodes(domRenderer.root as unknown as FakeElement).map((node) => node.dataset.id),
+      ["a", "b", "c"]
+    );
+    for (const adapterNode of preparedAdapterData.nodes) {
+      const sigmaNode = sigmaGraph.getNodeAttributes(adapterNode.id);
+      const domNode = nodeElement(domRenderer, adapterNode.id);
+      assert.ok(domNode);
+      assert.deepEqual(
+        {
+          id: domNode.dataset.id,
+          point: { x: Number(domNode.dataset.worldX), y: Number(domNode.dataset.worldY) },
+          selected: domNode.dataset.adapterSelected === "true",
+          searchHit: domNode.dataset.adapterSearchHit === "true",
+          pinned: domNode.dataset.adapterPinned === "true",
+          aggregationIds: (domNode.dataset.adapterAggregationIds || "").split(",").filter(Boolean)
+        },
+        {
+          id: adapterNode.id,
+          point: adapterNode.point,
+          selected: adapterNode.selected,
+          searchHit: adapterNode.searchHit,
+          pinned: adapterNode.pinHint.pinned,
+          aggregationIds: adapterNode.aggregationIds
+        }
+      );
+      assert.deepEqual(
+        {
+          id: adapterNode.id,
+          point: { x: sigmaNode.x, y: sigmaNode.y },
+          selected: sigmaNode.selected,
+          searchHit: sigmaNode.searchHit,
+          pinned: sigmaNode.pinned,
+          aggregationIds: sigmaNode.aggregationIds
+        },
+        {
+          id: adapterNode.id,
+          point: adapterNode.point,
+          selected: adapterNode.selected,
+          searchHit: adapterNode.searchHit,
+          pinned: adapterNode.pinHint.pinned,
+          aggregationIds: adapterNode.aggregationIds
+        }
+      );
+    }
+    assert.deepEqual(sigmaGraph.getAttribute("counts"), preparedAdapterData.counts);
+    assert.deepEqual(sigmaGraph.getAttribute("selection"), preparedAdapterData.selection);
+    const domAggregations = JSON.parse(domRenderer.root.dataset.adapterAggregations || "[]") as Array<Record<string, unknown>>;
+    assert.deepEqual(domAggregations, [{
+      id: "prepared-aggregation",
+      communityId: "community-a",
+      nodeIds: ["a", "b"],
+      selectedNodeIds: ["a"],
+      searchResultIds: ["b"],
+      pinnedNodeIds: ["a"],
+      totalCount: 7,
+      selected: true
+    }]);
+    const sigmaAggregations = sigmaGraph.getAttribute("aggregations") as Array<Record<string, unknown>>;
+    assert.deepEqual({
+      nodeIds: sigmaAggregations[0]?.nodeIds,
+      searchResultIds: sigmaAggregations[0]?.searchResultIds,
+      pinnedNodeIds: sigmaAggregations[0]?.pinnedNodeIds,
+      totalCount: sigmaAggregations[0]?.totalCount
+    }, {
+      nodeIds: ["a", "b"],
+      searchResultIds: ["b"],
+      pinnedNodeIds: ["a"],
+      totalCount: 7
+    });
+
+    domRenderer.destroy();
+    sigmaRenderer.destroy();
+  });
+
+  it("does not enter Sigma or DOM/SVG when shared adapter preparation fails", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const failure = new Error("shared adapter preparation failed");
+    let sigmaCreates = 0;
+    let fallbackCreates = 0;
+
+    assert.throws(() => createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state: {
+        ...projectGraphInput(graphData(["a"])),
+        pins: {},
+        theme: "shan-shui"
+      },
+      prepareAdapterData: () => {
+        throw failure;
+      },
+      factories: {
+        createSigmaGlobal: (input) => {
+          sigmaCreates += 1;
+          return createSigmaShellRenderer(input);
+        },
+        createDomSvgSmallFallback: (input) => {
+          fallbackCreates += 1;
+          return createSigmaShellRenderer(input);
+        }
+      }
+    }), failure);
+    assert.equal(sigmaCreates, 0);
+    assert.equal(fallbackCreates, 0);
+  });
+
+  it("keeps a shared preparation update failure on the current route without DOM/SVG fallback", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const failure = new Error("shared update preparation failed");
+    let fallbackCreates = 0;
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state: {
+        ...projectGraphInput(graphData(["initial"])),
+        pins: {},
+        theme: "shan-shui"
+      },
+      prepareAdapterData: (options, renderOptions) => {
+        if (options.data.nodes.some((node) => node.id === "failing-update")) throw failure;
+        return prepareGraphRendererAdapterData(options.data, renderOptions);
+      },
+      factories: {
+        createSigmaGlobal: (input) => createSigmaGlobalFacadeRenderer({
+          ...input,
+          sigmaRuntime: fakeSigmaRouteRuntime()
+        }),
+        createDomSvgSmallFallback: (input) => {
+          fallbackCreates += 1;
+          return createSigmaShellRenderer(input);
+        }
+      }
+    });
+
+    assert.throws(() => manager.setData(projectGraphInput(graphData(["failing-update"]))), failure);
+    assert.equal(manager.routeId, "sigma-global");
+    assert.equal(manager.sigmaKnownUnavailable, false);
+    assert.equal(fallbackCreates, 0);
+    manager.destroy();
+  });
+
   it("reports Graphology, WebGL, and canvas failures only after the shared Sigma snapshot is prepared", async () => {
     for (const fault of ["Graphology", "WebGL", "canvas"] as const) {
       const ownerDocument = new FakeDocument();
@@ -158,9 +353,9 @@ describe("graph renderer lifecycle", () => {
           createSigmaGlobal: (input) => createSigmaGlobalFacadeRenderer({
             ...input,
             sigmaRuntime,
-            onSigmaUnavailable: (error) => {
+            onSigmaUnavailable: (error, preparedAdapterData) => {
               reported.push(error);
-              input.onSigmaUnavailable?.(error);
+              input.onSigmaUnavailable?.(error, preparedAdapterData);
             }
           })
         }
@@ -170,7 +365,7 @@ describe("graph renderer lifecycle", () => {
       await Promise.resolve();
 
       assert.equal(snapshotReadsAtFault, 1, `${fault} failure must happen after one shared snapshot`);
-      assert.equal(snapshotReads, 2, `${fault} fallback may prepare its own DOM snapshot only after the Sigma fault`);
+      assert.equal(snapshotReads, 1, `${fault} fallback must reuse the prepared Sigma snapshot`);
       assert.ok(reported.length >= 1, `${fault} failure should cross the Sigma reporting boundary`);
       assert.equal(reported.every((error) => error === failure), true);
       assert.equal(manager.sigmaKnownUnavailable, true);

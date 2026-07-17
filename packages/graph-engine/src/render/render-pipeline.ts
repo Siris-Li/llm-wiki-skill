@@ -13,7 +13,7 @@ import {
   type RenderPositionMap
 } from "./render-policy";
 import { makeEdgePathFromPoints } from "../layout/edge-geometry";
-import { buildRenderableGraph } from "./model";
+import type { GraphRendererAdapterData } from "./adapter";
 import {
   applyRendererViewportTransform,
   rendererViewportToMinimapRect,
@@ -66,7 +66,7 @@ export interface GraphRenderOverlayDelegates {
 export interface GraphRenderPipeline {
   rebuildAndPaint(): void;
   paintPreparedGraph(): void;
-  paint(graph: RenderableGraph, options: { hasHostReader: boolean; handlers: PaintHandlers }): PaintedGraphDom;
+  paint(adapterData: GraphRendererAdapterData, options: { hasHostReader: boolean; handlers: PaintHandlers }): PaintedGraphDom;
   mountSearchControl(): void;
   mountGraphToolbar(): void;
   mountCommunityLegend(): void;
@@ -122,18 +122,21 @@ export function createGraphRenderPipeline(
   function rebuildAndPaint(): void {
     const runtimeSnapshot = context.runtimeState.snapshot();
     const renderSelection = rendererSelectionFromRuntimeState(runtimeSnapshot);
-    context.graph = buildRenderableGraph(context.data, {
+    context.adapterData = context.prepareAdapterData(context.data, {
       pins: runtimeSnapshot.pins,
       theme: context.theme,
       selectedNodeId: renderSelection.selectedNodeId,
       selection: renderSelection.selection,
       focus: runtimeSnapshot.focus,
       typeFilters: {},
+      searchResultIds: currentSearchResultIds(),
       aggregationMarkers: context.aggregationMarkers,
       pathCache: context.pathCache,
       viewportSize: viewportSize(),
-      sourceCommunityId: context.sourceCommunityId
+      sourceCommunityId: context.sourceCommunityId,
+      temporaryObject: context.temporaryObject
     });
+    context.graph = context.adapterData.renderable;
     context.runtimeState.setPositions(positionsFromRenderableGraph(context.graph));
     paintPreparedGraph();
   }
@@ -148,7 +151,7 @@ export function createGraphRenderPipeline(
     context.pinState = new PinState(context.graph, context.runtimeState.snapshot().pins);
     context.hitTargetResolver.refresh();
     applyTheme(context.root, context.theme);
-    context.dom = paint(context.graph, {
+    context.dom = paint(context.adapterData, {
       hasHostReader: options.hasHostReader,
       handlers: {
         onNodeClick: (id, additive) => {
@@ -206,11 +209,11 @@ export function createGraphRenderPipeline(
     restartSimulation();
   }
 
-  function paint(graph: RenderableGraph, paintOptions: { hasHostReader: boolean; handlers: PaintHandlers }): PaintedGraphDom {
+  function paint(adapterData: GraphRendererAdapterData, paintOptions: { hasHostReader: boolean; handlers: PaintHandlers }): PaintedGraphDom {
     return paintDomSvgGraph({
       ownerDocument: context.ownerDocument,
       root: context.root,
-      graph,
+      adapterData,
       theme: context.theme,
       hasHostReader: paintOptions.hasHostReader,
       handlers: paintOptions.handlers
@@ -341,6 +344,17 @@ export function createGraphRenderPipeline(
     });
   }
 
+  function currentSearchResultIds(): NodeId[] {
+    const searchState = resolveGraphSearchState(
+      context.data.nodes,
+      context.searchQuery,
+      context.searchIndex,
+      context.regularSearchByNode
+    );
+    context.searchIndex = searchState.searchIndex;
+    return searchState.matchIds;
+  }
+
   function temporaryObjectNodeIds(object: GraphSummaryObjectRef | null, graph: RenderableGraph): Set<string> {
     if (!object || object.kind !== "node") return new Set();
     const ids = new Set([object.nodeId]);
@@ -460,19 +474,22 @@ export function createGraphRenderPipeline(
     const renderSelection = rendererSelectionFromRuntimeState(snapshot);
     const previousWorldBounds = context.graph.worldBounds;
     const size = viewportSize();
-    context.graph = buildRenderableGraph(context.data, {
+    context.adapterData = context.prepareAdapterData(context.data, {
       pins: snapshot.pins,
       theme: context.theme,
       selectedNodeId: renderSelection.selectedNodeId,
       selection: renderSelection.selection,
       focus: snapshot.focus,
       typeFilters: {},
+      searchResultIds: currentSearchResultIds(),
       positions: snapshot.positions,
       aggregationMarkers: context.aggregationMarkers,
       pathCache: context.pathCache,
       viewportSize: size,
-      sourceCommunityId: context.sourceCommunityId
+      sourceCommunityId: context.sourceCommunityId,
+      temporaryObject: context.temporaryObject
     });
+    context.graph = context.adapterData.renderable;
     context.hitTargetResolver.refresh();
     const worldBoundsChanged = !sameWorldBounds(previousWorldBounds, context.graph.worldBounds);
     if (worldBoundsChanged && context.dom.svgElement) setGraphSvgViewBox(context.dom.svgElement, context.graph);

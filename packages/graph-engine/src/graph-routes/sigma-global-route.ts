@@ -1,9 +1,8 @@
 import type { GraphNode, GraphData, GraphSummaryObjectRef, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId } from "../types";
 import {
-  buildGraphRendererAdapterData,
-  buildRenderableGraph,
   buildCommunityLegend,
   nextToolbarPanelState,
+  prepareGraphRendererAdapterData,
   resolveGraphSearchState,
   readToolbarPanelState,
   writeToolbarPanelState,
@@ -12,7 +11,6 @@ import {
   type GraphGestureTarget,
   type RendererViewportSize
 } from "../render";
-import { resolveGraphRendererSemantics } from "../summary";
 import type { SigmaGlobalHitContext } from "../render/sigma-global-types";
 import {
   createSigmaGlobalRenderer,
@@ -143,7 +141,13 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   input.container.append(shell);
   ensureGraphRendererStyles(input.container.ownerDocument);
   let observedViewportSize = measuredViewportSize(shell) ?? measuredViewportSize(input.container);
-  let currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute(), sigmaRouteViewportSize());
+  let currentSigmaAdapterData = input.preparedAdapterData ?? adapterDataForSigmaRoute(
+    options,
+    hoverNodeId,
+    typeFiltersForCurrentRoute(),
+    sigmaRouteViewportSize(),
+    input.prepareAdapterData
+  );
   const hiddenReadingNodeHint = input.container.ownerDocument.createElement("div");
   hiddenReadingNodeHint.className = "sigma-community-hidden-node-hint";
   hiddenReadingNodeHint.textContent = "当前节点被筛选隐藏";
@@ -178,13 +182,13 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
           onNodeHover: handleSigmaNodeHover,
           onEdgeHover: handleSigmaEdgeHover,
           onViewportSizeChange: handleSigmaViewportSizeChange,
-          onFatalError: (error) => input.onSigmaUnavailable?.(error)
+          onFatalError: (error) => input.onSigmaUnavailable?.(error, currentSigmaAdapterData)
         });
       } catch (error) {
-        input.onSigmaUnavailable?.(error);
+        input.onSigmaUnavailable?.(error, currentSigmaAdapterData);
       }
     })
-    .catch((error) => input.onSigmaUnavailable?.(error));
+    .catch((error) => input.onSigmaUnavailable?.(error, currentSigmaAdapterData));
 
   return {
     applyDiff() {
@@ -343,7 +347,13 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
 
   function updateSigmaRenderer(): void {
     const viewportSize = sigmaRouteViewportSize();
-    currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute(), viewportSize);
+    currentSigmaAdapterData = adapterDataForSigmaRoute(
+      options,
+      hoverNodeId,
+      typeFiltersForCurrentRoute(),
+      viewportSize,
+      input.prepareAdapterData
+    );
     syncSigmaEdgeHoverPreview();
     syncHiddenReadingNodeHint();
     if (!renderer || destroyed) return;
@@ -829,7 +839,8 @@ function adapterDataForSigmaRoute(
   options: GraphFacadeRouteRendererOptions,
   hoverNodeId: string | null = null,
   typeFilters = options.typeFilters,
-  viewportSize?: RendererViewportSize
+  viewportSize?: RendererViewportSize,
+  prepareAdapterData?: GraphFacadeRouteRendererFactoryInput["prepareAdapterData"]
 ): GraphRendererAdapterData {
   const renderOptions = {
     theme: options.theme,
@@ -844,11 +855,9 @@ function adapterDataForSigmaRoute(
     relationFocusNodeId: options.focus?.kind === "community" ? hoverNodeId : null,
     temporaryObject: options.temporaryObject
   };
-  return buildGraphRendererAdapterData({
-    renderable: buildRenderableGraph(options.data, renderOptions),
-    ...resolveGraphRendererSemantics(options.data, renderOptions),
-    sourceCommunityId: options.sourceCommunityId ?? null
-  });
+  return prepareAdapterData
+    ? prepareAdapterData(options, renderOptions)
+    : prepareGraphRendererAdapterData(options.data, renderOptions);
 }
 
 function temporaryObjectCompatibleWithCommunity(

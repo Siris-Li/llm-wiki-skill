@@ -14,10 +14,13 @@ import type {
 } from "../types";
 import { PinState } from "../sim";
 import {
-  type RenderableGraph
+  type RenderableGraph,
+  type RenderPolicyOptions
 } from "./render-policy";
 import { createRenderPathCache } from "../layout/edge-geometry";
 import { buildRenderableGraph } from "./model";
+import { buildGraphRendererAdapterData, type GraphRendererAdapterData } from "./adapter";
+import { resolveGraphRendererSemantics } from "../summary";
 import {
   DEFAULT_RENDERER_VIEWPORT,
   createViewportFrameCommitter
@@ -51,6 +54,8 @@ const FOCUS_FIT_MAX_SCALE = 1.5;
 
 export interface GraphRendererOptions {
   data: GraphData;
+  preparedAdapterData?: GraphRendererAdapterData;
+  prepareAdapterData?: GraphRendererAdapterDataPreparation;
   regularSearchByNode?: RegularSearchNodeProjection[];
   pins?: PinMap;
   theme: ThemeId;
@@ -70,6 +75,11 @@ export interface GraphRendererOptions {
   live?: boolean;
   sourceCommunityId?: string | null;
 }
+
+export type GraphRendererAdapterDataPreparation = (
+  data: GraphData,
+  options: RenderPolicyOptions
+) => GraphRendererAdapterData;
 
 type RenderNextOptions = Partial<GraphRendererOptions> & {
   selectedNodeId?: string | null;
@@ -116,7 +126,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
   let pipeline: GraphRenderPipeline;
   let presenter: GraphOverlaysPresenter;
   const initialRendererViewportSize = initialViewportSize(root);
-  const initialGraph = buildRenderableGraph(initialProjection.data, {
+  const initialRenderOptions: RenderPolicyOptions = {
     pins: initialPins,
     theme: options.theme,
     selectedNodeId: null,
@@ -127,13 +137,17 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     aggregationMarkers: options.aggregationMarkers,
     viewportSize: initialRendererViewportSize,
     sourceCommunityId: options.sourceCommunityId ?? null
-  });
+  };
+  const prepareAdapterData = options.prepareAdapterData ?? prepareGraphRendererAdapterData;
+  const initialAdapterData = options.preparedAdapterData
+    ?? prepareAdapterData(initialProjection.data, initialRenderOptions);
+  const initialGraph = initialAdapterData.renderable;
   const runtimeState = createGraphRuntimeState({
     viewport: DEFAULT_RENDERER_VIEWPORT,
     positions: positionsFromRenderableGraph(initialGraph),
     pins: initialPins,
-    selection: null,
-    selectionSurface: null,
+    selection: initialAdapterData.selection.input,
+    selectionSurface: initialAdapterData.selection.input ? "selection-panel" : null,
     focus: initialFocus
   });
   const hitTargetResolver = createGraphHitTargetResolver({
@@ -182,6 +196,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     lastViewportSize: initialRendererViewportSize,
     resizeObserver: null,
     graph: initialGraph,
+    adapterData: initialAdapterData,
+    prepareAdapterData,
     runtimeState,
     hitTargetResolver,
     pinState: new PinState(initialGraph, runtimeState.snapshot().pins),
@@ -406,6 +422,17 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
   function assertActive(): void {
     if (context.destroyed) throw new Error("Graph renderer has been destroyed");
   }
+}
+
+export function prepareGraphRendererAdapterData(
+  data: GraphData,
+  options: RenderPolicyOptions = {}
+): GraphRendererAdapterData {
+  return buildGraphRendererAdapterData({
+    renderable: buildRenderableGraph(data, options),
+    ...resolveGraphRendererSemantics(data, options),
+    sourceCommunityId: options.sourceCommunityId ?? null
+  });
 }
 
 function rendererGraphInput(
