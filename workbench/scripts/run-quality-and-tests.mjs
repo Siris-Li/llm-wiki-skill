@@ -76,6 +76,7 @@ export const QUALITY_STEPS = [
 		commands: [
 			nodeTest("workbench/scripts/check-workbench-boundaries.test.mjs"),
 			command([
+				"--test-concurrency=1",
 				"--test",
 				"workbench/scripts/run-quality-and-tests.test.mjs",
 				"workbench/scripts/run-browser-main-flows-ci.test.mjs",

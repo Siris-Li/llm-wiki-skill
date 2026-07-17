@@ -65,6 +65,7 @@ test("quality entrypoint covers every required check in a stable sequence", () =
 	const negativeControls = QUALITY_STEPS.find((step) => step.id === "boundary-negative-controls");
 	const negativeControlArgs = negativeControls.commands.flatMap((item) => item.args);
 	assert.ok(negativeControlArgs.includes("workbench/scripts/run-browser-main-flows-ci.test.mjs"));
+	assert.ok(negativeControlArgs.includes("--test-concurrency=1"));
 	const graphBuildArgs = QUALITY_STEPS.find((step) => step.id === "build-graph").commands.flatMap((item) => item.args);
 	assert.ok(graphBuildArgs.includes("packages/graph-engine/test-types/dist-consumer/tsconfig.json"));
 	const graphTypeArgs = QUALITY_STEPS.find((step) => step.id === "types-graph").commands.flatMap((item) => item.args);
