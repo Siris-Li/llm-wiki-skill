@@ -52,6 +52,34 @@ describe("render position and range policy", () => {
     assert.deepEqual(Object.keys(policy.nodePositions), ["only"]);
   });
 
+  it("counts positions for node ids that match object prototype properties", () => {
+    const model = buildAtlasModel({
+      nodes: [
+        {
+          id: "__proto__",
+          label: "Special",
+          community: "one",
+          source_path: "wiki/special.md",
+          x: 20,
+          y: 30
+        }
+      ],
+      edges: []
+    });
+    const layout = deriveAtlasLayout(model);
+    const policy = resolvePositionAndRangePolicy({
+      nodes: model.nodes,
+      initialPositions: layout.nodePositions,
+      pins: { "wiki/special.md": { x: 2200, y: 900, coordinateSpace: "world" } }
+    });
+
+    assert.equal(Object.hasOwn(layout.nodePositions, "__proto__"), true);
+    assert.equal(Object.hasOwn(policy.nodePositions, "__proto__"), true);
+    assert.deepEqual(policy.nodePositions.__proto__, { x: 2200, y: 900 });
+    assert.ok(policy.contentBounds.maxX >= 2280);
+    assert.ok(policy.contentBounds.maxY >= 980);
+  });
+
   it("keeps filtered and temporary nodes from every community in content range before framing", () => {
     const data = {
       nodes: [

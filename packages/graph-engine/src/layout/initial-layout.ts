@@ -96,7 +96,7 @@ export function deriveAtlasLayout(model: AtlasModel): AtlasLayout {
   const nodes = model.nodes.map((node) => positionedByIndex.get(node.idx) ?? { ...node });
   const nodePositions: Partial<Record<NodeId, GraphWorldPoint>> = {};
   nodes.forEach((node) => {
-    nodePositions[node.id] = atlasNodePoint(node);
+    definePosition(nodePositions, node.id, atlasNodePoint(node));
   });
 
   return {
@@ -105,6 +105,19 @@ export function deriveAtlasLayout(model: AtlasModel): AtlasLayout {
     nodePositions,
     layoutBounds: initialBounds(Object.values(nodePositions))
   };
+}
+
+function definePosition(
+  positions: Partial<Record<NodeId, GraphWorldPoint>>,
+  id: NodeId,
+  point: GraphWorldPoint
+): void {
+  Object.defineProperty(positions, id, {
+    value: point,
+    enumerable: true,
+    configurable: true,
+    writable: true
+  });
 }
 
 export function atlasNodePoint(node: Pick<AtlasNode, "x" | "y">): GraphWorldPoint {
