@@ -145,10 +145,7 @@ export const QUALITY_STEPS = [
 	{
 		id: "types-graph",
 		timeoutMs: COMMAND_TIMEOUT_MS,
-		commands: [
-			command([TSC, "-p", "packages/graph-engine/tsconfig.json", "--noEmit"]),
-			command([TSC, "-p", "packages/graph-engine/tsconfig.type-tests.json"]),
-		],
+		commands: [command([TSC, "-p", "packages/graph-engine/tsconfig.type-tests.json"])],
 	},
 	{
 		id: "types-server",

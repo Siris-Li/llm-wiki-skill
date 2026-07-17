@@ -4,7 +4,7 @@ Baseline commit: `c641953b92be2d916bd77f3e65011943c2c1a091`
 
 The behavior baseline was captured once from the legacy implementation through exports from `src/index.ts`. There is intentionally no update command, snapshot mode, or write path in the test suite. Later migration work must make its implementation match `behavior-baseline.json`; it must not regenerate that file.
 
-`artifact-size-baseline.json` records the ESM and IIFE byte sizes produced by `npm run build -w @llm-wiki/graph-engine` from the same pre-migration commit. It is a comparison record, not an output file for the build to update.
+`artifact-size-baseline.json` records the ESM and IIFE byte sizes produced after `npm ci` by `npm run build -w @llm-wiki/graph-engine` from the same pre-migration commit. It is a comparison record, not an output file for the build to update.
 
 ## Manual review record
 

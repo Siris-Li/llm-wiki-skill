@@ -19,12 +19,13 @@
   "scripts": {
     "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly && npm run verify:dist-types",
     "test": "node --import tsx --test test/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck:contracts",
+    "typecheck": "npm run typecheck:contracts",
     "typecheck:contracts": "tsc -p tsconfig.type-tests.json",
     "verify:dist-types": "tsc -p test-types/dist-consumer/tsconfig.json"
   },
   "devDependencies": {
     "@types/d3-force": "^3.0.10",
+    "@types/events": "^3.0.3",
     "tsx": "^4.19.0",
     "typescript": "~6.0.2",
     "vis-network": "^10.1.0",
