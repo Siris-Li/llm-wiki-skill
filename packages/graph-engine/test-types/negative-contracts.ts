@@ -1,11 +1,17 @@
 import {
   buildGraphRendererAdapterData,
   buildRenderableGraph,
+  buildAtlasModel,
+  deriveAtlasLayout,
+  resolveAtlasVisibleSnapshot,
+  type AtlasInsights,
   type GraphData,
   type GraphEngine,
   type PinMap,
   type RenderPositionMap
 } from "../src/index.js";
+// @ts-expect-error legacy learning normalization is model-internal compatibility, not a public toolbox.
+import { normalizeLearning } from "../src/index.js";
 
 const graph: GraphData = {
   meta: { build_date: "", wiki_title: "negative", total_nodes: 1, total_edges: 0 },
@@ -22,6 +28,15 @@ const invalidPins: PinMap = { "wiki/a.md": { x: 1, y: 2, coordinateSpace: "scree
 // @ts-expect-error World positions require finite-number-shaped coordinates at compile time.
 const invalidPositions: RenderPositionMap = { a: { x: "1", y: 2 } };
 
+const typedModel = buildAtlasModel(graph);
+const typedLayout = deriveAtlasLayout(typedModel);
+// @ts-expect-error normalized insight metadata always includes all count fields.
+const incompleteAtlasInsights: AtlasInsights = { surprising_connections: [], isolated_nodes: [], bridge_nodes: [], sparse_communities: [], meta: { degraded: false } };
+// @ts-expect-error normalized nodes cannot be replaced with raw graph nodes.
+typedModel.nodes.push(graph.nodes[0]);
+// @ts-expect-error visible model filters are booleans, not arbitrary strings.
+resolveAtlasVisibleSnapshot(typedModel, typedLayout, { filters: { EXTRACTED: "yes" } });
+
 // @ts-expect-error Render options do not accept raw nodes in the positions stage.
 buildRenderableGraph(graph, { positions: { a: graph.nodes[0] } });
 
@@ -35,3 +50,5 @@ engine.setTheme("purple");
 void invalidGraph;
 void invalidPins;
 void invalidPositions;
+void incompleteAtlasInsights;
+void normalizeLearning;
