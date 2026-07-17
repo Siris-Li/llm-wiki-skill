@@ -11,6 +11,12 @@ import { projectGraphInput } from "../src/model/atlas";
 import type { GraphNode } from "../src/types";
 
 describe("graph scoped search", () => {
+  it("keeps direct callers searchable when no runtime projection is supplied", () => {
+    const state = resolveGraphSearchState(searchNodes(), "attention");
+
+    assert.deepEqual(state.matchIds, ["A"]);
+  });
+
   it("consumes the pre-trim compatibility projection without changing legacy search results", () => {
     const projection = projectGraphInput({
       nodes: [
