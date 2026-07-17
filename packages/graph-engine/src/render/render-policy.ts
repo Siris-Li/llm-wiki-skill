@@ -26,7 +26,7 @@ import {
 } from "../layout/edge-geometry";
 import { wikiPathForGraphNode } from "../graph-node";
 import { getCommunityColor } from "../themes";
-import { computeCommunityWash } from "./community-wash";
+import { computeCommunityMapDotSize, computeCommunityMapLayout, computeCommunityWash } from "./community-wash";
 import { worldBoundsForPoints, worldPointToCssPercentPoint, worldPointToMinimapPoint, type GraphWorldBounds } from "./geometry";
 import { pinPositionToWorldPoint } from "./pin-position";
 import { resolveGraphRelationFocus, resolveGraphSelectedNodeRelations, type GraphRelationFocusDepth } from "./relation-focus";
@@ -770,7 +770,7 @@ export function resolveRenderPolicy(input: RenderPolicyInput): RenderableGraph {
       labelVisible: labelNodeSet.has(node.id),
       interactionLabelVisible: interactionLabelNodeSet.has(node.id),
       communityMapImportance: mapImportanceById.get(node.id) ?? 0,
-      communityMapDotSize: communityMapDotSize(mapImportanceById.get(node.id) ?? 0),
+      communityMapDotSize: computeCommunityMapDotSize(mapImportanceById.get(node.id) ?? 0),
       communityMapLabelSide: communityMapLabelSide(cssPoint),
       communityMapRelationLabel: communityMapRelationLabel(node, { labelNodeSet }),
       communityMapTier: communityMapNodeTier(node, {
@@ -951,7 +951,7 @@ export function resolveRenderPolicy(input: RenderPolicyInput): RenderableGraph {
           }
         ])
       ),
-      layout: communityMapLayoutSnapshot(communityMapNodes, { viewportSize: options.viewportSize }),
+      layout: computeCommunityMapLayout(communityMapNodes, options.viewportSize),
       labelBudget: {
         limit: budgetLimits.maxLabels,
         visible: communityMapVisibleLabels,
@@ -1570,11 +1570,6 @@ function communityMapImportanceById(
   return scores;
 }
 
-function communityMapDotSize(importance: number): number {
-  const clamped = Math.max(0, Math.min(10, importance || 0));
-  return round(9 + clamped * 1.45);
-}
-
 function communityMapLabelSide(point: { x: number; y: number }): "left" | "right" | "top" | "bottom" {
   if (point.x > 72) return "left";
   if (point.x < 24) return "right";
@@ -1663,32 +1658,6 @@ function communityMapEdgeLayerCounts(edges: RenderableEdge[]): Record<CommunityM
     },
     { skeleton: 0, related: 0, background: 0 }
   );
-}
-
-// Stable close-up frame for one community. Uses the same world-space base
-// points the render model already resolved (runtime positions -> pins -> atlas),
-// so the DOM close-up cannot drift into a different shape than the global map.
-function communityMapLayoutSnapshot(
-  nodes: RenderableNode[],
-  options: { viewportSize?: { width: number; height: number } }
-): CommunityMapLayoutSnapshot {
-  const bounds = worldBoundsForPoints(nodes.map((node) => node.point));
-  const viewport = options.viewportSize;
-  const viewportAspectRatio = viewport && viewport.width > 0 && viewport.height > 0
-    ? viewport.width / viewport.height
-    : null;
-  return {
-    coordinateSpace: "world",
-    bounds: {
-      minX: bounds.minX,
-      minY: bounds.minY,
-      maxX: bounds.maxX,
-      maxY: bounds.maxY,
-      width: bounds.width,
-      height: bounds.height
-    },
-    viewportAspectRatio
-  };
 }
 
 function temporaryNodeBoost(
