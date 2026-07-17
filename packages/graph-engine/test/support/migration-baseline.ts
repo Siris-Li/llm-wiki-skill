@@ -13,10 +13,12 @@ import {
   splitLabelGraphemes,
   stripAtlasMarkdown,
   truncateLabel,
+  projectGraphInput,
   type GraphData
 } from "../../src";
 
 export function captureSupportedMigrationBehavior(input: GraphData): unknown {
+  const projection = projectGraphInput(input);
   const model = buildAtlasModel(input);
   const modelBeforeLayout = stableClone(model);
   const layout = deriveAtlasLayout(model);
@@ -61,11 +63,11 @@ export function captureSupportedMigrationBehavior(input: GraphData): unknown {
       }
     },
     regularSearch: {
-      label: resolveGraphSearchState(input.nodes, "alpha").matchIds,
-      idFallback: resolveGraphSearchState(input.nodes, "numeric-label").matchIds,
-      whitespaceLabel: resolveGraphSearchState(input.nodes, "duplicate").matchIds,
-      at500: resolveGraphSearchState(input.nodes, "z").matchIds,
-      after500: resolveGraphSearchState(input.nodes, "only-atlas-501").matchIds
+      label: resolveGraphSearchState(projection.data.nodes, "alpha", undefined, projection.regularSearchByNode).matchIds,
+      idFallback: resolveGraphSearchState(projection.data.nodes, "numeric-label", undefined, projection.regularSearchByNode).matchIds,
+      whitespaceLabel: resolveGraphSearchState(projection.data.nodes, "duplicate", undefined, projection.regularSearchByNode).matchIds,
+      at500: resolveGraphSearchState(projection.data.nodes, "z", undefined, projection.regularSearchByNode).matchIds,
+      after500: resolveGraphSearchState(projection.data.nodes, "only-atlas-501", undefined, projection.regularSearchByNode).matchIds
     },
     model: modelBeforeLayout,
     layout,
