@@ -123,4 +123,43 @@ describe("Atlas search and semantic visibility", () => {
       ["Community one match", "c1"]
     ]);
   });
+
+  it("preserves legacy core focus results for object-prototype node IDs", () => {
+    for (const specialId of ["__proto__", "constructor", "toString"]) {
+      const model = buildAtlasModel({
+        nodes: [
+          ...Array.from({ length: 8 }, (_, index) => ({
+            id: `priority-${index}`,
+            label: `Priority ${index}`,
+            type: "topic",
+            community: "c1",
+            weight: 100 - index
+          })),
+          { id: specialId, label: specialId, type: "entity", community: "c1", weight: 0 }
+        ],
+        edges: []
+      });
+
+      const snapshot = resolveAtlasVisibleSnapshot(model, deriveAtlasLayout(model), { focusMode: "core" });
+
+      assert.equal(snapshot.node_ids.includes(specialId), true, specialId);
+    }
+  });
+
+  it("preserves legacy Atlas edge membership for object-prototype endpoint IDs", () => {
+    const model = buildAtlasModel({
+      nodes: [
+        { id: "match", label: "Search match", type: "topic", community: "c1" },
+        { id: "constructor", label: "Hidden endpoint", type: "entity", community: "c1" }
+      ],
+      edges: [
+        { id: "legacy-visible-edge", from: "match", to: "constructor", type: "EXTRACTED" }
+      ]
+    });
+
+    const snapshot = resolveAtlasVisibleSnapshot(model, deriveAtlasLayout(model), { query: "search match" });
+
+    assert.deepEqual(snapshot.node_ids, ["match"]);
+    assert.deepEqual(snapshot.edges.map((edge) => edge.id), ["legacy-visible-edge"]);
+  });
 });

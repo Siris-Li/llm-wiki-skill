@@ -160,14 +160,13 @@ export function resolveAtlasSemanticVisibility(
 
   if (focusMode === "core" && baseNodes.length > 8) {
     const keepCount = Math.max(8, Math.ceil(baseNodes.length * 0.45));
-    const keep = new Set(
-      baseNodes.slice()
-        .sort((left, right) => (right.priority || 0) - (left.priority || 0))
-        .slice(0, keepCount)
-        .map((node) => node.id)
-    );
-    if (selectedNodeId && model.byId[selectedNodeId]) keep.add(selectedNodeId);
-    baseNodes = baseNodes.filter((node) => keep.has(node.id));
+    const keep: Partial<Record<NodeId, boolean>> = {};
+    baseNodes.slice()
+      .sort((left, right) => (right.priority || 0) - (left.priority || 0))
+      .slice(0, keepCount)
+      .forEach((node) => { keep[node.id] = true; });
+    if (selectedNodeId && model.byId[selectedNodeId]) keep[selectedNodeId] = true;
+    baseNodes = baseNodes.filter((node) => Boolean(keep[node.id]));
   }
 
   const baseNodeSet = new Set(baseNodes);
@@ -180,11 +179,12 @@ export function resolveAtlasSemanticVisibility(
       return node;
     })
     : baseNodes;
-  const visibleIdSet = new Set(visibleNodes.map((node) => node.id));
+  const visibleIdSet: Partial<Record<NodeId, boolean>> = {};
+  visibleNodes.forEach((node) => { visibleIdSet[node.id] = true; });
   const visibleEdges = model.edges.filter((edge) => {
     const edgeType = edge.type || "EXTRACTED";
     if (filters[edgeType] === false) return false;
-    return visibleIdSet.has(edge.source) && visibleIdSet.has(edge.target);
+    return Boolean(visibleIdSet[edge.source] && visibleIdSet[edge.target]);
   });
 
   if (options.typeFilters === undefined && options.temporaryObject == null) {
