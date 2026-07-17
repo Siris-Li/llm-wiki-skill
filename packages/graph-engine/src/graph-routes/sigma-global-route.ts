@@ -192,8 +192,12 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     isDragging() {
       return Boolean(renderer?.isDragging());
     },
-    setData(data, pins) {
-      options = applyScopedSearch(clearStaleCommunitySelection({ ...options, data, pins: pins || options.pins }));
+    setData(projection, pins) {
+      options = applyScopedSearch(clearStaleCommunitySelection({
+        ...options,
+        ...projection,
+        pins: pins || options.pins
+      }));
       syncVisibilityState();
       mountSigmaControls();
       updateSigmaRenderer();
@@ -742,7 +746,12 @@ function resolveScopedSearchState(
   query: string,
   typeFilters = options.typeFilters
 ): ReturnType<typeof resolveGraphSearchState> {
-  return resolveGraphSearchState(searchNodesForRouteScope(options, typeFilters), query);
+  return resolveGraphSearchState(
+    searchNodesForRouteScope(options, typeFilters),
+    query,
+    undefined,
+    options.regularSearchByNode
+  );
 }
 
 function searchResultsForControl(

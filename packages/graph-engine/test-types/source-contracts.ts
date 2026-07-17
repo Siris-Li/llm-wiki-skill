@@ -3,14 +3,17 @@ import {
   buildRenderableGraph,
   createGraphOfflineCapabilities,
   normalizeGraphPinMap,
+  projectGraphInput,
   type GraphData,
   type GraphEngine,
+  type GraphInputProjection,
   type GraphRendererAdapterData,
   type GraphVisibilityState,
   type PinMap,
   type RenderableGraph,
   type RenderPositionMap
 } from "../src/index.js";
+import type { GraphFacadeState } from "../src/facade.js";
 
 const graph: GraphData = {
   meta: {
@@ -27,6 +30,11 @@ const graph: GraphData = {
     { id: "a-b", from: "a", to: "b", type: "EXTRACTED" }
   ]
 };
+const unknownGraph: unknown = graph;
+const inputProjection: GraphInputProjection = projectGraphInput(unknownGraph);
+// @ts-expect-error route state cannot omit the search compatibility half of the input projection
+const incompleteFacadeState: GraphFacadeState = { data: graph, pins: {} };
+void incompleteFacadeState;
 
 const positions: RenderPositionMap = {
   a: { x: 10, y: 20 },
@@ -49,9 +57,9 @@ const offline = createGraphOfflineCapabilities({
 });
 
 export function consumeSourceContracts(engine: GraphEngine, visibility: GraphVisibilityState): number {
-  engine.setData(graph, pins);
+  engine.setData(unknownGraph, pins);
   engine.setPins(pins);
   void visibility.searchResultIds;
   void offline.capabilities?.persistPins;
-  return renderable.nodes.length + adapter.nodes.length;
+  return renderable.nodes.length + adapter.nodes.length + inputProjection.data.nodes.length;
 }
