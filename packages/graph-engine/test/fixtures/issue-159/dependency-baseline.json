@@ -25,14 +25,7 @@
       "kind": "re-export"
     }
   ],
-  "internalModelBarrelReferences": [
-    {
-      "source": "render/viewport.ts",
-      "target": "model/index.ts",
-      "specifier": "../model",
-      "kind": "import"
-    }
-  ],
+  "internalModelBarrelReferences": [],
   "rendererRouteBypasses": [
     {
       "source": "render/sigma-global-renderer.ts",
