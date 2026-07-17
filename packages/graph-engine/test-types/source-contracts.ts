@@ -1,4 +1,5 @@
 import {
+  atlasNodePoint,
   buildGraphRendererAdapterData,
   buildRenderableGraph,
   buildAtlasModel,
@@ -11,6 +12,7 @@ import {
   resolveAtlasSelectedNodeId,
   resolveAtlasSemanticVisibility,
   resolveAtlasVisibleSnapshot,
+  resolvePositionAndRangePolicy,
   resolveRegularSearchMatches,
   type GraphData,
   type GraphEngine,
@@ -18,11 +20,13 @@ import {
   type AtlasCommunity,
   type AtlasEdge,
   type AtlasInsights,
+  type AtlasLayout,
   type AtlasModel,
   type AtlasNode,
   type AtlasSemanticVisibility,
   type AtlasVisibleSnapshot,
   type GraphRendererAdapterData,
+  type PositionAndRangePolicy,
   type GraphVisibilityState,
   type PinMap,
   type RenderableGraph,
@@ -48,13 +52,14 @@ const graph: GraphData = {
 const unknownGraph: unknown = graph;
 const inputProjection: GraphInputProjection = projectGraphInput(unknownGraph);
 const typedModel: AtlasModel = buildAtlasModel(inputProjection.data);
+const typedLayout: AtlasLayout = deriveAtlasLayout(typedModel);
 const typedNode: AtlasNode | undefined = typedModel.byId.a;
 const typedEdge: AtlasEdge | undefined = typedModel.edges[0];
 const typedCommunity: AtlasCommunity | undefined = typedModel.communityById.c1;
 const typedInsights: AtlasInsights = typedModel.insights;
 const typedVisible: AtlasVisibleSnapshot = resolveAtlasVisibleSnapshot(
   typedModel,
-  deriveAtlasLayout(typedModel),
+  typedLayout,
   { activeCommunityId: "all" }
 );
 const semanticVisibility: AtlasSemanticVisibility = resolveAtlasSemanticVisibility(typedModel, {
@@ -74,6 +79,17 @@ const positions: RenderPositionMap = {
 };
 const pins: PinMap = normalizeGraphPinMap({
   "wiki/a.md": { x: 10, y: 20, coordinateSpace: "world" }
+});
+const positionPolicy: PositionAndRangePolicy = resolvePositionAndRangePolicy({
+  nodes: typedModel.nodes,
+  initialPositions: typedLayout.nodePositions,
+  initialPositionsByIndex: new Map(typedLayout.nodes.flatMap((node) => (
+    node ? [[node.idx, atlasNodePoint(node)] as const] : []
+  ))),
+  pins,
+  positions,
+  viewportSize: { width: 1600, height: 900 },
+  frameToViewport: true
 });
 const renderable: RenderableGraph = buildRenderableGraph(graph, { positions, pins });
 const adapter: GraphRendererAdapterData = buildGraphRendererAdapterData(graph, {
@@ -98,6 +114,7 @@ export function consumeSourceContracts(engine: GraphEngine, visibility: GraphVis
     + inputProjection.data.nodes.length
     + typedModel.nodes.length
     + typedInsights.bridge_nodes.length
+    + positionPolicy.framingBounds.width
     + semanticVisibility.nodes.length
     + atlasSearch.matchIds.length
     + regularSearch.matchIds.length

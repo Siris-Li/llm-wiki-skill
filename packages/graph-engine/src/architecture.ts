@@ -32,8 +32,8 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
   {
     id: "layout",
     name: "GraphLayout",
-    owns: ["world positions", "layout bounds", "community wash geometry", "spatial hit testing"],
-    entrypoints: ["src/layout/", "src/render/model.ts", "src/render/community-wash.ts", "src/sim/"],
+    owns: ["immutable initial world positions", "layout bounds", "community wash geometry", "spatial hit testing"],
+    entrypoints: ["src/layout/initial-layout.ts", "src/layout/spatial-index.ts", "src/render/community-wash.ts", "src/sim/"],
     mustNotOwn: ["host callbacks", "browser default policy", "screen projection"]
   },
   {
@@ -53,8 +53,9 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
   {
     id: "renderer",
     name: "GraphRenderer",
-    owns: ["DOM/SVG drawing", "node, edge, wash, toolbar, overlay, reader painting", "render-only CSS state"],
+    owns: ["position overrides and content framing", "DOM/SVG drawing", "node, edge, wash, toolbar, overlay, reader painting", "render-only CSS state"],
     entrypoints: [
+      "src/render/render-policy.ts",
       "src/render/graph-renderer-root.ts",
       "src/render/render-pipeline.ts",
       "src/render/overlays-presenter.ts",

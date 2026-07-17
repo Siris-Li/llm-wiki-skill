@@ -1905,14 +1905,14 @@ async function runCommunityNodeMultiSelectCheck(page) {
   const singleVisual = await waitForEdgeFocusDepth(page, "first");
   assertSelectedNodeRelationFocusVisible(singleVisual, "community selected node A");
   const singleLayout = await assertGraphLayout(page, "community-selected-node-drawer");
+  await waitForStableNodeHitTarget(page, "B");
 
   await page.keyboard.down("Shift");
   try {
-    const secondPoint = await stableSigmaNodeClickPoint(page, ["A"]);
+    const secondPoint = await firstClickableSigmaNodePoint(page, ["A"], "B");
     const secondNodeId = secondPoint.nodeId;
     assert.notEqual(secondNodeId, "A", `Shift+click should choose a second node: ${JSON.stringify(secondPoint)}`);
-    await page.mouse.down();
-    await page.mouse.up();
+    await page.mouse.click(secondPoint.x, secondPoint.y);
     await page.waitForSelector('[data-testid="graph-selection-drawer"]');
     const multi = await drawerSelectionSnapshot(page);
     assert.equal(multi.drawerTestId, "graph-selection-drawer", "Shift+click should show an exact multi-node selection");
@@ -2429,6 +2429,7 @@ async function runStatePreservationCheck(page) {
   assert.equal(returned.nodeAPinned, "true", "fixed node should survive community return");
   assertPointStable(returned.nodeABox, afterDrag.nodeABox, "dragged fixed node should remain at the released global position after community return", 10);
   assert.equal(returned.oldDomGlobalNodeCount, 0, "state-preserving return should still use Sigma, not old DOM global");
+  await waitForPersistedGraphPin(page, "wiki/entities/A.md");
 
   await page.reload();
   await waitForSigmaGlobal(page);
@@ -2611,7 +2612,7 @@ async function reloadPinDiagnostics(page, nodeId) {
       route: document.querySelector(".sigma-global-route")?.getAttribute("data-route") || "",
       renderer: document.querySelector(".sigma-global-renderer")?.getAttribute("data-renderer") || "",
       layoutUrl,
-      layoutPins: layoutPayload?.layout?.pins || null,
+      layoutPins: layoutPayload?.data?.pins || null,
       allTargets: [...document.querySelectorAll(".sigma-global-node-hit-target")].map((node) => ({
         id: node.getAttribute("data-node-id") || "",
         pinned: node.getAttribute("data-pinned") || "",
@@ -2635,7 +2636,7 @@ async function waitForPersistedGraphPin(page, pinKey) {
       const response = await fetch(layoutUrl);
       if (!response.ok) return false;
       const payload = await response.json();
-      return Boolean(payload?.layout?.pins?.[pinKey]);
+      return Boolean(payload?.data?.pins?.[pinKey]);
     }, pinKey, { timeout: 5000 });
   } catch (err) {
     const diagnostics = await page.evaluate(async (pinKey) => {

@@ -11,7 +11,7 @@ tmp_dir="$(mktemp -d)"
 server_pid=""
 web_pid=""
 server_port="${GRAPH_WORKBENCH_SERVER_PORT:-18787}"
-web_port="${GRAPH_WORKBENCH_WEB_PORT:-15180}"
+web_port="${GRAPH_WORKBENCH_WEB_PORT:-5180}"
 
 cleanup() {
     if [ -n "$server_pid" ]; then

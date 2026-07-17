@@ -140,16 +140,18 @@ describe("atlas state contract", () => {
       ],
       edges: []
     });
-    deriveAtlasLayout(model);
+    const layout = deriveAtlasLayout(model);
 
     assert.notDeepEqual(
-      { x: model.byId.nullish.x, y: model.byId.nullish.y },
+      pickPoint(layout.nodes.find((node) => node.id === "nullish")),
       { x: 5, y: 8 }
     );
     assert.deepEqual(
-      { x: model.byId.origin.x, y: model.byId.origin.y },
+      pickPoint(layout.nodes.find((node) => node.id === "origin")),
       { x: 5, y: 8 }
     );
+    assert.deepEqual(pickPoint(model.byId.origin), { x: 0, y: 0 });
+    assert.deepEqual(pickPoint(model.byId.nullish), { x: null, y: null });
   });
 
   it("preserves relative shape when explicit community coordinates are outside the legacy percent range", () => {
@@ -161,9 +163,9 @@ describe("atlas state contract", () => {
       ],
       edges: []
     });
-    deriveAtlasLayout(model);
+    const layout = deriveAtlasLayout(model);
 
-    const points = ["a", "b", "c"].map((id) => ({ x: model.byId[id].x, y: model.byId[id].y }));
+    const points = ["a", "b", "c"].map((id) => pickPoint(layout.nodes.find((node) => node.id === id)));
     assert.ok(new Set(points.map((point) => point.x)).size > 1, "x positions should not collapse to one clamp boundary");
     assert.ok(new Set(points.map((point) => point.y)).size > 1, "y positions should not collapse to one clamp boundary");
     assert.ok(points.every((point) => point.x >= 5 && point.x <= 95));
@@ -297,3 +299,8 @@ describe("atlas state contract", () => {
     assert.ok(miniRect.height > 0);
   });
 });
+
+function pickPoint(node: { x: number | null; y: number | null } | undefined): { x: number | null; y: number | null } {
+  assert.ok(node);
+  return { x: node.x, y: node.y };
+}

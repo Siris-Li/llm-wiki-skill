@@ -30,7 +30,7 @@ test_graph_html_minimap_runtime_renders_nodes() {
     build_graph_html_fixture "$tmp_dir"
     html="$tmp_dir/wiki/knowledge-graph.html"
 
-    assert_file_contains "$html" "t.minimap.nodes"
+    assert_file_contains "$html" ".minimap.nodes"
     assert_file_contains "$html" '`circle`'
     assert_file_contains "$html" '`is-selected`'
     assert_file_contains "$html" "miniNodeElements"
