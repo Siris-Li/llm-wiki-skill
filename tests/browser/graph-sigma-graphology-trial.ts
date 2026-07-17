@@ -11,6 +11,10 @@ import {
 } from "../../packages/graph-engine/test/large-graph-fixtures";
 import { buildSigmaGraphologyTrialModel } from "../../packages/graph-engine/test/sigma-trial-adapter";
 import {
+  emptyGraphFirstOrderRelationFocusTouched,
+  resolveGraphFirstOrderRelationFocus
+} from "../../packages/graph-engine/src/render/relation-focus";
+import {
   FRAME_P95_CEILING_MS,
   FPS_FLOOR,
   NAME_HELPER_INIT_SCRIPT,
@@ -188,6 +192,8 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
   <aside id="drawer"></aside>
   <script>
     const model = ${JSON.stringify(model)};
+    const emptyGraphFirstOrderRelationFocusTouched = ${emptyGraphFirstOrderRelationFocusTouched.toString()};
+    const resolveGraphFirstOrderRelationFocus = ${resolveGraphFirstOrderRelationFocus.toString()};
     const GraphClass = globalThis.graphology?.Graph || globalThis.graphology?.default || globalThis.graphology;
     const SigmaClass = globalThis.Sigma?.default || globalThis.Sigma;
     const graph = new GraphClass({ multi: true, type: "undirected", allowSelfLoops: false });
@@ -264,42 +270,41 @@ async function writeTrialHtml(shape: string, model: unknown): Promise<string> {
     }
     function hoverPreview(id) {
       clearHoverPreview();
-      if (!id || !graph.hasNode(id)) return { targetId: id || null, observedTargetId: null, relatedNodeCount: 0, relatedEdgeCount: 0, visible: false };
-      const relatedNodeIds = new Set();
-      const incidentEdgeIds = graph.edges(id);
-      for (const edgeId of incidentEdgeIds) {
-        const source = graph.source(edgeId);
-        const target = graph.target(edgeId);
-        const relatedId = source === id ? target : source;
-        if (graph.hasNode(relatedId)) {
-          relatedNodeIds.add(relatedId);
-          graph.mergeNodeAttributes(relatedId, {
-            relationFocusDepth: "first",
-            size: Math.max(graph.getNodeAttribute(relatedId, "baseSize") || 2, 3.5),
-            color: "#64748b"
-          });
-        }
+      const focus = resolveGraphFirstOrderRelationFocus({
+        activeNodeId: id || null,
+        hasNode: (nodeId) => graph.hasNode(nodeId),
+        incidentEdgeIds: (nodeId) => graph.edges(nodeId),
+        edgeSource: (edgeId) => graph.source(edgeId),
+        edgeTarget: (edgeId) => graph.target(edgeId)
+      });
+      for (const [nodeId, depth] of focus.nodeDepthById) {
+        graph.mergeNodeAttributes(nodeId, {
+          relationFocusDepth: depth,
+          size: Math.max(graph.getNodeAttribute(nodeId, "baseSize") || 2, depth === "focus" ? 5 : 3.5),
+          color: depth === "focus" ? "#dc2626" : "#64748b"
+        });
+      }
+      for (const [edgeId, depth] of focus.edgeDepthById) {
         graph.mergeEdgeAttributes(edgeId, {
-          relationFocusDepth: "first",
+          relationFocusDepth: depth,
           size: Math.max(graph.getEdgeAttribute(edgeId, "baseSize") || 1, 2.5),
           color: "#334155"
         });
       }
-      graph.mergeNodeAttributes(id, {
-        relationFocusDepth: "focus",
-        size: Math.max(graph.getNodeAttribute(id, "baseSize") || 2, 5),
-        color: "#dc2626"
-      });
-      hoverTouchedNodeIds = [id, ...relatedNodeIds];
-      hoverTouchedEdgeIds = [...incidentEdgeIds];
+      hoverTouchedNodeIds = [...focus.touched.nodeIds];
+      hoverTouchedEdgeIds = [...focus.touched.edgeIds];
       refresh();
-      const observedTargetId = graph.getNodeAttribute(id, "relationFocusDepth") === "focus" ? id : null;
+      const observedTargetId = focus.activeNodeId && graph.getNodeAttribute(focus.activeNodeId, "relationFocusDepth") === "focus"
+        ? focus.activeNodeId
+        : null;
+      const relatedNodeCount = Math.max(0, focus.touched.nodeIds.size - (focus.activeNodeId ? 1 : 0));
+      const relatedEdgeCount = focus.touched.edgeIds.size;
       return {
-        targetId: id,
+        targetId: id || null,
         observedTargetId,
-        relatedNodeCount: relatedNodeIds.size,
-        relatedEdgeCount: incidentEdgeIds.length,
-        visible: observedTargetId === id && relatedNodeIds.size > 0 && incidentEdgeIds.length > 0
+        relatedNodeCount,
+        relatedEdgeCount,
+        visible: observedTargetId === id && relatedNodeCount > 0 && relatedEdgeCount > 0
       };
     }
     renderer.on("enterNode", ({ node }) => {

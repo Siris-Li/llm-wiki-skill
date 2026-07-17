@@ -692,9 +692,12 @@ async function writeProductionHtml(
           if (!id || !connectedIds.has(id)) continue;
           const rect = element.getBoundingClientRect();
           if (rect.width <= 0 || rect.height <= 0) continue;
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          if (document.elementFromPoint(x, y) !== element) continue;
           return {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
+            x,
+            y,
             width: rect.width,
             height: rect.height,
             id,
