@@ -23,18 +23,6 @@
       "target": "model/legacy-helpers.ts",
       "specifier": "./legacy-helpers",
       "kind": "re-export"
-    },
-    {
-      "source": "model/visibility.ts",
-      "target": "model/legacy-helpers.ts",
-      "specifier": "./legacy-helpers",
-      "kind": "re-export"
-    },
-    {
-      "source": "render/search.ts",
-      "target": "model/legacy-helpers.ts",
-      "specifier": "../model/legacy-helpers",
-      "kind": "import"
     }
   ],
   "internalModelBarrelReferences": [

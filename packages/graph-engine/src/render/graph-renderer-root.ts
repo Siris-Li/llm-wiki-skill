@@ -41,7 +41,8 @@ import {
 } from "./render-pipeline";
 import { createGraphOverlaysPresenter, type GraphOverlaysPresenter } from "./overlays-presenter";
 import { createDomSvgRendererSurface } from "./renderer-surface";
-import type { RegularSearchNodeProjection } from "../model/atlas";
+import { projectGraphInput } from "../model/atlas";
+import type { GraphInputProjection, RegularSearchNodeProjection } from "../model/atlas";
 
 // 聚焦单个社区时，子集包围盒常很小；用默认 4× fit 会把少量节点放大成糊屏巨卡。
 // 聚焦 fit 限制到适度放大，让节点保持可读、社区居中留白（镜头推进而非贴脸）。
@@ -102,6 +103,7 @@ export interface GraphRenderer {
 }
 
 export function createGraphRenderer(container: HTMLElement, options: GraphRendererOptions): GraphRenderer {
+  const initialProjection = rendererGraphInput(options.data, options.regularSearchByNode);
   const initialPins = options.pins || {};
   const initialFocus = options.focus || null;
   const pathCache = createRenderPathCache();
@@ -113,7 +115,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
   let controller: GraphController;
   let pipeline: GraphRenderPipeline;
   let presenter: GraphOverlaysPresenter;
-  const initialGraph = buildRenderableGraph(options.data, {
+  const initialGraph = buildRenderableGraph(initialProjection.data, {
     pins: initialPins,
     theme: options.theme,
     selectedNodeId: null,
@@ -138,8 +140,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     viewportSize: () => pipeline.viewportSize()
   });
   context = {
-    data: options.data,
-    regularSearchByNode: options.regularSearchByNode,
+    data: initialProjection.data,
+    regularSearchByNode: initialProjection.regularSearchByNode,
     theme: options.theme,
     destroyed: false,
     simulation: null,
@@ -282,8 +284,13 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
   }
 
   function applyOptionChanges(next: RenderNextOptions): void {
-    context.data = next.data || context.data;
-    if (Object.hasOwn(next, "regularSearchByNode")) context.regularSearchByNode = next.regularSearchByNode;
+    if (next.data) {
+      const projection = rendererGraphInput(next.data, next.regularSearchByNode);
+      context.data = projection.data;
+      context.regularSearchByNode = projection.regularSearchByNode;
+    } else if (Object.hasOwn(next, "regularSearchByNode") && next.regularSearchByNode) {
+      context.regularSearchByNode = next.regularSearchByNode;
+    }
     context.theme = next.theme || context.theme;
     if (Object.hasOwn(next, "typeFilters")) context.typeFilters = next.typeFilters || {};
     if (Object.hasOwn(next, "aggregationMarkers")) context.aggregationMarkers = next.aggregationMarkers || [];
@@ -396,4 +403,11 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
   function assertActive(): void {
     if (context.destroyed) throw new Error("Graph renderer has been destroyed");
   }
+}
+
+function rendererGraphInput(
+  data: GraphData,
+  regularSearchByNode?: RegularSearchNodeProjection[]
+): GraphInputProjection {
+  return regularSearchByNode ? { data, regularSearchByNode } : projectGraphInput(data);
 }

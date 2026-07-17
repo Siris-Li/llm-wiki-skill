@@ -45,7 +45,7 @@ export interface GraphRendererCallbacks {
 
 export interface GraphRenderContext {
   data: GraphData;
-  regularSearchByNode?: RegularSearchNodeProjection[];
+  regularSearchByNode: RegularSearchNodeProjection[];
   theme: ThemeId;
   destroyed: boolean;
   simulation: LiveGraphSimulation | null;

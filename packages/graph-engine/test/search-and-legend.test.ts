@@ -18,7 +18,9 @@ describe("graph scoped search", () => {
         { id: "empty-label-id", label: "", type: "entity" },
         { id: "space-label-id", label: "   ", type: "entity" },
         { id: "numeric-label-id", label: 0, type: "entity", content: 12345 },
-        { id: "boundary", label: "Boundary", type: "entity", content: `${"a".repeat(499)}Zonly-after-boundary` }
+        { id: "emoji-label", label: "图谱🧭", type: "entity" },
+        { id: "boundary", label: "Boundary", type: "entity", content: `${"a".repeat(499)}ZQ` },
+        { id: "split-surrogate", label: "Split", type: "entity", content: `${"a".repeat(499)}😀tail` }
       ],
       edges: []
     });
@@ -33,16 +35,26 @@ describe("graph scoped search", () => {
     assert.deepEqual(search("empty-label-id"), ["empty-label-id"]);
     assert.deepEqual(search("space-label-id"), []);
     assert.deepEqual(search("numeric-label-id"), ["numeric-label-id"]);
+    assert.deepEqual(search("🧭"), ["emoji-label"]);
     assert.deepEqual(search("z"), ["boundary"]);
-    assert.deepEqual(search("only-after-boundary"), []);
+    assert.deepEqual(search("q"), []);
+    assert.deepEqual(search("😀"), []);
+    assert.deepEqual(search("\ud83d"), ["split-surrogate"]);
     assert.deepEqual(search("12345"), ["numeric-label-id"]);
   });
 
-  it("matches nodes through the shared search helpers and marks non-matches faded", () => {
-    const nodes = searchNodes();
-    const state = resolveGraphSearchState(nodes, "attention");
+  it("matches the saved runtime projection and marks non-matches faded", () => {
+    const projection = projectedSearchNodes();
+    projection.data.nodes[0].label = "Changed after projection";
+    projection.data.nodes[0].content = "Changed after projection";
+    const state = resolveGraphSearchState(
+      projection.data.nodes,
+      "  Attention  ",
+      undefined,
+      projection.regularSearchByNode
+    );
 
-    assert.equal(state.query, "attention");
+    assert.equal(state.query, "Attention");
     assert.deepEqual(state.matchIds, ["A"]);
     assert.deepEqual(
       state.nodes.map((node) => [node.id, node.searchState]),
@@ -51,9 +63,14 @@ describe("graph scoped search", () => {
   });
 
   it("treats an empty query as no matches and reuses a cached index", () => {
-    const nodes = searchNodes();
-    const first = resolveGraphSearchState(nodes, "source");
-    const second = resolveGraphSearchState(nodes, "", first.searchIndex);
+    const projection = projectedSearchNodes();
+    const first = resolveGraphSearchState(
+      projection.data.nodes,
+      "source",
+      undefined,
+      projection.regularSearchByNode
+    );
+    const second = resolveGraphSearchState(projection.data.nodes, "", first.searchIndex);
 
     assert.equal(second.searchIndex, first.searchIndex);
     assert.deepEqual(second.matchIds, []);
@@ -149,4 +166,8 @@ function searchNodes(): GraphNode[] {
     { id: "B", label: "Embeddings", type: "entity", content: "Vector source material." },
     { id: "C", label: "Retrieval", type: "source", content: "Indexing and recall." }
   ];
+}
+
+function projectedSearchNodes() {
+  return projectGraphInput({ nodes: searchNodes(), edges: [] });
 }

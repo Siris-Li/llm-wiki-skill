@@ -801,7 +801,7 @@ describe("graph renderer lifecycle", () => {
     const selections: SelectionInput[] = [];
     const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
       state: {
-        data: graphDataForReturnGlobal(),
+        ...projectGraphInput(graphDataForReturnGlobal()),
         pins: { "wiki/a.md": { x: 120, y: 140, coordinateSpace: "world" } },
         theme: "shan-shui",
         focus: null,
@@ -1011,7 +1011,7 @@ describe("graph renderer lifecycle", () => {
     const renderer = createSigmaGlobalFacadeRenderer({
       container: container as unknown as HTMLElement,
       options: {
-        data: graphDataForReturnGlobal(),
+        ...projectGraphInput(graphDataForReturnGlobal()),
         pins: {},
         theme: "shan-shui",
         focus: { kind: "community", id: "community-a" },
@@ -1048,7 +1048,7 @@ describe("graph renderer lifecycle", () => {
     const renderer = createSigmaGlobalFacadeRenderer({
       container: container as unknown as HTMLElement,
       options: {
-        data: graphDataForReturnGlobal(),
+        ...projectGraphInput(graphDataForReturnGlobal()),
         pins: {},
         theme: "shan-shui",
         focus: { kind: "community", id: "community-a" },
@@ -1122,7 +1122,7 @@ describe("graph renderer lifecycle", () => {
     const renderer = createSigmaGlobalFacadeRenderer({
       container: container as unknown as HTMLElement,
       options: {
-        data: graphDataForReturnGlobal(),
+        ...projectGraphInput(graphDataForReturnGlobal()),
         pins: {},
         theme: "shan-shui",
         focus: { kind: "community", id: "community-a" },
@@ -1181,7 +1181,7 @@ describe("graph renderer lifecycle", () => {
     const renderer = createSigmaGlobalFacadeRenderer({
       container: container as unknown as HTMLElement,
       options: {
-        data: graphDataForReturnGlobal(),
+        ...projectGraphInput(graphDataForReturnGlobal()),
         pins: {},
         theme: "shan-shui",
         focus: { kind: "community", id: "community-a" },
