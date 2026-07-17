@@ -4,8 +4,14 @@ import {
   buildAtlasModel,
   deriveAtlasLayout,
   getAtlasDensityMode,
-  resolveAtlasVisibleSnapshot
-} from "../model";
+  resolveAtlasVisibleSnapshot,
+  type AtlasCommunity,
+  type AtlasDensityMode,
+  type AtlasEdge,
+  type AtlasLayout,
+  type AtlasModel,
+  type AtlasNode
+} from "../model/atlas";
 import { graphEdgeControlPoint } from "../layout/edge-geometry";
 import { wikiPathForGraphNode } from "../graph-node";
 import { getCommunityColor } from "../themes";
@@ -14,7 +20,9 @@ import { GRAPH_WORLD_SIZE, worldBoundsForPoints, worldPointToCssPercentPoint, wo
 import { pinPositionToWorldPoint } from "./pin-position";
 import { resolveGraphRelationFocus, resolveGraphSelectedNodeRelations, type GraphRelationFocusDepth } from "./relation-focus";
 
-export type DensityMode = "card" | "compact-card" | "point-plus-focus" | "overview";
+type NodeFlagLookup = Partial<Record<NodeId, boolean>>;
+
+export type DensityMode = AtlasDensityMode;
 export type NodeDisplayMode = "card" | "compact-card" | "point" | "overview";
 export type NodeVisualRole = "landmark" | "index-slip" | "cinnabar-note" | "map-pin";
 export type GraphRenderBudgetView = "global" | "community";
@@ -105,8 +113,8 @@ export interface GraphCommunityQuality {
 }
 
 export interface RenderableGraph {
-  model: Record<string, unknown>;
-  layout: Record<string, unknown>;
+  model: AtlasModel;
+  layout: AtlasLayout;
   worldBounds: GraphWorldBounds;
   selectedNodeId: string | null;
   focus: GraphFocusInput;
@@ -324,37 +332,6 @@ interface BuildRenderableGraphOptions {
   sourceCommunityId?: string | null;
 }
 
-type AtlasNode = {
-  id: string;
-  label: string;
-  type: string;
-  kind: string;
-  community: string;
-  source_path?: string;
-  x: number;
-  y: number;
-  priority?: number;
-  weight?: number;
-  unavailable?: boolean;
-};
-
-type AtlasEdge = {
-  id: string;
-  source: string;
-  target: string;
-  type: string;
-  confidence?: string;
-  relation_type?: string;
-  weight?: number;
-};
-
-type AtlasCommunity = {
-  id: string;
-  label?: string;
-  node_count?: number;
-  color_index?: number;
-};
-
 export interface RenderPosition {
   x: number;
   y: number;
@@ -453,14 +430,8 @@ export function createRenderPathCache(): RenderPathCache {
 
 export function buildRenderableGraph(data: GraphData, options: BuildRenderableGraphOptions = {}): RenderableGraph {
   const theme = options.theme || "shan-shui";
-  const model = buildAtlasModel(data) as {
-    nodes: AtlasNode[];
-    edges: AtlasEdge[];
-    byId: Record<string, AtlasNode>;
-    communities: AtlasCommunity[];
-    communityById: Record<string, AtlasCommunity>;
-  };
-  const layout = deriveAtlasLayout(model) as Record<string, unknown>;
+  const model = buildAtlasModel(data);
+  const layout = deriveAtlasLayout(model);
   const selectedNodeIds = resolveSelectedNodeIds(model, options);
   const selectedNodeSet = new Set(selectedNodeIds);
   const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null;
@@ -474,22 +445,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const visible = resolveAtlasVisibleSnapshot(model, layout, {
     activeCommunityId: focus?.kind === "community" ? focus.id : "all",
     selectedNodeId
-  }) as {
-    nodes: AtlasNode[];
-    edges: AtlasEdge[];
-    densityMode: DensityMode;
-    labelNodeIds: Record<string, boolean>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
-    starts: Array<{ node: AtlasNode }>;
-    counts: {
-      visible_nodes: number;
-      visible_edges: number;
-      total_nodes: number;
-      total_edges: number;
-      total_communities: number;
-    };
-  };
+  });
   const previewNodeId = selectedNodeId ? null : firstPreviewNodeId(visible);
   const importantIds = visible.importantNodeIds || {};
   const labelIds = visible.labelNodeIds || {};
@@ -504,7 +460,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     visible.edges.filter((edge) => filteredVisibleNodeIds.has(edge.source) && filteredVisibleNodeIds.has(edge.target)),
     model.edges.filter((edge) => filteredVisibleNodeIds.has(edge.source) && filteredVisibleNodeIds.has(edge.target))
   );
-  const filteredDensityMode = getAtlasDensityMode(filteredVisibleNodes.length) as DensityMode;
+  const filteredDensityMode = getAtlasDensityMode(filteredVisibleNodes.length);
   const filteredVisibleCounts = {
     visible_nodes: filteredVisibleNodes.length,
     visible_edges: filteredVisibleEdges.length,
@@ -1148,8 +1104,8 @@ export function resolveCommunityFocusScale(focus: GraphFocusInput, focusedCommun
 }
 
 export function makeEdgePath(source: AtlasNode, target: AtlasNode, edge: { weight?: number }): string {
-  const sourcePoint = atlasNodePoint(source) as { x: number; y: number };
-  const targetPoint = atlasNodePoint(target) as { x: number; y: number };
+  const sourcePoint = atlasNodePoint(source);
+  const targetPoint = atlasNodePoint(target);
   return makeEdgePathFromPoints(sourcePoint, targetPoint, edgeCurveOffset(sourcePoint, targetPoint, edge));
 }
 
@@ -1200,7 +1156,7 @@ export function edgeRelationClass(relationType: unknown): string {
 export function screenEffectiveDensityMode(visibleNodeCount: number, viewportScale: number): DensityMode {
   const count = Number.isFinite(Number(visibleNodeCount)) ? Math.max(0, Number(visibleNodeCount)) : 0;
   const scale = Number.isFinite(Number(viewportScale)) ? clamp(Number(viewportScale), 0.25, 4) : 1;
-  return getAtlasDensityMode(Math.ceil(count / (scale * scale))) as DensityMode;
+  return getAtlasDensityMode(Math.ceil(count / (scale * scale)));
 }
 
 export function nodeDisplayModeForDensity(
@@ -1217,7 +1173,7 @@ export function nodeDisplayModeForDensity(
 
 function normalizeGraphFocus(
   focus: GraphFocusInput | undefined,
-  model: { communityById: Record<string, AtlasCommunity> }
+  model: { communityById: Partial<Record<string, AtlasCommunity>> }
 ): GraphFocusInput {
   if (!focus || focus.kind !== "community") return null;
   const id = String(focus.id || "");
@@ -1297,7 +1253,7 @@ function renderPointForNode(node: AtlasNode, options: Pick<BuildRenderableGraphO
   if (pin) {
     return pinPositionToWorldPoint(pin);
   }
-  return atlasNodePoint(node) as RenderPosition;
+  return atlasNodePoint(node);
 }
 
 function edgeCurveOffset(sourcePoint: RenderPosition, targetPoint: RenderPosition, edge: { weight?: number }, worldBounds: GraphWorldBounds = {
@@ -1319,7 +1275,7 @@ function finitePositionCoordinate(value: unknown): number {
 }
 
 function resolveSelectedNodeIds(
-  model: { byId: Record<string, AtlasNode>; nodes: AtlasNode[] },
+  model: { byId: Partial<Record<string, AtlasNode>>; nodes: AtlasNode[] },
   options: BuildRenderableGraphOptions
 ): string[] {
   if (options.selection?.kind === "node" && model.byId[options.selection.id]) return [options.selection.id];
@@ -1347,8 +1303,8 @@ function nodeDisplayMode(
   densityMode: DensityMode,
   selectedNodeId: string | null,
   previewNodeId: string | null,
-  labelNodeIds: Record<string, boolean>,
-  importantNodeIds: Record<string, boolean>
+  labelNodeIds: NodeFlagLookup,
+  importantNodeIds: NodeFlagLookup
 ): NodeDisplayMode {
   if (node.id === selectedNodeId) return "card";
   if (previewNodeId && node.id === previewNodeId && (densityMode === "overview" || densityMode === "point-plus-focus")) return "compact-card";
@@ -1407,7 +1363,7 @@ function shouldPreferCard(
   selectedNodeIds: Set<string>,
   pinnedNodeIds: Set<string>,
   searchResultIds: Set<string>,
-  importantNodeIds: Record<string, boolean>,
+  importantNodeIds: NodeFlagLookup,
   previewNodeId: string | null
 ): boolean {
   if (view === "global") return false;
@@ -1447,7 +1403,7 @@ function selectStableStructureSkeletonEdges(
   edges: AtlasEdge[],
   budget: number,
   signals: {
-    importantNodeIds: Record<string, boolean>;
+    importantNodeIds: NodeFlagLookup;
     coreNodeIds: Set<string>;
   }
 ): Set<string> {
@@ -1486,9 +1442,9 @@ function nodeRenderPriority(
     selectedNodeIds: Set<string>;
     pinnedNodeIds: Set<string>;
     searchResultIds: Set<string>;
-    labelNodeIds: Record<string, boolean>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
+    labelNodeIds: NodeFlagLookup;
+    importantNodeIds: NodeFlagLookup;
+    startNodeIds: NodeFlagLookup;
     previewNodeId: string | null;
     coreNodeIds: Set<string>;
     relationFocusDepth?: GraphRelationFocusDepth;
@@ -1503,7 +1459,7 @@ function edgeRenderPriority(
     selectedNodeIds: Set<string>;
     pinnedNodeIds: Set<string>;
     searchResultIds: Set<string>;
-    importantNodeIds: Record<string, boolean>;
+    importantNodeIds: NodeFlagLookup;
     coreNodeIds: Set<string>;
     relationFocusDepth?: GraphRelationFocusDepth;
     selectedGlobalCommunityId?: string | null;
@@ -1568,9 +1524,9 @@ function selectStableCoreNodeIds(
   nodes: AtlasNode[],
   budget: number,
   signals: {
-    labelNodeIds: Record<string, boolean>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
+    labelNodeIds: NodeFlagLookup;
+    importantNodeIds: NodeFlagLookup;
+    startNodeIds: NodeFlagLookup;
     previewNodeId: string | null;
   }
 ): string[] {
@@ -1596,9 +1552,9 @@ function selectStableCoreNodeIds(
 function stableNodeImportance(
   node: AtlasNode,
   signals: {
-    labelNodeIds: Record<string, boolean>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
+    labelNodeIds: NodeFlagLookup;
+    importantNodeIds: NodeFlagLookup;
+    startNodeIds: NodeFlagLookup;
     previewNodeId: string | null;
     coreNodeIds: Set<string>;
   }
@@ -1616,9 +1572,9 @@ function stableNodeImportance(
 function communityMapImportanceById(
   nodes: AtlasNode[],
   options: {
-    labelNodeIds: Record<string, boolean>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
+    labelNodeIds: NodeFlagLookup;
+    importantNodeIds: NodeFlagLookup;
+    startNodeIds: NodeFlagLookup;
     selectedNodeIds: Set<string>;
     relationFocusNodeIds: Set<string>;
     pinnedNodeIds: Set<string>;
@@ -1681,8 +1637,8 @@ function communityMapNodeTier(
     pinnedNodeIds: Set<string>;
     searchResultIds: Set<string>;
     labelNodeIds: Set<string>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
+    importantNodeIds: NodeFlagLookup;
+    startNodeIds: NodeFlagLookup;
   }
 ): CommunityMapNodeTier {
   if (
@@ -1786,7 +1742,7 @@ function temporaryNodeBoost(
 function stableEdgeImportance(
   edge: AtlasEdge,
   signals: {
-    importantNodeIds: Record<string, boolean>;
+    importantNodeIds: NodeFlagLookup;
     coreNodeIds: Set<string>;
   }
 ): number {
@@ -1818,7 +1774,7 @@ function nodeVisualRole(
   displayMode: NodeDisplayMode,
   selectedNodeId: string | null,
   previewNodeId: string | null,
-  importantNodeIds: Record<string, boolean>
+  importantNodeIds: NodeFlagLookup
 ): NodeVisualRole {
   if (node.id === selectedNodeId) return "cinnabar-note";
   if (displayMode === "point" || displayMode === "overview") return "map-pin";

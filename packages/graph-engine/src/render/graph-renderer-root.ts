@@ -113,6 +113,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
   let controller: GraphController;
   let pipeline: GraphRenderPipeline;
   let presenter: GraphOverlaysPresenter;
+  const initialRendererViewportSize = initialViewportSize(root);
   const initialGraph = buildRenderableGraph(options.data, {
     pins: initialPins,
     theme: options.theme,
@@ -122,6 +123,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     typeFilters: {},
     pathCache,
     aggregationMarkers: options.aggregationMarkers,
+    viewportSize: initialRendererViewportSize,
     sourceCommunityId: options.sourceCommunityId ?? null
   });
   const runtimeState = createGraphRuntimeState({
@@ -175,7 +177,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     interactionDegradationTimer: null,
     relationFocusClearTimer: null,
     lastEffectiveDensityMode: null,
-    lastViewportSize: initialViewportSize(root),
+    lastViewportSize: initialRendererViewportSize,
     resizeObserver: null,
     graph: initialGraph,
     runtimeState,
@@ -299,7 +301,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     }
   }
 
-  render();
+  context.renderEpoch += 1;
+  pipeline.paintPreparedGraph();
 
   return {
     root: context.root,
