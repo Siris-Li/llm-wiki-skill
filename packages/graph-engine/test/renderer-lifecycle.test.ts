@@ -104,6 +104,81 @@ describe("graph renderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("reports Graphology, WebGL, and canvas failures only after the shared Sigma snapshot is prepared", async () => {
+    for (const fault of ["Graphology", "WebGL", "canvas"] as const) {
+      const ownerDocument = new FakeDocument();
+      const container = ownerDocument.createElement("div");
+      const data = graphData(["a", "b"]);
+      let snapshotReads = 0;
+      const projection = projectGraphInput(data);
+      Object.defineProperty(projection.data.nodes[0], "summary", {
+        enumerable: true,
+        get() {
+          snapshotReads += 1;
+          return "Prepared before Sigma failure";
+        }
+      });
+      const failure = new Error(`${fault} unavailable after snapshot`);
+      const reported: unknown[] = [];
+      let snapshotReadsAtFault = 0;
+      const healthyRuntime = fakeSigmaRouteRuntime();
+      const sigmaRuntime = fault === "Graphology"
+        ? {
+            ...healthyRuntime,
+            GraphologyGraph: class {
+              constructor() {
+                snapshotReadsAtFault = snapshotReads;
+                throw failure;
+              }
+            }
+          } as unknown as SigmaGlobalRendererRuntime
+        : {
+            ...healthyRuntime,
+            Sigma: class {
+              constructor() {
+                snapshotReadsAtFault = snapshotReads;
+                throw failure;
+              }
+            }
+          } as unknown as SigmaGlobalRendererRuntime;
+      const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+        state: {
+          ...projection,
+          pins: {},
+          theme: "shan-shui",
+          focus: null,
+          typeFilters: {},
+          aggregationMarkers: [],
+          selection: null,
+          searchQuery: "",
+          searchResultIds: [],
+          temporaryObject: null
+        },
+        factories: {
+          createSigmaGlobal: (input) => createSigmaGlobalFacadeRenderer({
+            ...input,
+            sigmaRuntime,
+            onSigmaUnavailable: (error) => {
+              reported.push(error);
+              input.onSigmaUnavailable?.(error);
+            }
+          })
+        }
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      assert.equal(snapshotReadsAtFault, 1, `${fault} failure must happen after one shared snapshot`);
+      assert.equal(snapshotReads, 2, `${fault} fallback may prepare its own DOM snapshot only after the Sigma fault`);
+      assert.ok(reported.length >= 1, `${fault} failure should cross the Sigma reporting boundary`);
+      assert.equal(reported.every((error) => error === failure), true);
+      assert.equal(manager.sigmaKnownUnavailable, true);
+      assert.equal(manager.routeId, "dom-svg-small-fallback");
+      manager.destroy();
+    }
+  });
+
   it("renders projected node details when date and source metadata reject conversion", () => {
     const rejectsConversion = {
       toString() {
