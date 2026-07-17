@@ -15,6 +15,7 @@ import {
   resolvePositionAndRangePolicy,
   resolveRenderPolicy,
   resolveRegularSearchMatches,
+  resolveGraphRendererSemantics,
   type GraphData,
   type GraphEngine,
   type GraphInputProjection,
@@ -101,10 +102,13 @@ const renderPolicyInput: RenderPolicyInput = {
 };
 const sharedPolicyRenderable: RenderableGraph = resolveRenderPolicy(renderPolicyInput);
 const renderable: RenderableGraph = buildRenderableGraph(graph, { positions, pins });
-const adapter: GraphRendererAdapterData = buildGraphRendererAdapterData(graph, {
-  positions,
-  pins,
-  selection: { kind: "node", id: "a" }
+const adapter: GraphRendererAdapterData = buildGraphRendererAdapterData({
+  renderable,
+  ...resolveGraphRendererSemantics(graph, {
+    pins,
+    selection: { kind: "node", id: "a" }
+  }),
+  sourceCommunityId: null
 });
 const offline = createGraphOfflineCapabilities({
   persistPins(nextPins: PinMap): Promise<void> {

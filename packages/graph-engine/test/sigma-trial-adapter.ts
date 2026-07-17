@@ -1,6 +1,6 @@
 import {
-  buildGraphRendererAdapterData,
   buildGraphRendererBehaviorContract,
+  type GraphRendererAdapterData,
   type GraphRendererBehaviorContract
 } from "../src/render";
 import type {
@@ -13,6 +13,7 @@ import type {
   PinMap,
   SelectionInput
 } from "../src/types";
+import { prepareRendererAdapterDataForTest } from "./support/prepared-renderer-adapter";
 
 export interface SigmaTrialOptions {
   pins?: PinMap;
@@ -114,8 +115,8 @@ export function buildSigmaGraphologyTrialModel(data: GraphData, options: SigmaTr
   // edge budgets (which objects exist, their positions, sizes, colors, label
   // visibility, selection/search/pin/aggregation state) all come from the
   // adapter output; the raw GraphData is no longer traversed to decide what to
-  // draw. 'data' is still threaded to the adapter for graph semantics.
-  const adapter = buildGraphRendererAdapterData(data, options);
+  // draw. The shared snapshot and route semantics are prepared before adaptation.
+  const adapter = prepareRendererAdapterDataForTest(data, options);
 
   const nodes = adapter.nodes.map((node): SigmaTrialNode => {
     const communityId = node.communityId == null ? null : String(node.communityId);
@@ -179,7 +180,7 @@ export function buildSigmaGraphologyTrialModel(data: GraphData, options: SigmaTr
 // Representative workbench-weight drawer payloads derived only from adapter
 // render data. The trial HTML renders these as a real summary card + list so the
 // drawer/overlay DOM cost is comparable to the production GraphSummaryDrawer.
-function buildTrialDrawer(adapter: ReturnType<typeof buildGraphRendererAdapterData>): SigmaTrialModel["drawer"] {
+function buildTrialDrawer(adapter: GraphRendererAdapterData): SigmaTrialModel["drawer"] {
   const adjacency = new Map<string, number>();
   for (const edge of adapter.edges) {
     adjacency.set(edge.sourceNodeId, (adjacency.get(edge.sourceNodeId) ?? 0) + 1);

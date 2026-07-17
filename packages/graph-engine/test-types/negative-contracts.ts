@@ -72,8 +72,11 @@ resolveRenderPolicy({ data: graph, model: graph, layout: typedLayout, visibility
 // @ts-expect-error Render options do not accept raw nodes in the positions stage.
 buildRenderableGraph(graph, { positions: { a: graph.nodes[0] } });
 
-// @ts-expect-error Adapter selection must use a supported discriminated selection input.
-buildGraphRendererAdapterData(graph, { selection: { kind: "node", ids: ["a"] } });
+// @ts-expect-error The adapter only accepts a prepared renderable snapshot, never raw graph data.
+buildGraphRendererAdapterData(graph);
+
+// @ts-expect-error Adapter selection must already be a resolved summary selection state.
+buildGraphRendererAdapterData({ renderable: buildRenderableGraph(graph), selection: { kind: "node", id: "a" }, searchResultIds: [], pinHints: [], aggregations: [], sourceCommunityId: null });
 
 declare const engine: GraphEngine;
 // @ts-expect-error Engine themes are limited to the supported theme IDs.

@@ -3,20 +3,99 @@ import assert from "node:assert/strict";
 
 import {
   GRAPH_RENDERER_ADAPTER_ROUTES,
+  buildRenderableGraph,
   buildGraphRendererAdapterData,
   buildGraphRendererBehaviorContract
 } from "../src/render";
+import { resolveGraphRendererSemantics } from "../src/summary";
 import { UNGROUPED_COMMUNITY_ID } from "../src/types";
 import type {
   GraphAggregationMarker,
   GraphData,
+  GraphRendererAdapterData,
   GraphRendererBehaviorContract,
-  PinMap
+  PinMap,
+  RenderPolicyOptions
 } from "../src";
 
 describe("graph renderer adapter contract", () => {
+  it("consumes an already prepared renderable snapshot and resolved semantics", () => {
+    const renderable = buildRenderableGraph(graphFixture(), {
+      focus: { kind: "global" },
+      searchResultIds: []
+    });
+    const preparedNode = renderable.nodes.find((node) => node.id === "a");
+    const preparedEdge = renderable.edges.find((edge) => edge.id === "a-b");
+    assert.ok(preparedNode);
+    assert.ok(preparedEdge);
+    preparedNode.point = { x: 901, y: 902 };
+    preparedNode.community = "prepared-community";
+    preparedEdge.relationType = "prepared-relation";
+    preparedEdge.confidence = "PREPARED_CONFIDENCE";
+
+    const adapter = buildGraphRendererAdapterData({
+      renderable,
+      selection: {
+        input: { kind: "nodes", ids: ["a", "c"] },
+        selectionId: "prepared-selection",
+        selectedNodeIds: ["a", "c"],
+        selectedCommunityIds: ["prepared-community"],
+        containsCurrentObject: true
+      },
+      searchResultIds: ["c"],
+      pinHints: [{
+        nodeId: "a",
+        wikiPath: "wiki/prepared-a.md",
+        pinned: true,
+        position: { x: 901, y: 902, coordinateSpace: "world" }
+      }],
+      nodes: [{ id: "a", communityId: "prepared-community" }],
+      edges: [{
+        id: "a-b",
+        sourceNodeId: "a",
+        targetNodeId: "b",
+        sourceCommunityId: "prepared-source",
+        targetCommunityId: "prepared-target",
+        relationType: "prepared-relation",
+        confidence: "PREPARED_CONFIDENCE",
+        weight: 0.73
+      }],
+      aggregations: [{
+        id: "prepared-aggregation",
+        label: "Prepared aggregation",
+        communityId: "prepared-community",
+        nodeIds: ["a", "c"],
+        selectedNodeIds: ["c"],
+        searchResultIds: ["c"],
+        pinnedNodeIds: ["a"],
+        totalCount: 9,
+        pinHints: [{
+          nodeId: "a",
+          wikiPath: "wiki/prepared-a.md",
+          pinned: true,
+          position: { x: 901, y: 902, coordinateSpace: "world" }
+        }]
+      }],
+      sourceCommunityId: "prepared-source-context"
+    });
+
+    assert.equal(adapter.renderable, renderable);
+    assert.deepEqual(adapter.nodes.find((node) => node.id === "a")?.point, { x: 901, y: 902 });
+    assert.equal(adapter.nodes.find((node) => node.id === "a")?.communityId, "prepared-community");
+    assert.equal(adapter.nodes.find((node) => node.id === "a")?.pinHint.wikiPath, "wiki/prepared-a.md");
+    assert.equal(adapter.nodes.find((node) => node.id === "c")?.searchHit, true);
+    assert.equal(adapter.edges.find((edge) => edge.id === "a-b")?.relationType, "prepared-relation");
+    assert.equal(adapter.edges.find((edge) => edge.id === "a-b")?.confidence, "PREPARED_CONFIDENCE");
+    assert.equal(adapter.edges.find((edge) => edge.id === "a-b")?.weight, 0.73);
+    assert.equal(adapter.edges.find((edge) => edge.id === "a-b")?.sourceCommunityId, "prepared-source");
+    assert.equal(adapter.aggregations[0]?.id, "prepared-aggregation");
+    assert.equal(adapter.aggregations[0]?.totalCount, 9);
+    assert.equal(adapter.selection.selectionId, "prepared-selection");
+    assert.equal(adapter.sourceCommunityId, "prepared-source-context");
+  });
+
   it("passes shared community local-map rules through the adapter", () => {
-    const adapter = buildGraphRendererAdapterData(graphFixture(), {
+    const adapter = adaptGraph(graphFixture(), {
       ...adapterOptions(),
       selection: null,
       focus: { kind: "community", id: "alpha" }
@@ -43,11 +122,11 @@ describe("graph renderer adapter contract", () => {
   });
 
   it("passes viewport size into focused community reading bounds", () => {
-    const wide = buildGraphRendererAdapterData(graphFixture(), {
+    const wide = adaptGraph(graphFixture(), {
       focus: { kind: "community", id: "alpha" },
       viewportSize: { width: 1600, height: 900 }
     });
-    const narrow = buildGraphRendererAdapterData(graphFixture(), {
+    const narrow = adaptGraph(graphFixture(), {
       focus: { kind: "community", id: "alpha" },
       viewportSize: { width: 390, height: 844 }
     });
@@ -60,7 +139,7 @@ describe("graph renderer adapter contract", () => {
   });
 
   it("preserves shared object ids, selected state, search hits, Pin hints, aggregations, and drawer targets", () => {
-    const adapter = buildGraphRendererAdapterData(graphFixture(), adapterOptions());
+    const adapter = adaptGraph(graphFixture(), adapterOptions());
 
     assert.deepEqual(adapter.nodes.map((node) => node.id), ["a", "b", "c", "d"]);
     assert.deepEqual(adapter.nodes.find((node) => node.id === "a")?.object, { kind: "node", nodeId: "a" });
@@ -119,7 +198,7 @@ describe("graph renderer adapter contract", () => {
   });
 
   it("defines point select, container select, search highlight, selected aggregation, Pin aggregation, and enter-community output", () => {
-    const contract = buildGraphRendererBehaviorContract(buildGraphRendererAdapterData(graphFixture(), adapterOptions()), "candidate-global");
+    const contract = buildGraphRendererBehaviorContract(adaptGraph(graphFixture(), adapterOptions()), "candidate-global");
 
     assert.deepEqual(contract.pointSelect.find((item) => item.nodeId === "a"), {
       nodeId: "a",
@@ -233,7 +312,7 @@ describe("graph renderer adapter contract", () => {
   });
 
   it("exposes ungrouped adapter community node ids and drawer target", () => {
-    const adapter = buildGraphRendererAdapterData(graphFixtureWithUngroupedNodes(), {
+    const adapter = adaptGraph(graphFixtureWithUngroupedNodes(), {
       selection: { kind: "community", id: UNGROUPED_COMMUNITY_ID }
     });
     const ungrouped = adapter.communities.find((community) => community.id === UNGROUPED_COMMUNITY_ID);
@@ -249,7 +328,7 @@ describe("graph renderer adapter contract", () => {
 
   it("omits enter-community behavior for the ungrouped virtual community", () => {
     const contract = buildGraphRendererBehaviorContract(
-      buildGraphRendererAdapterData(graphFixtureWithUngroupedNodes()),
+      adaptGraph(graphFixtureWithUngroupedNodes()),
       "candidate-global"
     );
 
@@ -259,7 +338,7 @@ describe("graph renderer adapter contract", () => {
 
 function contractsForAllRoutes(): GraphRendererBehaviorContract[] {
   return GRAPH_RENDERER_ADAPTER_ROUTES.map((route) => buildGraphRendererBehaviorContract(
-    buildGraphRendererAdapterData(graphFixture(), adapterOptions()),
+    adaptGraph(graphFixture(), adapterOptions()),
     route
   ));
 }
@@ -267,6 +346,14 @@ function contractsForAllRoutes(): GraphRendererBehaviorContract[] {
 function stripRoute(contract: GraphRendererBehaviorContract): Omit<GraphRendererBehaviorContract, "route"> {
   const { route: _route, ...semanticContract } = contract;
   return semanticContract;
+}
+
+function adaptGraph(data: GraphData, options: RenderPolicyOptions = {}): GraphRendererAdapterData {
+  return buildGraphRendererAdapterData({
+    renderable: buildRenderableGraph(data, options),
+    ...resolveGraphRendererSemantics(data, options),
+    sourceCommunityId: options.sourceCommunityId ?? null
+  });
 }
 
 function adapterOptions(): {

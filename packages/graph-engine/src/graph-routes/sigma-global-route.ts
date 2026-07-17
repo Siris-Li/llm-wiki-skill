@@ -1,6 +1,7 @@
 import type { GraphNode, GraphData, GraphSummaryObjectRef, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId } from "../types";
 import {
   buildGraphRendererAdapterData,
+  buildRenderableGraph,
   buildCommunityLegend,
   nextToolbarPanelState,
   resolveGraphSearchState,
@@ -11,6 +12,7 @@ import {
   type GraphGestureTarget,
   type RendererViewportSize
 } from "../render";
+import { resolveGraphRendererSemantics } from "../summary";
 import type { SigmaGlobalHitContext } from "../render/sigma-global-types";
 import {
   createSigmaGlobalRenderer,
@@ -302,7 +304,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       const path = wikiPathForGraphNode(node);
       const nextPins: PinMap = { ...options.pins };
       if (mode === "fix") {
-        const adapterNode = adapterDataForSigmaRoute(options, null, typeFiltersForCurrentRoute(), sigmaRouteViewportSize()).nodes.find((item) => item.id === id);
+        const adapterNode = currentSigmaAdapterData.nodes.find((item) => item.id === id);
         nextPins[path] = {
           x: adapterNode?.point.x ?? numericNodeCoordinate(node.x),
           y: adapterNode?.point.y ?? numericNodeCoordinate(node.y),
@@ -829,7 +831,7 @@ function adapterDataForSigmaRoute(
   typeFilters = options.typeFilters,
   viewportSize?: RendererViewportSize
 ): GraphRendererAdapterData {
-  return buildGraphRendererAdapterData(options.data, {
+  const renderOptions = {
     theme: options.theme,
     pins: options.pins,
     selection: options.selection,
@@ -841,6 +843,11 @@ function adapterDataForSigmaRoute(
     sourceCommunityId: options.sourceCommunityId,
     relationFocusNodeId: options.focus?.kind === "community" ? hoverNodeId : null,
     temporaryObject: options.temporaryObject
+  };
+  return buildGraphRendererAdapterData({
+    renderable: buildRenderableGraph(options.data, renderOptions),
+    ...resolveGraphRendererSemantics(options.data, renderOptions),
+    sourceCommunityId: options.sourceCommunityId ?? null
   });
 }
 

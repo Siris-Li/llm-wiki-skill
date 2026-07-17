@@ -1,5 +1,4 @@
 import {
-  buildGraphRendererAdapterData,
   buildGraphRendererBehaviorContract,
   type GraphRendererBehaviorContract
 } from "../src/render";
@@ -13,6 +12,7 @@ import type {
   PinMap,
   SelectionInput
 } from "../src/types";
+import { prepareRendererAdapterDataForTest } from "./support/prepared-renderer-adapter";
 
 export interface VisNetworkTrialOptions {
   pins?: PinMap;
@@ -87,7 +87,7 @@ const COMMUNITY_COLORS = [
 ];
 
 export function buildVisNetworkTrialModel(data: GraphData, options: VisNetworkTrialOptions = {}): VisNetworkTrialModel {
-  const adapter = buildGraphRendererAdapterData(data, options);
+  const adapter = prepareRendererAdapterDataForTest(data, options);
   const adapterNodeById = new Map(adapter.nodes.map((node) => [node.id, node]));
   const nodeIds = new Set(data.nodes.map((node) => node.id));
   const communityNodeIds = new Map<string, string[]>();

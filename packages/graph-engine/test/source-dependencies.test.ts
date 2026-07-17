@@ -183,4 +183,19 @@ describe("issue #159 source dependency gate", () => {
       ["render/render-policy.ts", false]
     ]);
   });
+
+  it("keeps renderer adaptation downstream of prepared snapshots and semantics", async () => {
+    const graph = await readTypeScriptModuleGraph(path.join(PACKAGE_ROOT, "src"));
+    const adapterEdges = graph.edges
+      .filter((edge) => edge.source === "render/adapter.ts")
+      .map((edge) => [edge.target, edge.typeOnly]);
+
+    assert.deepEqual(adapterEdges, [
+      ["types.ts", false],
+      ["types.ts", true],
+      ["render/render-policy.ts", true],
+      ["render/relation-focus.ts", true]
+    ]);
+    assert.equal(adapterEdges.some(([target]) => target === "render/model.ts" || target === "model/atlas.ts"), false);
+  });
 });

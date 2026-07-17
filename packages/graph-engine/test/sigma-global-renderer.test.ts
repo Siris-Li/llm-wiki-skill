@@ -25,7 +25,7 @@ import { createSigmaGlobalHitProjector } from "../src/render/sigma-hit-projector
 import type {
   GraphRendererAdapterData
 } from "../src";
-import { buildGraphRendererAdapterData } from "../src";
+import { prepareRendererAdapterDataForTest } from "./support/prepared-renderer-adapter";
 import { getThemeTokens } from "../src/themes";
 import type { GraphData, PinMap } from "../src/types";
 
@@ -1542,7 +1542,7 @@ describe("Sigma global renderer production boundary", () => {
 
   it("keeps dense accepted global data visibly mapped as a capped point map", () => {
     const data = densePointMapGraph();
-    const adapterData = buildGraphRendererAdapterData(data, {
+    const adapterData = prepareRendererAdapterDataForTest(data, {
       theme: "shan-shui",
       selection: { kind: "node", id: "dense-1999" },
       searchResultIds: Array.from({ length: 260 }, (_, index) => `dense-${index * 3}`),
