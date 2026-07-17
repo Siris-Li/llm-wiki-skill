@@ -143,7 +143,7 @@ describe("atlas state contract", () => {
     const layout = deriveAtlasLayout(model);
 
     assert.notDeepEqual(
-      layout.nodes.find((node) => node.id === "nullish"),
+      pickPoint(layout.nodes.find((node) => node.id === "nullish")),
       { x: 5, y: 8 }
     );
     assert.deepEqual(

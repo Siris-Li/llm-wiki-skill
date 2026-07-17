@@ -32,6 +32,8 @@ describe("render position and range policy", () => {
     });
 
     assert.deepEqual(live.nodePositions.a, { x: 1220, y: -240 });
+    assert.ok(live.contentBounds.minY <= -320, "live drag outside the initial layout expands content range");
+    assert.ok(live.contentBounds.maxX >= 1300, "live drag outside the initial layout remains inside content range");
     assert.deepEqual(pinned.nodePositions.a, { x: 700, y: 510 });
     assert.deepEqual(initial.nodePositions.a, { x: 200, y: 204 });
   });
