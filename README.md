@@ -10,7 +10,7 @@
 
 把碎片化的信息变成持续积累、互相链接的知识库
 
-[![version](https://img.shields.io/badge/v3.6.72-浏览器检查时限-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.75-Sigma性能基线-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-多平台-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -148,6 +148,7 @@ bash install.sh --platform claude --with-optional-adapters
 - **素材删除** — 级联删除时自动清理关联页面、断链和缓存
 - **图谱运行时兜底更稳** — helper 同时支持浏览器全局与 CommonJS，旧运行时下的复杂 emoji 截断和离线 HTML 失败回滚都更可靠
 - **Sigma 图谱主路线** — 全局视角和社区阅读都以 Sigma/Graphology 承接；DOM/SVG 只保留为回退、对照和异常兜底，不再作为社区阅读主路径扩展
+- **Sigma 迁移前性能基线** — 生产 1k 与隔离 1k/5k/10k 图谱都连续测量三次悬停预览并保存中位数；后续迁移使用固定公式自动比较，其他渲染试验不承担 Sigma 专属门禁
 - **图谱全区域缩放** — 在桌面上，鼠标停在节点、社区色块、关系或空白处时，滚轮和触摸板都只缩放图谱，不会误缩放浏览器；地图内控件和图谱外页面保持各自应有的行为
 - **统一社区抽屉** — 普通社区和"未分组"使用同一套概览、固定动作、可展开核心节点和对话入口；"进入社区"放在顶部，未分组默认推荐探索潜在关系
 - **图谱增强显示** — 工作台图谱默认已分清主次；增强显示面板支持语义强调和聚焦点亮，社区图谱保留原有关系显示和图例
