@@ -1,5 +1,5 @@
 import type { NodeId } from "../types";
-import type { NodeDisplayMode, RenderableNode } from "./model";
+import type { NodeDisplayMode, RenderableNode } from "./render-policy";
 
 export interface GraphNodeElementHandlers {
   onNodeClick: (id: NodeId, additive: boolean) => void;

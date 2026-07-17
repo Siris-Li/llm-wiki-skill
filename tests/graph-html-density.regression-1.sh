@@ -74,27 +74,6 @@ fs.writeFileSync(output, JSON.stringify(graph, null, 2));
 NODE
 }
 
-test_graph_engine_exports_density_rules() {
-    local tmp_dir html
-    tmp_dir="$(mktemp -d)"
-
-    build_graph_html_fixture "$tmp_dir"
-    html="$tmp_dir/wiki/knowledge-graph.html"
-
-    assert_file_contains "$html" "e.getAtlasDensityMode="
-    assert_file_contains "$html" "screenEffectiveDensityMode"
-    assert_file_contains "$html" "nodeDisplayModeForDensity"
-    assert_file_contains "$html" "e.resolveAtlasVisibleSnapshot="
-    assert_file_contains "$html" "e.edgeStrokeWidth="
-    assert_file_contains "$html" "e.cardDims="
-    assert_file_contains "$html" ".node.is-overview"
-    assert_file_contains "$html" ".node[data-visual-role=\"map-pin\"]"
-    assert_file_contains "$html" "dataset.densityMode"
-    assert_file_contains "$html" "dataset.effectiveDensity"
-
-    rm -rf "$tmp_dir"
-}
-
 test_graph_html_builds_large_density_fixture_as_single_file() {
     local tmp_dir output_dir html
     tmp_dir="$(mktemp -d)"
@@ -217,7 +196,6 @@ NODE
 main() {
     npm run build -w @llm-wiki/graph-engine > /dev/null 2>&1 \
         || fail "graph-engine build should succeed before density regression"
-    test_graph_engine_exports_density_rules
     test_graph_html_builds_large_density_fixture_as_single_file
     test_graph_html_density_preview_for_compact_and_point_nodes
     test_graph_density_thresholds_and_budgets

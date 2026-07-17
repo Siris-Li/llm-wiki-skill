@@ -23,7 +23,8 @@ import type {
   ThemeId,
   WikiPath
 } from "../types";
-import { buildRenderableGraph, type CommunityMapEdgeLayer, type CommunityMapLabelSide, type CommunityMapNodeTier, type RenderPosition, type RenderPositionMap, type RenderableGraph } from "./model";
+import { buildRenderableGraph } from "./model";
+import type { CommunityMapEdgeLayer, CommunityMapLabelSide, CommunityMapNodeTier, RenderPosition, RenderPositionMap, RenderableGraph } from "./render-policy";
 import type { RendererViewportSize } from "./viewport";
 import type { GraphRelationFocusDepth } from "./relation-focus";
 

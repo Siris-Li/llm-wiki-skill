@@ -32,7 +32,7 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
   {
     id: "layout",
     name: "GraphLayout",
-    owns: ["immutable initial world positions", "layout bounds", "community wash geometry", "spatial hit testing"],
+    owns: ["immutable initial world positions", "layout bounds", "community wash and local-map geometry", "spatial hit testing"],
     entrypoints: ["src/layout/initial-layout.ts", "src/layout/spatial-index.ts", "src/render/community-wash.ts", "src/sim/"],
     mustNotOwn: ["host callbacks", "browser default policy", "screen projection"]
   },
@@ -53,9 +53,17 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
   {
     id: "renderer",
     name: "GraphRenderer",
-    owns: ["position overrides and content framing", "DOM/SVG drawing", "node, edge, wash, toolbar, overlay, reader painting", "render-only CSS state"],
+    owns: [
+      "final positions, content bounds, and viewport framing",
+      "shared density, display mode, and render budgets",
+      "stable cross-object priorities and community hierarchy",
+      "DOM/SVG drawing",
+      "node, edge, wash, toolbar, overlay, reader painting",
+      "render-only CSS state"
+    ],
     entrypoints: [
       "src/render/render-policy.ts",
+      "src/render/model.ts",
       "src/render/graph-renderer-root.ts",
       "src/render/render-pipeline.ts",
       "src/render/overlays-presenter.ts",
@@ -67,7 +75,12 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
       "src/render/hover-card.ts",
       "src/render/offline-reader.ts"
     ],
-    mustNotOwn: ["host callbacks", "selection semantics", "browser default policy"]
+    mustNotOwn: [
+      "host callbacks",
+      "selection semantics",
+      "browser default policy",
+      "graph normalization, layout, or semantic visibility algorithms"
+    ]
   },
   {
     id: "gestures",

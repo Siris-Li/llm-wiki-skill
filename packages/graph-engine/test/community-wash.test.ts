@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X,
   DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y,
+  computeCommunityMapDotSize,
+  computeCommunityMapLayout,
   computeCommunityWash
 } from "../src/render/community-wash";
 
@@ -93,5 +95,18 @@ describe("community wash geometry", () => {
     assert.ok(wash.rx <= DEFAULT_COMMUNITY_WASH_MAX_RADIUS_X, `rx should stay capped, got ${wash.rx}`);
     assert.ok(wash.ry <= DEFAULT_COMMUNITY_WASH_MAX_RADIUS_Y, `ry should stay capped, got ${wash.ry}`);
     assert.ok(duration < 80, `oversized wash should be bounded, took ${duration}ms`);
+  });
+
+  it("owns local-map size and framing geometry", () => {
+    assert.equal(computeCommunityMapDotSize(0), 9);
+    assert.equal(computeCommunityMapDotSize(10), 23.5);
+    assert.deepEqual(
+      computeCommunityMapLayout([node(100, 200), node(300, 500)], { width: 1600, height: 900 }),
+      {
+        coordinateSpace: "world",
+        bounds: { minX: 0, minY: 0, maxX: 1000, maxY: 680, width: 1000, height: 680 },
+        viewportAspectRatio: 16 / 9
+      }
+    );
   });
 });

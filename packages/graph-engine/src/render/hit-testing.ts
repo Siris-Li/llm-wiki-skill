@@ -1,7 +1,7 @@
 import { createGraphSpatialIndex, type GraphSpatialIndex, type GraphSpatialIndexInput } from "../layout";
 import { screenPointToWorldPoint, type GraphScreenPoint } from "./geometry";
 import { graphSpatialHitToGestureTarget, type GraphGestureTarget } from "./gestures";
-import type { RenderableGraph } from "./model";
+import type { RenderableGraph } from "./render-policy";
 import type { RendererViewport, RendererViewportSize } from "./viewport";
 
 export interface GraphHitTargetResolverInput {

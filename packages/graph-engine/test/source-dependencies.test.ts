@@ -169,4 +169,18 @@ describe("issue #159 source dependency gate", () => {
       ]
     );
   });
+
+  it("keeps render/model as an assembly layer instead of a second policy owner", async () => {
+    const graph = await readTypeScriptModuleGraph(path.join(PACKAGE_ROOT, "src"));
+    const modelEdges = graph.edges
+      .filter((edge) => edge.source === "render/model.ts")
+      .map((edge) => [edge.target, edge.typeOnly]);
+
+    assert.deepEqual(modelEdges, [
+      ["types.ts", true],
+      ["model/atlas.ts", false],
+      ["layout/initial-layout.ts", false],
+      ["render/render-policy.ts", false]
+    ]);
+  });
 });

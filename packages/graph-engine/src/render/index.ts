@@ -1,22 +1,25 @@
 export {
-  buildRenderableGraph,
+  evaluateCommunityQuality,
+  GRAPH_COMMUNITY_FOCUS_BUDGETS,
+  GRAPH_COMMUNITY_FOCUS_THRESHOLDS,
+  GRAPH_RENDER_BUDGETS,
+  nodeDisplayModeForDensity,
+  resolveRenderPolicy,
+  resolveCommunityFocusScale,
+  resolveGraphRenderBudget,
+  screenEffectiveDensityMode
+} from "./render-policy";
+export {
   createRenderPathCache,
   edgeOpacity,
   edgeRelationClass,
   edgeStrokeWidth,
   edgeVisualOpacity,
   edgeVisualStrokeWidth,
-  evaluateCommunityQuality,
-  GRAPH_COMMUNITY_FOCUS_BUDGETS,
-  GRAPH_COMMUNITY_FOCUS_THRESHOLDS,
-  GRAPH_RENDER_BUDGETS,
   makeEdgePath,
-  makeEdgePathFromPoints,
-  nodeDisplayModeForDensity,
-  resolveCommunityFocusScale,
-  resolveGraphRenderBudget,
-  screenEffectiveDensityMode
-} from "./model";
+  makeEdgePathFromPoints
+} from "../layout/edge-geometry";
+export { buildRenderableGraph } from "./model";
 export type {
   CommunityMapEdgeLayer,
   CommunityMapEdgeRule,
@@ -50,10 +53,12 @@ export type {
   RenderableGraph,
   RenderableMinimap,
   RenderableNode,
-  RenderPathCache,
+  RenderPolicyInput,
+  RenderPolicyOptions,
   RenderPosition,
   RenderPositionMap
-} from "./model";
+} from "./render-policy";
+export type { RenderPathCache } from "../layout/edge-geometry";
 export { resolvePositionAndRangePolicy } from "./render-policy";
 export type { PositionAndRangePolicy, PositionAndRangePolicyInput } from "./render-policy";
 export { buildCommunityLegend } from "./legend";
