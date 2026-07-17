@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildAtlasModel, buildRenderableGraph, deriveAtlasLayout } from "../src";
+import { atlasNodePoint, buildAtlasModel, buildRenderableGraph, deriveAtlasLayout } from "../src";
 import { resolvePositionAndRangePolicy } from "../src/render/render-policy";
+
+function positionsByIndex(layout: ReturnType<typeof deriveAtlasLayout>) {
+  return new Map(layout.nodes.flatMap((node) => (
+    node ? [[node.idx, atlasNodePoint(node)] as const] : []
+  )));
+}
 
 describe("render position and range policy", () => {
   it("resolves live positions before pins before immutable initial positions", () => {
@@ -18,17 +24,20 @@ describe("render position and range policy", () => {
     const live = resolvePositionAndRangePolicy({
       nodes: model.nodes,
       initialPositions: layout.nodePositions,
+      initialPositionsByIndex: positionsByIndex(layout),
       pins,
       positions: { a: { x: 1220, y: -240 } }
     });
     const pinned = resolvePositionAndRangePolicy({
       nodes: model.nodes,
       initialPositions: layout.nodePositions,
+      initialPositionsByIndex: positionsByIndex(layout),
       pins
     });
     const initial = resolvePositionAndRangePolicy({
       nodes: model.nodes,
-      initialPositions: layout.nodePositions
+      initialPositions: layout.nodePositions,
+      initialPositionsByIndex: positionsByIndex(layout)
     });
 
     assert.deepEqual(live.nodePositions.a, { x: 1220, y: -240 });
@@ -46,7 +55,8 @@ describe("render position and range policy", () => {
 
     const policy = resolvePositionAndRangePolicy({
       nodes: model.nodes,
-      initialPositions: layout.nodePositions
+      initialPositions: layout.nodePositions,
+      initialPositionsByIndex: positionsByIndex(layout)
     });
 
     assert.deepEqual(Object.keys(policy.nodePositions), ["only"]);
@@ -70,6 +80,7 @@ describe("render position and range policy", () => {
     const policy = resolvePositionAndRangePolicy({
       nodes: model.nodes,
       initialPositions: layout.nodePositions,
+      initialPositionsByIndex: positionsByIndex(layout),
       pins: { "wiki/special.md": { x: 2200, y: 900, coordinateSpace: "world" } }
     });
 
@@ -78,6 +89,41 @@ describe("render position and range policy", () => {
     assert.deepEqual(policy.nodePositions.__proto__, { x: 2200, y: 900 });
     assert.ok(policy.contentBounds.maxX >= 2280);
     assert.ok(policy.contentBounds.maxY >= 980);
+  });
+
+  it("keeps duplicate ids at the initial position selected by the active type filter", () => {
+    const data = {
+      nodes: [
+        { id: "duplicate", label: "Entity", type: "entity", community: "one", x: 10, y: 20 },
+        { id: "duplicate", label: "Topic", type: "topic", community: "two", x: 90, y: 80 }
+      ],
+      edges: []
+    };
+
+    const entity = buildRenderableGraph(data, {
+      typeFilters: { entity: true, topic: false }
+    });
+    const topic = buildRenderableGraph(data, {
+      typeFilters: { entity: false, topic: true }
+    });
+
+    assert.deepEqual(entity.nodes.map((node) => node.point), [
+      { x: 100, y: 136 },
+      { x: 100, y: 136 }
+    ]);
+    assert.deepEqual(topic.nodes.map((node) => node.point), [
+      { x: 900, y: 544 },
+      { x: 900, y: 544 }
+    ]);
+
+    const model = buildAtlasModel(data);
+    const layout = deriveAtlasLayout(model);
+    const direct = resolvePositionAndRangePolicy({
+      nodes: model.nodes.filter((node) => node.type === "entity"),
+      initialPositions: layout.nodePositions,
+      initialPositionsByIndex: positionsByIndex(layout)
+    });
+    assert.deepEqual(direct.nodePositions.duplicate, { x: 100, y: 136 });
   });
 
   it("keeps filtered and temporary nodes from every community in content range before framing", () => {

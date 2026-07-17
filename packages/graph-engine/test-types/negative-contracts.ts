@@ -56,11 +56,14 @@ resolveAtlasVisibleSnapshot(typedModel, typedLayout, { filters: { EXTRACTED: "ye
 // @ts-expect-error semantic type filters are booleans, not arbitrary strings.
 resolveAtlasSemanticVisibility(typedModel, { typeFilters: { entity: "yes" } });
 
+// @ts-expect-error The range policy requires immutable positions keyed by normalized node index.
+resolvePositionAndRangePolicy({ nodes: typedModel.nodes, initialPositions: typedLayout.nodePositions });
+
 // @ts-expect-error The range policy consumes normalized model nodes, not raw graph facts.
-resolvePositionAndRangePolicy({ nodes: graph.nodes, initialPositions: typedLayout.nodePositions });
+resolvePositionAndRangePolicy({ nodes: graph.nodes, initialPositions: typedLayout.nodePositions, initialPositionsByIndex: new Map() });
 
 // @ts-expect-error Initial positions are world points, not normalized model nodes.
-resolvePositionAndRangePolicy({ nodes: typedModel.nodes, initialPositions: { a: typedModel.nodes[0] } });
+resolvePositionAndRangePolicy({ nodes: typedModel.nodes, initialPositions: { a: typedModel.nodes[0] }, initialPositionsByIndex: new Map() });
 
 // @ts-expect-error Render options do not accept raw nodes in the positions stage.
 buildRenderableGraph(graph, { positions: { a: graph.nodes[0] } });

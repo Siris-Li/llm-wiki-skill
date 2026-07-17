@@ -471,6 +471,9 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const positionPolicy = resolvePositionAndRangePolicy({
     nodes: allFilteredNodes,
     initialPositions: layout.nodePositions,
+    initialPositionsByIndex: new Map(layout.nodes.flatMap((node) => (
+      node ? [[node.idx, atlasNodePoint(node)] as const] : []
+    ))),
     pins: options.pins,
     positions: options.positions,
     viewportSize: options.viewportSize,

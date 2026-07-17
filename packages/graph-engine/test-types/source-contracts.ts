@@ -1,4 +1,5 @@
 import {
+  atlasNodePoint,
   buildGraphRendererAdapterData,
   buildRenderableGraph,
   buildAtlasModel,
@@ -82,6 +83,9 @@ const pins: PinMap = normalizeGraphPinMap({
 const positionPolicy: PositionAndRangePolicy = resolvePositionAndRangePolicy({
   nodes: typedModel.nodes,
   initialPositions: typedLayout.nodePositions,
+  initialPositionsByIndex: new Map(typedLayout.nodes.flatMap((node) => (
+    node ? [[node.idx, atlasNodePoint(node)] as const] : []
+  ))),
   pins,
   positions,
   viewportSize: { width: 1600, height: 900 },

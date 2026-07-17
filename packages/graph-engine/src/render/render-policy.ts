@@ -15,6 +15,7 @@ export type InitialRenderPositionMap = Partial<Record<NodeId, RenderPosition>>;
 export interface PositionAndRangePolicyInput {
   nodes: readonly AtlasNode[];
   initialPositions: InitialRenderPositionMap;
+  initialPositionsByIndex: ReadonlyMap<number, RenderPosition>;
   pins?: PinMap;
   positions?: RenderPositionMap;
   viewportSize?: { width: number; height: number };
@@ -44,7 +45,7 @@ export function resolvePositionAndRangePolicy(input: PositionAndRangePolicyInput
 
 function resolveNodePosition(
   node: AtlasNode,
-  input: Pick<PositionAndRangePolicyInput, "initialPositions" | "pins" | "positions">
+  input: Pick<PositionAndRangePolicyInput, "initialPositions" | "initialPositionsByIndex" | "pins" | "positions">
 ): RenderPosition {
   const livePosition = ownPosition(input.positions, node.id);
   if (livePosition) {
@@ -56,6 +57,11 @@ function resolveNodePosition(
 
   const pin = input.pins?.[wikiPathForGraphNode(node)];
   if (pin) return pinPositionToWorldPoint(pin);
+
+  const indexedInitialPosition = input.initialPositionsByIndex.get(node.idx);
+  if (indexedInitialPosition) {
+    return { x: indexedInitialPosition.x, y: indexedInitialPosition.y };
+  }
 
   const initialPosition = ownPosition(input.initialPositions, node.id);
   return initialPosition
