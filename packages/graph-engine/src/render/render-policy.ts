@@ -12,13 +12,11 @@ import {
 import { atlasNodePoint, type AtlasLayout } from "../layout/initial-layout";
 import { applyAtlasTypeAndTemporaryVisibility } from "../model/visibility";
 import {
-  createRenderPathCache,
   edgeCurveOffset,
   edgeRelationClass,
   edgeStrokeWidth,
   edgeVisualOpacity,
   edgeVisualStrokeWidth,
-  makeEdgePath,
   makeEdgePathFromPoints,
   normalizeEdgeRelationText,
   normalizedEdgeWeight as clampWeight,
@@ -1149,34 +1147,6 @@ function crossCommunityEdgeRatio(data: GraphData): number {
   return comparableEdges ? crossEdges / comparableEdges : 0;
 }
 
-function pinHintForNode(node: AtlasNode | undefined, nodeId: NodeId, pins?: PinMap): GraphPinHint {
-  const wikiPath = node ? wikiPathForGraphNode(node) : nodeId;
-  const position = pins?.[wikiPath] ?? null;
-  return {
-    nodeId,
-    wikiPath,
-    pinned: Boolean(position),
-    position
-  };
-}
-
-function averagePoint(points: RenderPosition[]): RenderPosition {
-  const total = points.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), { x: 0, y: 0 });
-  return {
-    x: round(total.x / Math.max(1, points.length)),
-    y: round(total.y / Math.max(1, points.length))
-  };
-}
-
-function stableIntersection(baseIds: readonly string[], candidateIds: readonly string[]): string[] {
-  const candidates = new Set(candidateIds);
-  return baseIds.filter((id) => candidates.has(id));
-}
-
-function aggregationContainerRadius(nodeCount: number): number {
-  return round(Math.max(34, Math.min(88, 28 + Math.sqrt(Math.max(1, nodeCount)) * 7)));
-}
-
 export function resolveGraphRenderBudget(
   focus: GraphFocusInput,
   focusedCommunityNodeCount = 0,
@@ -1267,22 +1237,6 @@ function firstPreviewNodeId(visible: { starts: Array<{ node: AtlasNode }>; nodes
   if (firstStart?.node) return firstStart.node.id;
   const fallback = visible.nodes.slice().sort((left, right) => Number(right.priority || 0) - Number(left.priority || 0))[0];
   return fallback ? fallback.id : null;
-}
-
-function nodeDisplayMode(
-  node: AtlasNode,
-  densityMode: DensityMode,
-  selectedNodeId: string | null,
-  previewNodeId: string | null,
-  labelNodeIds: NodeFlagLookup,
-  importantNodeIds: NodeFlagLookup
-): NodeDisplayMode {
-  if (node.id === selectedNodeId) return "card";
-  if (previewNodeId && node.id === previewNodeId && (densityMode === "overview" || densityMode === "point-plus-focus")) return "compact-card";
-  if (importantNodeIds[node.id] && (densityMode === "overview" || densityMode === "point-plus-focus")) return "compact-card";
-  if (densityMode === "overview") return labelNodeIds[node.id] ? "compact-card" : "overview";
-  if (densityMode === "point-plus-focus") return labelNodeIds[node.id] ? "compact-card" : "point";
-  return densityMode;
 }
 
 function budgetedNodeDisplayMode(
