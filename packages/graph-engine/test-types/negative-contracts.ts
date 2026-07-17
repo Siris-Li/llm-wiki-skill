@@ -30,10 +30,21 @@ const invalidPositions: RenderPositionMap = { a: { x: "1", y: 2 } };
 
 const typedModel = buildAtlasModel(graph);
 const typedLayout = deriveAtlasLayout(typedModel);
+const typedVisible = resolveAtlasVisibleSnapshot(typedModel, typedLayout);
 // @ts-expect-error lookup tables require an absence check for unknown IDs.
 typedModel.byId.missing.label;
 // @ts-expect-error community lookups require an absence check for unknown IDs.
 typedModel.communityById.missing.label;
+// @ts-expect-error layout lookups require an absence check for unknown IDs.
+typedLayout.nodePositions.missing.x;
+// @ts-expect-error visible label lookups require an absence check for unknown IDs.
+typedVisible.labelNodeIds.missing.valueOf();
+// @ts-expect-error visible match lookups require an absence check for unknown IDs.
+typedVisible.matchedNodeIds.missing.valueOf();
+// @ts-expect-error visible importance lookups require an absence check for unknown IDs.
+typedVisible.importantNodeIds.missing.valueOf();
+// @ts-expect-error visible start lookups require an absence check for unknown IDs.
+typedVisible.startNodeIds.missing.valueOf();
 // @ts-expect-error normalized insight metadata always includes all count fields.
 const incompleteAtlasInsights: AtlasInsights = { surprising_connections: [], isolated_nodes: [], bridge_nodes: [], sparse_communities: [], meta: { degraded: false } };
 // @ts-expect-error normalized nodes cannot be replaced with raw graph nodes.

@@ -133,7 +133,7 @@ export interface AtlasPoint {
 export interface AtlasLayout {
   nodes: AtlasNode[];
   edges: AtlasEdge[];
-  nodePositions: Record<NodeId, AtlasPoint>;
+  nodePositions: Partial<Record<NodeId, AtlasPoint>>;
 }
 
 export interface AtlasVisibleState {
@@ -159,10 +159,10 @@ export interface AtlasVisibleSnapshot {
   links: AtlasEdge[];
   searchIndex: AtlasSearchIndexEntry[];
   densityMode: AtlasDensityMode;
-  labelNodeIds: Record<NodeId, boolean>;
-  matchedNodeIds: Record<NodeId, boolean>;
-  importantNodeIds: Record<NodeId, boolean>;
-  startNodeIds: Record<NodeId, boolean>;
+  labelNodeIds: Partial<Record<NodeId, boolean>>;
+  matchedNodeIds: Partial<Record<NodeId, boolean>>;
+  importantNodeIds: Partial<Record<NodeId, boolean>>;
+  startNodeIds: Partial<Record<NodeId, boolean>>;
   starts: AtlasStart[];
   counts: AtlasVisibleCounts;
 }

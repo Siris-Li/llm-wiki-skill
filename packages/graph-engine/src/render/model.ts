@@ -20,6 +20,8 @@ import { GRAPH_WORLD_SIZE, worldBoundsForPoints, worldPointToCssPercentPoint, wo
 import { pinPositionToWorldPoint } from "./pin-position";
 import { resolveGraphRelationFocus, resolveGraphSelectedNodeRelations, type GraphRelationFocusDepth } from "./relation-focus";
 
+type NodeFlagLookup = Partial<Record<NodeId, boolean>>;
+
 export type DensityMode = AtlasDensityMode;
 export type NodeDisplayMode = "card" | "compact-card" | "point" | "overview";
 export type NodeVisualRole = "landmark" | "index-slip" | "cinnabar-note" | "map-pin";
@@ -1301,8 +1303,8 @@ function nodeDisplayMode(
   densityMode: DensityMode,
   selectedNodeId: string | null,
   previewNodeId: string | null,
-  labelNodeIds: Record<string, boolean>,
-  importantNodeIds: Record<string, boolean>
+  labelNodeIds: NodeFlagLookup,
+  importantNodeIds: NodeFlagLookup
 ): NodeDisplayMode {
   if (node.id === selectedNodeId) return "card";
   if (previewNodeId && node.id === previewNodeId && (densityMode === "overview" || densityMode === "point-plus-focus")) return "compact-card";
@@ -1361,7 +1363,7 @@ function shouldPreferCard(
   selectedNodeIds: Set<string>,
   pinnedNodeIds: Set<string>,
   searchResultIds: Set<string>,
-  importantNodeIds: Record<string, boolean>,
+  importantNodeIds: NodeFlagLookup,
   previewNodeId: string | null
 ): boolean {
   if (view === "global") return false;
@@ -1401,7 +1403,7 @@ function selectStableStructureSkeletonEdges(
   edges: AtlasEdge[],
   budget: number,
   signals: {
-    importantNodeIds: Record<string, boolean>;
+    importantNodeIds: NodeFlagLookup;
     coreNodeIds: Set<string>;
   }
 ): Set<string> {
@@ -1440,9 +1442,9 @@ function nodeRenderPriority(
     selectedNodeIds: Set<string>;
     pinnedNodeIds: Set<string>;
     searchResultIds: Set<string>;
-    labelNodeIds: Record<string, boolean>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
+    labelNodeIds: NodeFlagLookup;
+    importantNodeIds: NodeFlagLookup;
+    startNodeIds: NodeFlagLookup;
     previewNodeId: string | null;
     coreNodeIds: Set<string>;
     relationFocusDepth?: GraphRelationFocusDepth;
@@ -1457,7 +1459,7 @@ function edgeRenderPriority(
     selectedNodeIds: Set<string>;
     pinnedNodeIds: Set<string>;
     searchResultIds: Set<string>;
-    importantNodeIds: Record<string, boolean>;
+    importantNodeIds: NodeFlagLookup;
     coreNodeIds: Set<string>;
     relationFocusDepth?: GraphRelationFocusDepth;
     selectedGlobalCommunityId?: string | null;
@@ -1522,9 +1524,9 @@ function selectStableCoreNodeIds(
   nodes: AtlasNode[],
   budget: number,
   signals: {
-    labelNodeIds: Record<string, boolean>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
+    labelNodeIds: NodeFlagLookup;
+    importantNodeIds: NodeFlagLookup;
+    startNodeIds: NodeFlagLookup;
     previewNodeId: string | null;
   }
 ): string[] {
@@ -1550,9 +1552,9 @@ function selectStableCoreNodeIds(
 function stableNodeImportance(
   node: AtlasNode,
   signals: {
-    labelNodeIds: Record<string, boolean>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
+    labelNodeIds: NodeFlagLookup;
+    importantNodeIds: NodeFlagLookup;
+    startNodeIds: NodeFlagLookup;
     previewNodeId: string | null;
     coreNodeIds: Set<string>;
   }
@@ -1570,9 +1572,9 @@ function stableNodeImportance(
 function communityMapImportanceById(
   nodes: AtlasNode[],
   options: {
-    labelNodeIds: Record<string, boolean>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
+    labelNodeIds: NodeFlagLookup;
+    importantNodeIds: NodeFlagLookup;
+    startNodeIds: NodeFlagLookup;
     selectedNodeIds: Set<string>;
     relationFocusNodeIds: Set<string>;
     pinnedNodeIds: Set<string>;
@@ -1635,8 +1637,8 @@ function communityMapNodeTier(
     pinnedNodeIds: Set<string>;
     searchResultIds: Set<string>;
     labelNodeIds: Set<string>;
-    importantNodeIds: Record<string, boolean>;
-    startNodeIds: Record<string, boolean>;
+    importantNodeIds: NodeFlagLookup;
+    startNodeIds: NodeFlagLookup;
   }
 ): CommunityMapNodeTier {
   if (
@@ -1740,7 +1742,7 @@ function temporaryNodeBoost(
 function stableEdgeImportance(
   edge: AtlasEdge,
   signals: {
-    importantNodeIds: Record<string, boolean>;
+    importantNodeIds: NodeFlagLookup;
     coreNodeIds: Set<string>;
   }
 ): number {
@@ -1772,7 +1774,7 @@ function nodeVisualRole(
   displayMode: NodeDisplayMode,
   selectedNodeId: string | null,
   previewNodeId: string | null,
-  importantNodeIds: Record<string, boolean>
+  importantNodeIds: NodeFlagLookup
 ): NodeVisualRole {
   if (node.id === selectedNodeId) return "cinnabar-note";
   if (displayMode === "point" || displayMode === "overview") return "map-pin";
