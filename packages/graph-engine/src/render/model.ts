@@ -12,6 +12,7 @@ import {
   type AtlasModel,
   type AtlasNode
 } from "../model/atlas";
+import { applyAtlasTypeAndTemporaryVisibility } from "../model/visibility";
 import { graphEdgeControlPoint } from "../layout/edge-geometry";
 import { wikiPathForGraphNode } from "../graph-node";
 import { getCommunityColor } from "../themes";
@@ -441,25 +442,23 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
   const communityQuality = evaluateCommunityQuality(data);
   const budgetLimits = resolveGraphRenderBudget(focus, focusedCommunityNodeCount, options.viewportSize);
   const budgetView: GraphRenderBudgetView = focus?.kind === "community" ? "community" : "global";
-  const typeFilters = normalizeGraphTypeFilters(options.typeFilters, model.nodes);
   const visible = resolveAtlasVisibleSnapshot(model, layout, {
     activeCommunityId: focus?.kind === "community" ? focus.id : "all",
     selectedNodeId
   });
+  const semanticVisibility = applyAtlasTypeAndTemporaryVisibility(model, visible, {
+    activeCommunityId: focus?.kind === "community" ? focus.id : "all",
+    typeFilters: options.typeFilters,
+    temporaryObject: options.temporaryObject
+  });
+  const typeFilters = semanticVisibility.typeFilters;
   const previewNodeId = selectedNodeId ? null : firstPreviewNodeId(visible);
   const importantIds = visible.importantNodeIds || {};
   const labelIds = visible.labelNodeIds || {};
   const startIds = visible.startNodeIds || {};
 
-  const temporaryVisibleNodes = temporaryNodesForObject(options.temporaryObject, model.nodes, focus);
-  const baseVisibleNodeIds = new Set(applyNodeTypeFilters(visible.nodes, typeFilters).map((node) => node.id));
-  const temporaryVisibleNodeIds = new Set(temporaryVisibleNodes.map((node) => node.id));
-  const filteredVisibleNodes = model.nodes.filter((node) => baseVisibleNodeIds.has(node.id) || temporaryVisibleNodeIds.has(node.id));
-  const filteredVisibleNodeIds = new Set(filteredVisibleNodes.map((node) => node.id));
-  const filteredVisibleEdges = mergeAtlasEdges(
-    visible.edges.filter((edge) => filteredVisibleNodeIds.has(edge.source) && filteredVisibleNodeIds.has(edge.target)),
-    model.edges.filter((edge) => filteredVisibleNodeIds.has(edge.source) && filteredVisibleNodeIds.has(edge.target))
-  );
+  const filteredVisibleNodes = semanticVisibility.nodes;
+  const filteredVisibleEdges = semanticVisibility.edges;
   const filteredDensityMode = getAtlasDensityMode(filteredVisibleNodes.length);
   const filteredVisibleCounts = {
     visible_nodes: filteredVisibleNodes.length,
@@ -469,7 +468,7 @@ export function buildRenderableGraph(data: GraphData, options: BuildRenderableGr
     total_communities: visible.counts.total_communities
   };
 
-  const allFilteredNodes = model.nodes.filter((node) => typeFilters[node.type] !== false || temporaryVisibleNodeIds.has(node.id));
+  const allFilteredNodes = semanticVisibility.contentNodes;
   const pointById = new Map(allFilteredNodes.map((node) => [node.id, renderPointForNode(node, options)]));
   const communityColorById = new Map(
     model.communities.map((community, index) => [community.id, getCommunityColor(theme, Number(community.color_index ?? index))])
@@ -1178,48 +1177,6 @@ function normalizeGraphFocus(
   if (!focus || focus.kind !== "community") return null;
   const id = String(focus.id || "");
   return id && model.communityById[id] ? { kind: "community", id } : null;
-}
-
-function normalizeGraphTypeFilters(filters: GraphTypeFilters | undefined, nodes: AtlasNode[]): GraphTypeFilters {
-  const normalized: GraphTypeFilters = {};
-  for (const node of nodes) {
-    normalized[node.type] = filters?.[node.type] !== false;
-  }
-  return normalized;
-}
-
-function applyNodeTypeFilters(nodes: AtlasNode[], filters: GraphTypeFilters): AtlasNode[] {
-  return nodes.filter((node) => filters[node.type] !== false);
-}
-
-function temporaryNodesForObject(
-  object: GraphSummaryObjectRef | null | undefined,
-  nodes: AtlasNode[],
-  focus: GraphFocusInput
-): AtlasNode[] {
-  if (!object) return [];
-  if (object.kind === "node") {
-    return nodes.filter((node) => node.id === object.nodeId);
-  }
-  if (object.kind === "aggregation") {
-    const nodeIds = new Set(object.nodeIds);
-    return nodes.filter((node) => nodeIds.has(node.id) && (focus?.kind !== "community" || node.community === focus.id));
-  }
-  if (focus?.kind === "community" && focus.id !== object.communityId) return [];
-  return nodes.filter((node) => node.community === object.communityId);
-}
-
-function mergeAtlasEdges(base: AtlasEdge[], extra: AtlasEdge[]): AtlasEdge[] {
-  if (extra.length === 0) return base;
-  const ids = new Set(base.map((edge) => edge.id));
-  return [
-    ...base,
-    ...extra.filter((edge) => {
-      if (ids.has(edge.id)) return false;
-      ids.add(edge.id);
-      return true;
-    })
-  ];
 }
 
 function normalizeEdgeConfidence(edge: AtlasEdge): string {

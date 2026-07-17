@@ -1,4 +1,4 @@
-import { buildSearchIndex, resolveRegularSearchMatches } from "../model/visibility";
+import { buildRegularSearchIndex, resolveRegularSearchMatches } from "../model/visibility";
 import type { GraphNode, NodeId } from "../types";
 import type { RegularSearchNodeProjection } from "../model/atlas";
 
@@ -48,7 +48,7 @@ function compatibleSearchIndex(
   nodes: GraphNode[],
   regularSearchByNode?: RegularSearchNodeProjection[]
 ): RegularSearchNodeProjection[] {
-  if (!regularSearchByNode) return buildSearchIndex(nodes);
+  if (!regularSearchByNode) return buildRegularSearchIndex(nodes);
   const includedNodes = new Set(nodes);
   return regularSearchByNode.filter((entry) => includedNodes.has(entry.node));
 }
