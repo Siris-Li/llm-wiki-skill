@@ -726,12 +726,12 @@ GraphInputProjection                                   工作台 Sigma 主路线
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | NOT RUN | Internal refactor; no product-direction change |
-| Codex Review | `/codex review` | Independent 2nd opinion | 0 | NOT RUN | External review blocked by repository data-sharing policy |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | CLEAR | 24 issues folded, 0 unresolved, 0 critical gaps |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | NOT RUN | No diff-stage review yet |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 3 | CLEAR | Latest pass folded 8 published-ticket issues; 0 unresolved and 0 critical gaps |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | NOT NEEDED | No intended visual or interaction change |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | NOT NEEDED | No developer workflow or public API expansion |
 
-- **OUTSIDE VOICE:** Local independent review ran; all late execution conflicts were folded into the design.
-- **VERDICT:** ENG CLEARED — ready to split into implementation tickets.
+- **OUTSIDE VOICE:** The existing local independent review is current at `fb1cbcf8` and clean. A new external rerun was blocked before disclosure by the privacy guard.
+- **VERDICT:** ENG CLEARED - parent issue and 13 implementation tickets are ready to execute.
 
 NO UNRESOLVED DECISIONS
