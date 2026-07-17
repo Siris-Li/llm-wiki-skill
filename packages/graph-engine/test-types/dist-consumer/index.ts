@@ -1,6 +1,7 @@
 import {
   buildGraphRendererAdapterData,
   buildRenderableGraph,
+  buildAtlasModel,
   createGraphEngine,
   createGraphOfflineCapabilities,
   createGraphStandaloneCapabilities,
@@ -8,9 +9,12 @@ import {
   createGraphRenderer,
   createStaticGraphRenderer,
   diffGraphData,
+  deriveAtlasLayout,
   normalizeGraphLayoutFile,
   normalizeGraphPinMap,
   projectGraphInput,
+  resolveAtlasVisibleSnapshot,
+  type AtlasModel,
   type GraphData,
   type GraphEngine,
   type GraphInputProjection,
@@ -32,6 +36,8 @@ const layout = normalizeGraphLayoutFile({ version: 2, pins });
 const diff = diffGraphData(graph, graph);
 const unknownGraph: unknown = graph;
 const inputProjection: GraphInputProjection = projectGraphInput(unknownGraph);
+const model: AtlasModel = buildAtlasModel(inputProjection.data);
+const visible = resolveAtlasVisibleSnapshot(model, deriveAtlasLayout(model));
 
 declare const container: HTMLElement;
 declare const capabilities: Parameters<typeof createGraphWorkbenchCapabilities>[0];
@@ -44,4 +50,4 @@ const standalone = createGraphStandaloneCapabilities();
 declare const visibility: GraphVisibilityState;
 
 engine.setData(unknownGraph);
-void [renderable, adapter, layout, diff, inputProjection, engine, renderer, staticRenderer, workbench, offline, standalone, visibility];
+void [renderable, adapter, layout, diff, inputProjection, model, visible, engine, renderer, staticRenderer, workbench, offline, standalone, visibility];

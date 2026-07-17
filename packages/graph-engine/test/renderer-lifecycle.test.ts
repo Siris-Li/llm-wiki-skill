@@ -19,6 +19,91 @@ import {
 } from "../src/facade";
 
 describe("graph renderer lifecycle", () => {
+  it("builds one drawing model for initial DOM creation and for each data update", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    let initialSummaryReads = 0;
+    const initialData = graphData(["a"]);
+    Object.defineProperty(initialData.nodes[0], "summary", {
+      enumerable: true,
+      get() {
+        initialSummaryReads += 1;
+        return "Initial summary";
+      }
+    });
+
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data: initialData,
+      theme: "shan-shui",
+      live: false
+    });
+
+    assert.equal(initialSummaryReads, 1);
+
+    let refreshedSummaryReads = 0;
+    const refreshedData = graphData(["b"]);
+    Object.defineProperty(refreshedData.nodes[0], "summary", {
+      enumerable: true,
+      get() {
+        refreshedSummaryReads += 1;
+        return "Refreshed summary";
+      }
+    });
+    renderer.setData(refreshedData);
+
+    assert.equal(refreshedSummaryReads, 1);
+    renderer.destroy();
+  });
+
+  it("builds one drawing model for initial Sigma creation and for each data update", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    let initialSummaryReads = 0;
+    const initialData = graphData(["a"]);
+    Object.defineProperty(initialData.nodes[0], "summary", {
+      enumerable: true,
+      get() {
+        initialSummaryReads += 1;
+        return "Initial summary";
+      }
+    });
+    const renderer = createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      sigmaRuntime: fakeSigmaRouteRuntime(),
+      options: {
+        data: initialData,
+        pins: {},
+        theme: "shan-shui",
+        focus: null,
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: null,
+        sourceCommunityId: null,
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {}
+      }
+    });
+
+    await Promise.resolve();
+    assert.equal(initialSummaryReads, 1);
+
+    let refreshedSummaryReads = 0;
+    const refreshedProjection = projectGraphInput(graphData(["b"]));
+    Object.defineProperty(refreshedProjection.data.nodes[0], "summary", {
+      enumerable: true,
+      get() {
+        refreshedSummaryReads += 1;
+        return "Refreshed summary";
+      }
+    });
+    renderer.setData(refreshedProjection);
+
+    assert.equal(refreshedSummaryReads, 1);
+    renderer.destroy();
+  });
+
   it("renders projected node details when date and source metadata reject conversion", () => {
     const rejectsConversion = {
       toString() {

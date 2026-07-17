@@ -41,8 +41,8 @@ import {
 } from "./render-pipeline";
 import { createGraphOverlaysPresenter, type GraphOverlaysPresenter } from "./overlays-presenter";
 import { createDomSvgRendererSurface } from "./renderer-surface";
-import { projectGraphInput } from "../model/atlas";
 import type { GraphInputProjection, RegularSearchNodeProjection } from "../model/atlas";
+import { buildSearchIndex } from "../model/visibility";
 
 // 聚焦单个社区时，子集包围盒常很小；用默认 4× fit 会把少量节点放大成糊屏巨卡。
 // 聚焦 fit 限制到适度放大，让节点保持可读、社区居中留白（镜头推进而非贴脸）。
@@ -115,6 +115,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
   let controller: GraphController;
   let pipeline: GraphRenderPipeline;
   let presenter: GraphOverlaysPresenter;
+  const initialRendererViewportSize = initialViewportSize(root);
   const initialGraph = buildRenderableGraph(initialProjection.data, {
     pins: initialPins,
     theme: options.theme,
@@ -124,6 +125,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     typeFilters: {},
     pathCache,
     aggregationMarkers: options.aggregationMarkers,
+    viewportSize: initialRendererViewportSize,
     sourceCommunityId: options.sourceCommunityId ?? null
   });
   const runtimeState = createGraphRuntimeState({
@@ -177,7 +179,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     interactionDegradationTimer: null,
     relationFocusClearTimer: null,
     lastEffectiveDensityMode: null,
-    lastViewportSize: initialViewportSize(root),
+    lastViewportSize: initialRendererViewportSize,
     resizeObserver: null,
     graph: initialGraph,
     runtimeState,
@@ -306,7 +308,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     }
   }
 
-  render();
+  context.renderEpoch += 1;
+  pipeline.paintPreparedGraph();
 
   return {
     root: context.root,
@@ -409,5 +412,8 @@ function rendererGraphInput(
   data: GraphData,
   regularSearchByNode?: RegularSearchNodeProjection[]
 ): GraphInputProjection {
-  return regularSearchByNode ? { data, regularSearchByNode } : projectGraphInput(data);
+  return {
+    data,
+    regularSearchByNode: regularSearchByNode ?? buildSearchIndex(Array.isArray(data.nodes) ? data.nodes : [])
+  };
 }

@@ -1,12 +1,21 @@
 import {
   buildGraphRendererAdapterData,
   buildRenderableGraph,
+  buildAtlasModel,
   createGraphOfflineCapabilities,
+  deriveAtlasLayout,
   normalizeGraphPinMap,
   projectGraphInput,
+  resolveAtlasVisibleSnapshot,
   type GraphData,
   type GraphEngine,
   type GraphInputProjection,
+  type AtlasCommunity,
+  type AtlasEdge,
+  type AtlasInsights,
+  type AtlasModel,
+  type AtlasNode,
+  type AtlasVisibleSnapshot,
   type GraphRendererAdapterData,
   type GraphVisibilityState,
   type PinMap,
@@ -32,6 +41,16 @@ const graph: GraphData = {
 };
 const unknownGraph: unknown = graph;
 const inputProjection: GraphInputProjection = projectGraphInput(unknownGraph);
+const typedModel: AtlasModel = buildAtlasModel(inputProjection.data);
+const typedNode: AtlasNode | undefined = typedModel.byId.a;
+const typedEdge: AtlasEdge | undefined = typedModel.edges[0];
+const typedCommunity: AtlasCommunity | undefined = typedModel.communityById.c1;
+const typedInsights: AtlasInsights = typedModel.insights;
+const typedVisible: AtlasVisibleSnapshot = resolveAtlasVisibleSnapshot(
+  typedModel,
+  deriveAtlasLayout(typedModel),
+  { activeCommunityId: "all" }
+);
 // @ts-expect-error route state cannot omit the search compatibility half of the input projection
 const incompleteFacadeState: GraphFacadeState = { data: graph, pins: {} };
 void incompleteFacadeState;
@@ -61,5 +80,10 @@ export function consumeSourceContracts(engine: GraphEngine, visibility: GraphVis
   engine.setPins(pins);
   void visibility.searchResultIds;
   void offline.capabilities?.persistPins;
-  return renderable.nodes.length + adapter.nodes.length + inputProjection.data.nodes.length;
+  return renderable.nodes.length
+    + adapter.nodes.length
+    + inputProjection.data.nodes.length
+    + typedModel.nodes.length
+    + typedInsights.bridge_nodes.length
+    + Number(Boolean(typedNode && typedEdge && typedCommunity && typedVisible.nodes.length));
 }

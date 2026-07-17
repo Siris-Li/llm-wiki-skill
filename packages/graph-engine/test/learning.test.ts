@@ -1,12 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  defaultLearning,
-  normalizeLearning,
-  resolveInitialMode,
-  getCommunityNodeIds,
-  getVisibleNodeIds,
-  getVisibleLinks,
   buildSearchIndex,
   applySearchToNodeIds,
   filterLinksByTypes,
@@ -14,6 +8,14 @@ import {
   resolveVisibleSnapshot,
   shouldAutoOpenDrawer
 } from "../src/model";
+import {
+  defaultLearning,
+  normalizeLearning,
+  resolveInitialMode,
+  getCommunityNodeIds,
+  getVisibleNodeIds,
+  getVisibleLinks
+} from "../src/model/learning";
 
 describe("defaultLearning", () => {
   it("returns a stable empty learning structure", () => {

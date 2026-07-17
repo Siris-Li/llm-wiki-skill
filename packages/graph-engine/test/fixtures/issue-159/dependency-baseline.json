@@ -27,12 +27,6 @@
   ],
   "internalModelBarrelReferences": [
     {
-      "source": "render/model.ts",
-      "target": "model/index.ts",
-      "specifier": "../model",
-      "kind": "import"
-    },
-    {
       "source": "render/viewport.ts",
       "target": "model/index.ts",
       "specifier": "../model",

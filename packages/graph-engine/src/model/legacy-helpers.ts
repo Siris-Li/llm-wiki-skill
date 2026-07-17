@@ -1,4 +1,11 @@
 // @ts-nocheck
+import type {
+  AtlasLayout,
+  AtlasModel,
+  AtlasVisibleSnapshot,
+  AtlasVisibleState
+} from "./atlas";
+
   var LABEL_CJK_WIDTH = 15;
   var LABEL_LATIN_WIDTH = 8.5;
   var LABEL_PADDING = 22;
@@ -1075,7 +1082,7 @@
     };
   }
 
-  function deriveAtlasLayout(model) {
+  function deriveAtlasLayout(model: AtlasModel): AtlasLayout {
     var safe = model && typeof model === "object" ? model : { nodes: [], communities: [] };
     var centers = [
       { x: 50, y: 48 },
@@ -1183,7 +1190,11 @@
     return count;
   }
 
-  function resolveAtlasVisibleSnapshot(model, layout, uiState) {
+  function resolveAtlasVisibleSnapshot(
+    model: AtlasModel,
+    layout: AtlasLayout,
+    uiState: AtlasVisibleState = {}
+  ): AtlasVisibleSnapshot {
     var safeModel = model && typeof model === "object" ? model : buildAtlasModel({});
     var safeUI = uiState && typeof uiState === "object" ? uiState : {};
     var activeCommunityId = safeUI.activeCommunityId == null ? "all" : String(safeUI.activeCommunityId);
