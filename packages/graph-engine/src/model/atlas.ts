@@ -238,7 +238,7 @@ export function buildAtlasModel(input: unknown): AtlasModel {
 
 export function resolveAtlasSelectedNodeId(
   model: AtlasModel,
-  visibleSnapshot: AtlasVisibleSnapshot | null | undefined,
+  visibleSnapshot: Pick<AtlasVisibleSnapshot, "node_ids"> | null | undefined,
   selectedNodeId: unknown
 ): NodeId | null {
   const selected = selectedNodeId == null ? null : compatibleString(selectedNodeId, "");

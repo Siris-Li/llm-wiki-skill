@@ -60,4 +60,12 @@ describe("graph architecture layer contract", () => {
     const renderer = GRAPH_ARCHITECTURE_LAYERS.find((layer) => layer.id === "renderer");
     assert.ok(renderer?.mustNotOwn.includes("browser default policy"));
   });
+
+  it("assigns both search contracts and semantic visibility to data without drawing policy", () => {
+    const data = GRAPH_ARCHITECTURE_LAYERS.find((layer) => layer.id === "data");
+
+    assert.ok(data?.owns.includes("regular and Atlas search contracts"));
+    assert.ok(data?.owns.includes("semantic visible node and edge sets"));
+    assert.ok(data?.mustNotOwn.includes("drawing budgets"));
+  });
 });

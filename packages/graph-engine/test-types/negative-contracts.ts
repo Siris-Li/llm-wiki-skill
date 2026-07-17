@@ -4,6 +4,7 @@ import {
   buildAtlasModel,
   deriveAtlasLayout,
   resolvePositionAndRangePolicy,
+  resolveAtlasSemanticVisibility,
   resolveAtlasVisibleSnapshot,
   type AtlasInsights,
   type GraphData,
@@ -52,6 +53,8 @@ const incompleteAtlasInsights: AtlasInsights = { surprising_connections: [], iso
 typedModel.nodes.push(graph.nodes[0]);
 // @ts-expect-error visible model filters are booleans, not arbitrary strings.
 resolveAtlasVisibleSnapshot(typedModel, typedLayout, { filters: { EXTRACTED: "yes" } });
+// @ts-expect-error semantic type filters are booleans, not arbitrary strings.
+resolveAtlasSemanticVisibility(typedModel, { typeFilters: { entity: "yes" } });
 
 // @ts-expect-error The range policy consumes normalized model nodes, not raw graph facts.
 resolvePositionAndRangePolicy({ nodes: graph.nodes, initialPositions: typedLayout.nodePositions });

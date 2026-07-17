@@ -19,9 +19,15 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
   {
     id: "data",
     name: "GraphData",
-    owns: ["graph schema", "node and edge facts", "selection data inputs"],
+    owns: [
+      "graph schema",
+      "node and edge facts",
+      "selection data inputs",
+      "regular and Atlas search contracts",
+      "semantic visible node and edge sets"
+    ],
     entrypoints: ["src/types.ts", "src/model/", "src/graph-node.ts", "src/select/"],
-    mustNotOwn: ["DOM", "screen projection", "host callbacks", "pointer or wheel events"]
+    mustNotOwn: ["DOM", "screen projection", "host callbacks", "pointer or wheel events", "drawing budgets"]
   },
   {
     id: "layout",

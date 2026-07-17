@@ -10,7 +10,7 @@
 
 把碎片化的信息变成持续积累、互相链接的知识库
 
-[![version](https://img.shields.io/badge/v3.6.79-图谱布局与视野-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.80-图谱布局与视野-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-多平台-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -149,7 +149,7 @@ bash install.sh --platform claude --with-optional-adapters
 - **素材删除** — 级联删除时自动清理关联页面、断链和缓存
 - **图谱运行时兜底更稳** — helper 同时支持浏览器全局与 CommonJS，旧运行时下的复杂 emoji 截断和离线 HTML 失败回滚都更可靠
 - **图谱坏数据安全兼容** — 未知、残缺或畸形图谱会先整理成可安全使用的结果，节点、关系、社区和起点再由同一份稳定模型交给绘制；常规搜索与既有 ID 碰撞结果保持不变
-- **图谱搜索与长标签更稳** — 工作台、离线图谱和两种显示路线使用同一份常规搜索结果；中文、组合字符和 emoji 长标题在旧浏览器环境下也能安全省略并保留完整标题
+- **图谱搜索与筛选更稳** — 工作台、离线图谱和两种显示路线使用同一份结果；常规搜索保留原有 500 字符范围，Atlas 全文搜索继续覆盖完整正文，类型筛选、社区聚焦和临时显示的节点与关系保持一致；中文、组合字符和 emoji 长标题在旧浏览器环境下也能安全省略并保留完整标题
 - **Sigma 图谱主路线** — 全局视角和社区阅读都以 Sigma/Graphology 承接；DOM/SVG 只保留为回退、对照和异常兜底，不再作为社区阅读主路径扩展
 - **Sigma 迁移前性能基线** — 生产 1k 与隔离 1k/5k/10k 图谱都连续测量三次悬停预览并保存中位数；后续迁移使用固定公式自动比较，其他渲染试验不承担 Sigma 专属门禁
 - **图谱全区域缩放** — 在桌面上，鼠标停在节点、社区色块、关系或空白处时，滚轮和触摸板都只缩放图谱，不会误缩放浏览器；地图内控件和图谱外页面保持各自应有的行为

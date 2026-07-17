@@ -2,12 +2,17 @@ import {
   buildGraphRendererAdapterData,
   buildRenderableGraph,
   buildAtlasModel,
+  buildRegularSearchIndex,
   createGraphOfflineCapabilities,
   deriveAtlasLayout,
   normalizeGraphPinMap,
   projectGraphInput,
+  resolveAtlasSearchMatches,
+  resolveAtlasSelectedNodeId,
+  resolveAtlasSemanticVisibility,
   resolveAtlasVisibleSnapshot,
   resolvePositionAndRangePolicy,
+  resolveRegularSearchMatches,
   type GraphData,
   type GraphEngine,
   type GraphInputProjection,
@@ -17,6 +22,7 @@ import {
   type AtlasLayout,
   type AtlasModel,
   type AtlasNode,
+  type AtlasSemanticVisibility,
   type AtlasVisibleSnapshot,
   type GraphRendererAdapterData,
   type PositionAndRangePolicy,
@@ -55,6 +61,13 @@ const typedVisible: AtlasVisibleSnapshot = resolveAtlasVisibleSnapshot(
   typedLayout,
   { activeCommunityId: "all" }
 );
+const semanticVisibility: AtlasSemanticVisibility = resolveAtlasSemanticVisibility(typedModel, {
+  activeCommunityId: "c1",
+  typeFilters: { topic: true, entity: false }
+});
+const retainedSelection = resolveAtlasSelectedNodeId(typedModel, semanticVisibility, "a");
+const atlasSearch = resolveAtlasSearchMatches(typedModel.searchIndex, "A");
+const regularSearch = resolveRegularSearchMatches(buildRegularSearchIndex(inputProjection.data.nodes), "A");
 // @ts-expect-error route state cannot omit the search compatibility half of the input projection
 const incompleteFacadeState: GraphFacadeState = { data: graph, pins: {} };
 void incompleteFacadeState;
@@ -98,5 +111,8 @@ export function consumeSourceContracts(engine: GraphEngine, visibility: GraphVis
     + typedModel.nodes.length
     + typedInsights.bridge_nodes.length
     + positionPolicy.framingBounds.width
-    + Number(Boolean(typedNode && typedEdge && typedCommunity && typedVisible.nodes.length));
+    + semanticVisibility.nodes.length
+    + atlasSearch.matchIds.length
+    + regularSearch.matchIds.length
+    + Number(Boolean(typedNode && typedEdge && typedCommunity && typedVisible.nodes.length && retainedSelection));
 }
