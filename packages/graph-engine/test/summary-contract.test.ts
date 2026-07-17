@@ -69,6 +69,32 @@ describe("graph summary contract", () => {
     assert.deepEqual(semantics.aggregations[1].pinnedNodeIds, ["d"]);
   });
 
+  it("keeps one aggregation Pin hint for a duplicated node id", () => {
+    const data: GraphData = {
+      meta: { build_date: "", wiki_title: "duplicate Pin", total_nodes: 2, total_edges: 0 },
+      nodes: [
+        { id: "duplicate", label: "First", type: "entity", source_path: "wiki/duplicate-first.md" },
+        { id: "duplicate", label: "Second", type: "source", source_path: "wiki/duplicate-second.md" }
+      ],
+      edges: []
+    };
+
+    const semantics = resolveGraphRendererSemantics(data, {
+      pins: {
+        "wiki/duplicate-second.md": { x: 12, y: 34, coordinateSpace: "world" }
+      },
+      aggregationMarkers: [{
+        id: "duplicate-aggregation",
+        nodeIds: ["duplicate"]
+      }]
+    });
+
+    assert.deepEqual(semantics.aggregations[0].pinnedNodeIds, ["duplicate"]);
+    assert.deepEqual(semantics.aggregations[0].pinHints.map((hint) => hint.wikiPath), [
+      "wiki/duplicate-second.md"
+    ]);
+  });
+
   it("preserves node identity, selection, search hits, Pin hints, relations, and aggregation markers", () => {
     const pins: PinMap = {
       "wiki/alpha/a.md": { x: 12, y: 34, coordinateSpace: "world" }

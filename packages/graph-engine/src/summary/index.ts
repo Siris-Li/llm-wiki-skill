@@ -259,6 +259,7 @@ export function resolveGraphRendererSemantics(
   const selection = selectionStateForObject(data, null, options.selection);
   const searchResultIds = [...(options.searchResultIds ?? [])];
   const pinHints = pinHintsForNodeIds(data, data.nodes.map((node) => node.id), options.pins);
+  const pinHintByNodeId = new Map(pinHints.map((hint) => [hint.nodeId, hint]));
   const pinnedNodeIds = pinHints.map((hint) => hint.nodeId);
   const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
   const nodes = [...nodeById.values()].map((node) => ({
@@ -294,7 +295,6 @@ export function resolveGraphRendererSemantics(
     edges,
     aggregations: (options.aggregationMarkers ?? []).map((marker) => {
       const resolvedPinnedNodeIds = stableIntersection(marker.nodeIds, marker.pinnedNodeIds ?? pinnedNodeIds);
-      const resolvedPinnedNodeSet = new Set(resolvedPinnedNodeIds);
       return {
         id: marker.id,
         label: marker.label ?? marker.id,
@@ -304,7 +304,9 @@ export function resolveGraphRendererSemantics(
         searchResultIds: stableIntersection(marker.nodeIds, marker.searchResultIds ?? searchResultIds),
         pinnedNodeIds: resolvedPinnedNodeIds,
         totalCount: marker.totalCount ?? marker.nodeIds.length,
-        pinHints: pinHints.filter((hint) => resolvedPinnedNodeSet.has(hint.nodeId))
+        pinHints: resolvedPinnedNodeIds
+          .map((nodeId) => pinHintByNodeId.get(nodeId))
+          .filter((hint): hint is GraphPinHint => Boolean(hint?.pinned))
       };
     })
   };
