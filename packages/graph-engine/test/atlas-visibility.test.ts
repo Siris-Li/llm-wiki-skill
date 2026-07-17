@@ -4,9 +4,11 @@ import { describe, it } from "node:test";
 import {
   buildAtlasModel,
   buildRegularSearchIndex,
+  deriveAtlasLayout,
   resolveAtlasSearchMatches,
   resolveAtlasSelectedNodeId,
   resolveAtlasSemanticVisibility,
+  resolveAtlasVisibleSnapshot,
   resolveRegularSearchMatches
 } from "../src";
 
@@ -102,5 +104,23 @@ describe("Atlas search and semantic visibility", () => {
 
     assert.equal(resolveAtlasSelectedNodeId(model, hidden, "topic"), null);
     assert.equal(resolveAtlasSelectedNodeId(model, temporarilyShown, "topic"), "topic");
+  });
+
+  it("does not let a duplicate ID cross the Atlas community or search scope", () => {
+    const model = buildAtlasModel({
+      nodes: [
+        { id: "duplicate", label: "Community one match", type: "topic", community: "c1" },
+        { id: "duplicate", label: "Community two hidden", type: "entity", community: "c2" }
+      ],
+      edges: []
+    });
+    const snapshot = resolveAtlasVisibleSnapshot(model, deriveAtlasLayout(model), {
+      activeCommunityId: "c1",
+      query: "community one match"
+    });
+
+    assert.deepEqual(snapshot.nodes.map((node) => [node.label, node.community]), [
+      ["Community one match", "c1"]
+    ]);
   });
 });

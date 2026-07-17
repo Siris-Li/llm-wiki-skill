@@ -187,6 +187,18 @@ export function resolveAtlasSemanticVisibility(
     return visibleIdSet.has(edge.source) && visibleIdSet.has(edge.target);
   });
 
+  if (options.typeFilters === undefined && options.temporaryObject == null) {
+    return {
+      node_ids: visibleNodes.map((node) => node.id),
+      nodes: visibleNodes,
+      edges: visibleEdges,
+      contentNodes: model.nodes.slice(),
+      typeFilters: normalizeAtlasTypeFilters(undefined, model.nodes),
+      searchIndex,
+      matchedNodeIds
+    };
+  }
+
   const visibleSet = applyAtlasTypeAndTemporaryVisibility(model, { nodes: visibleNodes, edges: visibleEdges }, options);
   return { ...visibleSet, searchIndex, matchedNodeIds };
 }
