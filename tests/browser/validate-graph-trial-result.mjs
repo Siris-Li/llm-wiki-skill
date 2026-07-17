@@ -1,26 +1,17 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 
+import {
+  REQUIRED_TRIAL_ACTIONS,
+  SIGMA_REQUIRED_TRIAL_ACTIONS,
+  hoverPreviewFailures
+} from "./graph-renderer-trial-shared.ts";
+
 const resultPath = process.argv[2];
 if (!resultPath) {
   console.error("Usage: validate-graph-trial-result.mjs <result-json>");
   process.exit(2);
 }
-
-const requiredActions = [
-  "initial_render",
-  "wheel_zoom",
-  "drag",
-  "search_highlight",
-  "point_select",
-  "container_select",
-  "spotlight_animation",
-  "drawer_open",
-  "enter_community",
-  "return_global",
-  "return_global_takeover",
-  "repeated_search_community_drawer_cycles"
-];
 
 // Actions where fps + frame p95 are hard gates. Spotlight records those metrics
 // too, but gates on mid-animation visual following because click/rebuild timing is noisy.
@@ -37,7 +28,17 @@ const errors = Array.isArray(data.errors) ? data.errors : [];
 const requestedActions = Array.isArray(data.requested_actions)
   ? data.requested_actions.filter((action) => typeof action === "string" && action)
   : parseActionList(process.env.GRAPH_SIGMA_PRODUCTION_ACTIONS);
-const actionsToRequire = requestedActions.length ? requestedActions : requiredActions;
+const declaredRequiredActions = Array.isArray(data.required_actions)
+  ? data.required_actions.filter((action) => typeof action === "string" && action)
+  : [];
+const sigmaTrial = String(data.renderer || "").toLowerCase().includes("sigma");
+const actionsToRequire = requestedActions.length
+  ? requestedActions
+  : sigmaTrial
+    ? SIGMA_REQUIRED_TRIAL_ACTIONS
+    : declaredRequiredActions.length
+      ? declaredRequiredActions
+      : REQUIRED_TRIAL_ACTIONS;
 const focusedActionSet = requestedActions.length ? new Set(requestedActions) : null;
 const requireProductionPath = data.production_path === true || String(data.renderer || "").includes("production");
 const failures = [];
@@ -85,6 +86,9 @@ for (const record of records) {
     const limit = memoryGrowthLimitMb(record);
     if (record.memory_growth_mb == null) failures.push(`${shapeAction}: memory_growth_missing`);
     else if (record.memory_growth_mb > limit) failures.push(`${shapeAction}: memory_growth_above_ceiling; memory_growth_mb=${record.memory_growth_mb}; ceiling=${limit}`);
+  }
+  if (shouldGateAction && record.action === "hover_preview") {
+    failures.push(...hoverPreviewFailures(record, shapeAction));
   }
   if (shouldGateAction && requireProductionPath && record.action === "initial_render" && Number(record.nodes) >= 10000) {
     if (record.loading_state_seen_at_ms == null) failures.push(`${shapeAction}: loading_state_seen_missing`);

@@ -89,6 +89,15 @@ export const QUALITY_STEPS = [
 		commands: [command(["--import", "tsx", "workbench/scripts/check-workbench-boundaries.mjs"])],
 	},
 	{
+		id: "browser-trial-contracts",
+		timeoutMs: COMMAND_TIMEOUT_MS,
+		commands: [nodeTest(
+			"tests/browser/graph-renderer-trial-shared.test.ts",
+			"tests/browser/capture-issue-159-hover-baseline.test.ts",
+			"tests/browser/compare-issue-159-hover-baseline.test.ts",
+		)],
+	},
+	{
 		id: "contracts",
 		timeoutMs: COMMAND_TIMEOUT_MS,
 		commands: [nodeTest("packages/workbench-contracts/test/*.test.ts")],

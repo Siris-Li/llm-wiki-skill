@@ -322,12 +322,27 @@ describe("renderer and facade boundary contract", () => {
     assert.match(stylesText, /\.sigma-global-route\.llm-wiki-graph-engine\s*\{\s*min-height: 0;\s*\}/);
   });
 
-  it("keeps Sigma node hit targets above passive community overlays", async () => {
+  it("keeps Sigma node hit targets above the canvas but below graph controls", async () => {
     const stylesText = await readFile(join(SRC, "render/render-styles.ts"), "utf8");
+    const overlayBlock = stylesText.match(/\.sigma-global-overlay\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
     const nodeHitTargetBlock = stylesText.match(/\.sigma-global-node-hit-target\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    const controlSelectors = ["graph-search", "graph-toolbar", "graph-zoom-controls", "graph-hover-preview"];
 
+    assert.match(overlayBlock, /z-index:\s*6;/);
     assert.match(nodeHitTargetBlock, /pointer-events:\s*auto;/);
     assert.match(nodeHitTargetBlock, /z-index:\s*2;/);
+    for (const selector of controlSelectors) {
+      const block = stylesText.match(new RegExp(`\\.${selector}\\s*\\{[\\s\\S]*?\\n\\}`))?.[0] ?? "";
+      const zIndex = Number(block.match(/z-index:\s*(\d+);/)?.[1] ?? 0);
+      assert.ok(zIndex > 6, `${selector} must stay above Sigma node hit targets`);
+    }
+  });
+
+  it("reuses the shared first-order relation focus calculation in the isolated Sigma trial", async () => {
+    const trialText = await readFile(join(ROOT, "..", "..", "tests", "browser", "graph-sigma-graphology-trial.ts"), "utf8");
+
+    assert.match(trialText, /resolveGraphFirstOrderRelationFocus/);
+    assert.doesNotMatch(trialText, /const incidentEdgeIds = graph\.edges\(id\);/);
   });
 
   it("keeps pipeline and presenter out of semantic selection/focus/pin ownership", async () => {

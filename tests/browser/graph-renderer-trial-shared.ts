@@ -30,7 +30,12 @@ export const REQUIRED_TRIAL_ACTIONS = [
   "repeated_search_community_drawer_cycles"
 ] as const;
 
-export type TrialAction = typeof REQUIRED_TRIAL_ACTIONS[number];
+export const SIGMA_REQUIRED_TRIAL_ACTIONS = [
+  ...REQUIRED_TRIAL_ACTIONS,
+  "hover_preview"
+] as const;
+
+export type TrialAction = typeof SIGMA_REQUIRED_TRIAL_ACTIONS[number];
 
 // Actions where fps + frame p95 are hard gates. Spotlight records those metrics
 // too, but gates on mid-animation visual following because click/rebuild timing is noisy.
@@ -46,7 +51,7 @@ export const DURATION_GATED_ACTIONS = new Set<string>([
 // The memory-gated repeated-cycle action.
 export const MEMORY_GATED_ACTION = "repeated_search_community_drawer_cycles";
 
-export const TRIAL_SCHEMA_VERSION = "1.0.0";
+export const TRIAL_SCHEMA_VERSION = "1.1.0";
 
 // Hard-gate table from the plan. fps and frame p95 are uniform across scales;
 // duration and memory ceilings scale with node count.
@@ -71,6 +76,24 @@ export interface TrialRecordLike {
   build_commit?: string | null;
   run_started_at?: string | null;
   run_finished_at?: string | null;
+  hover_target_id?: string | null;
+  hover_observed_target_id?: string | null;
+  hover_preview_state?: string | null;
+}
+
+export function hoverPreviewFailures(record: TrialRecordLike, shapeAction: string): string[] {
+  const failures: string[] = [];
+  if (!record.hover_target_id) failures.push(`${shapeAction}: hover_target_missing`);
+  else if (record.hover_observed_target_id !== record.hover_target_id) {
+    failures.push(`${shapeAction}: hover_target_mismatch; expected=${record.hover_target_id}; actual=${record.hover_observed_target_id ?? "null"}`);
+  }
+  if (record.hover_preview_state !== "visible") {
+    failures.push(`${shapeAction}: hover_state_missing; state=${record.hover_preview_state ?? "null"}`);
+  }
+  if (record.duration_ms == null || !Number.isFinite(record.duration_ms) || record.duration_ms < 0) {
+    failures.push(`${shapeAction}: hover_duration_missing; duration_ms=${record.duration_ms ?? "null"}`);
+  }
+  return failures;
 }
 
 export function parseRequestedShapes(value: string | undefined): LargeGraphFixtureId[] {
@@ -231,6 +254,7 @@ export function validateTrialResults(input: {
   renderer: string;
   requestedShapes: readonly string[];
   requiredActions?: readonly string[];
+  focusedActions?: boolean;
   // Default true: enforce the hard-gate schema (schema_version, thresholds,
   // browser, build_commit, run timestamps) and frame/duration mandatory metrics.
   // Sibling trials that have not yet been upgraded opt out with requireSchema:false.
@@ -241,7 +265,7 @@ export function validateTrialResults(input: {
 }): void {
   const requiredActions = input.requiredActions ?? REQUIRED_TRIAL_ACTIONS;
   const requiredActionSet = new Set(requiredActions);
-  const hasFocusedActions = Boolean(input.requiredActions);
+  const hasFocusedActions = input.focusedActions === true;
   const requireSchema = input.requireSchema !== false;
   const failures: string[] = [];
 
@@ -287,6 +311,9 @@ export function validateTrialResults(input: {
     }
     if (shouldGateAction && record.action === MEMORY_GATED_ACTION && record.memory_growth_mb == null) {
       failures.push(`${shapeAction}: memory_growth_missing`);
+    }
+    if (shouldGateAction && record.action === "hover_preview") {
+      failures.push(...hoverPreviewFailures(record, shapeAction));
     }
   }
 
