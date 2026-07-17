@@ -65,6 +65,7 @@ export interface GraphRenderOverlayDelegates {
 
 export interface GraphRenderPipeline {
   rebuildAndPaint(): void;
+  paintPreparedGraph(): void;
   paint(graph: RenderableGraph, options: { hasHostReader: boolean; handlers: PaintHandlers }): PaintedGraphDom;
   mountSearchControl(): void;
   mountGraphToolbar(): void;
@@ -134,6 +135,10 @@ export function createGraphRenderPipeline(
       sourceCommunityId: context.sourceCommunityId
     });
     context.runtimeState.setPositions(positionsFromRenderableGraph(context.graph));
+    paintPreparedGraph();
+  }
+
+  function paintPreparedGraph(): void {
     context.baseTypeFilters = context.graph.typeFilters;
     context.typeFilters = normalizeAvailableTypeFilters(context.typeFilters, context.baseTypeFilters);
     context.availableTypeFilters = context.typeFilters;
@@ -743,6 +748,7 @@ export function createGraphRenderPipeline(
 
   return {
     rebuildAndPaint,
+    paintPreparedGraph,
     paint,
     mountSearchControl,
     mountGraphToolbar,

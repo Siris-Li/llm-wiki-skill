@@ -162,7 +162,6 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     .then((runtime) => {
       if (destroyed) return;
       try {
-        currentSigmaAdapterData = adapterDataForSigmaRoute(options, hoverNodeId, typeFiltersForCurrentRoute(), sigmaRouteViewportSize());
         renderer = createSigmaGlobalRenderer({
           container: shell,
           adapterData: currentSigmaAdapterData,
