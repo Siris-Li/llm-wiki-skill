@@ -4,6 +4,7 @@ import {
   buildAtlasModel,
   deriveAtlasLayout,
   resolvePositionAndRangePolicy,
+  resolveRenderPolicy,
   resolveAtlasSemanticVisibility,
   resolveAtlasVisibleSnapshot,
   type AtlasInsights,
@@ -64,6 +65,9 @@ resolvePositionAndRangePolicy({ nodes: graph.nodes, initialPositions: typedLayou
 
 // @ts-expect-error Initial positions are world points, not normalized model nodes.
 resolvePositionAndRangePolicy({ nodes: typedModel.nodes, initialPositions: { a: typedModel.nodes[0] }, initialPositionsByIndex: new Map() });
+
+// @ts-expect-error The shared policy consumes a prepared typed model, not raw graph facts.
+resolveRenderPolicy({ data: graph, model: graph, layout: typedLayout, visibility: typedVisible });
 
 // @ts-expect-error Render options do not accept raw nodes in the positions stage.
 buildRenderableGraph(graph, { positions: { a: graph.nodes[0] } });

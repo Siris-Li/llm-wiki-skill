@@ -4,6 +4,8 @@ export {
   GRAPH_COMMUNITY_FOCUS_THRESHOLDS,
   GRAPH_RENDER_BUDGETS,
   nodeDisplayModeForDensity,
+  resolveRenderPolicy,
+  resolveRenderPolicyVisibility,
   resolveCommunityFocusScale,
   resolveGraphRenderBudget,
   screenEffectiveDensityMode
@@ -52,6 +54,8 @@ export type {
   RenderableGraph,
   RenderableMinimap,
   RenderableNode,
+  RenderPolicyInput,
+  RenderPolicyOptions,
   RenderPosition,
   RenderPositionMap
 } from "./render-policy";

@@ -13,6 +13,8 @@ import {
   resolveAtlasSemanticVisibility,
   resolveAtlasVisibleSnapshot,
   resolvePositionAndRangePolicy,
+  resolveRenderPolicy,
+  resolveRenderPolicyVisibility,
   resolveRegularSearchMatches,
   type GraphData,
   type GraphEngine,
@@ -27,6 +29,7 @@ import {
   type AtlasVisibleSnapshot,
   type GraphRendererAdapterData,
   type PositionAndRangePolicy,
+  type RenderPolicyInput,
   type GraphVisibilityState,
   type PinMap,
   type RenderableGraph,
@@ -91,6 +94,13 @@ const positionPolicy: PositionAndRangePolicy = resolvePositionAndRangePolicy({
   viewportSize: { width: 1600, height: 900 },
   frameToViewport: true
 });
+const renderPolicyInput: RenderPolicyInput = {
+  data: graph,
+  model: typedModel,
+  layout: typedLayout,
+  visibility: resolveRenderPolicyVisibility(typedModel, typedLayout)
+};
+const sharedPolicyRenderable: RenderableGraph = resolveRenderPolicy(renderPolicyInput);
 const renderable: RenderableGraph = buildRenderableGraph(graph, { positions, pins });
 const adapter: GraphRendererAdapterData = buildGraphRendererAdapterData(graph, {
   positions,
@@ -110,6 +120,7 @@ export function consumeSourceContracts(engine: GraphEngine, visibility: GraphVis
   void visibility.searchResultIds;
   void offline.capabilities?.persistPins;
   return renderable.nodes.length
+    + sharedPolicyRenderable.nodes.length
     + adapter.nodes.length
     + inputProjection.data.nodes.length
     + typedModel.nodes.length
