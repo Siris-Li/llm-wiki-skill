@@ -38,18 +38,18 @@ const ATLAS_TYPE_KINDS = {
 type AtlasConfidenceKey = keyof typeof ATLAS_CONFIDENCE_LABELS;
 type AtlasTypeKey = keyof typeof ATLAS_TYPE_LABELS;
 
-export interface TruncatedLabel {
+interface TruncatedLabel {
   text: string;
   truncated: boolean;
 }
 
-export interface LabelCardNode {
+interface LabelCardNode {
   id: string;
   label?: string | null;
   type?: string | null;
 }
 
-export interface LabelCardDimensions {
+interface LabelCardDimensions {
   w: number;
   h: number;
 }
