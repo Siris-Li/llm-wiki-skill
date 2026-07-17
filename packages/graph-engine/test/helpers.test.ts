@@ -18,7 +18,7 @@ async function loadHelpersWithoutSegmenter() {
   const originalIntl = globalThis.Intl;
   Object.defineProperty(globalThis, "Intl", { value: {}, configurable: true });
   try {
-    return await import(`../src/model/legacy-helpers.ts?fallback=${Date.now()}`);
+    return await import(`../src/model/labels.ts?fallback=${Date.now()}`);
   } finally {
     Object.defineProperty(globalThis, "Intl", { value: originalIntl, configurable: true });
   }
@@ -58,6 +58,8 @@ describe("splitLabelGraphemes", () => {
 
     assert.deepEqual(Array.from(fallbackHelpers.splitLabelGraphemes("abc")), ["a", "b", "c"]);
     assert.deepEqual(Array.from(fallbackHelpers.splitLabelGraphemes("中文")), ["中", "文"]);
+    assert.deepEqual(Array.from(fallbackHelpers.splitLabelGraphemes("e\u0301")), ["e\u0301"]);
+    assert.deepEqual(Array.from(fallbackHelpers.splitLabelGraphemes("𠮷")), ["𠮷"]);
     assert.deepEqual(Array.from(fallbackHelpers.splitLabelGraphemes("👨‍👩‍👧‍👦")), ["👨‍👩‍👧‍👦"]);
 
     const truncated = fallbackHelpers.truncateLabel("节点A👨‍👩‍👧‍👦AlphaBeta超长标签" + "超".repeat(20), 120);
