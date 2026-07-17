@@ -22,12 +22,12 @@ describe("issue 159 hover baseline comparison", () => {
   it("reports each renderer and shape without widening the tolerance", () => {
     const result = compareHoverMedians(
       [
-        { renderer: "production", graph_shape: "nodes-1000-sparse", median_ms: 100 },
-        { renderer: "isolated", graph_shape: "nodes-5000-sparse", median_ms: 400 }
+        { renderer: "production", graph_shape: "nodes-1000-sparse", durations_ms: [90, 100, 110], median_ms: 100 },
+        { renderer: "isolated", graph_shape: "nodes-5000-sparse", durations_ms: [390, 400, 410], median_ms: 400 }
       ],
       [
-        { renderer: "production", graph_shape: "nodes-1000-sparse", median_ms: 150 },
-        { renderer: "isolated", graph_shape: "nodes-5000-sparse", median_ms: 480.1 }
+        { renderer: "production", graph_shape: "nodes-1000-sparse", durations_ms: [140, 150, 160], median_ms: 150 },
+        { renderer: "isolated", graph_shape: "nodes-5000-sparse", durations_ms: [470, 480.1, 490], median_ms: 480.1 }
       ]
     );
 
@@ -35,5 +35,12 @@ describe("issue 159 hover baseline comparison", () => {
     assert.equal(result[0]?.limit_ms, 150);
     assert.equal(result[1]?.pass, false);
     assert.equal(result[1]?.limit_ms, 480);
+  });
+
+  it("rejects a declared median that does not match the three recorded runs", () => {
+    assert.throws(() => compareHoverMedians(
+      [{ renderer: "production", graph_shape: "nodes-1000-sparse", durations_ms: [90, 100, 110], median_ms: 100 }],
+      [{ renderer: "production", graph_shape: "nodes-1000-sparse", durations_ms: [190, 200, 210], median_ms: 100 }]
+    ), /candidate.*median_ms.*recorded runs/);
   });
 });

@@ -131,6 +131,7 @@ async function main(): Promise<void> {
     renderer: "Sigma/Graphology",
     requestedShapes,
     requiredActions: requestedActions ? [...requestedActions] : SIGMA_REQUIRED_TRIAL_ACTIONS,
+    focusedActions: Boolean(requestedActions),
     records,
     errors,
     resultPath

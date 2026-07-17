@@ -39,6 +39,43 @@ describe("graph renderer browser trial gates", () => {
     }));
   });
 
+  it("gates every produced record during a full Sigma run", () => {
+    const records = passingRecords(SIGMA_REQUIRED_TRIAL_ACTIONS);
+    records.push({
+      ...passingRecords(["zoom_controls"])[0],
+      pass: false,
+      failure_class: "zoom_controls_unchanged"
+    });
+
+    assert.throws(() => validateTrialResults({
+      renderer: "sigma-global-production",
+      requestedShapes: ["shape"],
+      requiredActions: SIGMA_REQUIRED_TRIAL_ACTIONS,
+      records,
+      errors: [],
+      resultPath: "/tmp/sigma-result.json"
+    }), /zoom_controls.*pass=false/);
+  });
+
+  it("gates only requested records during a focused Sigma run", () => {
+    const records = passingRecords(["hover_preview"]);
+    records.push({
+      ...passingRecords(["zoom_controls"])[0],
+      pass: false,
+      failure_class: "zoom_controls_unchanged"
+    });
+
+    assert.doesNotThrow(() => validateTrialResults({
+      renderer: "sigma-global-production",
+      requestedShapes: ["shape"],
+      requiredActions: ["hover_preview"],
+      focusedActions: true,
+      records,
+      errors: [],
+      resultPath: "/tmp/sigma-result.json"
+    }));
+  });
+
   it("does not let a Sigma artifact downgrade its declared required actions", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-wiki-sigma-action-downgrade-"));
     const resultPath = path.join(tmpDir, "result.json");
@@ -243,6 +280,11 @@ function passingRecords(actions: readonly string[]): TrialRecordLike[] {
     browser: "chromium",
     build_commit: "test",
     run_started_at: "2026-07-06T00:00:00.000Z",
-    run_finished_at: "2026-07-06T00:00:01.000Z"
+    run_finished_at: "2026-07-06T00:00:01.000Z",
+    ...(action === "hover_preview" ? {
+      hover_target_id: "node-a",
+      hover_observed_target_id: "node-a",
+      hover_preview_state: "visible"
+    } : {})
   }));
 }

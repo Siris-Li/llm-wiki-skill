@@ -254,6 +254,7 @@ export function validateTrialResults(input: {
   renderer: string;
   requestedShapes: readonly string[];
   requiredActions?: readonly string[];
+  focusedActions?: boolean;
   // Default true: enforce the hard-gate schema (schema_version, thresholds,
   // browser, build_commit, run timestamps) and frame/duration mandatory metrics.
   // Sibling trials that have not yet been upgraded opt out with requireSchema:false.
@@ -264,7 +265,7 @@ export function validateTrialResults(input: {
 }): void {
   const requiredActions = input.requiredActions ?? REQUIRED_TRIAL_ACTIONS;
   const requiredActionSet = new Set(requiredActions);
-  const hasFocusedActions = Boolean(input.requiredActions);
+  const hasFocusedActions = input.focusedActions === true;
   const requireSchema = input.requireSchema !== false;
   const failures: string[] = [];
 

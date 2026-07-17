@@ -32,11 +32,8 @@ export function compareHoverMedians(baselineEntries, candidateEntries) {
 
   return [...baseline.entries()].map(([key, before]) => {
     const after = candidate.get(key);
-    const beforeMedian = Number(before.median_ms);
-    const afterMedian = Number(after.median_ms);
-    if (!Number.isFinite(beforeMedian) || !Number.isFinite(afterMedian)) {
-      throw new Error(`${key}: median_ms must be finite`);
-    }
+    const beforeMedian = declaredMedian(before, "baseline", key);
+    const afterMedian = declaredMedian(after, "candidate", key);
     const limit = allowedAfterMedian(beforeMedian);
     return {
       renderer: before.renderer,
@@ -48,6 +45,16 @@ export function compareHoverMedians(baselineEntries, candidateEntries) {
       formula: ISSUE_159_HOVER_FORMULA
     };
   });
+}
+
+function declaredMedian(entry, label, key) {
+  const declared = Number(entry.median_ms);
+  if (!Number.isFinite(declared)) throw new Error(`${label} ${key}: median_ms must be finite`);
+  const recorded = medianOfThree(entry.durations_ms);
+  if (declared !== recorded) {
+    throw new Error(`${label} ${key}: median_ms=${declared} does not match recorded runs median=${recorded}`);
+  }
+  return recorded;
 }
 
 function indexEntries(entries, label) {
