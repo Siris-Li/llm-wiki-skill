@@ -85,10 +85,12 @@ async function main() {
 
       run(process.execPath, ["--import", "tsx", "tests/browser/graph-sigma-global-production.ts"], {
         GRAPH_SIGMA_PRODUCTION_SHAPES: productionShapes.join(","),
+        GRAPH_SIGMA_PRODUCTION_ACTIONS: "hover_preview",
         GRAPH_SIGMA_PRODUCTION_ARTIFACT_DIR: productionRawDir
       });
       run(process.execPath, ["--import", "tsx", "tests/browser/graph-sigma-graphology-trial.ts"], {
         GRAPH_SIGMA_TRIAL_SHAPES: isolatedShapes.join(","),
+        GRAPH_SIGMA_TRIAL_ACTIONS: "hover_preview",
         GRAPH_SIGMA_TRIAL_ARTIFACT_DIR: isolatedRawDir
       });
 

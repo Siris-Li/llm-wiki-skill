@@ -36,6 +36,7 @@ const repoRoot = path.resolve(import.meta.dirname, "../..");
 const artifactDir = process.env.GRAPH_SIGMA_TRIAL_ARTIFACT_DIR || path.join(os.tmpdir(), `llm-wiki-graph-sigma-trial-${Date.now()}`);
 const executablePath = process.env.GRAPH_SIGMA_TRIAL_CHROME_EXECUTABLE || "";
 const requestedShapes = parseRequestedShapes(process.env.GRAPH_SIGMA_TRIAL_SHAPES);
+const requestedActions = parseActionList(process.env.GRAPH_SIGMA_TRIAL_ACTIONS);
 const resultPath = path.join(artifactDir, "sigma-graphology-trial-results.json");
 const buildCommit = readBuildCommit();
 const rendererName = "sigma-graphology-webgl-trial";
@@ -125,7 +126,7 @@ async function main(): Promise<void> {
   validateTrialResults({
     renderer: "Sigma/Graphology",
     requestedShapes,
-    requiredActions: SIGMA_REQUIRED_TRIAL_ACTIONS,
+    requiredActions: requestedActions ? [...requestedActions] : SIGMA_REQUIRED_TRIAL_ACTIONS,
     records,
     errors,
     resultPath
@@ -150,7 +151,8 @@ async function writeResult(records: PerformanceRecord[], errors: string[]): Prom
     },
     artifact_dir: artifactDir,
     shapes: requestedShapes,
-    required_actions: SIGMA_REQUIRED_TRIAL_ACTIONS,
+    required_actions: requestedActions ? [...requestedActions] : SIGMA_REQUIRED_TRIAL_ACTIONS,
+    requested_actions: requestedActions ? [...requestedActions] : null,
     records,
     errors
   }, null, 2)}\n`);
@@ -474,28 +476,31 @@ async function measureShape(browser: BrowserLike, metadata: LargeGraphFixtureMet
     const renderStarted = await page.evaluate(() => performance.now());
     await page.waitForFunction(() => Boolean((window as any).__sigmaTrial?.ready));
     const renderFinished = await page.evaluate(() => performance.now());
-    records.push(await recordFromPage(page, metadata, {
+    if (!requestedActions || requestedActions.has("initial_render")) records.push(await recordFromPage(page, metadata, {
       action: "initial_render",
       duration_ms: renderFinished - renderStarted,
       pass: true,
       artifact_path: resultPath
     }));
     for (const action of [
-      () => measureHoverPreview(page, metadata),
-      () => measureWheelZoom(page, metadata),
-      () => measureDrag(page, metadata),
-      () => measureSearch(page, metadata),
-      () => measurePointSelect(page, metadata),
-      () => measureContainerSelect(page, metadata),
-      () => measureSpotlightAnimation(page, metadata),
-      () => measureDrawerOpen(page, metadata),
-      () => measureEnterCommunity(page, metadata),
-      () => measureReturnGlobal(page, metadata),
-      () => measureReturnGlobalTakeover(page, metadata)
+      { name: "hover_preview", run: () => measureHoverPreview(page, metadata) },
+      { name: "wheel_zoom", run: () => measureWheelZoom(page, metadata) },
+      { name: "drag", run: () => measureDrag(page, metadata) },
+      { name: "search_highlight", run: () => measureSearch(page, metadata) },
+      { name: "point_select", run: () => measurePointSelect(page, metadata) },
+      { name: "container_select", run: () => measureContainerSelect(page, metadata) },
+      { name: "spotlight_animation", run: () => measureSpotlightAnimation(page, metadata) },
+      { name: "drawer_open", run: () => measureDrawerOpen(page, metadata) },
+      { name: "enter_community", run: () => measureEnterCommunity(page, metadata) },
+      { name: "return_global", run: () => measureReturnGlobal(page, metadata) },
+      { name: "return_global_takeover", run: () => measureReturnGlobalTakeover(page, metadata) }
     ]) {
-      records.push(await safeMeasure(page, metadata, action));
+      if (requestedActions && !requestedActions.has(action.name)) continue;
+      records.push(await safeMeasure(page, metadata, action.run));
     }
-    records.push(await safeMeasure(page, metadata, () => measureRepeatedCycles(page, metadata)));
+    if (!requestedActions || requestedActions.has("repeated_search_community_drawer_cycles")) {
+      records.push(await safeMeasure(page, metadata, () => measureRepeatedCycles(page, metadata)));
+    }
   } finally {
     await page.close().catch(() => undefined);
   }
@@ -1035,6 +1040,14 @@ function escapeHtml(value: string): string {
     '"': "&quot;",
     "'": "&#39;"
   }[char] ?? char));
+}
+
+function parseActionList(value: string | undefined): Set<string> | null {
+  const actions = String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return actions.length ? new Set(actions) : null;
 }
 
 interface BrowserLike {
