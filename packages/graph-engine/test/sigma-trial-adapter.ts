@@ -1,5 +1,6 @@
 import {
   buildGraphRendererBehaviorContract,
+  type GraphRendererAdapterData,
   type GraphRendererBehaviorContract
 } from "../src/render";
 import type {
@@ -179,7 +180,7 @@ export function buildSigmaGraphologyTrialModel(data: GraphData, options: SigmaTr
 // Representative workbench-weight drawer payloads derived only from adapter
 // render data. The trial HTML renders these as a real summary card + list so the
 // drawer/overlay DOM cost is comparable to the production GraphSummaryDrawer.
-function buildTrialDrawer(adapter: ReturnType<typeof buildGraphRendererAdapterData>): SigmaTrialModel["drawer"] {
+function buildTrialDrawer(adapter: GraphRendererAdapterData): SigmaTrialModel["drawer"] {
   const adjacency = new Map<string, number>();
   for (const edge of adapter.edges) {
     adjacency.set(edge.sourceNodeId, (adjacency.get(edge.sourceNodeId) ?? 0) + 1);
