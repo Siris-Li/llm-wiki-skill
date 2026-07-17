@@ -12,42 +12,33 @@ const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   await page.goto(pathToFileURL(html).href);
-  await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+  await page.waitForSelector("[data-testid='offline-graph-root'][data-llm-wiki-graph-engine='mounted']");
 
-  const root = page.locator("[data-llm-wiki-graph-root='true']");
-  const totalNodes = await page.locator(".node").count();
-  const fullCards = await page.locator(".node:not(.is-compact):not(.is-point):not(.is-overview)").count();
-  assert.ok(totalNodes >= 120, `dense fixture should render many nodes, got ${totalNodes}`);
-  assert.ok(fullCards < totalNodes / 2, "dense fixture should not render every node as a full card");
+  const root = page.locator("[data-testid='offline-graph-root']");
+  assert.equal(await root.getAttribute("data-llm-wiki-graph-route"), "sigma-global");
 
-  const compact = page.locator(".node.is-compact").first();
-  await compact.waitFor();
-  await compact.hover();
-  await assertPreviewOpen(page, "compact node should open hover preview");
+  const renderer = page.locator(".sigma-global-renderer");
+  assert.equal(await renderer.getAttribute("data-node-count"), "240", "the user-visible canvas should receive every fixture node");
+  assert.equal(await renderer.getAttribute("data-edge-count"), "239", "the user-visible canvas should receive every fixture edge");
 
-  await page.mouse.move(20, 20);
-  await waitForPreviewState(page, "closed");
+  const visibleHitTargets = page.locator(".sigma-global-node-hit-target");
+  await visibleHitTargets.first().waitFor();
+  const labeledCount = await page.locator(".sigma-global-node-hit-target[data-label-visible='true']").count();
+  const pointCount = await page.locator(".sigma-global-node-hit-target[data-label-visible='false']").count();
+  assert.ok(pointCount > labeledCount * 2, `dense view should show mostly quiet points, got ${pointCount} points and ${labeledCount} labels`);
+  assert.ok(labeledCount > 0 && labeledCount <= 40, `dense view should retain a sparse readable label set, got ${labeledCount}`);
 
-  await page.waitForSelector(".node.is-point");
-  const point = page.locator(".node.is-point").first();
-  await point.evaluate((element) => {
-    element.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true, pointerType: "mouse" }));
-  });
-  await assertPreviewOpen(page, "point node should open hover preview");
+  const nodeCanvas = page.locator("canvas.sigma-nodes");
+  await nodeCanvas.waitFor();
+  const canvasBox = await nodeCanvas.boundingBox();
+  assert.ok(canvasBox && canvasBox.width > 1000 && canvasBox.height > 600, "the dense graph should paint into the visible canvas");
+
+  const labeled = page.locator(".sigma-global-node-hit-target[data-label-visible='true']").first();
+  const point = page.locator(".sigma-global-node-hit-target[data-label-visible='false']").first();
+  const labeledBox = await labeled.boundingBox();
+  const pointBox = await point.boundingBox();
+  assert.ok(labeledBox && pointBox && labeledBox.width > pointBox.width, "readable landmarks should remain larger than quiet points");
+  assert.equal(await point.getAttribute("type"), "button", "quiet points should retain a direct interaction target");
 } finally {
   await browser.close();
-}
-
-async function assertPreviewOpen(page, message) {
-  await page.waitForSelector(".graph-hover-preview[data-state='open']");
-  const preview = page.locator(".graph-hover-preview");
-  await preview.locator(".graph-hover-preview-title").waitFor();
-  await preview.locator(".graph-hover-preview-type").waitFor();
-  assert.equal(await preview.locator(".graph-hover-preview-summary").count(), 1, message);
-}
-
-async function waitForPreviewState(page, state) {
-  await page.waitForFunction((state) => {
-    return document.querySelector(".graph-hover-preview")?.dataset.state === state;
-  }, state);
 }
