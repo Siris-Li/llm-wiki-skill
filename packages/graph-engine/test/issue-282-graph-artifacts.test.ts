@@ -35,6 +35,7 @@ const RETIRED_ARTIFACT_MARKERS = [
   "fitAtlasViewport",
   "getAtlasModelBounds",
   "getCommunityNodeIds",
+  "getVisibleLinks",
   "getVisibleNodeIds",
   "getWikiStorageNamespace",
   "minimapPointToAtlasPoint",

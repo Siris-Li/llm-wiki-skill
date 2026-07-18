@@ -297,7 +297,7 @@ export function applyFocusMode<TNode extends VisibilityNode, TLink extends Visib
   for (const id of nodeIds) idSet.add(id);
   if (!nodeIds.length) return { node_ids: [], links: [] };
 
-  const scopedLinks = getVisibleLinks(links, nodeIds);
+  const scopedLinks = filterLinksToVisibleNodes(links, nodeIds);
   if (mode === "all") return { node_ids: nodeIds.slice(), links: scopedLinks };
 
   if (mode === "high_confidence") {
@@ -313,7 +313,7 @@ export function applyFocusMode<TNode extends VisibilityNode, TLink extends Visib
     }
     if (anchorNodeId && idSet.has(anchorNodeId)) strongIds.add(anchorNodeId);
     const strongNodeIds = nodeIds.filter((id) => strongIds.has(id));
-    return { node_ids: strongNodeIds, links: getVisibleLinks(strongLinks, strongNodeIds) };
+    return { node_ids: strongNodeIds, links: filterLinksToVisibleNodes(strongLinks, strongNodeIds) };
   }
 
   if (mode === "one_hop") {
@@ -326,7 +326,7 @@ export function applyFocusMode<TNode extends VisibilityNode, TLink extends Visib
       if (endpoints.targetId === hopAnchorNodeId && idSet.has(endpoints.sourceId)) hopIds.add(endpoints.sourceId);
     }
     const hopNodeIds = nodeIds.filter((id) => hopIds.has(id));
-    return { node_ids: hopNodeIds, links: getVisibleLinks(scopedLinks, hopNodeIds) };
+    return { node_ids: hopNodeIds, links: filterLinksToVisibleNodes(scopedLinks, hopNodeIds) };
   }
 
   if (mode === "core") {
@@ -347,7 +347,7 @@ export function applyFocusMode<TNode extends VisibilityNode, TLink extends Visib
       Math.min(nodeIds.length, Math.round(Number.isFinite(requestedLimit) ? requestedLimit : defaultLimit))
     );
     const coreNodeIds = sortNodeIdsByScore(nodeIds, scores, nodesById).slice(0, coreLimit);
-    return { node_ids: coreNodeIds, links: getVisibleLinks(scopedLinks, coreNodeIds) };
+    return { node_ids: coreNodeIds, links: filterLinksToVisibleNodes(scopedLinks, coreNodeIds) };
   }
 
   return { node_ids: nodeIds.slice(), links: scopedLinks };
@@ -362,7 +362,7 @@ export function resolveVisibleSnapshot<TNode extends SearchableVisibilityNode, T
     ? options.baseNodeIds.slice()
     : nodes.map((node) => node.id);
   const filteredLinks = filterLinksByTypes(links, options?.filters);
-  const scopedLinks = getVisibleLinks(filteredLinks, baseNodeIds);
+  const scopedLinks = filterLinksToVisibleNodes(filteredLinks, baseNodeIds);
   const focusResult = applyFocusMode({
     mode: options?.focusMode,
     nodes,
@@ -387,7 +387,7 @@ export function resolveVisibleSnapshot<TNode extends SearchableVisibilityNode, T
     node_ids: finalNodeIds,
     nodes: nodes.filter((node) => finalNodeIdSet.has(node.id)),
     links: finalNodeIds.length
-      ? getVisibleLinks(focusResult.links.length ? focusResult.links : scopedLinks, finalNodeIds)
+      ? filterLinksToVisibleNodes(focusResult.links.length ? focusResult.links : scopedLinks, finalNodeIds)
       : [],
     searchIndex
   };
@@ -397,7 +397,7 @@ export function shouldAutoOpenDrawer(mode: unknown): boolean {
   return mode === "path";
 }
 
-function getVisibleLinks<TLink extends VisibilityLink>(
+function filterLinksToVisibleNodes<TLink extends VisibilityLink>(
   allLinks: readonly TLink[],
   visibleIds: readonly NodeId[]
 ): TLink[] {
