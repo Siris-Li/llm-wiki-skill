@@ -3,7 +3,7 @@
 > 父票 #159 的 T7 收尾记录。本票只关闭 #283；父票 #159 由其整体流程另行确认关闭。
 
 日期：2026-07-18
-被测代码提交：`0db2d812`（其后仅更新本验收记录）
+被测代码提交：`6e096730`（其后仅更新本验收记录）
 基线：`26290333`（`origin/main`）
 环境：macOS arm64、Node v22.22.3、Playwright Chromium 149.0.7827.55
 
@@ -48,6 +48,7 @@
 - `npm run build -w @llm-wiki/graph-engine`
 - `npm run test -w @llm-wiki/graph-engine`
 - `node --import tsx --test packages/graph-engine/test/issue-282-graph-artifacts.test.ts packages/graph-engine/test/source-dependencies.test.ts packages/graph-engine/test/supported-exports.test.ts`
+- `npm run test:browser:main-flows -w @llm-wiki-agent/web`
 - `npm run quality-and-tests`
 - `bash tests/regression.sh`
 - `bash install.sh --dry-run --platform codex`
@@ -81,7 +82,7 @@
 - `src/architecture.ts` 的数据、布局、视角、renderer、gesture 与 facade 责任边界准确。
 - `src/render/model.ts` 保持“模型 → 布局/语义可见性 → 共享绘制策略 → 可绘制快照”的短数据流。
 - `src/facade.ts` 保持“共享准备成功后，只有 Sigma 专属故障才进入 DOM/SVG”的边界。
-- 代码审查发现并修复：产物扫描可能读取旧构建、退休标记与四个无消费者聚焦/抽屉入口未清零、离线既有主题记录缺少启动前预置读取、退休源路径与 learning 出口缺少长期不存在性门禁、语义可见性仍携带无用布局参数、Sigma 全局/社区多选与同页多图谱的 Escape 行为退化，以及一个测试 seam 命名不清。
+- 代码审查发现并修复：产物扫描可能读取旧构建、退休标记与四个无消费者聚焦/抽屉入口未清零、离线既有主题记录缺少启动前预置读取、退休源路径与 learning 出口缺少长期不存在性门禁、语义可见性仍携带无用布局参数、Sigma 全局/社区多选与同页多图谱的 Escape 行为退化、一个测试 seam 命名不清，以及远端浏览器验收结束时两个清理动作相撞的问题。
 - 覆盖审计补门禁后，#283 新增/迁移路径 8/8 均有测试落点。
 
 ## 问题分流
