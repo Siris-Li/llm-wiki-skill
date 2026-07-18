@@ -14,7 +14,36 @@ const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const ENGINE_DIST = path.join(REPO_ROOT, "packages/graph-engine/dist");
 const ESM_PATH = path.join(ENGINE_DIST, "engine.esm.js");
 const IIFE_PATH = path.join(ENGINE_DIST, "engine.iife.js");
+const DECLARATION_PATH = path.join(ENGINE_DIST, "index.d.ts");
+const ESM_MAP_PATH = path.join(ENGINE_DIST, "engine.esm.js.map");
+const IIFE_MAP_PATH = path.join(ENGINE_DIST, "engine.iife.js.map");
 const SUPPORTED_EXPORTS_PATH = path.join(import.meta.dirname, "fixtures/issue-159/supported-exports.json");
+const RETIRED_ARTIFACT_MARKERS = [
+  "legacy-helpers",
+  "appendQueueNote",
+  "atlasPointToMinimap",
+  "atlasViewportRect",
+  "atlasViewportToMinimapRect",
+  "centerAtlasViewportOnPoint",
+  "clampAtlasViewport",
+  "createSafeStorage",
+  "defaultLearning",
+  "defaultQueue",
+  "fitAtlasViewport",
+  "getAtlasModelBounds",
+  "getCommunityNodeIds",
+  "getVisibleNodeIds",
+  "getWikiStorageNamespace",
+  "minimapPointToAtlasPoint",
+  "normalizeAtlasViewport",
+  "normalizeLearning",
+  "normalizeQueue",
+  "resolveAtlasVisibleSnapshot",
+  "resolveInitialMode",
+  "summarizeQueue",
+  "toggleQueueFavorite",
+  "zoomAtlasViewport"
+] as const;
 // 产物字节下限:仅防"空壳/未真实构建",不断言精确字节数(随实现演进);精确值记入验收结论文档。
 const MIN_ARTIFACT_BYTES = 50_000;
 
@@ -47,6 +76,15 @@ describe("issue #282 graph artifacts (ESM + IIFE dual host)", () => {
     assert.ok(namespace, "IIFE artifact must register the LlmWikiGraphEngine global");
     for (const name of OFFLINE_HOST_GLOBALS) {
       assert.equal(typeof namespace[name], "function", `IIFE artifact must expose offline global ${name}`);
+    }
+  });
+
+  it("contains no retired toolbox path, export, or source-map source", () => {
+    for (const artifact of [ESM_PATH, IIFE_PATH, DECLARATION_PATH, ESM_MAP_PATH, IIFE_MAP_PATH]) {
+      const content = fs.readFileSync(artifact, "utf8");
+      for (const marker of RETIRED_ARTIFACT_MARKERS) {
+        assert.equal(content.includes(marker), false, `${path.basename(artifact)} must not contain ${marker}`);
+      }
     }
   });
 
