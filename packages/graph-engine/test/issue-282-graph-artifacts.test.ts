@@ -14,16 +14,18 @@ const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const ENGINE_DIST = path.join(REPO_ROOT, "packages/graph-engine/dist");
 const ESM_PATH = path.join(ENGINE_DIST, "engine.esm.js");
 const IIFE_PATH = path.join(ENGINE_DIST, "engine.iife.js");
+const SUPPORTED_EXPORTS_PATH = path.join(import.meta.dirname, "fixtures/issue-159/supported-exports.json");
+// 产物字节下限:仅防"空壳/未真实构建",不断言精确字节数(随实现演进);精确值记入验收结论文档。
+const MIN_ARTIFACT_BYTES = 50_000;
 
-// build-graph-html.sh 通过 window.LlmWikiGraphEngine.<name> 消费的离线宿主全局(fixtures/issue-159/supported-exports.json)。
-const OFFLINE_HOST_GLOBALS = [
-  "createGraphEngine",
-  "createGraphOfflineCapabilities",
-  "normalizeGraphLayoutFile",
-  "normalizeGraphPinMap"
-];
+// build-graph-html.sh 通过 window.LlmWikiGraphEngine.<name> 消费的离线宿主全局。
+// 从 supported-exports.json 派生(单一事实来源),避免与本测试硬编列表漂移。
+const OFFLINE_HOST_GLOBALS = (JSON.parse(fs.readFileSync(SUPPORTED_EXPORTS_PATH, "utf8")) as {
+  offlineHost: string[];
+}).offlineHost;
 
-// 工作台 ESM 入口里最关键的两个运行时入口(其余为类型)。
+// 工作台 ESM 入口的采样烟雾测试(两个高流量运行时入口);workbenchWeb 的完整导出面
+// (其余运行时函数与类型)由 supported-exports.test.ts 权威锁定,这里不重复。
 const WORKBENCH_RUNTIME_ENTRIES = ["createGraphEngine", "buildCommunityAggregationMarkers"];
 
 describe("issue #282 graph artifacts (ESM + IIFE dual host)", () => {
@@ -51,10 +53,8 @@ describe("issue #282 graph artifacts (ESM + IIFE dual host)", () => {
   it("records non-trivial byte sizes for both artifacts", () => {
     const esmSize = fs.statSync(ESM_PATH).size;
     const iifeSize = fs.statSync(IIFE_PATH).size;
-    // 下限只防“空壳/未真实构建”,不断言精确字节数(随实现演进);精确值记入验收结论文档。
-    const FLOOR = 50_000;
-    assert.ok(esmSize > FLOOR, `ESM artifact too small: ${esmSize} bytes`);
-    assert.ok(iifeSize > FLOOR, `IIFE artifact too small: ${iifeSize} bytes`);
+    assert.ok(esmSize > MIN_ARTIFACT_BYTES, `ESM artifact too small: ${esmSize} bytes`);
+    assert.ok(iifeSize > MIN_ARTIFACT_BYTES, `IIFE artifact too small: ${iifeSize} bytes`);
     // 供调试与结论文档参考(本机路径不出现在断言里)。
     console.log(`issue-282 artifact sizes: esm=${esmSize} iife=${iifeSize}`);
   });
