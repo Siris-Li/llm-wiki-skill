@@ -593,13 +593,15 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   }
 
   function isGraphRouteKeyboardTarget(target: EventTarget | null): boolean {
-    if (!target) return true;
+    if (!target) return false;
     const ownerDocument = input.container.ownerDocument;
-    if (target === ownerDocument || target === ownerDocument.body || target === ownerDocument.documentElement) return true;
-    if (isSigmaOfflineOverlayKeyboardTarget(target)) return true;
-    if (isSigmaRouteControlKeyboardTarget(target)) return false;
-    if (typeof shell.contains !== "function" || typeof (target as { nodeType?: unknown }).nodeType !== "number") return false;
-    return shell.contains(target as Node);
+    const keyboardTarget = target === ownerDocument || target === ownerDocument.body || target === ownerDocument.documentElement
+      ? ownerDocument.activeElement
+      : target;
+    if (!keyboardTarget || typeof (keyboardTarget as { nodeType?: unknown }).nodeType !== "number") return false;
+    if (typeof shell.contains !== "function" || !shell.contains(keyboardTarget as Node)) return false;
+    if (isSigmaOfflineOverlayKeyboardTarget(keyboardTarget)) return true;
+    return !isSigmaRouteControlKeyboardTarget(keyboardTarget);
   }
 
   function isSigmaOfflineOverlayKeyboardTarget(target: EventTarget): boolean {
