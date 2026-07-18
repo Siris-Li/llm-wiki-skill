@@ -20,10 +20,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 tmp_dir="$(mktemp -d -t issue-282-acceptance)"
-cleanup() {
-  rm -rf "$tmp_dir"
-}
-trap cleanup EXIT
+fixture_tmp=""
+trap 'rm -rf "$tmp_dir" "$fixture_tmp"' EXIT
 
 echo "== [0/5] 构建图谱引擎双产物 =="
 npm run build -w @llm-wiki/graph-engine > /dev/null
@@ -53,7 +51,6 @@ GRAPH_SIGMA_PRODUCTION_SHAPES=nodes-1000-sparse \
 
 echo "== [4/5] 离线宿主构建消费 IIFE(build-graph-html.sh 冒烟) =="
 fixture_tmp="$(mktemp -d -t issue-282-offline)"
-trap 'rm -rf "$tmp_dir" "$fixture_tmp"' EXIT
 cp -R tests/fixtures/graph-interactive-basic "$fixture_tmp/graph-interactive-basic"
 bash scripts/build-graph-html.sh "$fixture_tmp/graph-interactive-basic" > /dev/null
 offline_html="$fixture_tmp/graph-interactive-basic/wiki/knowledge-graph.html"
