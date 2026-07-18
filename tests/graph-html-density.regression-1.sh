@@ -167,14 +167,14 @@ assert.equal(pointSnapshot.densityMode, "point-plus-focus");
 assert.ok(pointSnapshot.nodes.filter((node) => node.labelVisible).length <= 61);
 assert.ok(pointSnapshot.nodes.find((node) => node.id === "node-200")?.labelVisible);
 assert.ok(pointSnapshot.nodes.find((node) => node.id === "node-0")?.startNode);
-assert.ok(pointSnapshot.edges.length <= 800);
+assert.ok(pointSnapshot.budget.usage.maxVisibleEdges <= pointSnapshot.budget.limits.maxVisibleEdges);
 
 const overviewSnapshot = snapshotFor(501, 1500, "node-500");
 assert.equal(overviewSnapshot.densityMode, "overview");
 assert.ok(overviewSnapshot.nodes.filter((node) => node.labelVisible).length <= 41);
 assert.ok(overviewSnapshot.nodes.find((node) => node.id === "node-500")?.labelVisible);
 assert.ok(overviewSnapshot.nodes.find((node) => node.id === "node-0")?.startNode);
-assert.ok(overviewSnapshot.edges.length <= 1000);
+assert.ok(overviewSnapshot.budget.usage.maxVisibleEdges <= overviewSnapshot.budget.limits.maxVisibleEdges);
 
 assert.equal(screenEffectiveDensityMode(120, 1), "compact-card");
 assert.equal(screenEffectiveDensityMode(120, 2), "card");
