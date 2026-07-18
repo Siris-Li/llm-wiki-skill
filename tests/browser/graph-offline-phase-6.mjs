@@ -347,12 +347,22 @@ async function assertBuiltInReader(page, id) {
 
 async function assertThemeToggle(page) {
   const before = await graphTheme(page);
-  await page.getByRole("button", { name: before === "shan-shui" ? "切换墨夜主题" : "切换山水主题" }).click();
-  const after = await waitForGraphThemeChange(page, before);
-  await page.getByRole("button", { name: after === "shan-shui" ? "切换墨夜主题" : "切换山水主题" }).click();
-  const restored = await waitForGraphThemeChange(page, after);
+  const key = await page.evaluate(() => window.__LLM_WIKI_GRAPH_THEME_KEY__ || "");
+  assert.notEqual(key, "", "offline host should expose its compatible theme storage key");
+  const seeded = before === "shan-shui" ? "mo-ye" : "shan-shui";
+  await page.evaluate(({ key, seeded }) => window.localStorage.setItem(key, seeded), { key, seeded });
+  await page.reload();
+  await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+  await page.waitForSelector(".node");
+  assert.equal(await graphTheme(page), seeded, "offline host should read an existing theme record");
+
+  await page.getByRole("button", { name: seeded === "shan-shui" ? "切换墨夜主题" : "切换山水主题" }).click();
+  const restored = await waitForGraphThemeChange(page, seeded);
   assert.equal(restored, before, "offline theme toggle should restore the original theme");
-  return { before, after, restored };
+  await page.reload();
+  await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+  assert.equal(await graphTheme(page), before, "offline theme toggle should persist after refresh");
+  return { key, before, seeded, restored };
 }
 
 async function assertGraphRootScrollResets(page) {

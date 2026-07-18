@@ -20,6 +20,9 @@ const IIFE_MAP_PATH = path.join(ENGINE_DIST, "engine.iife.js.map");
 const SUPPORTED_EXPORTS_PATH = path.join(import.meta.dirname, "fixtures/issue-159/supported-exports.json");
 const RETIRED_ARTIFACT_MARKERS = [
   "legacy-helpers",
+  "model/learning",
+  "model/queue",
+  "model/storage",
   "appendQueueNote",
   "atlasPointToMinimap",
   "atlasViewportRect",
