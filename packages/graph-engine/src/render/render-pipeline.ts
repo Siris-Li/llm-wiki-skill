@@ -473,9 +473,16 @@ export function createGraphRenderPipeline(
   function applyMotionFrame(positions: RenderPositionMap): void {
     if (context.destroyed) return;
     const snapshot = context.runtimeState.setPositions(positions);
-    const renderSelection = rendererSelectionFromRuntimeState(snapshot);
     const previousWorldBounds = context.graph.worldBounds;
     const size = viewportSize();
+    const nextGraph = {
+      ...context.graph,
+      nodes: context.graph.nodes.map((node) => {
+        const point = snapshot.positions[node.id] ?? node.point;
+        return { ...node, point };
+      })
+    };
+    context.graph = nextGraph;
     context.hitTargetResolver.refresh();
     const worldBoundsChanged = !sameWorldBounds(previousWorldBounds, context.graph.worldBounds);
     if (worldBoundsChanged && context.dom.svgElement) setGraphSvgViewBox(context.dom.svgElement, context.graph);

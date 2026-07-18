@@ -831,11 +831,17 @@ function createDomSvgFacadeRenderer(
   let routeOptions = input.options;
   const prepareRouteAdapterData = input.prepareAdapterData ?? prepareFacadeRendererAdapterData;
   const prepareDomSvgAdapterData: GraphRendererAdapterDataPreparation = (data, renderOptions) =>
-    prepareRouteAdapterData({ ...routeOptions, data }, renderOptions);
-  const preparedAdapterData = input.preparedAdapterData ?? prepareDomSvgAdapterData(
-    routeOptions.data,
-    renderPolicyOptionsForFacadeRoute(routeOptions, measuredRendererViewportSize(input.container))
+    prepareRouteAdapterData(domSvgRouteOptions({ ...routeOptions, data }), renderOptions);
+  const canReusePreparedSelection = !(
+    routeOptions.focus?.kind === "community"
+    && routeOptions.selection?.kind === "community"
   );
+  const preparedAdapterData = input.preparedAdapterData && canReusePreparedSelection
+    ? input.preparedAdapterData
+    : prepareDomSvgAdapterData(
+      routeOptions.data,
+      renderPolicyOptionsForFacadeRoute(domSvgRouteOptions(routeOptions), measuredRendererViewportSize(input.container))
+    );
   const renderer = createGraphRenderer(input.container, {
     data: input.options.data,
     preparedAdapterData,
@@ -869,14 +875,19 @@ function createDomSvgFacadeRenderer(
         pins: pins ?? routeOptions.pins
       };
       const nextPreparedAdapterData = prepareRouteAdapterData(
-        nextRouteOptions,
-        renderPolicyOptionsForFacadeRoute(nextRouteOptions, measuredRendererViewportSize(input.container))
+        domSvgRouteOptions(nextRouteOptions),
+        renderPolicyOptionsForFacadeRoute(domSvgRouteOptions(nextRouteOptions), measuredRendererViewportSize(input.container))
       );
       routeOptions = nextRouteOptions;
       renderer.setData(projection.data, pins, projection.regularSearchByNode, nextPreparedAdapterData);
     },
     setEdgeStyle() {}
   };
+}
+
+function domSvgRouteOptions(options: GraphFacadeRouteRendererOptions): GraphFacadeRouteRendererOptions {
+  if (options.focus?.kind !== "community" || options.selection?.kind !== "community") return options;
+  return { ...options, selection: null };
 }
 
 function prepareFacadeRendererAdapterData(

@@ -293,8 +293,36 @@ describe("graph renderer lifecycle", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     assert.equal(preparations, 1);
-    assert.ok(nodeElement(renderer, "a")?.dataset.liveX);
+    const liveX = nodeElement(renderer, "a")?.dataset.liveX;
+    assert.ok(liveX);
+    assert.equal(Number(liveX), renderer.graph.nodes.find((node) => node.id === "a")?.point.x);
     renderer.destroy();
+  });
+
+  it("does not expand a community selection into every DOM/SVG reading node", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state: {
+        ...projectGraphInput(graphDataForReturnGlobal()),
+        pins: {},
+        theme: "shan-shui",
+        focus: null,
+        selection: { kind: "community", id: "community-a" },
+        sourceCommunityId: "community-a"
+      },
+      factories: {
+        createSigmaGlobal: () => {
+          throw new Error("WebGL unavailable");
+        }
+      }
+    });
+
+    assert.equal(manager.routeId, "dom-svg-small-fallback");
+    manager.focusCommunity("community-a");
+    assert.equal(manager.routeId, "dom-svg-community");
+    assert.equal(collectNodes(container).filter((node) => node.getAttribute("aria-pressed") === "true").length, 0);
+    manager.destroy();
   });
 
   it("reports Graphology, WebGL, and canvas failures only after the shared Sigma snapshot is prepared", async () => {
