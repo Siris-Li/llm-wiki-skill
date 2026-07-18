@@ -264,6 +264,9 @@ cat > "$output_tmp" <<HTML_HEAD
       font-size: 14px;
       line-height: 1.6;
     }
+    .offline-storage-warning {
+      margin: 12px 18px 0;
+    }
     @media (max-width: 720px) {
       .offline-header { align-items: flex-start; flex-direction: column; }
       .offline-toolbar-host { width: 100%; flex-basis: auto; }
@@ -318,13 +321,31 @@ cat >> "$output_tmp" <<'HTML_BOOT'
       var toolbarHost = document.querySelector("[data-testid='offline-toolbar-host']");
       var dataEl = document.getElementById("graph-data");
       var layoutEl = document.getElementById("graph-layout");
+      var storageAvailable = true;
       function showError(message) {
         if (!root) return;
         root.innerHTML = "";
+        if (toolbarHost) toolbarHost.innerHTML = "";
+        var storageWarning = document.querySelector(".offline-storage-warning");
+        if (storageWarning) storageWarning.remove();
+        try {
+          if (window.__LLM_WIKI_GRAPH_ENGINE__) window.__LLM_WIKI_GRAPH_ENGINE__.destroy();
+        } catch (_) {}
+        window.__LLM_WIKI_GRAPH_ENGINE__ = undefined;
         var box = document.createElement("div");
         box.className = "offline-error";
         box.textContent = message;
         root.appendChild(box);
+      }
+      function showStorageRecoveryHint() {
+        if (document.querySelector(".offline-storage-warning")) return;
+        var main = document.querySelector(".offline-main");
+        if (!main || !root) return;
+        var box = document.createElement("div");
+        box.className = "offline-error offline-storage-warning";
+        box.setAttribute("role", "status");
+        box.textContent = "浏览器存储不可用。图谱仍可浏览，但刷新后主题与固定位置会恢复默认。";
+        main.insertBefore(box, root);
       }
       function parseJson(el, fallback) {
         try { return el && el.textContent ? JSON.parse(el.textContent) : fallback; }
@@ -355,13 +376,17 @@ cat >> "$output_tmp" <<'HTML_BOOT'
           var parsed = raw ? JSON.parse(raw) : null;
           return parsed && typeof parsed === "object" ? parsed : {};
         } catch (_) {
+          storageAvailable = false;
           return {};
         }
       }
       function writeStoredPins(key, pins) {
         try {
           if (window.localStorage) window.localStorage.setItem(key, JSON.stringify(pins || {}));
-        } catch (_) {}
+        } catch (_) {
+          storageAvailable = false;
+          showStorageRecoveryHint();
+        }
       }
       function normalizeBakedPins(layout) {
         return window.LlmWikiGraphEngine.normalizeGraphLayoutFile(layout).pins;
@@ -388,13 +413,17 @@ cat >> "$output_tmp" <<'HTML_BOOT'
           var value = window.localStorage && window.localStorage.getItem(themeKey);
           return value === "mo-ye" ? "mo-ye" : "shan-shui";
         } catch (_) {
+          storageAvailable = false;
           return "shan-shui";
         }
       }
       function writeStoredTheme(theme) {
         try {
           if (window.localStorage) window.localStorage.setItem(themeKey, theme);
-        } catch (_) {}
+        } catch (_) {
+          storageAvailable = false;
+          showStorageRecoveryHint();
+        }
       }
       function syncThemeToggle(theme) {
         if (!themeToggle) return;
@@ -403,30 +432,38 @@ cat >> "$output_tmp" <<'HTML_BOOT'
         themeToggle.setAttribute("aria-label", next === "mo-ye" ? "切换墨夜主题" : "切换山水主题");
       }
       var currentTheme = readStoredTheme();
-      var engine = window.LlmWikiGraphEngine.createGraphEngine(root, {
-        data: graphData,
-        pins: pins,
-        theme: currentTheme,
-        toolbarContainer: toolbarHost,
-        capabilities: window.LlmWikiGraphEngine.createGraphOfflineCapabilities({
-          persistPins: function (nextPins) {
-            writeStoredPins(key, nextPins || {});
-            return Promise.resolve();
-          }
-        }).capabilities
-      });
-      syncThemeToggle(currentTheme);
-      if (themeToggle) {
-        themeToggle.addEventListener("click", function () {
-          currentTheme = currentTheme === "mo-ye" ? "shan-shui" : "mo-ye";
-          engine.setTheme(currentTheme);
-          writeStoredTheme(currentTheme);
-          syncThemeToggle(currentTheme);
+      var engine = null;
+      try {
+        engine = window.LlmWikiGraphEngine.createGraphEngine(root, {
+          data: graphData,
+          pins: pins,
+          theme: currentTheme,
+          toolbarContainer: toolbarHost,
+          capabilities: window.LlmWikiGraphEngine.createGraphOfflineCapabilities({
+            persistPins: function (nextPins) {
+              writeStoredPins(key, nextPins || {});
+              return Promise.resolve();
+            }
+          }).capabilities
         });
+        syncThemeToggle(currentTheme);
+        if (themeToggle) {
+          themeToggle.addEventListener("click", function () {
+            currentTheme = currentTheme === "mo-ye" ? "shan-shui" : "mo-ye";
+            engine.setTheme(currentTheme);
+            writeStoredTheme(currentTheme);
+            syncThemeToggle(currentTheme);
+          });
+        }
+        window.__LLM_WIKI_GRAPH_ENGINE__ = engine;
+        window.__LLM_WIKI_GRAPH_PINS_KEY__ = key;
+        window.__LLM_WIKI_GRAPH_THEME_KEY__ = themeKey;
+        if (!storageAvailable) showStorageRecoveryHint();
+      } catch (_) {
+        try { if (engine) engine.destroy(); } catch (_) {}
+        showError("图谱引擎加载失败。请确认 HTML 文件完整生成。");
+        return;
       }
-      window.__LLM_WIKI_GRAPH_ENGINE__ = engine;
-      window.__LLM_WIKI_GRAPH_PINS_KEY__ = key;
-      window.__LLM_WIKI_GRAPH_THEME_KEY__ = themeKey;
     })();
   </script>
 </body>
