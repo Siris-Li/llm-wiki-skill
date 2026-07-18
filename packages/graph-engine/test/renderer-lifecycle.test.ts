@@ -442,6 +442,89 @@ describe("graph renderer lifecycle", () => {
     assert.equal(findByClass(reader, "graph-reader-body").length, 1);
   });
 
+  it("gives offline Sigma hosts readable node and multi-selection panels", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const clearRequests: number[] = [];
+    const renderer = createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      sigmaRuntime: fakeSigmaRouteRuntime(),
+      options: {
+        ...projectGraphInput(graphDataForReturnGlobal()),
+        pins: {},
+        theme: "shan-shui",
+        focus: null,
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: null,
+        sourceCommunityId: null,
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {
+          onSelectionClearRequested: () => clearRequests.push(1)
+        }
+      }
+    });
+
+    await Promise.resolve();
+    const reader = findByClass(container, "graph-reader")[0];
+    const selectionPanel = findByClass(container, "graph-selection-panel")[0];
+    assert.ok(reader);
+    assert.ok(selectionPanel);
+    assert.equal(reader.dataset.state, "closed");
+    assert.equal(selectionPanel.dataset.state, "closed");
+
+    renderer.select({ kind: "node", id: "a" });
+    assert.equal(reader.dataset.state, "open");
+    assert.equal(findByClass(reader, "graph-reader-title")[0]?.textContent, "Node a");
+    assert.equal(findByClass(reader, "graph-reader-body").length, 1);
+    assert.equal(selectionPanel.dataset.state, "closed");
+
+    renderer.select({ kind: "nodes", ids: ["a", "b"] });
+    assert.equal(reader.dataset.state, "closed");
+    assert.equal(selectionPanel.dataset.state, "open");
+    assert.equal(findByClass(selectionPanel, "graph-selection-page").length, 2);
+    assert.equal(findByClass(selectionPanel, "graph-selection-title")[0]?.textContent, "手动选区 · 2 页");
+
+    findByClass(selectionPanel, "graph-selection-close")[0]?.dispatch("click");
+    assert.equal(selectionPanel.dataset.state, "closed");
+    assert.deepEqual(clearRequests, [1]);
+
+    renderer.destroy();
+  });
+
+  it("leaves Sigma reading panels to hosts that provide their own reader", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const renderer = createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      sigmaRuntime: fakeSigmaRouteRuntime(),
+      options: {
+        ...projectGraphInput(graphDataForReturnGlobal()),
+        pins: {},
+        theme: "shan-shui",
+        focus: null,
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: null,
+        sourceCommunityId: null,
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {
+          onNodeOpen: () => {}
+        }
+      }
+    });
+
+    renderer.select({ kind: "node", id: "a" });
+    assert.equal(findByClass(container, "graph-reader").length, 0);
+    assert.equal(findByClass(container, "graph-selection-panel").length, 0);
+
+    renderer.destroy();
+  });
+
   it("projects hostile data through the public engine entry before routing and updates", () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");

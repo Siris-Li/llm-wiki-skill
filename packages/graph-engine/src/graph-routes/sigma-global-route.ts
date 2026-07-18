@@ -27,8 +27,9 @@ import {
   type GraphSearchResultControlItem
 } from "../render/controls";
 import { createEdgeHoverPreviewContent } from "../render/hover-card";
+import { renderOfflineReader, renderOfflineSelectionPanel } from "../render/offline-reader";
 import { ensureGraphRendererStyles } from "../render/render-styles";
-import { toggleNodeInSelection } from "../select";
+import { resolveSelectionForCapabilities, toggleNodeInSelection } from "../select";
 import { wikiPathForGraphNode } from "../graph-node";
 import { getThemeTokens, themeTokensToCssVars } from "../themes";
 import type { GraphFacadeRenderer, GraphFacadeRouteRendererFactoryInput, GraphFacadeRouteRendererOptions } from "../facade";
@@ -157,8 +158,17 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   edgeHoverPreview.className = "graph-hover-preview sigma-edge-hover-preview";
   edgeHoverPreview.dataset.state = "closed";
   shell.append(edgeHoverPreview);
+  const hasHostReader = Boolean(input.options.callbacks.onNodeOpen);
+  const offlineReader = hasHostReader ? null : input.container.ownerDocument.createElement("aside");
+  const offlineSelectionPanel = hasHostReader ? null : input.container.ownerDocument.createElement("aside");
+  if (offlineReader && offlineSelectionPanel) {
+    offlineReader.className = "graph-reader";
+    offlineSelectionPanel.className = "graph-selection-panel";
+    shell.append(offlineReader, offlineSelectionPanel);
+  }
   mountSigmaControls();
   syncHiddenReadingNodeHint();
+  syncOfflineOverlays();
   input.container.ownerDocument.addEventListener("keydown", handleDocumentKeyDown);
 
   const runtimeBoundary = input.sigmaRuntime
@@ -215,6 +225,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       currentSigmaAdapterData = nextAdapterData;
       syncVisibilityState();
       mountSigmaControls();
+      syncOfflineOverlays();
       renderPreparedSigmaAdapterData(viewportSize);
     },
     setEdgeStyle(style) {
@@ -229,6 +240,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       const node = options.data.nodes.find((item) => item.id === path || wikiPathForGraphNode(item) === path);
       clearSigmaTransientHoverState();
       options = { ...options, selection: node ? { kind: "node", id: node.id } : null };
+      syncOfflineOverlays();
       updateSigmaRenderer();
     },
     focusCommunity(id) {
@@ -310,6 +322,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       if (clearCommunityNodeInteraction()) return;
       clearSigmaTransientHoverState();
       options = { ...options, focus: null, selection: null, temporaryObject: null };
+      syncOfflineOverlays();
       updateSigmaRenderer();
     },
     setNodeFixed(id, mode) {
@@ -396,6 +409,54 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       sourceCommunityId: selection?.kind === "community" ? selection.id : options.sourceCommunityId
     };
     syncVisibilityState();
+    syncOfflineOverlays();
+    updateSigmaRenderer();
+  }
+
+  function syncOfflineOverlays(): void {
+    if (!offlineReader || !offlineSelectionPanel) return;
+    const nodeId = options.selection?.kind === "node" ? options.selection.id : null;
+    const rawNode = nodeId ? options.data.nodes.find((node) => node.id === nodeId) ?? null : null;
+    renderOfflineReader(input.container.ownerDocument, offlineReader, {
+      selected: rawNode
+        ? {
+            id: rawNode.id,
+            label: String(rawNode.label || rawNode.title || rawNode.id),
+            type: String(rawNode.type || "entity"),
+            content: rawNode.content == null ? undefined : String(rawNode.content),
+            summary: rawNode.summary == null ? undefined : String(rawNode.summary)
+          }
+        : null,
+      rawNode,
+      onClose: clearOfflineInteraction
+    });
+
+    const panelSelection = options.selection?.kind === "node" ? null : options.selection;
+    const resolved = panelSelection
+      ? resolveSelectionForCapabilities(options.data, panelSelection, { canAsk: false })
+      : null;
+    renderOfflineSelectionPanel(input.container.ownerDocument, offlineSelectionPanel, {
+      selection: panelSelection,
+      selectedNodes: resolved
+        ? resolved.nodeIds
+          .map((id) => options.data.nodes.find((node) => node.id === id))
+          .filter((node): node is GraphNode => Boolean(node))
+        : [],
+      facts: resolved?.facts ?? null,
+      onClose: clearOfflineInteraction
+    });
+  }
+
+  function clearOfflineInteraction(): void {
+    options = {
+      ...options,
+      selection: null,
+      temporaryObject: null,
+      sourceCommunityId: options.focus?.kind === "community" ? options.sourceCommunityId : null
+    };
+    input.options.callbacks.onSelectionClearRequested?.();
+    syncVisibilityState();
+    syncOfflineOverlays();
     updateSigmaRenderer();
   }
 
@@ -503,6 +564,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     input.options.callbacks.onSelectionClearRequested?.();
     syncSigmaEdgeHoverPreview();
     syncVisibilityState();
+    syncOfflineOverlays();
     updateSigmaRenderer();
     return true;
   }
