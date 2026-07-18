@@ -31,7 +31,9 @@ const invalidPositions: RenderPositionMap = { a: { x: "1", y: 2 } };
 
 const typedModel = buildAtlasModel(graph);
 const typedLayout = deriveAtlasLayout(typedModel);
-const typedVisible = resolveRenderPolicyVisibility(typedModel, typedLayout);
+const typedVisible = resolveRenderPolicyVisibility(typedModel);
+// @ts-expect-error semantic visibility must not depend on layout output.
+resolveRenderPolicyVisibility(typedModel, typedLayout);
 // @ts-expect-error lookup tables require an absence check for unknown IDs.
 typedModel.byId.missing.label;
 // @ts-expect-error community lookups require an absence check for unknown IDs.
@@ -51,7 +53,7 @@ const incompleteAtlasInsights: AtlasInsights = { surprising_connections: [], iso
 // @ts-expect-error normalized nodes cannot be replaced with raw graph nodes.
 typedModel.nodes.push(graph.nodes[0]);
 // @ts-expect-error visible model filters are booleans, not arbitrary strings.
-resolveRenderPolicyVisibility(typedModel, typedLayout, { typeFilters: { entity: "yes" } });
+resolveRenderPolicyVisibility(typedModel, { typeFilters: { entity: "yes" } });
 // @ts-expect-error semantic type filters are booleans, not arbitrary strings.
 resolveAtlasSemanticVisibility(typedModel, { typeFilters: { entity: "yes" } });
 

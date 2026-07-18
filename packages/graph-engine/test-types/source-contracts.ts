@@ -62,7 +62,6 @@ const typedCommunity: AtlasCommunity | undefined = typedModel.communityById.c1;
 const typedInsights: AtlasInsights = typedModel.insights;
 const typedVisible: AtlasVisibleSnapshot = resolveRenderPolicyVisibility(
   typedModel,
-  typedLayout,
   {}
 );
 const semanticVisibility: AtlasSemanticVisibility = resolveAtlasSemanticVisibility(typedModel, {

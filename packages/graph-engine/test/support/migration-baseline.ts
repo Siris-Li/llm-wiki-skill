@@ -24,12 +24,12 @@ export function captureSupportedMigrationBehavior(input: GraphData): unknown {
   const model = buildAtlasModel(input);
   const modelBeforeLayout = stableClone(model);
   const layout = deriveAtlasLayout(model);
-  const visible = resolveAtlasRenderVisibility(model, layout, {
+  const visible = resolveAtlasRenderVisibility(model, {
     activeCommunityId: "all",
     selectedNodeId: "alpha",
     filters: { INFERRED: true, AMBIGUOUS: true, EXTRACTED: true, UNVERIFIED: false }
   });
-  const atlasSearch = resolveAtlasRenderVisibility(model, layout, {
+  const atlasSearch = resolveAtlasRenderVisibility(model, {
     activeCommunityId: "all",
     query: "only-atlas-501"
   });

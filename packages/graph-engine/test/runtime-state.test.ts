@@ -167,7 +167,7 @@ describe("atlas state contract", () => {
   it("uses one visible snapshot for filters, search, density, and starts", () => {
     const model = buildAtlasModel(rawGraph);
     const layout = deriveAtlasLayout(model);
-    const snapshot = resolveAtlasRenderVisibility(model, layout, {
+    const snapshot = resolveAtlasRenderVisibility(model, {
       activeCommunityId: "method",
       focusMode: "all",
       query: "素材",
@@ -187,7 +187,7 @@ describe("atlas state contract", () => {
   it("keeps recommended starts and high-priority nodes readable as atlas index slips", () => {
     const model = buildAtlasModel(rawGraph);
     const layout = deriveAtlasLayout(model);
-    const snapshot = resolveAtlasRenderVisibility(model, layout, {
+    const snapshot = resolveAtlasRenderVisibility(model, {
       activeCommunityId: "all",
       focusMode: "all",
       query: "",
@@ -204,14 +204,14 @@ describe("atlas state contract", () => {
   it("preserves only explicit selections inside the current visible atlas range", () => {
     const model = buildAtlasModel(rawGraph);
     const layout = deriveAtlasLayout(model);
-    const methodSnapshot = resolveAtlasRenderVisibility(model, layout, {
+    const methodSnapshot = resolveAtlasRenderVisibility(model, {
       activeCommunityId: "source",
       focusMode: "all",
       query: "",
       selectedNodeId: "a",
       filters: { EXTRACTED: true, INFERRED: true, AMBIGUOUS: true, UNVERIFIED: true }
     });
-    const emptySnapshot = resolveAtlasRenderVisibility(model, layout, {
+    const emptySnapshot = resolveAtlasRenderVisibility(model, {
       activeCommunityId: "source",
       focusMode: "all",
       query: "没有结果",
@@ -227,7 +227,7 @@ describe("atlas state contract", () => {
   it("does not auto-select a recommended start on first open", () => {
     const model = buildAtlasModel(rawGraph);
     const layout = deriveAtlasLayout(model);
-    const snapshot = resolveAtlasRenderVisibility(model, layout, {
+    const snapshot = resolveAtlasRenderVisibility(model, {
       activeCommunityId: "all",
       focusMode: "all",
       query: "",

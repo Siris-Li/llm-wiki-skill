@@ -515,13 +515,12 @@ function structureSkeletonBudget(nodeCount: number): number {
 
 export function resolveRenderPolicyVisibility(
   model: AtlasModel,
-  layout: AtlasLayout,
   options: RenderPolicyOptions = {}
 ): AtlasVisibleSnapshot {
   const selectedNodeIds = resolveSelectedNodeIds(model, options);
   const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null;
   const focus = normalizeGraphFocus(options.focus, model);
-  return resolveAtlasRenderVisibility(model, layout, {
+  return resolveAtlasRenderVisibility(model, {
     activeCommunityId: focus?.kind === "community" ? focus.id : "all",
     selectedNodeId
   });
@@ -529,7 +528,6 @@ export function resolveRenderPolicyVisibility(
 
 export function resolveAtlasRenderVisibility(
   model: AtlasModel,
-  _layout: AtlasLayout,
   uiState: AtlasVisibleState = {}
 ): AtlasVisibleSnapshot {
   const activeCommunityId = uiState.activeCommunityId == null ? "all" : String(uiState.activeCommunityId);

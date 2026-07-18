@@ -24,11 +24,11 @@ describe("render model assembly", () => {
         assert.equal(input, model);
         return layout;
       },
-      resolveVisibility(inputModel, inputLayout) {
+      resolveVisibility(inputModel, inputOptions) {
         calls.push("visibility");
         assert.equal(inputModel, model);
         assert.equal(inputModel.searchIndex, model.searchIndex, "the model's Atlas search index is reused");
-        assert.equal(inputLayout, layout);
+        assert.deepEqual(inputOptions, {}, "semantic visibility receives policy options without layout coupling");
         return visibility;
       },
       resolvePolicy(input) {
