@@ -14,9 +14,13 @@ const browser = await chromium.launch(executablePath ? { executablePath } : {});
 
 try {
   await checkCorruptedEmbeddedData(browser);
+  assert.equal(browser.contexts().length, 0, "corrupted-data journey should release its browser context");
   await checkUnavailableStorage(browser, "methods");
+  assert.equal(browser.contexts().length, 0, "storage-method journey should release its browser context");
   await checkUnavailableStorage(browser, "property");
+  assert.equal(browser.contexts().length, 0, "storage-property journey should release its browser context");
   await checkSharedCreationFailure(browser);
+  assert.equal(browser.contexts().length, 0, "creation-failure journey should release its browser context");
 } finally {
   await browser.close();
   fs.rmSync(tempDir, { recursive: true, force: true });
@@ -28,49 +32,55 @@ async function checkCorruptedEmbeddedData(browser) {
     "$1\n{not valid graph data\n$2",
   );
   const file = writeVariant("corrupt-data.html", html);
-  const { page, pageErrors } = await openOffline(browser, file);
-  await page.locator(".offline-error").getByText("图谱数据格式不完整").waitFor();
-  assert.equal(pageErrors.length, 0, "corrupted embedded data should not leak an uncaught exception");
-  await assertNoInteractiveGraph(page, "corrupted embedded data");
-  await page.close();
+  const { context, page, pageErrors } = await openOffline(browser, file);
+  try {
+    await page.locator(".offline-error").getByText("图谱数据格式不完整").waitFor();
+    assert.equal(pageErrors.length, 0, "corrupted embedded data should not leak an uncaught exception");
+    await assertNoInteractiveGraph(page, "corrupted embedded data");
+  } finally {
+    await context.close();
+  }
 }
 
 async function checkUnavailableStorage(browser, failureMode) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 840 } });
-  await context.setOffline(true);
-  await context.addInitScript((mode) => {
-    if (mode === "property") {
-      Object.defineProperty(window, "localStorage", {
+  try {
+    await context.setOffline(true);
+    await context.addInitScript((mode) => {
+      if (mode === "property") {
+        Object.defineProperty(window, "localStorage", {
+          configurable: true,
+          get() {
+            throw new DOMException("Storage is unavailable", "SecurityError");
+          },
+        });
+        return;
+      }
+      Object.defineProperty(Storage.prototype, "getItem", {
         configurable: true,
-        get() {
+        value() {
           throw new DOMException("Storage is unavailable", "SecurityError");
         },
       });
-      return;
-    }
-    Object.defineProperty(Storage.prototype, "getItem", {
-      configurable: true,
-      value() {
-        throw new DOMException("Storage is unavailable", "SecurityError");
-      },
-    });
-    Object.defineProperty(Storage.prototype, "setItem", {
-      configurable: true,
-      value() {
-        throw new DOMException("Storage is unavailable", "SecurityError");
-      },
-    });
-  }, failureMode);
-  const pageErrors = [];
-  const page = await context.newPage();
-  page.on("pageerror", (error) => pageErrors.push(error));
-  await page.goto(pathToFileURL(offlineHtml).href, { waitUntil: "load" });
-  await page.locator(".offline-storage-warning").getByText("浏览器存储不可用").waitFor();
-  await page.waitForSelector(".llm-wiki-graph-engine");
-  assert.equal(pageErrors.length, 0, `${failureMode} storage failure should not leak an uncaught exception`);
-  assert.ok(await page.locator("canvas").count() > 0, `${failureMode} storage failure should keep the graph canvas readable`);
-  assert.equal(await page.evaluate(() => Boolean(window.__LLM_WIKI_GRAPH_ENGINE__)), true, `${failureMode} storage failure should keep the engine usable`);
-  await context.close();
+      Object.defineProperty(Storage.prototype, "setItem", {
+        configurable: true,
+        value() {
+          throw new DOMException("Storage is unavailable", "SecurityError");
+        },
+      });
+    }, failureMode);
+    const pageErrors = [];
+    const page = await context.newPage();
+    page.on("pageerror", (error) => pageErrors.push(error));
+    await page.goto(pathToFileURL(offlineHtml).href, { waitUntil: "load" });
+    await page.locator(".offline-storage-warning").getByText("浏览器存储不可用").waitFor();
+    await page.waitForSelector(".llm-wiki-graph-engine");
+    assert.equal(pageErrors.length, 0, `${failureMode} storage failure should not leak an uncaught exception`);
+    assert.ok(await page.locator("canvas").count() > 0, `${failureMode} storage failure should keep the graph canvas readable`);
+    assert.equal(await page.evaluate(() => Boolean(window.__LLM_WIKI_GRAPH_ENGINE__)), true, `${failureMode} storage failure should keep the engine usable`);
+  } finally {
+    await context.close();
+  }
 }
 
 async function checkSharedCreationFailure(browser) {
@@ -82,11 +92,14 @@ async function checkSharedCreationFailure(browser) {
   );
   assert.ok(html.includes(injectedFailure), "fixture should inject a deterministic shared creation failure");
   const file = writeVariant("shared-creation-failure.html", html);
-  const { page, pageErrors } = await openOffline(browser, file);
-  await page.locator(".offline-error").getByText("图谱引擎加载失败").waitFor();
-  assert.equal(pageErrors.length, 0, "shared creation failure should not leak an uncaught exception");
-  await assertNoInteractiveGraph(page, "shared creation failure");
-  await page.close();
+  const { context, page, pageErrors } = await openOffline(browser, file);
+  try {
+    await page.locator(".offline-error").getByText("图谱引擎加载失败").waitFor();
+    assert.equal(pageErrors.length, 0, "shared creation failure should not leak an uncaught exception");
+    await assertNoInteractiveGraph(page, "shared creation failure");
+  } finally {
+    await context.close();
+  }
 }
 
 async function openOffline(browser, file) {
@@ -96,8 +109,7 @@ async function openOffline(browser, file) {
   const page = await context.newPage();
   page.on("pageerror", (error) => pageErrors.push(error));
   await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
-  page.once("close", () => void context.close());
-  return { page, pageErrors };
+  return { context, page, pageErrors };
 }
 
 async function assertNoInteractiveGraph(page, label) {
