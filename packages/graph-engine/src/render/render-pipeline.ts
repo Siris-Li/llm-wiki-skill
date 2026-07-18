@@ -21,7 +21,7 @@ import {
   type RendererViewport,
   type ViewportFrameCommitOptions
 } from "./viewport";
-import { defaultGraphViewportSize, sideExitWorldAnchor, worldPointDeltaToLayerDelta } from "./geometry";
+import { defaultGraphViewportSize, sideExitWorldAnchor, worldPointDeltaToLayerDelta, worldPointToCssPercentPoint } from "./geometry";
 import { createCommunityLegend, createGraphToolbar, createSearchControl } from "./controls";
 import { nextToolbarPanelState, writeToolbarPanelState } from "./toolbar";
 import { resolveGraphSearchState } from "./search";
@@ -39,7 +39,7 @@ export interface GraphRenderCommands {
   resetViewState(): void;
   requestGlobalReset(): void;
   openSearch(): void;
-  applySearchQuery(query: string): void;
+  applySearchQuery(query: string, preparedMatchIds?: NodeId[]): void;
   focusNextSearchResult(): void;
   focusPreviousSearchResult(): void;
   activateSearchResult(): void;
@@ -146,7 +146,6 @@ export function createGraphRenderPipeline(
     context.typeFilters = normalizeAvailableTypeFilters(context.typeFilters, context.baseTypeFilters);
     context.availableTypeFilters = context.typeFilters;
     context.graph.typeFilters = context.typeFilters;
-    context.searchIndex = undefined;
     syncVisibilityState();
     context.pinState = new PinState(context.graph, context.runtimeState.snapshot().pins);
     context.hitTargetResolver.refresh();
@@ -196,7 +195,10 @@ export function createGraphRenderPipeline(
     context.lastEffectiveDensityMode = null;
     mountSearchControl();
     mountGraphToolbar();
-    options.commands.applySearchQuery(context.searchQuery);
+    options.commands.applySearchQuery(
+      context.searchQuery,
+      context.adapterData.nodes.filter((node) => node.searchHit).map((node) => node.id)
+    );
     applyTypeFilters(context.typeFilters);
     applyCommunityHover();
     applyRelationFocus();
@@ -474,22 +476,6 @@ export function createGraphRenderPipeline(
     const renderSelection = rendererSelectionFromRuntimeState(snapshot);
     const previousWorldBounds = context.graph.worldBounds;
     const size = viewportSize();
-    context.adapterData = context.prepareAdapterData(context.data, {
-      pins: snapshot.pins,
-      theme: context.theme,
-      selectedNodeId: renderSelection.selectedNodeId,
-      selection: renderSelection.selection,
-      focus: snapshot.focus,
-      typeFilters: {},
-      searchResultIds: currentSearchResultIds(),
-      positions: snapshot.positions,
-      aggregationMarkers: context.aggregationMarkers,
-      pathCache: context.pathCache,
-      viewportSize: size,
-      sourceCommunityId: context.sourceCommunityId,
-      temporaryObject: context.temporaryObject
-    });
-    context.graph = context.adapterData.renderable;
     context.hitTargetResolver.refresh();
     const worldBoundsChanged = !sameWorldBounds(previousWorldBounds, context.graph.worldBounds);
     if (worldBoundsChanged && context.dom.svgElement) setGraphSvgViewBox(context.dom.svgElement, context.graph);
@@ -499,8 +485,9 @@ export function createGraphRenderPipeline(
       const base = context.dom.basePoints.get(node.id);
       if (!element || !base) continue;
       if (worldBoundsChanged) {
-        element.style.left = `${node.x}%`;
-        element.style.top = `${node.y}%`;
+        const cssPoint = worldPointToCssPercentPoint(node.point, context.graph.worldBounds);
+        element.style.left = `${cssPoint.x}%`;
+        element.style.top = `${cssPoint.y}%`;
         element.style.translate = "calc(-50% + 0px) calc(-50% + 0px)";
         context.dom.basePoints.set(node.id, node.point);
       } else {

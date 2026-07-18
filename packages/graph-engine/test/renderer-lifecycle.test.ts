@@ -17,7 +17,6 @@ import {
   type GraphFacadeRenderer,
   type GraphFacadeRouteRendererFactoryInput
 } from "../src/facade";
-import { prepareRendererAdapterDataForTest } from "./support/prepared-renderer-adapter";
 
 describe("graph renderer lifecycle", () => {
   it("builds one drawing model for initial DOM creation and for each data update", () => {
@@ -107,17 +106,12 @@ describe("graph renderer lifecycle", () => {
 
   it("lets real Sigma and DOM/SVG consumers use the same prepared adapter result", async () => {
     const preparedData = graphDataForReturnGlobal();
-    const preparedAdapterData = prepareRendererAdapterDataForTest(preparedData, {
+    preparedData.nodes.push({ id: "d", label: "Node d", type: "topic", community: "community-a", source_path: "wiki/d.md", content: "Node d detail" });
+    const preparedAdapterData = prepareGraphRendererAdapterData(preparedData, {
       pins: { "wiki/a.md": { x: 120, y: 140, coordinateSpace: "world" } },
       selection: { kind: "node", id: "a" },
       searchResultIds: ["b"],
-      aggregationMarkers: [{
-        id: "prepared-aggregation",
-        label: "Prepared aggregation",
-        communityId: "community-a",
-        nodeIds: ["a", "b"],
-        totalCount: 7
-      }],
+      aggregationMarkers: [],
       viewportSize: { width: 960, height: 640 },
       sourceCommunityId: "community-a"
     });
@@ -130,6 +124,7 @@ describe("graph renderer lifecycle", () => {
       preparedAdapterData,
       prepareAdapterData: () => preparedAdapterData,
       theme: "shan-shui",
+      searchQuery: "prepared search",
       live: false
     });
     const sigmaRuntime = fakeSigmaRouteRuntime();
@@ -158,10 +153,10 @@ describe("graph renderer lifecycle", () => {
 
     const sigmaGraph = sigmaRuntime.instances[0]?.getGraph();
     assert.ok(sigmaGraph);
-    assert.deepEqual(sigmaGraph.nodes(), ["a", "b", "c"]);
+    assert.deepEqual(sigmaGraph.nodes(), ["a", "b", "c", "d"]);
     assert.deepEqual(
       collectNodes(domRenderer.root as unknown as FakeElement).map((node) => node.dataset.id),
-      ["a", "b", "c"]
+      ["a", "b", "c", "d"]
     );
     for (const adapterNode of preparedAdapterData.nodes) {
       const sigmaNode = sigmaGraph.getNodeAttributes(adapterNode.id);
@@ -171,18 +166,16 @@ describe("graph renderer lifecycle", () => {
         {
           id: domNode.dataset.id,
           point: { x: Number(domNode.dataset.worldX), y: Number(domNode.dataset.worldY) },
-          selected: domNode.dataset.adapterSelected === "true",
-          searchHit: domNode.dataset.adapterSearchHit === "true",
-          pinned: domNode.dataset.adapterPinned === "true",
-          aggregationIds: (domNode.dataset.adapterAggregationIds || "").split(",").filter(Boolean)
+          selected: domNode.getAttribute("aria-pressed") === "true",
+          searchHit: domNode.dataset.searchState === "match",
+          pinned: domNode.dataset.pinned === "true"
         },
         {
           id: adapterNode.id,
           point: adapterNode.point,
           selected: adapterNode.selected,
           searchHit: adapterNode.searchHit,
-          pinned: adapterNode.pinHint.pinned,
-          aggregationIds: adapterNode.aggregationIds
+          pinned: adapterNode.pinHint.pinned
         }
       );
       assert.deepEqual(
@@ -206,29 +199,9 @@ describe("graph renderer lifecycle", () => {
     }
     assert.deepEqual(sigmaGraph.getAttribute("counts"), preparedAdapterData.counts);
     assert.deepEqual(sigmaGraph.getAttribute("selection"), preparedAdapterData.selection);
-    const domAggregations = JSON.parse(domRenderer.root.dataset.adapterAggregations || "[]") as Array<Record<string, unknown>>;
-    assert.deepEqual(domAggregations, [{
-      id: "prepared-aggregation",
-      communityId: "community-a",
-      nodeIds: ["a", "b"],
-      selectedNodeIds: ["a"],
-      searchResultIds: ["b"],
-      pinnedNodeIds: ["a"],
-      totalCount: 7,
-      selected: true
-    }]);
-    const sigmaAggregations = sigmaGraph.getAttribute("aggregations") as Array<Record<string, unknown>>;
-    assert.deepEqual({
-      nodeIds: sigmaAggregations[0]?.nodeIds,
-      searchResultIds: sigmaAggregations[0]?.searchResultIds,
-      pinnedNodeIds: sigmaAggregations[0]?.pinnedNodeIds,
-      totalCount: sigmaAggregations[0]?.totalCount
-    }, {
-      nodeIds: ["a", "b"],
-      searchResultIds: ["b"],
-      pinnedNodeIds: ["a"],
-      totalCount: 7
-    });
+    assert.deepEqual(domRenderer.graph.counts, preparedAdapterData.counts);
+    assert.equal(domRenderer.root.dataset.adapterCounts, undefined);
+    assert.deepEqual(sigmaGraph.getAttribute("aggregations"), []);
 
     domRenderer.destroy();
     sigmaRenderer.destroy();
@@ -270,12 +243,13 @@ describe("graph renderer lifecycle", () => {
     const container = ownerDocument.createElement("div");
     const failure = new Error("shared update preparation failed");
     let fallbackCreates = 0;
+    const managerState = {
+      ...projectGraphInput(graphData(["initial"])),
+      pins: {},
+      theme: "shan-shui" as const
+    };
     const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
-      state: {
-        ...projectGraphInput(graphData(["initial"])),
-        pins: {},
-        theme: "shan-shui"
-      },
+      state: managerState,
       prepareAdapterData: (options, renderOptions) => {
         if (options.data.nodes.some((node) => node.id === "failing-update")) throw failure;
         return prepareGraphRendererAdapterData(options.data, renderOptions);
@@ -296,7 +270,31 @@ describe("graph renderer lifecycle", () => {
     assert.equal(manager.routeId, "sigma-global");
     assert.equal(manager.sigmaKnownUnavailable, false);
     assert.equal(fallbackCreates, 0);
+    assert.deepEqual(managerState.data.nodes.map((node) => node.id), ["initial"]);
+    manager.setData(projectGraphInput(graphData(["recovered-update"])));
+    assert.deepEqual(managerState.data.nodes.map((node) => node.id), ["recovered-update"]);
     manager.destroy();
+  });
+
+  it("keeps shared preparation out of live movement frames", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    let preparations = 0;
+    const data = graphDataForReturnGlobal();
+    const renderer = createGraphRenderer(container as unknown as HTMLElement, {
+      data,
+      theme: "shan-shui",
+      prepareAdapterData: (nextData, renderOptions) => {
+        preparations += 1;
+        return prepareGraphRendererAdapterData(nextData, renderOptions);
+      }
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.equal(preparations, 1);
+    assert.ok(nodeElement(renderer, "a")?.dataset.liveX);
+    renderer.destroy();
   });
 
   it("reports Graphology, WebGL, and canvas failures only after the shared Sigma snapshot is prepared", async () => {

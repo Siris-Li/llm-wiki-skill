@@ -198,14 +198,24 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       return Boolean(renderer?.isDragging());
     },
     setData(projection, pins) {
-      options = applyScopedSearch(clearStaleCommunitySelection({
+      const nextOptions = applyScopedSearch(clearStaleCommunitySelection({
         ...options,
         ...projection,
         pins: pins || options.pins
       }));
+      const viewportSize = sigmaRouteViewportSize();
+      const nextAdapterData = adapterDataForSigmaRoute(
+        nextOptions,
+        hoverNodeId,
+        typeFiltersForOptions(nextOptions),
+        viewportSize,
+        input.prepareAdapterData
+      );
+      options = nextOptions;
+      currentSigmaAdapterData = nextAdapterData;
       syncVisibilityState();
       mountSigmaControls();
-      updateSigmaRenderer();
+      renderPreparedSigmaAdapterData(viewportSize);
     },
     setEdgeStyle(style) {
       options = { ...options, edgeStyle: style };
@@ -354,6 +364,10 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       viewportSize,
       input.prepareAdapterData
     );
+    renderPreparedSigmaAdapterData(viewportSize);
+  }
+
+  function renderPreparedSigmaAdapterData(viewportSize?: RendererViewportSize): void {
     syncSigmaEdgeHoverPreview();
     syncHiddenReadingNodeHint();
     if (!renderer || destroyed) return;

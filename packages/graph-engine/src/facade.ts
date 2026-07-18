@@ -84,7 +84,11 @@ export function createGraphStandaloneCapabilities(): GraphFacadeCapabilityContra
 export interface GraphFacadeRenderer {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
-  setData(projection: GraphInputProjection, pins?: GraphEngineOptions["pins"]): void;
+  setData(
+    projection: GraphInputProjection,
+    pins?: GraphEngineOptions["pins"],
+    preparedAdapterData?: GraphRendererAdapterData
+  ): void;
   setEdgeStyle(style: GraphEdgeStyleOptions): void;
   setAggregationMarkers(markers: NonNullable<GraphEngineOptions["aggregationMarkers"]>): void;
   focusNode(path: string): void;
@@ -339,6 +343,8 @@ export function createGraphFacadeRouteManager(
     },
     setData(projection, pins) {
       assertActive();
+      const previousState = { ...state };
+      try {
       const { data, regularSearchByNode } = projection;
       state.data = data;
       state.regularSearchByNode = regularSearchByNode;
@@ -402,6 +408,10 @@ export function createGraphFacadeRouteManager(
         if (routeId === "sigma-global") currentRenderer().resetView();
       }
       currentRenderer().setData(projection, pins);
+      } catch (error) {
+        Object.assign(state, previousState);
+        throw error;
+      }
     },
     setEdgeStyle(style) {
       assertActive();
@@ -853,12 +863,17 @@ function createDomSvgFacadeRenderer(
   return {
     ...renderer,
     setData(projection, pins) {
-      routeOptions = {
+      const nextRouteOptions = {
         ...routeOptions,
         ...projection,
         pins: pins ?? routeOptions.pins
       };
-      renderer.setData(projection.data, pins, projection.regularSearchByNode);
+      const nextPreparedAdapterData = prepareRouteAdapterData(
+        nextRouteOptions,
+        renderPolicyOptionsForFacadeRoute(nextRouteOptions, measuredRendererViewportSize(input.container))
+      );
+      routeOptions = nextRouteOptions;
+      renderer.setData(projection.data, pins, projection.regularSearchByNode, nextPreparedAdapterData);
     },
     setEdgeStyle() {}
   };

@@ -19,7 +19,10 @@ import {
 } from "./render-policy";
 import { createRenderPathCache } from "../layout/edge-geometry";
 import { buildRenderableGraph } from "./model";
-import { buildGraphRendererAdapterData, type GraphRendererAdapterData } from "./adapter";
+import {
+  buildGraphRendererAdapterData,
+  type GraphRendererAdapterData
+} from "./adapter";
 import { resolveGraphRendererSemantics } from "../summary";
 import {
   DEFAULT_RENDERER_VIEWPORT,
@@ -92,7 +95,12 @@ export interface GraphRenderer {
   render(next?: RenderNextOptions): void;
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
-  setData(data: GraphData, pins?: PinMap, regularSearchByNode?: RegularSearchNodeProjection[]): void;
+  setData(
+    data: GraphData,
+    pins?: PinMap,
+    regularSearchByNode?: RegularSearchNodeProjection[],
+    preparedAdapterData?: GraphRendererAdapterData
+  ): void;
   setAggregationMarkers(markers: GraphAggregationMarker[]): void;
   setTheme(theme: ThemeId): void;
   setPins(pins: PinMap): void;
@@ -114,8 +122,15 @@ export interface GraphRenderer {
 
 export function createGraphRenderer(container: HTMLElement, options: GraphRendererOptions): GraphRenderer {
   const initialProjection = rendererGraphInput(options.data, options.regularSearchByNode);
-  const initialPins = options.pins || {};
-  const initialFocus = options.focus || null;
+  const initialPins = options.preparedAdapterData
+    ? pinsFromPreparedAdapterData(options.preparedAdapterData)
+    : options.pins || {};
+  const initialFocus = options.preparedAdapterData
+    ? options.preparedAdapterData.renderable.focus
+    : options.focus || null;
+  const initialSourceCommunityId = options.preparedAdapterData
+    ? options.preparedAdapterData.sourceCommunityId
+    : options.sourceCommunityId ?? null;
   const pathCache = createRenderPathCache();
   const root = createGraphRootElement(container);
   const toolbarContainer = options.toolbarContainer || root;
@@ -136,7 +151,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     pathCache,
     aggregationMarkers: options.aggregationMarkers,
     viewportSize: initialRendererViewportSize,
-    sourceCommunityId: options.sourceCommunityId ?? null
+    sourceCommunityId: initialSourceCommunityId
   };
   const prepareAdapterData = options.prepareAdapterData ?? prepareGraphRendererAdapterData;
   const initialAdapterData = options.preparedAdapterData
@@ -212,7 +227,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       onDragActiveChange: options.onDragActiveChange,
       onVisibilityStateChange: options.onVisibilityStateChange
     },
-    sourceCommunityId: options.sourceCommunityId ?? null
+    sourceCommunityId: initialSourceCommunityId
   };
   presenter = createGraphOverlaysPresenter(context, {
     viewportSize: () => pipeline.viewportSize(),
@@ -242,7 +257,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
         controller.resetViewState();
       },
       openSearch: () => controller.openSearch(),
-      applySearchQuery: (query) => controller.applySearchQuery(query),
+      applySearchQuery: (query, preparedMatchIds) => controller.applySearchQuery(query, preparedMatchIds),
       focusNextSearchResult: () => controller.focusNextSearchResult(),
       focusPreviousSearchResult: () => controller.focusPreviousSearchResult(),
       activateSearchResult: () => controller.activateSearchResult(),
@@ -298,7 +313,18 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     delete context.root.dataset.diffNewCommunities;
     delete context.root.dataset.diffReducedMotion;
     applyOptionChanges(next);
-    pipeline.rebuildAndPaint();
+    if (next.preparedAdapterData) {
+      context.adapterData = next.preparedAdapterData;
+      context.graph = next.preparedAdapterData.renderable;
+      context.runtimeState.setPositions(positionsFromRenderableGraph(context.graph));
+      context.runtimeState.setSelection(
+        next.preparedAdapterData.selection.input,
+        next.preparedAdapterData.selection.input ? "selection-panel" : null
+      );
+      pipeline.paintPreparedGraph();
+    } else {
+      pipeline.rebuildAndPaint();
+    }
   }
 
   function applyOptionChanges(next: RenderNextOptions): void {
@@ -306,8 +332,10 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       const projection = rendererGraphInput(next.data, next.regularSearchByNode);
       context.data = projection.data;
       context.regularSearchByNode = projection.regularSearchByNode;
+      context.searchIndex = undefined;
     } else if (Object.hasOwn(next, "regularSearchByNode") && next.regularSearchByNode) {
       context.regularSearchByNode = next.regularSearchByNode;
+      context.searchIndex = undefined;
     }
     context.theme = next.theme || context.theme;
     if (Object.hasOwn(next, "typeFilters")) context.typeFilters = next.typeFilters || {};
@@ -340,9 +368,19 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     isDragging(): boolean {
       return context.runtimeState.snapshot().activeGesture?.kind === "node-drag";
     },
-    setData(nextData: GraphData, nextPins?: PinMap, regularSearchByNode?: RegularSearchNodeProjection[]): void {
+    setData(
+      nextData: GraphData,
+      nextPins?: PinMap,
+      regularSearchByNode?: RegularSearchNodeProjection[],
+      preparedAdapterData?: GraphRendererAdapterData
+    ): void {
       controller.clearTransientInteractionForDataRefresh();
-      render({ data: nextData, regularSearchByNode, pins: nextPins ?? context.runtimeState.snapshot().pins });
+      render({
+        data: nextData,
+        regularSearchByNode,
+        pins: nextPins ?? context.runtimeState.snapshot().pins,
+        preparedAdapterData
+      });
     },
     setAggregationMarkers(markers: GraphAggregationMarker[]): void {
       render({ aggregationMarkers: markers });
@@ -433,6 +471,13 @@ export function prepareGraphRendererAdapterData(
     ...resolveGraphRendererSemantics(data, options),
     sourceCommunityId: options.sourceCommunityId ?? null
   });
+}
+
+function pinsFromPreparedAdapterData(adapterData: GraphRendererAdapterData): PinMap {
+  return Object.fromEntries(adapterData.nodes.flatMap((node) => {
+    const hint = node.pinHint;
+    return hint.pinned && hint.position ? [[hint.wikiPath, hint.position]] : [];
+  }));
 }
 
 function rendererGraphInput(

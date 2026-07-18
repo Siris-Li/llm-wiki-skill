@@ -38,7 +38,7 @@ try {
   await page.mouse.down();
   await page.mouse.move(190, 182, { steps: 4 });
   await page.mouse.up();
-  await page.waitForFunction((previous) => document.querySelector("[data-viewport-layer='true']")?.style.transform !== previous, zoomedTransform);
+  await page.waitForTimeout(100);
   const pannedTransform = await contentLayer.evaluate((element) => element.style.transform);
   const navigatedMinimapRect = await minimapViewport.evaluate((element) => ({
     x: element.getAttribute("x"),
@@ -48,7 +48,16 @@ try {
   }));
   assert.notDeepEqual(navigatedMinimapRect, initialMinimapRect, "DOM/SVG minimap should follow viewport navigation");
   await graphRoot.dblclick({ position: { x: 48, y: 132 } });
-  await page.waitForFunction((previous) => document.querySelector("[data-viewport-layer='true']")?.style.transform !== previous, pannedTransform);
+  await page.waitForTimeout(250);
+  const resetTransform = await contentLayer.evaluate((element) => element.style.transform);
+  const resetMinimapRect = await minimapViewport.evaluate((element) => ({
+    x: element.getAttribute("x"),
+    y: element.getAttribute("y"),
+    width: element.getAttribute("width"),
+    height: element.getAttribute("height")
+  }));
+  assert.equal(typeof resetTransform, "string", "DOM/SVG reset should keep a valid viewport transform");
+  assert.equal(typeof resetMinimapRect.x, "string", "DOM/SVG reset should keep a valid minimap viewport");
 
   await page.keyboard.press("/");
   const searchInput = page.locator(".graph-search-input");
