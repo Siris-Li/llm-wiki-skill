@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { pngNonBackgroundPixelCount } from "./lib/png-pixels.mjs";
+import { sigmaCanvasNonBackgroundPixelCount } from "./lib/png-pixels.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -1289,23 +1289,7 @@ async function assertSigmaCanvasPixels(page, label) {
   const root = page.locator('.sigma-global-renderer[data-renderer="sigma-global"]');
   assert.ok(await root.locator("canvas").count() > 0, `${label} should have Sigma canvases`);
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  const previousStyles = await root.evaluate((element) => {
-    const overlay = element.querySelector(".sigma-global-overlay");
-    const snapshot = {
-      background: element.style.background,
-      overlayVisibility: overlay?.style.visibility || ""
-    };
-    element.style.background = "rgb(1, 2, 3)";
-    if (overlay) overlay.style.visibility = "hidden";
-    return snapshot;
-  });
-  const screenshot = await root.screenshot({ type: "png" });
-  await root.evaluate((element, previous) => {
-    const overlay = element.querySelector(".sigma-global-overlay");
-    element.style.background = previous.background;
-    if (overlay) overlay.style.visibility = previous.overlayVisibility;
-  }, previousStyles);
-  const nonBackgroundPixels = pngNonBackgroundPixelCount(screenshot, [1, 2, 3]);
+  const nonBackgroundPixels = await sigmaCanvasNonBackgroundPixelCount(root);
   assert.ok(nonBackgroundPixels > 20, `${label} should have nonblank Sigma canvas pixels, got ${nonBackgroundPixels}`);
   return { nonBackgroundPixels };
 }

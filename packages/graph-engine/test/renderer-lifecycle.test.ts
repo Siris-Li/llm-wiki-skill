@@ -491,6 +491,13 @@ describe("graph renderer lifecycle", () => {
     assert.equal(selectionPanel.dataset.state, "closed");
     assert.deepEqual(clearRequests, [1]);
 
+    renderer.select({ kind: "community", id: "community-a" });
+    const enterCommunity = findByClass(selectionPanel, "graph-selection-enter-community")[0];
+    assert.equal(enterCommunity?.textContent, "进入社区");
+    enterCommunity?.dispatch("click");
+    assert.equal(selectionPanel.dataset.state, "closed");
+    assert.deepEqual(clearRequests, [1, 1]);
+
     renderer.destroy();
   });
 

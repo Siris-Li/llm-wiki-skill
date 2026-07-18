@@ -56,6 +56,28 @@ export function pngNonBackgroundPixelCount(png, background) {
   return count;
 }
 
+export async function sigmaCanvasNonBackgroundPixelCount(root, background = [1, 2, 3]) {
+  const previousStyles = await root.evaluate((element) => {
+    const overlay = element.querySelector(".sigma-global-overlay");
+    const snapshot = {
+      background: element.style.background,
+      overlayVisibility: overlay?.style.visibility || "",
+    };
+    element.style.background = "rgb(1, 2, 3)";
+    if (overlay) overlay.style.visibility = "hidden";
+    return snapshot;
+  });
+  try {
+    return pngNonBackgroundPixelCount(await root.screenshot({ type: "png" }), background);
+  } finally {
+    await root.evaluate((element, previous) => {
+      const overlay = element.querySelector(".sigma-global-overlay");
+      element.style.background = previous.background;
+      if (overlay) overlay.style.visibility = previous.overlayVisibility;
+    }, previousStyles);
+  }
+}
+
 function unfilterPngByte(filter, raw, left, up, upperLeft) {
   if (filter === 0) return raw;
   if (filter === 1) return (raw + left) & 255;

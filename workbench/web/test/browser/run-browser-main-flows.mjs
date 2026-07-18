@@ -41,6 +41,16 @@ const commands = [
 		args: ["--import", "tsx", "--test", "workbench/web/test/browser/browser-main-flows.test.ts"],
 		cwd: REPO_ROOT,
 	},
+	{
+		command: "bash",
+		args: ["tests/graph-host-errors.regression-1.sh"],
+		cwd: REPO_ROOT,
+	},
+	{
+		command: "bash",
+		args: ["tests/graph-offline-host-acceptance.regression-1.sh"],
+		cwd: REPO_ROOT,
+	},
 ];
 
 await rm(FAILURE_DIR, { recursive: true, force: true });

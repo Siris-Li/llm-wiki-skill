@@ -26,6 +26,7 @@ export interface OfflineSelectionPanelInput {
     communityCount: number;
     isolatedCount: number;
   } | null;
+  onEnterCommunity?: (communityId: string) => void;
 }
 
 export function renderOfflineReader(
@@ -149,7 +150,24 @@ export function renderOfflineSelectionPanel(
     list.appendChild(item);
   }
 
+  const enterCommunity = input.selection.kind === "community" && input.onEnterCommunity
+    ? createEnterCommunityButton(ownerDocument, input.selection.id, input.onEnterCommunity)
+    : null;
   panel.append(header, hint, facts, list);
+  if (enterCommunity) panel.appendChild(enterCommunity);
+}
+
+function createEnterCommunityButton(
+  ownerDocument: Document,
+  communityId: string,
+  onEnterCommunity: (communityId: string) => void
+): HTMLButtonElement {
+  const button = ownerDocument.createElement("button");
+  button.type = "button";
+  button.className = "graph-selection-enter-community";
+  button.textContent = "进入社区";
+  button.addEventListener("click", () => onEnterCommunity(communityId));
+  return button;
 }
 
 function createSelectionFact(ownerDocument: Document, label: string, value: number): HTMLElement {

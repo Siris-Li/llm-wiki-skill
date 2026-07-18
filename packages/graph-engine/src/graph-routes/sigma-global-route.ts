@@ -244,14 +244,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       updateSigmaRenderer();
     },
     focusCommunity(id) {
-      clearSigmaTransientHoverState();
-      ensureCommunityTypeFilterScope(id);
-      const temporaryObject = temporaryObjectCompatibleWithCommunity(options.data, options.temporaryObject, id)
-        ? options.temporaryObject
-        : null;
-      options = applyScopedSearch({ ...options, focus: { kind: "community", id }, sourceCommunityId: id, temporaryObject });
-      syncVisibilityState();
-      updateSigmaRenderer();
+      focusSigmaCommunity(id);
     },
     setSourceCommunityContext(id) {
       options = { ...options, sourceCommunityId: id };
@@ -443,8 +436,25 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
           .filter((node): node is GraphNode => Boolean(node))
         : [],
       facts: resolved?.facts ?? null,
-      onClose: clearOfflineInteraction
+      onClose: clearOfflineInteraction,
+      onEnterCommunity: (communityId) => {
+        options = { ...options, selection: null };
+        input.options.callbacks.onSelectionClearRequested?.();
+        focusSigmaCommunity(communityId);
+      }
     });
+  }
+
+  function focusSigmaCommunity(id: string): void {
+    clearSigmaTransientHoverState();
+    ensureCommunityTypeFilterScope(id);
+    const temporaryObject = temporaryObjectCompatibleWithCommunity(options.data, options.temporaryObject, id)
+      ? options.temporaryObject
+      : null;
+    options = applyScopedSearch({ ...options, focus: { kind: "community", id }, sourceCommunityId: id, temporaryObject });
+    syncVisibilityState();
+    syncOfflineOverlays();
+    updateSigmaRenderer();
   }
 
   function clearOfflineInteraction(): void {

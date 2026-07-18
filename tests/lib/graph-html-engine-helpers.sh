@@ -61,6 +61,22 @@ build_graph_html_fixture() {
         || fail "build-graph-html.sh should succeed on basic fixture"
 }
 
+graph_browser_chrome_executable() {
+    local configured="${1:-}"
+
+    if [ -n "$configured" ]; then
+        printf '%s\n' "$configured"
+        return 0
+    fi
+    if [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
+        printf '%s\n' "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    fi
+}
+
+graph_browser_playwright_node_path() {
+    npx --yes -p playwright -c 'node -e "const path=require(\"path\"); console.log(path.dirname(process.env.PATH.split(\":\")[0]))"'
+}
+
 build_graph_html_fixture_with_layout() {
     local tmp_dir="$1"
 

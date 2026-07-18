@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
-import { pngNonBackgroundPixelCount } from "./lib/png-pixels.mjs";
+import { sigmaCanvasNonBackgroundPixelCount } from "./lib/png-pixels.mjs";
 
 const html = process.env.GRAPH_OFFLINE_ACCEPTANCE_HTML || "";
 const executablePath = process.env.GRAPH_OFFLINE_ACCEPTANCE_CHROME_EXECUTABLE || undefined;
@@ -44,7 +44,10 @@ async function runOfflineJourney(viewport, label) {
   await page.locator('.community-legend-row[data-community-id="t1"]').click();
   await page.waitForSelector('.graph-selection-panel[data-state="open"]');
   await page.locator(".graph-selection-title", { hasText: "社区选区" }).waitFor();
-  await page.getByRole("button", { name: "关闭选区面板" }).click();
+  await page.getByRole("button", { name: "进入社区" }).click();
+  await page.waitForSelector('.sigma-global-renderer[data-community-focus-id="t1"]');
+  await page.waitForSelector('.graph-selection-panel[data-state="closed"]');
+  assert.equal(await page.locator('.sigma-global-route[data-route="sigma-global"]').count(), 1, `${label} community reading should stay on Sigma`);
 
   await page.locator('.sigma-global-node-hit-target[data-node-id="A"]').click();
   await page.waitForSelector('.graph-reader[data-state="open"]');
@@ -190,22 +193,6 @@ async function assertNonblankSigmaCanvas(page, label) {
   const root = page.locator('.sigma-global-renderer[data-renderer="sigma-global"]');
   const signal = await root.evaluate((element) => ({ canvasCount: element.querySelectorAll("canvas").length }));
   assert.ok(signal.canvasCount > 0, `${label} should have Sigma canvases`);
-  const previousStyles = await root.evaluate((element) => {
-    const overlay = element.querySelector(".sigma-global-overlay");
-    const snapshot = {
-      background: element.style.background,
-      overlayVisibility: overlay?.style.visibility || "",
-    };
-    element.style.background = "rgb(1, 2, 3)";
-    if (overlay) overlay.style.visibility = "hidden";
-    return snapshot;
-  });
-  const screenshot = await root.screenshot({ type: "png" });
-  await root.evaluate((element, previous) => {
-    const overlay = element.querySelector(".sigma-global-overlay");
-    element.style.background = previous.background;
-    if (overlay) overlay.style.visibility = previous.overlayVisibility;
-  }, previousStyles);
-  const nonBackgroundPixels = pngNonBackgroundPixelCount(screenshot, [1, 2, 3]);
+  const nonBackgroundPixels = await sigmaCanvasNonBackgroundPixelCount(root);
   assert.ok(nonBackgroundPixels > 20, `${label} should have nonblank Sigma canvas pixels, got ${nonBackgroundPixels}`);
 }

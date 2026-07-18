@@ -454,6 +454,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 			await page.getByText("2 节点 · 0 关联", { exact: true }).waitFor();
 			assert.equal(await page.locator(".sidebar-error").count(), 0);
 			await cdp.detach();
+			await assertSharedGraphHostFailures(context, webOrigin);
 
 		// Messages: controlled terminal failures, direct failures, cancellation, disconnect recovery, and normal recovery.
 		await page.getByRole("tab", { name: "对话" }).click();
@@ -576,6 +577,34 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		throw error;
 	}
 });
+
+async function assertSharedGraphHostFailures(context: BrowserContext, webOrigin: string): Promise<void> {
+	for (const failure of [
+		{ mode: "shared-create-failure", message: "共享图谱首次创建失败" },
+		{ mode: "shared-update-failure", message: "共享图谱更新失败" },
+	] as const) {
+		const page = await context.newPage();
+		const pageErrors: Error[] = [];
+		page.on("pageerror", (error) => pageErrors.push(error));
+		try {
+			await page.goto(`${webOrigin}?graphTest=${failure.mode}`, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+			const graphTab = page.getByRole("tab", { name: "图谱" });
+			if (await graphTab.getAttribute("aria-selected") !== "true") await graphTab.click();
+			if (failure.mode === "shared-update-failure") {
+				await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+				await page.locator(".sigma-global-node-hit-target").first().waitFor({ timeout: START_TIMEOUT_MS });
+				await page.getByRole("button", { name: "重构" }).click();
+			}
+			await page.locator("[data-graph-status='error']").waitFor({ timeout: START_TIMEOUT_MS });
+			await page.getByText(failure.message, { exact: false }).waitFor();
+			assert.equal(await page.locator(".graph-host").evaluate((host) => host.childElementCount), 0, `${failure.mode} should clear the stale graph`);
+			assert.equal(await page.locator(".llm-wiki-graph-engine, [data-llm-wiki-graph-root='true']").count(), 0, `${failure.mode} should not leave an engine or fallback route`);
+			assert.equal(pageErrors.length, 0, `${failure.mode} should not leak browser exceptions: ${pageErrors.map(String).join("; ")}`);
+		} finally {
+			await page.close();
+		}
+	}
+}
 
 async function startBackend(home: string, port: number, selectedDirectory: string, networkProbeFile: string) {
 	return startNetworkGuardedProcess(
