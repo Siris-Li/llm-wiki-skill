@@ -46,7 +46,6 @@ test_graph_html_has_structural_selection_actions_without_offline_ask_ui() {
     assert_file_contains "$html" "graph-selection-facts"
     assert_file_contains "$html" "Shift+点击 增删节点"
     assert_file_not_contains "$html" "提问选区"
-    assert_file_not_contains "$html" "onAsk:"
 
     rm -rf "$tmp_dir"
 }

@@ -342,7 +342,7 @@ test_upgrade_refreshes_claude_companion_skill() {
     assert_text_contains "$output" "/llm-wiki-upgrade"
     assert_path_exists "$tmp_dir/home/.claude/skills/llm-wiki-upgrade/SKILL.md"
     assert_file_contains "$tmp_dir/home/.claude/skills/llm-wiki-upgrade/SKILL.md" "--with-optional-adapters"
-    assert_file_contains "$tmp_dir/home/.claude/skills/llm-wiki-upgrade/SKILL.md" 'bash "$TMP_DIR/llm-wiki-skill/install.sh" --upgrade --platform claude'
+    assert_file_contains "$tmp_dir/home/.claude/skills/llm-wiki-upgrade/SKILL.md" 'bash "$TMP_DIR/llm-wiki-skill/install.sh" --upgrade --target-dir "$SKILL_DIR" --platform claude'
 }
 
 test_init_fills_language_placeholder() {
@@ -623,13 +623,11 @@ test_platform_entries_mention_hook_and_wiki_context() {
     assert_file_contains "$REPO_ROOT/platforms/hermes/README.md" "~/.hermes/skills/llm-wiki"
 }
 
-test_root_entries_explain_core_only_optional_and_target_dir() {
-    assert_file_contains "$REPO_ROOT/AGENTS.md" "--with-optional-adapters"
-    assert_file_contains "$REPO_ROOT/AGENTS.md" "默认只准备知识库核心主线"
-    assert_file_contains "$REPO_ROOT/AGENTS.md" "--target-dir <你的技能目录>/llm-wiki"
-    assert_file_contains "$REPO_ROOT/CLAUDE.md" "/llm-wiki-upgrade"
-    assert_file_contains "$REPO_ROOT/CLAUDE.md" "--with-optional-adapters"
-    assert_file_contains "$REPO_ROOT/CLAUDE.md" "默认只准备知识库核心主线"
+test_root_entries_route_skill_maintenance_details() {
+    assert_file_contains "$REPO_ROOT/AGENTS.md" "docs/agents/skill-maintenance.md"
+    assert_file_contains "$REPO_ROOT/CLAUDE.md" "docs/agents/skill-maintenance.md"
+    assert_file_contains "$REPO_ROOT/docs/agents/skill-maintenance.md" "--with-optional-adapters"
+    assert_file_contains "$REPO_ROOT/docs/agents/skill-maintenance.md" "Default installs only the core knowledge-base workflow"
     assert_file_contains "$REPO_ROOT/HERMES.md" "--platform hermes"
     assert_file_contains "$REPO_ROOT/HERMES.md" "~/.hermes/skills/llm-wiki"
 }
@@ -674,7 +672,7 @@ test_readme_sections() {
 test_claude_upgrade_companion_source_exists() {
     assert_path_exists "$REPO_ROOT/platforms/claude/companions/llm-wiki-upgrade/SKILL.md"
     assert_file_contains "$REPO_ROOT/platforms/claude/companions/llm-wiki-upgrade/SKILL.md" "--with-optional-adapters"
-    assert_file_contains "$REPO_ROOT/platforms/claude/companions/llm-wiki-upgrade/SKILL.md" 'bash "$TMP_DIR/llm-wiki-skill/install.sh" --upgrade --platform claude'
+    assert_file_contains "$REPO_ROOT/platforms/claude/companions/llm-wiki-upgrade/SKILL.md" 'bash "$TMP_DIR/llm-wiki-skill/install.sh" --upgrade --target-dir "$SKILL_DIR" --platform claude'
 }
 
 test_uv_tool_install_failure_is_graceful() {
@@ -1380,7 +1378,7 @@ test_hook_session_start_returns_empty_json_without_wiki
 test_hook_session_start_without_wiki_does_not_require_python
 test_install_registers_and_uninstalls_session_start_hook
 test_platform_entries_mention_hook_and_wiki_context
-test_root_entries_explain_core_only_optional_and_target_dir
+test_root_entries_route_skill_maintenance_details
 test_skill_md_phase5_lint_mentions_confidence_audit
 test_changelog_mentions_wiki_core_upgrades
 test_readme_sections
