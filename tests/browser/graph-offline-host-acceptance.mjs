@@ -64,12 +64,12 @@ async function runOfflineJourney(viewport, label) {
   const themeAfter = await waitForThemeChange(page, themeBefore);
   assert.notEqual(themeAfter, themeBefore, `${label} should switch theme`);
 
-  const fixed = await page.evaluate(() => window.__LLM_WIKI_GRAPH_ENGINE__.setNodeFixed("A", "fix"));
-  assert.equal(fixed, true, `${label} should fix a node`);
-  await page.waitForSelector('.sigma-global-node-hit-target[data-node-id="A"][data-pinned="true"]');
+  const drag = await dragVisibleNodeToPin(page);
+  assert.ok(drag.distance > 10, `${label} drag should visibly move the pinned node: ${JSON.stringify(drag)}`);
+  await page.waitForSelector(`.sigma-global-node-hit-target[data-node-id="${drag.nodeId}"][data-pinned="true"]`);
   await page.reload({ waitUntil: "load" });
   await waitForSigma(page);
-  await page.waitForSelector('.sigma-global-node-hit-target[data-node-id="A"][data-pinned="true"]');
+  await page.waitForSelector(`.sigma-global-node-hit-target[data-node-id="${drag.nodeId}"][data-pinned="true"]`);
   assert.equal(await graphTheme(page), themeAfter, `${label} should restore the theme after refresh`);
   await assertNonblankSigmaCanvas(page, `${label} refreshed graph`);
 
@@ -105,6 +105,76 @@ async function graphTheme(page) {
 async function waitForThemeChange(page, previous) {
   await page.waitForFunction((previous) => document.querySelector(".llm-wiki-graph-engine")?.getAttribute("data-theme") !== previous, previous);
   return graphTheme(page);
+}
+
+async function dragVisibleNodeToPin(page) {
+  const { nodeId, point: start } = await stableVisibleNodeDragTarget(page);
+  const target = page.locator(`.sigma-global-node-hit-target[data-node-id="${nodeId}"]`);
+  await target.waitFor();
+  const before = await target.boundingBox();
+  assert.ok(before, `offline drag needs a visible node target for ${nodeId}`);
+  const beforeCenter = { x: before.x + before.width / 2, y: before.y + before.height / 2 };
+  const viewport = page.viewportSize();
+  assert.ok(viewport, "offline drag needs a fixed browser viewport");
+  const dx = start.x < viewport.width / 2 ? 48 : -48;
+  const dy = start.y < viewport.height / 2 ? 30 : -30;
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + dx / 2, start.y + dy / 2, { steps: 6 });
+  await page.mouse.move(start.x + dx, start.y + dy, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForSelector(`.sigma-global-node-hit-target[data-node-id="${nodeId}"][data-pinned="true"]`);
+  const after = await target.boundingBox();
+  assert.ok(after, `offline dragged node ${nodeId} should remain visible`);
+  const end = { x: after.x + after.width / 2, y: after.y + after.height / 2 };
+  return { nodeId, start, before: beforeCenter, end, distance: Math.hypot(end.x - beforeCenter.x, end.y - beforeCenter.y) };
+}
+
+async function stableVisibleNodeDragTarget(page) {
+  return page.locator(".sigma-global-renderer").evaluate(async (renderer) => {
+    const deadline = performance.now() + 5_000;
+    while (performance.now() < deadline) {
+      const target = firstHitTarget(renderer);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const nextTarget = firstHitTarget(renderer);
+      if (
+        target &&
+        nextTarget &&
+        target.nodeId === nextTarget.nodeId &&
+        Math.abs(target.point.x - nextTarget.point.x) < 1 &&
+        Math.abs(target.point.y - nextTarget.point.y) < 1
+      ) return nextTarget;
+    }
+    throw new Error("No stable browser hit point for an offline node");
+
+    function firstHitTarget(root) {
+      for (const node of root.querySelectorAll(".sigma-global-node-hit-target")) {
+        const nodeId = node.getAttribute("data-node-id") || "";
+        const point = hitPoint(node, nodeId);
+        if (point) return { nodeId, point };
+      }
+      return null;
+    }
+
+    function hitPoint(node, id) {
+      const rect = node.getBoundingClientRect();
+      for (const point of nodeHitCandidates(rect)) {
+        const hit = document.elementFromPoint(point.x, point.y);
+        if (hit?.closest?.(".sigma-global-node-hit-target")?.getAttribute("data-node-id") === id) return point;
+      }
+      return null;
+    }
+
+    function nodeHitCandidates(rect) {
+      const points = [{ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }];
+      for (const xRatio of [0.2, 0.35, 0.65, 0.8]) {
+        for (const yRatio of [0.2, 0.35, 0.5, 0.65, 0.8]) {
+          points.push({ x: rect.left + rect.width * xRatio, y: rect.top + rect.height * yRatio });
+        }
+      }
+      return points;
+    }
+  });
 }
 
 async function assertNonblankSigmaCanvas(page, label) {
