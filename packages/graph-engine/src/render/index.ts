@@ -97,9 +97,11 @@ export {
 export type { GraphToolbarPanelState, GraphToolbarStorage } from "./toolbar";
 export {
   createGraphRenderer,
-  createGraphRenderer as createStaticGraphRenderer
+  createGraphRenderer as createStaticGraphRenderer,
+  prepareGraphRendererAdapterData
 } from "./graph-renderer-root";
 export type {
+  GraphRendererAdapterDataPreparation,
   GraphRenderer,
   GraphRenderer as StaticGraphRenderer,
   GraphRendererOptions,

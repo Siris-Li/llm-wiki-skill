@@ -44,7 +44,7 @@ export interface GraphController {
   setNodeFixed(id: NodeId, mode: "fix" | "unfix"): boolean;
   handleBlankClick(): void;
   openSearch(): void;
-  applySearchQuery(query: string): void;
+  applySearchQuery(query: string, preparedMatchIds?: NodeId[]): void;
   focusNextSearchResult(): void;
   focusPreviousSearchResult(): void;
   activateSearchResult(): void;
@@ -409,12 +409,16 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     }
   }
 
-  function applySearchQuery(query: string): void {
+  function applySearchQuery(query: string, preparedMatchIds?: NodeId[]): void {
     if (query !== context.searchQuery) context.searchFocusedNodeId = null;
     context.searchQuery = query;
     delegates.setInteractionDegraded(Boolean(query), { restoreDelayMs: 180 });
-    const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex, context.regularSearchByNode);
-    context.searchIndex = state.searchIndex;
+    const resolvedState = preparedMatchIds
+      ? null
+      : resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex, context.regularSearchByNode);
+    if (resolvedState) context.searchIndex = resolvedState.searchIndex;
+    const state = resolvedState
+      ?? preparedGraphSearchState(context.graph.nodes, context.searchQuery, preparedMatchIds ?? []);
     if (!state.matchIds.includes(context.searchFocusedNodeId || "")) context.searchFocusedNodeId = null;
     context.rendererSurface.setSearchState({
       query: state.query,
@@ -436,6 +440,18 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
       typeFilters: context.typeFilters,
       temporaryObject: context.temporaryObject
     });
+  }
+
+  function preparedGraphSearchState(nodes: Array<{ id: NodeId }>, query: string, matchIds: NodeId[]) {
+    const matches = new Set(matchIds);
+    return {
+      query,
+      matchIds,
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        searchState: query ? (matches.has(node.id) ? "match" as const : "faded" as const) : "none" as const
+      }))
+    };
   }
 
   function focusNextSearchResult(): void {

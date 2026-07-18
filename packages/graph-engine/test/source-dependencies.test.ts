@@ -198,4 +198,19 @@ describe("issue #159 source dependency gate", () => {
     ]);
     assert.equal(adapterEdges.some(([target]) => target === "render/model.ts" || target === "model/atlas.ts"), false);
   });
+
+  it("keeps Sigma and DOM/SVG consumers from rebuilding drawing facts from model or summary owners", async () => {
+    const graph = await readTypeScriptModuleGraph(path.join(PACKAGE_ROOT, "src"));
+    const consumers = new Set([
+      "graph-routes/sigma-global-route.ts",
+      "render/dom-svg-renderer.ts",
+      "render/render-pipeline.ts"
+    ]);
+    const violations = graph.edges
+      .filter((edge) => consumers.has(edge.source) && !edge.typeOnly)
+      .filter((edge) => edge.target.startsWith("model/") || edge.target === "render/model.ts" || edge.target.startsWith("summary/"))
+      .map((edge) => [edge.source, edge.target]);
+
+    assert.deepEqual(violations, []);
+  });
 });

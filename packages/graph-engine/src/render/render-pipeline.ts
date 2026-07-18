@@ -13,7 +13,7 @@ import {
   type RenderPositionMap
 } from "./render-policy";
 import { makeEdgePathFromPoints } from "../layout/edge-geometry";
-import { buildRenderableGraph } from "./model";
+import type { GraphRendererAdapterData } from "./adapter";
 import {
   applyRendererViewportTransform,
   rendererViewportToMinimapRect,
@@ -21,7 +21,7 @@ import {
   type RendererViewport,
   type ViewportFrameCommitOptions
 } from "./viewport";
-import { defaultGraphViewportSize, sideExitWorldAnchor, worldPointDeltaToLayerDelta } from "./geometry";
+import { defaultGraphViewportSize, sideExitWorldAnchor, worldPointDeltaToLayerDelta, worldPointToCssPercentPoint } from "./geometry";
 import { createCommunityLegend, createGraphToolbar, createSearchControl } from "./controls";
 import { nextToolbarPanelState, writeToolbarPanelState } from "./toolbar";
 import { resolveGraphSearchState } from "./search";
@@ -39,7 +39,7 @@ export interface GraphRenderCommands {
   resetViewState(): void;
   requestGlobalReset(): void;
   openSearch(): void;
-  applySearchQuery(query: string): void;
+  applySearchQuery(query: string, preparedMatchIds?: NodeId[]): void;
   focusNextSearchResult(): void;
   focusPreviousSearchResult(): void;
   activateSearchResult(): void;
@@ -66,7 +66,7 @@ export interface GraphRenderOverlayDelegates {
 export interface GraphRenderPipeline {
   rebuildAndPaint(): void;
   paintPreparedGraph(): void;
-  paint(graph: RenderableGraph, options: { hasHostReader: boolean; handlers: PaintHandlers }): PaintedGraphDom;
+  paint(adapterData: GraphRendererAdapterData, options: { hasHostReader: boolean; handlers: PaintHandlers }): PaintedGraphDom;
   mountSearchControl(): void;
   mountGraphToolbar(): void;
   mountCommunityLegend(): void;
@@ -122,18 +122,21 @@ export function createGraphRenderPipeline(
   function rebuildAndPaint(): void {
     const runtimeSnapshot = context.runtimeState.snapshot();
     const renderSelection = rendererSelectionFromRuntimeState(runtimeSnapshot);
-    context.graph = buildRenderableGraph(context.data, {
+    context.adapterData = context.prepareAdapterData(context.data, {
       pins: runtimeSnapshot.pins,
       theme: context.theme,
       selectedNodeId: renderSelection.selectedNodeId,
       selection: renderSelection.selection,
       focus: runtimeSnapshot.focus,
       typeFilters: {},
+      searchResultIds: currentSearchResultIds(),
       aggregationMarkers: context.aggregationMarkers,
       pathCache: context.pathCache,
       viewportSize: viewportSize(),
-      sourceCommunityId: context.sourceCommunityId
+      sourceCommunityId: context.sourceCommunityId,
+      temporaryObject: context.temporaryObject
     });
+    context.graph = context.adapterData.renderable;
     context.runtimeState.setPositions(positionsFromRenderableGraph(context.graph));
     paintPreparedGraph();
   }
@@ -143,12 +146,11 @@ export function createGraphRenderPipeline(
     context.typeFilters = normalizeAvailableTypeFilters(context.typeFilters, context.baseTypeFilters);
     context.availableTypeFilters = context.typeFilters;
     context.graph.typeFilters = context.typeFilters;
-    context.searchIndex = undefined;
     syncVisibilityState();
     context.pinState = new PinState(context.graph, context.runtimeState.snapshot().pins);
     context.hitTargetResolver.refresh();
     applyTheme(context.root, context.theme);
-    context.dom = paint(context.graph, {
+    context.dom = paint(context.adapterData, {
       hasHostReader: options.hasHostReader,
       handlers: {
         onNodeClick: (id, additive) => {
@@ -193,7 +195,10 @@ export function createGraphRenderPipeline(
     context.lastEffectiveDensityMode = null;
     mountSearchControl();
     mountGraphToolbar();
-    options.commands.applySearchQuery(context.searchQuery);
+    options.commands.applySearchQuery(
+      context.searchQuery,
+      context.adapterData.nodes.filter((node) => node.searchHit).map((node) => node.id)
+    );
     applyTypeFilters(context.typeFilters);
     applyCommunityHover();
     applyRelationFocus();
@@ -206,11 +211,11 @@ export function createGraphRenderPipeline(
     restartSimulation();
   }
 
-  function paint(graph: RenderableGraph, paintOptions: { hasHostReader: boolean; handlers: PaintHandlers }): PaintedGraphDom {
+  function paint(adapterData: GraphRendererAdapterData, paintOptions: { hasHostReader: boolean; handlers: PaintHandlers }): PaintedGraphDom {
     return paintDomSvgGraph({
       ownerDocument: context.ownerDocument,
       root: context.root,
-      graph,
+      adapterData,
       theme: context.theme,
       hasHostReader: paintOptions.hasHostReader,
       handlers: paintOptions.handlers
@@ -341,6 +346,17 @@ export function createGraphRenderPipeline(
     });
   }
 
+  function currentSearchResultIds(): NodeId[] {
+    const searchState = resolveGraphSearchState(
+      context.data.nodes,
+      context.searchQuery,
+      context.searchIndex,
+      context.regularSearchByNode
+    );
+    context.searchIndex = searchState.searchIndex;
+    return searchState.matchIds;
+  }
+
   function temporaryObjectNodeIds(object: GraphSummaryObjectRef | null, graph: RenderableGraph): Set<string> {
     if (!object || object.kind !== "node") return new Set();
     const ids = new Set([object.nodeId]);
@@ -457,22 +473,16 @@ export function createGraphRenderPipeline(
   function applyMotionFrame(positions: RenderPositionMap): void {
     if (context.destroyed) return;
     const snapshot = context.runtimeState.setPositions(positions);
-    const renderSelection = rendererSelectionFromRuntimeState(snapshot);
     const previousWorldBounds = context.graph.worldBounds;
     const size = viewportSize();
-    context.graph = buildRenderableGraph(context.data, {
-      pins: snapshot.pins,
-      theme: context.theme,
-      selectedNodeId: renderSelection.selectedNodeId,
-      selection: renderSelection.selection,
-      focus: snapshot.focus,
-      typeFilters: {},
-      positions: snapshot.positions,
-      aggregationMarkers: context.aggregationMarkers,
-      pathCache: context.pathCache,
-      viewportSize: size,
-      sourceCommunityId: context.sourceCommunityId
-    });
+    const nextGraph = {
+      ...context.graph,
+      nodes: context.graph.nodes.map((node) => {
+        const point = snapshot.positions[node.id] ?? node.point;
+        return { ...node, point };
+      })
+    };
+    context.graph = nextGraph;
     context.hitTargetResolver.refresh();
     const worldBoundsChanged = !sameWorldBounds(previousWorldBounds, context.graph.worldBounds);
     if (worldBoundsChanged && context.dom.svgElement) setGraphSvgViewBox(context.dom.svgElement, context.graph);
@@ -482,8 +492,9 @@ export function createGraphRenderPipeline(
       const base = context.dom.basePoints.get(node.id);
       if (!element || !base) continue;
       if (worldBoundsChanged) {
-        element.style.left = `${node.x}%`;
-        element.style.top = `${node.y}%`;
+        const cssPoint = worldPointToCssPercentPoint(node.point, context.graph.worldBounds);
+        element.style.left = `${cssPoint.x}%`;
+        element.style.top = `${cssPoint.y}%`;
         element.style.translate = "calc(-50% + 0px) calc(-50% + 0px)";
         context.dom.basePoints.set(node.id, node.point);
       } else {

@@ -14,7 +14,14 @@ import type {
   SelectionInput,
   ThemeId
 } from "./types";
-import { createGraphRenderer } from "./render";
+import {
+  createGraphRenderer,
+  prepareGraphRendererAdapterData,
+  type GraphRendererAdapterData,
+  type GraphRendererAdapterDataPreparation,
+  type RenderPolicyOptions,
+  type RendererViewportSize
+} from "./render";
 import { createSigmaGlobalFacadeRenderer } from "./graph-routes/sigma-global-route";
 export { selectionInputForSigmaHit, sigmaCommunityReadingHitActionForSigmaHit, sigmaGlobalHitActionForSigmaHit } from "./graph-routes/sigma-global-route";
 import { resolveSelectionForCapabilities } from "./select";
@@ -77,7 +84,11 @@ export function createGraphStandaloneCapabilities(): GraphFacadeCapabilityContra
 export interface GraphFacadeRenderer {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
-  setData(projection: GraphInputProjection, pins?: GraphEngineOptions["pins"]): void;
+  setData(
+    projection: GraphInputProjection,
+    pins?: GraphEngineOptions["pins"],
+    preparedAdapterData?: GraphRendererAdapterData
+  ): void;
   setEdgeStyle(style: GraphEdgeStyleOptions): void;
   setAggregationMarkers(markers: NonNullable<GraphEngineOptions["aggregationMarkers"]>): void;
   focusNode(path: string): void;
@@ -146,11 +157,18 @@ export interface GraphFacadeRouteRendererOptions extends GraphInputProjection {
 export interface GraphFacadeRouteRendererFactoryInput {
   container: HTMLElement;
   options: GraphFacadeRouteRendererOptions;
+  preparedAdapterData?: GraphRendererAdapterData;
+  prepareAdapterData?: GraphFacadeRendererAdapterPreparation;
   /** Test/runtime seam for the Sigma boundary; production callers use lazy loading. */
   sigmaRuntime?: SigmaGlobalRendererRuntime | Promise<SigmaGlobalRendererRuntime>;
-  onSigmaUnavailable?: (error: unknown) => void;
+  onSigmaUnavailable?: (error: unknown, preparedAdapterData: GraphRendererAdapterData) => void;
   onRetrySigma?: () => void;
 }
+
+export type GraphFacadeRendererAdapterPreparation = (
+  options: GraphFacadeRouteRendererOptions,
+  renderOptions: RenderPolicyOptions
+) => GraphRendererAdapterData;
 
 export interface GraphFacadeRouteRendererFactories {
   createSigmaGlobal: (input: GraphFacadeRouteRendererFactoryInput) => GraphFacadeRenderer;
@@ -258,6 +276,7 @@ export function createGraphFacadeRouteManager(
     toolbarContainer?: HTMLElement | null;
     callbacks?: GraphFacadeRendererCallbacks;
     factories?: Partial<GraphFacadeRouteRendererFactories>;
+    prepareAdapterData?: GraphFacadeRendererAdapterPreparation;
   }
 ): GraphFacadeRouteManager {
   const state = options.state;
@@ -279,6 +298,7 @@ export function createGraphFacadeRouteManager(
       createDomSvgFacadeRenderer(input, options.toolbarContainer, true)),
     createOverLimitNotice: options.factories?.createOverLimitNotice || createOverLimitNoticeRenderer
   };
+  const prepareAdapterData = options.prepareAdapterData ?? prepareFacadeRendererAdapterData;
   let routeId: GraphFacadeRendererRouteId = "sigma-global";
   let sigmaKnownUnavailable = false;
   let sigmaAttemptCount = 0;
@@ -323,6 +343,8 @@ export function createGraphFacadeRouteManager(
     },
     setData(projection, pins) {
       assertActive();
+      const previousState = { ...state };
+      try {
       const { data, regularSearchByNode } = projection;
       state.data = data;
       state.regularSearchByNode = regularSearchByNode;
@@ -386,6 +408,10 @@ export function createGraphFacadeRouteManager(
         if (routeId === "sigma-global") currentRenderer().resetView();
       }
       currentRenderer().setData(projection, pins);
+      } catch (error) {
+        Object.assign(state, previousState);
+        throw error;
+      }
     },
     setEdgeStyle(style) {
       assertActive();
@@ -632,37 +658,42 @@ export function createGraphFacadeRouteManager(
     }
     sigmaAttemptCount += 1;
     routeId = "sigma-global";
+    // Raw input -> shared model/layout/policy/semantics -> prepared adapter data
+    //                                                     |-> Sigma
+    // Shared preparation succeeds before the Sigma-only failure boundary. Only
+    // Graphology/WebGL/canvas/runtime failures may continue into DOM/SVG.
+    const input = factoryInput((error, preparedAdapterData) => {
+      markSigmaUnavailable(error, preparedAdapterData);
+    });
     try {
-      return factories.createSigmaGlobal(factoryInput((error) => {
-        markSigmaUnavailable(error);
-      }));
+      return factories.createSigmaGlobal(input);
     } catch (error) {
       sigmaKnownUnavailable = true;
-      return activateFallbackRoute();
+      return activateFallbackRoute(input.preparedAdapterData);
     }
   }
 
-  function markSigmaUnavailable(_error: unknown): void {
+  function markSigmaUnavailable(_error: unknown, preparedAdapterData: GraphRendererAdapterData): void {
     if (destroyed || sigmaKnownUnavailable) return;
     sigmaKnownUnavailable = true;
     if (routeId !== "sigma-global") return;
-    switchToFallbackRoute();
+    switchToFallbackRoute(preparedAdapterData);
   }
 
-  function switchToFallbackRoute(): void {
+  function switchToFallbackRoute(preparedAdapterData?: GraphRendererAdapterData): void {
     if (graphExceedsGlobalNodeLimit(state.data)) {
       switchToOverLimitNotice();
       return;
     }
-    switchRoute("dom-svg-small-fallback", () => activateFallbackRoute());
+    switchRoute("dom-svg-small-fallback", () => activateFallbackRoute(preparedAdapterData));
   }
 
-  function activateFallbackRoute(): GraphFacadeRenderer {
+  function activateFallbackRoute(preparedAdapterData?: GraphRendererAdapterData): GraphFacadeRenderer {
     if (graphExceedsGlobalNodeLimit(state.data)) {
       return activateOverLimitNotice();
     }
     routeId = "dom-svg-small-fallback";
-    return factories.createDomSvgSmallFallback(factoryInput(undefined, () => manager.retrySigma()));
+    return factories.createDomSvgSmallFallback(factoryInput(undefined, () => manager.retrySigma(), preparedAdapterData));
   }
 
   function switchToOverLimitNotice(): void {
@@ -671,7 +702,7 @@ export function createGraphFacadeRouteManager(
 
   function activateOverLimitNotice(): GraphFacadeRenderer {
     routeId = "over-limit-notice";
-    return factories.createOverLimitNotice(factoryInput());
+    return factories.createOverLimitNotice(factoryInput(undefined, undefined, undefined, false));
   }
 
   function switchRoute(nextRouteId: GraphFacadeRendererRouteId, createNext: () => GraphFacadeRenderer): void {
@@ -705,10 +736,13 @@ export function createGraphFacadeRouteManager(
     delete container.dataset.llmWikiGraphRouteTransition;
   }
 
-  function factoryInput(onSigmaUnavailable?: (error: unknown) => void, onRetrySigma?: () => void): GraphFacadeRouteRendererFactoryInput {
-    return {
-      container,
-      options: {
+  function factoryInput(
+    onSigmaUnavailable?: GraphFacadeRouteRendererFactoryInput["onSigmaUnavailable"],
+    onRetrySigma?: () => void,
+    preparedAdapterData?: GraphRendererAdapterData,
+    shouldPrepare = true
+  ): GraphFacadeRouteRendererFactoryInput {
+    const rendererOptions: GraphFacadeRouteRendererOptions = {
         data: state.data,
         regularSearchByNode: state.regularSearchByNode,
         pins: state.pins,
@@ -756,7 +790,18 @@ export function createGraphFacadeRouteManager(
             options.callbacks?.onVisibilityStateChange?.(visibility);
           }
         }
-      },
+      };
+    const prepared = shouldPrepare
+      ? preparedAdapterData ?? prepareAdapterData(
+          rendererOptions,
+          renderPolicyOptionsForFacadeRoute(rendererOptions, measuredRendererViewportSize(container))
+        )
+      : undefined;
+    return {
+      container,
+      options: rendererOptions,
+      preparedAdapterData: prepared,
+      prepareAdapterData,
       onSigmaUnavailable,
       onRetrySigma
     };
@@ -783,8 +828,24 @@ function createDomSvgFacadeRenderer(
 ): GraphFacadeRenderer {
   // Legacy fallback/comparison renderer. Do not add new community-reading
   // capabilities here; Sigma is the primary route for global and community maps.
+  let routeOptions = input.options;
+  const prepareRouteAdapterData = input.prepareAdapterData ?? prepareFacadeRendererAdapterData;
+  const prepareDomSvgAdapterData: GraphRendererAdapterDataPreparation = (data, renderOptions) =>
+    prepareRouteAdapterData(domSvgRouteOptions({ ...routeOptions, data }), renderOptions);
+  const canReusePreparedSelection = !(
+    routeOptions.focus?.kind === "community"
+    && routeOptions.selection?.kind === "community"
+  );
+  const preparedAdapterData = input.preparedAdapterData && canReusePreparedSelection
+    ? input.preparedAdapterData
+    : prepareDomSvgAdapterData(
+      routeOptions.data,
+      renderPolicyOptionsForFacadeRoute(domSvgRouteOptions(routeOptions), measuredRendererViewportSize(input.container))
+    );
   const renderer = createGraphRenderer(input.container, {
     data: input.options.data,
+    preparedAdapterData,
+    prepareAdapterData: prepareDomSvgAdapterData,
     regularSearchByNode: input.options.regularSearchByNode,
     pins: input.options.pins,
     theme: input.options.theme,
@@ -804,21 +865,62 @@ function createDomSvgFacadeRenderer(
     onDragActiveChange: input.options.callbacks.onDragActiveChange,
     onVisibilityStateChange: input.options.callbacks.onVisibilityStateChange
   });
-  // A community selection must NOT be replayed into the DOM reading view: it would
-  // expand into every node being selected/core (resolveSelectedNodeIds). The source
-  // community travels via sourceCommunityId instead; only node/nodes selections
-  // (a specific node the user picked) are replayed here.
-  if (input.options.selection && input.options.selection.kind !== "community") {
-    renderer.select(input.options.selection);
-  }
   if (input.options.temporaryObject) renderer.showTemporaryObject(input.options.temporaryObject);
   return {
     ...renderer,
     setData(projection, pins) {
-      renderer.setData(projection.data, pins, projection.regularSearchByNode);
+      const nextRouteOptions = {
+        ...routeOptions,
+        ...projection,
+        pins: pins ?? routeOptions.pins
+      };
+      const nextPreparedAdapterData = prepareRouteAdapterData(
+        domSvgRouteOptions(nextRouteOptions),
+        renderPolicyOptionsForFacadeRoute(domSvgRouteOptions(nextRouteOptions), measuredRendererViewportSize(input.container))
+      );
+      routeOptions = nextRouteOptions;
+      renderer.setData(projection.data, pins, projection.regularSearchByNode, nextPreparedAdapterData);
     },
     setEdgeStyle() {}
   };
+}
+
+function domSvgRouteOptions(options: GraphFacadeRouteRendererOptions): GraphFacadeRouteRendererOptions {
+  if (options.focus?.kind !== "community" || options.selection?.kind !== "community") return options;
+  return { ...options, selection: null };
+}
+
+function prepareFacadeRendererAdapterData(
+  options: GraphFacadeRouteRendererOptions,
+  renderOptions: RenderPolicyOptions
+): GraphRendererAdapterData {
+  return prepareGraphRendererAdapterData(options.data, renderOptions);
+}
+
+function renderPolicyOptionsForFacadeRoute(
+  options: GraphFacadeRouteRendererOptions,
+  viewportSize?: RendererViewportSize
+): RenderPolicyOptions {
+  return {
+    theme: options.theme,
+    pins: options.pins,
+    selection: options.selection,
+    searchResultIds: options.searchResultIds,
+    aggregationMarkers: options.aggregationMarkers,
+    focus: options.focus,
+    typeFilters: options.typeFilters,
+    viewportSize,
+    sourceCommunityId: options.sourceCommunityId,
+    temporaryObject: options.temporaryObject
+  };
+}
+
+function measuredRendererViewportSize(container: HTMLElement): RendererViewportSize | undefined {
+  const rect = container.getBoundingClientRect?.();
+  if (!rect || !Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) {
+    return undefined;
+  }
+  return { width: rect.width, height: rect.height };
 }
 
 export function graphExceedsGlobalNodeLimit(data: GraphData): boolean {

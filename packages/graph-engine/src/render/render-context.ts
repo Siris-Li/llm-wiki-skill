@@ -10,6 +10,8 @@ import type { GraphRuntimeState } from "./state";
 import type { GraphToolbarPanelState } from "./toolbar";
 import type { createViewportFrameCommitter } from "./viewport";
 import type { RegularSearchNodeProjection } from "../model/atlas";
+import type { GraphRendererAdapterData } from "./adapter";
+import type { GraphRendererAdapterDataPreparation } from "./graph-renderer-root";
 
 export interface PaintedGraphDom {
   contentLayer: HTMLElement | null;
@@ -80,6 +82,8 @@ export interface GraphRenderContext {
   lastViewportSize: { width: number; height: number };
   resizeObserver: ResizeObserver | null;
   graph: RenderableGraph;
+  adapterData: GraphRendererAdapterData;
+  prepareAdapterData: GraphRendererAdapterDataPreparation;
   runtimeState: GraphRuntimeState;
   hitTargetResolver: GraphHitTargetResolver;
   pinState: PinState;
