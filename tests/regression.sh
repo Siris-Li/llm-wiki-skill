@@ -1717,6 +1717,8 @@ test_graph_html_missing_data_exits_with_error
 test_graph_html_missing_engine_assets_exits_with_error
 bash "$REPO_ROOT/tests/graph-analysis-helper.regression-1.sh" || fail "graph-analysis-helper.regression-1.sh 测试失败"
 bash "$REPO_ROOT/tests/graph-build-failures.regression-1.sh" || fail "graph-build-failures.regression-1.sh 测试失败"
+bash "$REPO_ROOT/tests/graph-host-errors.regression-1.sh" || fail "graph-host-errors.regression-1.sh 测试失败"
+bash "$REPO_ROOT/tests/graph-offline-host-acceptance.regression-1.sh" || fail "graph-offline-host-acceptance.regression-1.sh 测试失败"
 bash "$REPO_ROOT/tests/graph-data-confidence-merge.regression-1.sh" || fail "graph-data-confidence-merge.regression-1.sh 测试失败"
 bash "$REPO_ROOT/tests/graph-data-source-paths.regression-1.sh" || fail "graph-data-source-paths.regression-1.sh 测试失败"
 bash "$REPO_ROOT/tests/graph-html-brand-link.regression-1.sh" || fail "graph-html-brand-link.regression-1.sh 测试失败"

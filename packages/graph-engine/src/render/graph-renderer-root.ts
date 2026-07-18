@@ -34,7 +34,7 @@ import { createGraphHitTargetResolver } from "./hit-testing";
 import {
   GraphGestureStateMachine
 } from "./gestures";
-import { readToolbarPanelState } from "./toolbar";
+import { graphToolbarStorageForWindow, readToolbarPanelState } from "./toolbar";
 import type { GraphRenderContext, GraphRendererCallbacks } from "./render-context";
 import { createGraphController, type GraphController } from "./controller";
 import {
@@ -198,7 +198,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     hasExternalToolbarContainer,
     ownerDocument,
     legendCollapsed: readLegendCollapsed(ownerDocument),
-    toolbarPanelState: readToolbarPanelState(ownerDocument.defaultView?.localStorage),
+    toolbarPanelState: readToolbarPanelState(graphToolbarStorageForWindow(ownerDocument.defaultView)),
     viewportCommitter: createViewportFrameCommitter((next, commitOptions) => {
       pipeline.commitViewport(next, commitOptions);
     }, root.ownerDocument.defaultView || undefined),

@@ -21,6 +21,7 @@ import { resolveGraphSearchState, resolveNextGraphSearchFocus, resolvePreviousGr
 import { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
 import type { GraphRuntimeStateSnapshot } from "./state";
 import {
+  graphToolbarStorageForWindow,
   shouldBlankClickCloseToolbar,
   toolbarPanelStateAfterBlankClick,
   writeToolbarPanelState
@@ -512,7 +513,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
 
   function closeToolbarPanel(): void {
     context.toolbarPanelState = toolbarPanelStateAfterBlankClick(context.toolbarPanelState);
-    writeToolbarPanelState(context.ownerDocument.defaultView?.localStorage, context.toolbarPanelState);
+    writeToolbarPanelState(graphToolbarStorageForWindow(context.ownerDocument.defaultView), context.toolbarPanelState);
     if (context.dom.toolbarPanelElement) context.dom.toolbarPanelElement.dataset.state = context.toolbarPanelState;
     if (context.dom.toolbarElement) context.dom.toolbarElement.dataset.panel = context.toolbarPanelState;
     context.root.dataset.toolbarPanel = context.toolbarPanelState;

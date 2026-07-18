@@ -242,6 +242,19 @@ describe("Sigma overlay DOM controller", () => {
     assert.equal(fixture.document.listenerCount("pointercancel"), 0);
   });
 
+  it("exposes recommended-start markers from the shared renderable snapshot", () => {
+    const data = adapterDataFixture();
+    data.renderable.nodes[0]!.startNode = true;
+    data.renderable.nodes[0]!.previewStart = true;
+    const fixture = controllerFixture({ adapterData: data });
+
+    fixture.controller.rebuild();
+
+    const alpha = nodeTarget(fixture.overlayRoot, "alpha");
+    assert.equal(alpha?.dataset.startNode, "true");
+    assert.equal(alpha?.dataset.previewStart, "true");
+  });
+
   it("rebuild prunes stale elements and refreshes reused node data attributes", () => {
     const initialData = adapterDataFixture({
       nodes: [
@@ -579,7 +592,37 @@ function adapterDataFixture(options: {
     })),
     aggregations: [],
     renderable: {
-      nodes: [],
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        label: node.label,
+        type: node.type,
+        kind: node.type,
+        community: node.communityId ?? "_none",
+        communityColor: "#4f6f52",
+        sourcePath: node.sourcePath,
+        x: node.point.x,
+        y: node.point.y,
+        point: node.point,
+        displayMode: "point",
+        visualRole: "landmark",
+        priority: node.render.priority,
+        weight: 1,
+        stableImportance: 1,
+        temporaryBoost: 0,
+        coreAnchor: false,
+        unavailable: false,
+        selected: node.selected,
+        relationFocusDepth: node.relationFocusDepth,
+        startNode: false,
+        previewStart: false,
+        labelVisible: node.render.labelVisible,
+        interactionLabelVisible: node.render.labelVisible,
+        communityMapImportance: node.render.communityMapImportance,
+        communityMapDotSize: node.render.communityMapDotSize,
+        communityMapLabelSide: node.render.communityMapLabelSide,
+        communityMapRelationLabel: node.render.communityMapRelationLabel,
+        communityMapTier: node.render.communityMapTier
+      })),
       edges: [],
       communities,
       aggregationContainers: [],

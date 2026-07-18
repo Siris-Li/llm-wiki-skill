@@ -6,12 +6,14 @@ import test from "node:test";
 
 import {
 	REPO_ROOT,
+	closeBrowserResources,
 	createNetworkGuardLaunch,
 	startNetworkGuardedProcess,
 	startProcess,
 	stopProcess,
 	verifyNetworkGuardLaunch,
 } from "./support/browser-harness";
+import type { Browser, BrowserContext, BrowserServer } from "playwright";
 
 const LIVE_CHILD_SOURCE = "const s=require('node:net').createServer();process.on('SIGTERM',()=>s.close(()=>process.exit(0)));s.listen(0,'127.0.0.1',()=>console.log('ready'))";
 
@@ -85,4 +87,48 @@ test("a restarted process cannot reuse stale network guard evidence", async (t) 
 	assert.equal(processWithoutGuard.child.signalCode, null);
 	await stopProcess(processWithoutGuard);
 	runningProcesses.pop();
+});
+
+test("connected browser owns context disposal during cleanup", async () => {
+	const calls: string[] = [];
+	const context = {
+		close: async () => { calls.push("context"); },
+	} as unknown as BrowserContext;
+	const browser = {
+		close: async () => { calls.push("browser"); },
+	} as unknown as Browser;
+
+	await closeBrowserResources({ context, browser });
+
+	assert.deepEqual(calls, ["browser"]);
+});
+
+test("standalone browser context is still closed", async () => {
+	const calls: string[] = [];
+	const context = {
+		close: async () => { calls.push("context"); },
+	} as unknown as BrowserContext;
+
+	await closeBrowserResources({ context });
+
+	assert.deepEqual(calls, ["context"]);
+});
+
+test("browser server owns cleanup for a connected browser", async () => {
+	const calls: string[] = [];
+	const context = {
+		close: async () => { calls.push("context"); },
+	} as unknown as BrowserContext;
+	const browser = {
+		close: async () => { calls.push("browser"); },
+	} as unknown as Browser;
+	const browserServer = {
+		process: () => ({ exitCode: null, signalCode: null }),
+		close: async () => { calls.push("server"); },
+		kill: async () => { calls.push("kill"); },
+	} as unknown as BrowserServer;
+
+	await closeBrowserResources({ context, browser, browserServer });
+
+	assert.deepEqual(calls, ["server"]);
 });

@@ -10,7 +10,7 @@
 
 把碎片化的信息变成持续积累、互相链接的知识库
 
-[![version](https://img.shields.io/badge/v3.6.81-共享绘制策略-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
+[![version](https://img.shields.io/badge/v3.6.84-图谱故障恢复-E8D5B5?style=flat-square&labelColor=3a3026&color=E8D5B5)](https://github.com/sdyckjq-lab/llm-wiki-skill/releases)
 [![license](https://img.shields.io/badge/MIT-license-5a6e5c?style=flat-square&labelColor=3a3026)](LICENSE)
 [![platforms](https://img.shields.io/badge/Claude·Codex·OpenClaw·Hermes-多平台-7a96a6?style=flat-square&labelColor=3a3026)]
 
@@ -90,6 +90,7 @@ bash install.sh --platform hermes
 | | 功能 | 说明 |
 |---|---|---|
 | 🧮 | **共享绘制策略** | 密度、节点显示、标签与关系预算、稳定骨架和社区层级由一份规则产出；Sigma 主路线与 DOM/SVG 故障回退使用同一份准备结果，每次更新只计算一次 |
+| 🧯 | **图谱故障恢复** | 共享结果失败时，工作台和离线图谱都会清掉旧内容并显示明确提示；只有 Sigma 自身故障才进入 DOM/SVG 回退，不会留下可操作的半成品 |
 | 🗺️ | **图谱位置与视野连续** | 初始布局、Pin 和实时拖动共同维护同一张地图；远端节点仍在完整内容范围内，社区取景、缩放、平移、重置、窗口变化和小地图保持一致 |
 | 🧭 | **社区近景地图** | 进入社区后像从全局图靠近刚才那片区域；节点位置、层级和标签更稳定，社区内可多选节点并带入对话，返回全图时高亮会跟随视野稳定后再淡出 |
 | 🧩 | **全局意图反馈** | 全局图谱悬停节点可轻量看一阶关系，单击节点固定关系强调并打开摘要；选中社区只预览少量内部结构和跨社区通道，不直接变成完整社区阅读 |
@@ -152,6 +153,7 @@ bash install.sh --platform claude --with-optional-adapters
 - **图谱坏数据安全兼容** — 未知、残缺或畸形图谱会先整理成可安全使用的结果，节点、关系、社区和起点再由同一份稳定模型交给绘制；常规搜索与既有 ID 碰撞结果保持不变
 - **图谱搜索与筛选更稳** — 工作台、离线图谱和两种显示路线使用同一份结果；常规搜索保留原有 500 字符范围，Atlas 全文搜索继续覆盖完整正文，类型筛选、社区聚焦和临时显示的节点与关系保持一致；中文、组合字符和 emoji 长标题在旧浏览器环境下也能安全省略并保留完整标题
 - **图谱共享绘制策略** — 密度、节点显示、标签与关系预算、稳定骨架、社区层级和标签方向由同一份规则产出；模型、布局、可见结果和绘制规则在一次更新中各计算一次，Sigma 主路线与 DOM/SVG 故障回退使用同一份准备结果，工作台和离线图谱保持一致
+- **图谱故障恢复** — 工作台首次打开或更新失败时会清空旧图、选择、筛选、Pin 和失败实例；离线创建失败会显示恢复提示并撤掉半成品，存储不可用时仍可阅读，社区选区可继续进入近景阅读；只有共享结果成功后的 Sigma 专属故障才进入 DOM/SVG 回退
 - **Sigma 图谱主路线** — 全局视角和社区阅读都以 Sigma/Graphology 承接；DOM/SVG 只保留为回退、对照和异常兜底，不再作为社区阅读主路径扩展
 - **Sigma 迁移前性能基线** — 生产 1k 与隔离 1k/5k/10k 图谱都连续测量三次悬停预览并保存中位数；后续迁移使用固定公式自动比较，其他渲染试验不承担 Sigma 专属门禁
 - **图谱全区域缩放** — 在桌面上，鼠标停在节点、社区色块、关系或空白处时，滚轮和触摸板都只缩放图谱，不会误缩放浏览器；地图内控件和图谱外页面保持各自应有的行为

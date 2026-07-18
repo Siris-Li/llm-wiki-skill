@@ -179,6 +179,109 @@ describe("GraphPanel Paper shell", () => {
 		});
 	});
 
+	it("shows the existing error state and clears host state when first graph creation fails", async () => {
+		mockGraphFetch();
+		const dataChanges: unknown[] = [];
+		const pinChanges: unknown[] = [];
+		const visibilityChanges: unknown[] = [];
+		const selectionChanges: unknown[] = [];
+		const engineFactory: typeof createGraphEngine = () => {
+			throw new Error("共享图谱准备失败");
+		};
+
+		render(
+			<GraphPanel
+				currentKnowledgeBaseName="AI 学习库"
+				currentKnowledgeBasePath="/kb"
+				theme="light"
+				engineFactory={engineFactory}
+				onGraphDataChange={(data) => dataChanges.push(data)}
+				onGraphPinsChange={(pins) => pinChanges.push(pins)}
+				onGraphVisibilityChange={(state) => visibilityChanges.push(state)}
+				onSelectionChange={(selection) => selectionChanges.push(selection)}
+			/>,
+		);
+
+		await screen.findByText("图谱暂时不可用");
+		assert.match(document.body.textContent ?? "", /共享图谱准备失败/);
+		assert.equal(dataChanges.at(-1), null);
+		assert.deepEqual(pinChanges.at(-1), {});
+		assert.equal(visibilityChanges.at(-1), null);
+		assert.equal(selectionChanges.at(-1), null);
+		assert.equal(document.querySelector(".graph-host")?.childElementCount, 0);
+	});
+
+	it("destroys the failed graph instance and clears stale state when a data update fails", async () => {
+		let graphResult = readyGraphResult();
+		globalThis.fetch = (async (input) => {
+			const url = String(input);
+			if (url.startsWith("/api/graph/layout")) {
+				return jsonResponse({
+					ok: true,
+					data: {
+						version: 2,
+						pins: { "wiki/fictional.md": { x: 40, y: 60 } },
+						updatedAt: "2026-07-15T12:00:00.000Z",
+					},
+				});
+			}
+			if (url.startsWith("/api/graph?")) return jsonResponse({ ok: true, data: graphResult });
+			return jsonResponse({ ok: false, code: "UNEXPECTED", message: "Unexpected fictional request" }, 500);
+		}) as typeof fetch;
+		const dataChanges: unknown[] = [];
+		const pinChanges: unknown[] = [];
+		const visibilityChanges: unknown[] = [];
+		const selectionChanges: unknown[] = [];
+		let destroyCount = 0;
+		const engineFactory: typeof createGraphEngine = (container, options) => {
+			const engine = createGraphEngine(container, options);
+			options.capabilities?.onVisibilityStateChange?.({
+				searchQuery: "Fictional",
+				searchResultIds: ["wiki/fictional.md"],
+				typeFilters: { topic: true },
+				temporaryObject: null,
+			});
+			options.capabilities?.onSelectionChange?.(engine.select({ kind: "node", id: "wiki/fictional.md" }));
+			return {
+				...engine,
+				setData: () => {
+					throw new Error("共享图谱更新失败");
+				},
+				destroy: () => {
+					destroyCount += 1;
+					engine.destroy();
+				},
+			};
+		};
+		const props = {
+			currentKnowledgeBaseName: "Fictional notes",
+			currentKnowledgeBasePath: "/fictional/kb",
+			theme: "light" as const,
+			engineFactory,
+			onGraphDataChange: (data: unknown) => dataChanges.push(data),
+			onGraphPinsChange: (pins: unknown) => pinChanges.push(pins),
+			onGraphVisibilityChange: (state: unknown) => visibilityChanges.push(state),
+			onSelectionChange: (selection: unknown) => selectionChanges.push(selection),
+		};
+		const { rerender } = render(<GraphPanel {...props} refreshToken={0} />);
+		await screen.findByText("1 节点 · 0 关联");
+		assert.deepEqual(pinChanges.at(-1), { "wiki/fictional.md": { x: 40, y: 60 } });
+		assert.notEqual(visibilityChanges.at(-1), null);
+		assert.notEqual(selectionChanges.at(-1), null);
+
+		graphResult = readyGraphResult(["wiki/fictional.md", "wiki/updated.md"]);
+		rerender(<GraphPanel {...props} refreshToken={1} />);
+
+		await screen.findByText("图谱暂时不可用");
+		assert.match(document.body.textContent ?? "", /共享图谱更新失败/);
+		assert.equal(destroyCount, 1);
+		assert.equal(dataChanges.at(-1), null);
+		assert.deepEqual(pinChanges.at(-1), {});
+		assert.equal(visibilityChanges.at(-1), null);
+		assert.equal(selectionChanges.at(-1), null);
+		assert.equal(document.querySelector(".graph-host")?.childElementCount, 0);
+	});
+
 	it("does not let an older graph read overwrite a newer build error", async () => {
 		let resolveGraph!: (response: Response) => void;
 		const graphResponse = new Promise<Response>((resolve) => {

@@ -150,6 +150,7 @@ export function GraphPanel({
 		() => data ? buildCommunityAggregationMarkers(data, { pins: layoutPinsRef.current, minCommunitySize: 6 }) : [],
 		[data],
 	);
+	const activeEngineFactory = useMemo(() => graphTestEngineFactory(engineFactory), [engineFactory]);
 
 	const graphTheme: ThemeId = theme === "dark" ? "mo-ye" : "shan-shui";
 	const readyGraph = status === "ready" ? data : null;
@@ -278,17 +279,40 @@ export function GraphPanel({
 		onGraphPinsChangeRef.current?.(pins);
 	}, []);
 
+	const clearGraphEngineInstance = useCallback((): void => {
+		const engine = engineRef.current;
+		engineRef.current = null;
+		engineKbPathRef.current = null;
+		engineDataRef.current = null;
+		try {
+			engine?.destroy();
+		} catch {
+			// The host must still become inert when a partially initialized engine cannot clean itself up.
+		} finally {
+			hostRef.current?.replaceChildren();
+		}
+	}, []);
+
 	const applyGraphFailure = useCallback((kbPath: string, message: string): void => {
+		animationTokenRef.current += 1;
+		graphAuthorityGenerationRef.current += 1;
+		diffQueueRef.current = new GraphDiffQueue({ visible: true });
+		clearGraphEngineInstance();
+		clearCommunityEdgeScope();
 		setData(null);
 		setDataKnowledgeBasePath(kbPath);
 		onGraphDataChangeRef.current?.(null);
 		onGraphVisibilityChangeRef.current?.(null);
 		applyLayoutPins({});
 		onSelectionChangeRef.current?.(null);
+		setResetNotice(null);
+		setPendingAnimation(null);
+		setAnimationReadyToken(0);
+		setAnimationState("idle");
 		setBuildState("none");
 		setError(message);
 		setStatus("error");
-	}, [applyLayoutPins]);
+	}, [applyLayoutPins, clearCommunityEdgeScope, clearGraphEngineInstance]);
 
 	const applyReadyGraph = useCallback((kbPath: string, nextData: GraphData, savedPins: PinMap): void => {
 		applyLayoutPins({ ...savedPins, ...layoutPinsRef.current });
@@ -334,9 +358,8 @@ export function GraphPanel({
 	useEffect(() => {
 		if (!graphBuildError || graphBuildError.kbPath !== currentKnowledgeBasePath) return;
 		loadRequestRef.current += 1;
-		resetForAuthoritySnapshot();
 		applyGraphFailure(currentKnowledgeBasePath, graphBuildError.message);
-	}, [applyGraphFailure, currentKnowledgeBasePath, graphBuildError, resetForAuthoritySnapshot]);
+	}, [applyGraphFailure, currentKnowledgeBasePath, graphBuildError]);
 
 	const runWhenDragIdle = useCallback((operation: () => void): () => void => {
 		let cancelled = false;
@@ -458,11 +481,11 @@ export function GraphPanel({
 		if (!authoritativeSnapshot || authoritativeSnapshot.kbPath !== currentKnowledgeBasePath) return;
 		const requestId = ++loadRequestRef.current;
 		const { kbPath, result } = authoritativeSnapshot;
-		resetForAuthoritySnapshot();
 		if (result.state.status === "error") {
 			applyGraphFailure(kbPath, result.state.message);
 			return;
 		}
+		resetForAuthoritySnapshot();
 		if (!("needsBuild" in result)) return;
 		setError(null);
 		if (result.needsBuild === true) {
@@ -620,7 +643,7 @@ export function GraphPanel({
 	}, [playDiff, status]);
 
 	useEffect(() => {
-		if (!hostRef.current || !data || dataKnowledgeBasePath !== currentKnowledgeBasePath) {
+		if (!hostRef.current || !data || !currentKnowledgeBasePath || dataKnowledgeBasePath !== currentKnowledgeBasePath) {
 			engineRef.current?.destroy();
 			engineRef.current = null;
 			engineKbPathRef.current = null;
@@ -628,24 +651,32 @@ export function GraphPanel({
 			lastSelectionCommandRef.current = selectionCommand;
 			return;
 		}
-		if (engineRef.current && engineKbPathRef.current === currentKnowledgeBasePath) {
-			if (engineDataRef.current !== data) {
-				engineRef.current.setData(data, layoutPinsRef.current);
-				engineDataRef.current = data;
-			} else {
-				engineRef.current.setPins(layoutPinsRef.current);
+			if (engineRef.current && engineKbPathRef.current === currentKnowledgeBasePath) {
+				try {
+					if (engineDataRef.current !== data) {
+						engineRef.current.setData(data, layoutPinsRef.current);
+						engineDataRef.current = data;
+					} else {
+						engineRef.current.setPins(layoutPinsRef.current);
+					}
+					engineRef.current.setAggregationMarkers(aggregationMarkers);
+				} catch (error) {
+					applyGraphFailure(
+						currentKnowledgeBasePath,
+						error instanceof Error ? error.message : String(error),
+					);
+				}
+				return;
 			}
-			engineRef.current.setAggregationMarkers(aggregationMarkers);
-			return;
-		}
-		engineRef.current?.destroy();
-		const engine = engineFactory(hostRef.current, {
-			data,
-			pins: layoutPinsRef.current,
-			theme: graphThemeRef.current,
-			edgeStyle: activeEdgeStyleRef.current,
-			aggregationMarkers,
-			capabilities: createGraphWorkbenchCapabilities({
+			clearGraphEngineInstance();
+			try {
+				const engine = activeEngineFactory(hostRef.current, {
+					data,
+					pins: layoutPinsRef.current,
+					theme: graphThemeRef.current,
+					edgeStyle: activeEdgeStyleRef.current,
+					aggregationMarkers,
+					capabilities: createGraphWorkbenchCapabilities({
 				onOpenPage: (payload) => {
 					const openPage = onOpenPageRef.current;
 					openPage?.(payload);
@@ -676,12 +707,18 @@ export function GraphPanel({
 					}
 					onGraphVisibilityChangeRef.current?.(state);
 				},
-			}).capabilities,
-		});
-		engineRef.current = engine;
-		engineKbPathRef.current = currentKnowledgeBasePath;
-		engineDataRef.current = data;
-	}, [aggregationMarkers, clearCommunityEdgeScope, currentKnowledgeBasePath, data, dataKnowledgeBasePath, engineFactory, enterCommunityEdgeScope, persistPins, playDiff, queueNodeDrawerAccommodation, selectionCommand]);
+					}).capabilities,
+				});
+				engineRef.current = engine;
+				engineKbPathRef.current = currentKnowledgeBasePath;
+				engineDataRef.current = data;
+			} catch (error) {
+				applyGraphFailure(
+					currentKnowledgeBasePath,
+					error instanceof Error ? error.message : String(error),
+				);
+			}
+		}, [activeEngineFactory, aggregationMarkers, applyGraphFailure, clearCommunityEdgeScope, clearGraphEngineInstance, currentKnowledgeBasePath, data, dataKnowledgeBasePath, enterCommunityEdgeScope, persistPins, playDiff, queueNodeDrawerAccommodation, selectionCommand]);
 
 	useEffect(() => {
 		engineRef.current?.setTheme(graphTheme);
@@ -979,6 +1016,28 @@ function writeGraphEdgeStylePreference(style: GraphEdgeStyleOptions): void {
 	} catch {
 		// localStorage can be unavailable in restricted browser contexts.
 	}
+}
+
+function graphTestEngineFactory(engineFactory: typeof createGraphEngine): typeof createGraphEngine {
+	if (!import.meta.env?.DEV || typeof window === "undefined" || engineFactory !== createGraphEngine) return engineFactory;
+	const mode = new URLSearchParams(window.location.search).get("graphTest");
+	if (mode === "shared-create-failure") {
+		return () => {
+			throw new Error("共享图谱首次创建失败");
+		};
+	}
+	if (mode === "shared-update-failure") {
+		return (container, options) => {
+			const engine = createGraphEngine(container, options);
+			return {
+				...engine,
+				setData() {
+					throw new Error("共享图谱更新失败");
+				},
+			};
+		};
+	}
+	return engineFactory;
 }
 
 function statusLabel(status: GraphStatusKind): string {

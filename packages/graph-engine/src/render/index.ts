@@ -87,6 +87,7 @@ export type {
 } from "./adapter";
 export {
   GRAPH_TOOLBAR_PANEL_KEY,
+  graphToolbarStorageForWindow,
   nextToolbarPanelState,
   normalizeToolbarPanelState,
   readToolbarPanelState,

@@ -442,6 +442,147 @@ describe("graph renderer lifecycle", () => {
     assert.equal(findByClass(reader, "graph-reader-body").length, 1);
   });
 
+  it("gives offline Sigma hosts readable node and multi-selection panels", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const clearRequests: number[] = [];
+    const renderer = createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      sigmaRuntime: fakeSigmaRouteRuntime(),
+      options: {
+        ...projectGraphInput(graphDataForReturnGlobal()),
+        pins: {},
+        theme: "shan-shui",
+        focus: null,
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: null,
+        sourceCommunityId: null,
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {
+          onSelectionClearRequested: () => clearRequests.push(1)
+        }
+      }
+    });
+
+    await Promise.resolve();
+    const reader = findByClass(container, "graph-reader")[0];
+    const selectionPanel = findByClass(container, "graph-selection-panel")[0];
+    assert.ok(reader);
+    assert.ok(selectionPanel);
+    assert.equal(reader.dataset.state, "closed");
+    assert.equal(selectionPanel.dataset.state, "closed");
+
+    renderer.select({ kind: "node", id: "a" });
+    assert.equal(reader.dataset.state, "open");
+    assert.equal(findByClass(reader, "graph-reader-title")[0]?.textContent, "Node a");
+    assert.equal(findByClass(reader, "graph-reader-body").length, 1);
+    assert.equal(selectionPanel.dataset.state, "closed");
+
+    renderer.select({ kind: "nodes", ids: ["a", "b"] });
+    assert.equal(reader.dataset.state, "closed");
+    assert.equal(selectionPanel.dataset.state, "open");
+    assert.equal(findByClass(selectionPanel, "graph-selection-page").length, 2);
+    assert.equal(findByClass(selectionPanel, "graph-selection-title")[0]?.textContent, "手动选区 · 2 页");
+
+    findByClass(selectionPanel, "graph-selection-close")[0]?.dispatch("click");
+    assert.equal(selectionPanel.dataset.state, "closed");
+    assert.deepEqual(clearRequests, [1]);
+
+    renderer.select({ kind: "community", id: "community-a" });
+    const enterCommunity = findByClass(selectionPanel, "graph-selection-enter-community")[0];
+    assert.equal(enterCommunity?.textContent, "进入社区");
+    enterCommunity?.dispatch("click");
+    assert.equal(selectionPanel.dataset.state, "closed");
+    assert.deepEqual(clearRequests, [1, 1]);
+
+    renderer.destroy();
+  });
+
+  it("keeps offline community entry within shared community semantics and route state", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const data = graphDataForReturnGlobal();
+    data.nodes.push({
+      id: "loose",
+      label: "Loose node",
+      type: "entity",
+      source_path: "wiki/loose.md",
+      content: "Loose node detail"
+    });
+    data.meta.total_nodes = data.nodes.length;
+    const state = {
+      ...projectGraphInput(data),
+      pins: {},
+      theme: "shan-shui" as const,
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      sourceCommunityId: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => createSigmaGlobalFacadeRenderer({
+          ...input,
+          sigmaRuntime: fakeSigmaRouteRuntime()
+        })
+      }
+    });
+    await Promise.resolve();
+    const selectionPanel = findByClass(container, "graph-selection-panel")[0];
+    assert.ok(selectionPanel);
+
+    manager.select({ kind: "community", id: "_none" });
+    assert.equal(findByClass(selectionPanel, "graph-selection-enter-community").length, 0);
+
+    manager.select({ kind: "community", id: "community-a" });
+    const enterCommunity = findByClass(selectionPanel, "graph-selection-enter-community")[0];
+    assert.ok(enterCommunity);
+    enterCommunity.dispatch("click");
+
+    assert.deepEqual(state.focus, { kind: "community", id: "community-a" });
+    assert.equal(manager.sourceCommunityId, "community-a");
+    manager.destroy();
+  });
+
+  it("leaves Sigma reading panels to hosts that provide their own reader", () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const renderer = createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      sigmaRuntime: fakeSigmaRouteRuntime(),
+      options: {
+        ...projectGraphInput(graphDataForReturnGlobal()),
+        pins: {},
+        theme: "shan-shui",
+        focus: null,
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: null,
+        sourceCommunityId: null,
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {
+          onNodeOpen: () => {}
+        }
+      }
+    });
+
+    renderer.select({ kind: "node", id: "a" });
+    assert.equal(findByClass(container, "graph-reader").length, 0);
+    assert.equal(findByClass(container, "graph-selection-panel").length, 0);
+
+    renderer.destroy();
+  });
+
   it("projects hostile data through the public engine entry before routing and updates", () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");
