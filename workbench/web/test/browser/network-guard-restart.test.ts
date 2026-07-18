@@ -13,7 +13,7 @@ import {
 	stopProcess,
 	verifyNetworkGuardLaunch,
 } from "./support/browser-harness";
-import type { Browser, BrowserContext } from "playwright";
+import type { Browser, BrowserContext, BrowserServer } from "playwright";
 
 const LIVE_CHILD_SOURCE = "const s=require('node:net').createServer();process.on('SIGTERM',()=>s.close(()=>process.exit(0)));s.listen(0,'127.0.0.1',()=>console.log('ready'))";
 
@@ -112,4 +112,23 @@ test("standalone browser context is still closed", async () => {
 	await closeBrowserResources({ context });
 
 	assert.deepEqual(calls, ["context"]);
+});
+
+test("browser server owns cleanup for a connected browser", async () => {
+	const calls: string[] = [];
+	const context = {
+		close: async () => { calls.push("context"); },
+	} as unknown as BrowserContext;
+	const browser = {
+		close: async () => { calls.push("browser"); },
+	} as unknown as Browser;
+	const browserServer = {
+		process: () => ({ exitCode: null, signalCode: null }),
+		close: async () => { calls.push("server"); },
+		kill: async () => { calls.push("kill"); },
+	} as unknown as BrowserServer;
+
+	await closeBrowserResources({ context, browser, browserServer });
+
+	assert.deepEqual(calls, ["server"]);
 });
