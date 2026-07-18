@@ -501,6 +501,57 @@ describe("graph renderer lifecycle", () => {
     renderer.destroy();
   });
 
+  it("keeps offline community entry within shared community semantics and route state", async () => {
+    const ownerDocument = new FakeDocument();
+    const container = ownerDocument.createElement("div");
+    const data = graphDataForReturnGlobal();
+    data.nodes.push({
+      id: "loose",
+      label: "Loose node",
+      type: "entity",
+      source_path: "wiki/loose.md",
+      content: "Loose node detail"
+    });
+    data.meta.total_nodes = data.nodes.length;
+    const state = {
+      ...projectGraphInput(data),
+      pins: {},
+      theme: "shan-shui" as const,
+      focus: null,
+      typeFilters: {},
+      aggregationMarkers: [],
+      selection: null,
+      sourceCommunityId: null,
+      searchQuery: "",
+      searchResultIds: [],
+      temporaryObject: null
+    };
+    const manager = createGraphFacadeRouteManager(container as unknown as HTMLElement, {
+      state,
+      factories: {
+        createSigmaGlobal: (input) => createSigmaGlobalFacadeRenderer({
+          ...input,
+          sigmaRuntime: fakeSigmaRouteRuntime()
+        })
+      }
+    });
+    await Promise.resolve();
+    const selectionPanel = findByClass(container, "graph-selection-panel")[0];
+    assert.ok(selectionPanel);
+
+    manager.select({ kind: "community", id: "_none" });
+    assert.equal(findByClass(selectionPanel, "graph-selection-enter-community").length, 0);
+
+    manager.select({ kind: "community", id: "community-a" });
+    const enterCommunity = findByClass(selectionPanel, "graph-selection-enter-community")[0];
+    assert.ok(enterCommunity);
+    enterCommunity.dispatch("click");
+
+    assert.deepEqual(state.focus, { kind: "community", id: "community-a" });
+    assert.equal(manager.sourceCommunityId, "community-a");
+    manager.destroy();
+  });
+
   it("leaves Sigma reading panels to hosts that provide their own reader", () => {
     const ownerDocument = new FakeDocument();
     const container = ownerDocument.createElement("div");

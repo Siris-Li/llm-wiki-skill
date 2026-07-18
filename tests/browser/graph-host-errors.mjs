@@ -14,7 +14,8 @@ const browser = await chromium.launch(executablePath ? { executablePath } : {});
 
 try {
   await checkCorruptedEmbeddedData(browser);
-  await checkUnavailableStorage(browser);
+  await checkUnavailableStorage(browser, "methods");
+  await checkUnavailableStorage(browser, "property");
   await checkSharedCreationFailure(browser);
 } finally {
   await browser.close();
@@ -34,10 +35,19 @@ async function checkCorruptedEmbeddedData(browser) {
   await page.close();
 }
 
-async function checkUnavailableStorage(browser) {
+async function checkUnavailableStorage(browser, failureMode) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 840 } });
   await context.setOffline(true);
-  await context.addInitScript(() => {
+  await context.addInitScript((mode) => {
+    if (mode === "property") {
+      Object.defineProperty(window, "localStorage", {
+        configurable: true,
+        get() {
+          throw new DOMException("Storage is unavailable", "SecurityError");
+        },
+      });
+      return;
+    }
     Object.defineProperty(Storage.prototype, "getItem", {
       configurable: true,
       value() {
@@ -50,16 +60,16 @@ async function checkUnavailableStorage(browser) {
         throw new DOMException("Storage is unavailable", "SecurityError");
       },
     });
-  });
+  }, failureMode);
   const pageErrors = [];
   const page = await context.newPage();
   page.on("pageerror", (error) => pageErrors.push(error));
   await page.goto(pathToFileURL(offlineHtml).href, { waitUntil: "load" });
   await page.locator(".offline-storage-warning").getByText("浏览器存储不可用").waitFor();
   await page.waitForSelector(".llm-wiki-graph-engine");
-  assert.equal(pageErrors.length, 0, "unavailable storage should not leak an uncaught exception");
-  assert.ok(await page.locator("canvas").count() > 0, "unavailable storage should keep the graph canvas readable");
-  assert.equal(await page.evaluate(() => Boolean(window.__LLM_WIKI_GRAPH_ENGINE__)), true, "unavailable storage should keep the engine usable");
+  assert.equal(pageErrors.length, 0, `${failureMode} storage failure should not leak an uncaught exception`);
+  assert.ok(await page.locator("canvas").count() > 0, `${failureMode} storage failure should keep the graph canvas readable`);
+  assert.equal(await page.evaluate(() => Boolean(window.__LLM_WIKI_GRAPH_ENGINE__)), true, `${failureMode} storage failure should keep the engine usable`);
   await context.close();
 }
 

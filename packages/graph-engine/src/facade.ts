@@ -787,6 +787,11 @@ export function createGraphFacadeRouteManager(
             state.searchResultIds = visibility.searchResultIds;
             if (!visibility.focusCommunityId) state.typeFilters = visibility.typeFilters;
             state.temporaryObject = visibility.temporaryObject;
+            if ("focusCommunityId" in visibility) {
+              const focusCommunityId = visibility.focusCommunityId ?? null;
+              state.focus = focusCommunityId ? { kind: "community", id: focusCommunityId } : null;
+              if (focusCommunityId) state.sourceCommunityId = focusCommunityId;
+            }
             options.callbacks?.onVisibilityStateChange?.(visibility);
           }
         }

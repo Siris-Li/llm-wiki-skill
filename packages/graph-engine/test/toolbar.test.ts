@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   GRAPH_TOOLBAR_PANEL_KEY,
+  graphToolbarStorageForWindow,
   nextToolbarPanelState,
   readToolbarPanelState,
   shouldBlankClickCloseToolbar,
@@ -12,6 +13,16 @@ import {
 describe("graph toolbar state", () => {
   it("defaults to a closed toolbar panel", () => {
     assert.equal(readToolbarPanelState(memoryStorage()), "closed");
+  });
+
+  it("treats a denied localStorage property as unavailable", () => {
+    const ownerWindow = Object.defineProperty({}, "localStorage", {
+      get() {
+        throw new DOMException("Storage is unavailable", "SecurityError");
+      }
+    });
+    assert.equal(graphToolbarStorageForWindow(ownerWindow), null);
+    assert.equal(readToolbarPanelState(graphToolbarStorageForWindow(ownerWindow)), "closed");
   });
 
   it("persists open and closed panel state", () => {

@@ -23,7 +23,7 @@ import {
 } from "./viewport";
 import { defaultGraphViewportSize, sideExitWorldAnchor, worldPointDeltaToLayerDelta, worldPointToCssPercentPoint } from "./geometry";
 import { createCommunityLegend, createGraphToolbar, createSearchControl } from "./controls";
-import { nextToolbarPanelState, writeToolbarPanelState } from "./toolbar";
+import { graphToolbarStorageForWindow, nextToolbarPanelState, writeToolbarPanelState } from "./toolbar";
 import { resolveGraphSearchState } from "./search";
 import type { GraphRuntimeStateSnapshot } from "./state";
 import type { GraphRenderContext, PaintedGraphDom } from "./render-context";
@@ -268,7 +268,7 @@ export function createGraphRenderPipeline(
       typeFilters: context.graph.typeFilters,
       onPanelToggle: (panel) => {
         context.toolbarPanelState = nextToolbarPanelState(context.toolbarPanelState, panel);
-        writeToolbarPanelState(context.ownerDocument.defaultView?.localStorage, context.toolbarPanelState);
+        writeToolbarPanelState(graphToolbarStorageForWindow(context.ownerDocument.defaultView), context.toolbarPanelState);
         applyToolbarPanelState(toolbar);
       },
       onTypeFilterToggle: (type, enabled) => {

@@ -1,6 +1,8 @@
 import type { GraphNode, GraphData, GraphSummaryObjectRef, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId } from "../types";
+import { UNGROUPED_COMMUNITY_ID } from "../types";
 import {
   buildCommunityLegend,
+  graphToolbarStorageForWindow,
   nextToolbarPanelState,
   prepareGraphRendererAdapterData,
   resolveGraphSearchState,
@@ -132,7 +134,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   let hoverNodeId: string | null = null;
   let hoverEdgeId: string | null = null;
   let legendCollapsed = false;
-  let toolbarPanelState = readToolbarPanelState(input.container.ownerDocument.defaultView?.localStorage);
+  let toolbarPanelState = readToolbarPanelState(graphToolbarStorageForWindow(input.container.ownerDocument.defaultView));
   let searchStatus: HTMLElement | null = null;
   let searchResultsList: HTMLElement | null = null;
   const shell = input.container.ownerDocument.createElement("div");
@@ -428,6 +430,9 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     const resolved = panelSelection
       ? resolveSelectionForCapabilities(options.data, panelSelection, { canAsk: false })
       : null;
+    const canEnterSelectedCommunity = panelSelection?.kind === "community"
+      && panelSelection.id !== UNGROUPED_COMMUNITY_ID
+      && Boolean(resolved?.nodeIds.length);
     renderOfflineSelectionPanel(input.container.ownerDocument, offlineSelectionPanel, {
       selection: panelSelection,
       selectedNodes: resolved
@@ -437,11 +442,13 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
         : [],
       facts: resolved?.facts ?? null,
       onClose: clearOfflineInteraction,
-      onEnterCommunity: (communityId) => {
-        options = { ...options, selection: null };
-        input.options.callbacks.onSelectionClearRequested?.();
-        focusSigmaCommunity(communityId);
-      }
+      onEnterCommunity: canEnterSelectedCommunity
+        ? (communityId) => {
+            options = { ...options, selection: null };
+            input.options.callbacks.onSelectionClearRequested?.();
+            focusSigmaCommunity(communityId);
+          }
+        : undefined
     });
   }
 
@@ -665,7 +672,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
       typeFilters: typeFiltersForRouteControls(options, typeFiltersForCurrentRoute()),
       onPanelToggle: (panel) => {
         toolbarPanelState = nextToolbarPanelState(toolbarPanelState, panel);
-        writeToolbarPanelState(input.container.ownerDocument.defaultView?.localStorage, toolbarPanelState);
+        writeToolbarPanelState(graphToolbarStorageForWindow(input.container.ownerDocument.defaultView), toolbarPanelState);
         mountSigmaControls();
       },
       onTypeFilterToggle: (type, enabled) => {

@@ -7,6 +7,16 @@ export interface GraphToolbarStorage {
 
 export const GRAPH_TOOLBAR_PANEL_KEY = "llm-wiki:graph:toolbar:panel";
 
+export function graphToolbarStorageForWindow(
+  ownerWindow: { readonly localStorage?: GraphToolbarStorage } | null | undefined
+): GraphToolbarStorage | null {
+  try {
+    return ownerWindow?.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeToolbarPanelState(value: unknown): GraphToolbarPanelState {
   return value === "filters" || value === "legend" ? value : "closed";
 }
