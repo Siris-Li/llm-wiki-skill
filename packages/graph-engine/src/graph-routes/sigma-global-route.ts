@@ -569,7 +569,7 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     if (event.key !== "Escape" || event.defaultPrevented) return;
     if (!isGraphRouteKeyboardTarget(event.target)) return;
     if (options.focus?.kind === "community") {
-      if (options.selection?.kind !== "node" && !hoverNodeId && !hoverEdgeId && !options.temporaryObject) return;
+      if (!options.selection && !hoverNodeId && !hoverEdgeId && !options.temporaryObject) return;
       if (clearCommunityNodeInteraction()) event.preventDefault();
       return;
     }

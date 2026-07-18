@@ -1747,6 +1747,13 @@ describe("graph renderer lifecycle", () => {
 
     assert.deepEqual(clearRequests, [1]);
 
+    renderer.select({ kind: "nodes", ids: ["a", "b"] });
+    const selectionClose = findByClass(container, "graph-selection-close")[0];
+    assert.ok(selectionClose);
+    ownerDocument.dispatch("keydown", { key: "Escape", target: selectionClose });
+
+    assert.deepEqual(clearRequests, [1, 1]);
+
     renderer.destroy();
   });
 
