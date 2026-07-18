@@ -6,15 +6,13 @@ import {
   resolvePositionAndRangePolicy,
   resolveRenderPolicy,
   resolveAtlasSemanticVisibility,
-  resolveAtlasVisibleSnapshot,
   type AtlasInsights,
   type GraphData,
   type GraphEngine,
   type PinMap,
   type RenderPositionMap
 } from "../src/index.js";
-// @ts-expect-error legacy learning normalization is model-internal compatibility, not a public toolbox.
-import { normalizeLearning } from "../src/index.js";
+import { resolveRenderPolicyVisibility } from "../src/render/render-policy.js";
 
 const graph: GraphData = {
   meta: { build_date: "", wiki_title: "negative", total_nodes: 1, total_edges: 0 },
@@ -33,7 +31,7 @@ const invalidPositions: RenderPositionMap = { a: { x: "1", y: 2 } };
 
 const typedModel = buildAtlasModel(graph);
 const typedLayout = deriveAtlasLayout(typedModel);
-const typedVisible = resolveAtlasVisibleSnapshot(typedModel, typedLayout);
+const typedVisible = resolveRenderPolicyVisibility(typedModel, typedLayout);
 // @ts-expect-error lookup tables require an absence check for unknown IDs.
 typedModel.byId.missing.label;
 // @ts-expect-error community lookups require an absence check for unknown IDs.
@@ -53,7 +51,7 @@ const incompleteAtlasInsights: AtlasInsights = { surprising_connections: [], iso
 // @ts-expect-error normalized nodes cannot be replaced with raw graph nodes.
 typedModel.nodes.push(graph.nodes[0]);
 // @ts-expect-error visible model filters are booleans, not arbitrary strings.
-resolveAtlasVisibleSnapshot(typedModel, typedLayout, { filters: { EXTRACTED: "yes" } });
+resolveRenderPolicyVisibility(typedModel, typedLayout, { typeFilters: { entity: "yes" } });
 // @ts-expect-error semantic type filters are booleans, not arbitrary strings.
 resolveAtlasSemanticVisibility(typedModel, { typeFilters: { entity: "yes" } });
 
@@ -86,4 +84,3 @@ void invalidGraph;
 void invalidPins;
 void invalidPositions;
 void incompleteAtlasInsights;
-void normalizeLearning;

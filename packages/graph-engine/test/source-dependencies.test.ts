@@ -14,10 +14,15 @@ const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const BASELINE_PATH = path.join(import.meta.dirname, "fixtures/issue-159/dependency-baseline.json");
 
 describe("issue #159 source dependency gate", () => {
-  it("matches the migration allowlist, which may shrink but may not grow", async () => {
+  it("has no real source dependency on the retired legacy toolbox", async () => {
     const baseline = JSON.parse(await readFile(BASELINE_PATH, "utf8")) as GraphDependencyBaseline;
     const graph = await readTypeScriptModuleGraph(path.join(PACKAGE_ROOT, "src"));
 
+    assert.deepEqual(baseline.legacyReferences, []);
+    assert.deepEqual(
+      graph.edges.filter((edge) => edge.target === "model/legacy-helpers.ts"),
+      []
+    );
     assert.deepEqual(auditGraphSourceDependencies(graph, baseline), []);
   });
 
@@ -138,23 +143,25 @@ describe("issue #159 source dependency gate", () => {
     }
   });
 
-  it("requires the shrink-only baseline to drop references that no longer exist", async () => {
-    const baseline = JSON.parse(await readFile(BASELINE_PATH, "utf8")) as GraphDependencyBaseline;
-    const graph = await readTypeScriptModuleGraph(path.join(PACKAGE_ROOT, "src"));
-    const removed = baseline.legacyReferences[0];
-    const reducedGraph = {
-      ...graph,
-      edges: graph.edges.filter((edge) => !(
-        edge.source === removed.source
-        && edge.target === removed.target
-        && edge.kind === removed.kind
-      ))
-    };
+  it("keeps the zero legacy baseline from accepting a newly introduced old path", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-wiki-graph-zero-legacy-"));
+    try {
+      await mkdir(path.join(root, "model"), { recursive: true });
+      await writeFile(path.join(root, "model/legacy-helpers.ts"), "export const legacy = true;\n");
+      await writeFile(path.join(root, "model/consumer.ts"), "export { legacy } from './legacy-helpers';\n");
 
-    assert.deepEqual(
-      auditGraphSourceDependencies(reducedGraph, baseline).map((finding) => finding.rule),
-      ["stale-legacy-reference"]
-    );
+      const graph = await readTypeScriptModuleGraph(root);
+      assert.deepEqual(
+        auditGraphSourceDependencies(graph, {
+          legacyReferences: [],
+          internalModelBarrelReferences: [],
+          rendererRouteBypasses: []
+        }).map((finding) => finding.rule),
+        ["legacy-reference-growth"]
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("keeps semantic visibility independent from layout, camera, rendering, and hosts", async () => {

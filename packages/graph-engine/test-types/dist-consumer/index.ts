@@ -14,7 +14,6 @@ import {
   normalizeGraphPinMap,
   projectGraphInput,
   resolveGraphRendererSemantics,
-  resolveAtlasVisibleSnapshot,
   type AtlasModel,
   type GraphData,
   type GraphEngine,
@@ -45,7 +44,6 @@ const diff = diffGraphData(graph, graph);
 const unknownGraph: unknown = graph;
 const inputProjection: GraphInputProjection = projectGraphInput(unknownGraph);
 const model: AtlasModel = buildAtlasModel(inputProjection.data);
-const visible = resolveAtlasVisibleSnapshot(model, deriveAtlasLayout(model));
 
 declare const container: HTMLElement;
 declare const capabilities: Parameters<typeof createGraphWorkbenchCapabilities>[0];
@@ -58,4 +56,4 @@ const standalone = createGraphStandaloneCapabilities();
 declare const visibility: GraphVisibilityState;
 
 engine.setData(unknownGraph);
-void [renderable, layoutBounds, contentBounds, framingBounds, adapter, layout, diff, inputProjection, model, visible, engine, renderer, staticRenderer, workbench, offline, standalone, visibility];
+void [renderable, layoutBounds, contentBounds, framingBounds, adapter, layout, diff, inputProjection, model, engine, renderer, staticRenderer, workbench, offline, standalone, visibility];

@@ -21,20 +21,6 @@ import {
   stripAtlasMarkdown
 } from "./labels";
 
-export {
-  resolveAtlasVisibleSnapshot,
-  normalizeAtlasViewport,
-  getAtlasModelBounds,
-  clampAtlasViewport,
-  fitAtlasViewport,
-  centerAtlasViewportOnPoint,
-  zoomAtlasViewport,
-  atlasViewportRect,
-  atlasPointToMinimap,
-  minimapPointToAtlasPoint,
-  atlasViewportToMinimapRect
-} from './legacy-helpers';
-
 export { atlasNodePoint, deriveAtlasLayout } from "../layout/initial-layout";
 export type { AtlasLayout } from "../layout/initial-layout";
 
