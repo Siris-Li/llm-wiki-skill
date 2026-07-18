@@ -145,7 +145,7 @@ export async function closeBrowserResources(resources: {
 	browserServer?: BrowserServer;
 }): Promise<void> {
 	const errors: unknown[] = [];
-	if (resources.context) {
+	if (resources.context && !resources.browser) {
 		await withTimeout(resources.context.close(), STOP_TIMEOUT_MS, "browser context did not close").catch((error) => errors.push(error));
 	}
 	if (resources.browser) {
