@@ -168,6 +168,8 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
       element.dataset.selected = node.selected ? "true" : "false";
       element.dataset.pinned = node.pinHint.pinned ? "true" : "false";
       element.dataset.labelVisible = node.render.labelVisible ? "true" : "false";
+      element.dataset.startNode = node.render.startNode ? "true" : "false";
+      element.dataset.previewStart = node.render.previewStart ? "true" : "false";
       element.dataset.relationFocusDepth = node.relationFocusDepth ?? "none";
       element.dataset.communityDimmed = sigmaGlobalNodeSpotlightState(node, spotlightCommunityIds).dimmed ? "true" : "false";
       ordered.push(element);

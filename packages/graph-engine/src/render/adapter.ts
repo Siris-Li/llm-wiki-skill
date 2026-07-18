@@ -62,6 +62,8 @@ export interface GraphRendererAdapterNode {
     visualRole: string;
     priority: number;
     labelVisible: boolean;
+    startNode?: boolean;
+    previewStart?: boolean;
     communityMapTier: CommunityMapNodeTier;
     communityMapImportance: number;
     communityMapDotSize: number;
@@ -216,6 +218,8 @@ export function buildGraphRendererAdapterData(
         visualRole: renderNode.visualRole,
         priority: renderNode.priority,
         labelVisible: renderNode.labelVisible,
+        startNode: renderNode.startNode,
+        previewStart: renderNode.previewStart,
         communityMapTier: renderNode.communityMapTier,
         communityMapImportance: renderNode.communityMapImportance,
         communityMapDotSize: renderNode.communityMapDotSize,

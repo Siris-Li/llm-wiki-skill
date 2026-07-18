@@ -245,7 +245,7 @@ describe("Sigma overlay DOM controller", () => {
   it("rebuild prunes stale elements and refreshes reused node data attributes", () => {
     const initialData = adapterDataFixture({
       nodes: [
-        nodeFixture("alpha", { selected: true }),
+        nodeFixture("alpha", { selected: true, startNode: true }),
         nodeFixture("beta", { searchHit: true, pinned: true })
       ],
       communities: [communityFixture("community-a"), communityFixture("community-b")]
@@ -256,7 +256,7 @@ describe("Sigma overlay DOM controller", () => {
 
     fixture.setAdapterData(adapterDataFixture({
       nodes: [
-        nodeFixture("alpha", { selected: false, searchHit: true, pinned: true })
+        nodeFixture("alpha", { selected: false, searchHit: true, pinned: true, previewStart: true })
       ],
       communities: [communityFixture("community-a")]
     }));
@@ -267,6 +267,8 @@ describe("Sigma overlay DOM controller", () => {
     assert.equal(alphaAfter?.dataset.selected, "false");
     assert.equal(alphaAfter?.dataset.searchHit, "true");
     assert.equal(alphaAfter?.dataset.pinned, "true");
+    assert.equal(alphaAfter?.dataset.startNode, "false");
+    assert.equal(alphaAfter?.dataset.previewStart, "true");
     assert.equal(nodeTarget(fixture.overlayRoot, "beta"), undefined);
     assert.equal(communityRegion(fixture.overlayRoot, "community-b"), undefined);
   });
@@ -642,6 +644,8 @@ function nodeFixture(id: string, options: {
   pinned?: boolean;
   communityId?: string;
   labelVisible?: boolean;
+  startNode?: boolean;
+  previewStart?: boolean;
   relationFocusDepth?: GraphRendererAdapterData["nodes"][number]["relationFocusDepth"];
 } = {}) {
   const index = Number(id.match(/\d+$/)?.[0] ?? 1);
@@ -672,6 +676,8 @@ function nodeFixture(id: string, options: {
       visualRole: "landmark",
       priority: options.selected ? 1000 : 100,
       labelVisible: options.labelVisible ?? Boolean(options.selected),
+      startNode: options.startNode ?? false,
+      previewStart: options.previewStart ?? false,
       communityMapTier: "related",
       communityMapImportance: 3,
       communityMapDotSize: 18,
