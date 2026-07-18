@@ -35,8 +35,8 @@
 
 | 产物 | 退休前（#282） | #283 最终 | 变化 |
 |---|---:|---:|---:|
-| `dist/engine.esm.js` | 438043 bytes | 417892 bytes | -20151 bytes |
-| `dist/engine.iife.js` | 513949 bytes | 498011 bytes | -15938 bytes |
+| `dist/engine.esm.js` | 438043 bytes | 418051 bytes | -19992 bytes |
+| `dist/engine.iife.js` | 513949 bytes | 498140 bytes | -15809 bytes |
 
 两份产物仍分别通过 ESM 动态导入和 IIFE 沙箱加载，离线构建继续内联 IIFE。
 
