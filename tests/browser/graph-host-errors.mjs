@@ -10,10 +10,11 @@ const executablePath = process.env.GRAPH_HOST_ERROR_CHROME_EXECUTABLE || undefin
 assert.ok(offlineHtml, "GRAPH_HOST_ERROR_OFFLINE_HTML must point at the generated offline graph");
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-wiki-graph-host-errors-"));
-const browser = await chromium.launch(executablePath ? { executablePath } : {});
+let browser;
 
 await runWithCleanup(
   async () => {
+    browser = await chromium.launch(executablePath ? { executablePath } : {});
     await checkCorruptedEmbeddedData(browser);
     assert.equal(browser.contexts().length, 0, "corrupted-data journey should release its browser context");
     await checkUnavailableStorage(browser, "methods");
@@ -146,10 +147,12 @@ async function runWithCleanup(task, cleanup, message) {
 
 async function cleanupBrowserFixture(browser, directory) {
   const errors = [];
-  try {
-    await browser.close();
-  } catch (error) {
-    errors.push(error);
+  if (browser) {
+    try {
+      await browser.close();
+    } catch (error) {
+      errors.push(error);
+    }
   }
   try {
     fs.rmSync(directory, { recursive: true, force: true });
