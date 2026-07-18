@@ -19,7 +19,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-tmp_dir="$(mktemp -d -t issue-282-acceptance)"
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/issue-282-acceptance.XXXXXX")"
 fixture_tmp=""
 trap 'rm -rf "$tmp_dir" "$fixture_tmp"' EXIT
 
@@ -50,7 +50,7 @@ GRAPH_SIGMA_PRODUCTION_SHAPES=nodes-1000-sparse \
   bash tests/graph-sigma-global-production.regression-1.sh
 
 echo "== [4/5] 离线宿主构建消费 IIFE(build-graph-html.sh 冒烟) =="
-fixture_tmp="$(mktemp -d -t issue-282-offline)"
+fixture_tmp="$(mktemp -d "${TMPDIR:-/tmp}/issue-282-offline.XXXXXX")"
 cp -R tests/fixtures/graph-interactive-basic "$fixture_tmp/graph-interactive-basic"
 bash scripts/build-graph-html.sh "$fixture_tmp/graph-interactive-basic" > /dev/null
 offline_html="$fixture_tmp/graph-interactive-basic/wiki/knowledge-graph.html"
