@@ -17,6 +17,7 @@ interface SupportedExportsBaseline {
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const BASELINE_PATH = path.join(import.meta.dirname, "fixtures/issue-159/supported-exports.json");
 const RETIRED_PUBLIC_EXPORTS = [
+  "applyFocusMode",
   "appendQueueNote",
   "atlasPointToMinimap",
   "atlasViewportRect",
@@ -27,6 +28,7 @@ const RETIRED_PUBLIC_EXPORTS = [
   "defaultLearning",
   "defaultQueue",
   "fitAtlasViewport",
+  "filterLinksByTypes",
   "getAtlasModelBounds",
   "getCommunityNodeIds",
   "getVisibleLinks",
@@ -38,6 +40,8 @@ const RETIRED_PUBLIC_EXPORTS = [
   "normalizeQueue",
   "resolveAtlasVisibleSnapshot",
   "resolveInitialMode",
+  "resolveVisibleSnapshot",
+  "shouldAutoOpenDrawer",
   "summarizeQueue",
   "toggleQueueFavorite",
   "zoomAtlasViewport"

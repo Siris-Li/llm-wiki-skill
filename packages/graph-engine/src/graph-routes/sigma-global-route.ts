@@ -568,9 +568,15 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
   function handleDocumentKeyDown(event: KeyboardEvent): void {
     if (event.key !== "Escape" || event.defaultPrevented) return;
     if (!isGraphRouteKeyboardTarget(event.target)) return;
-    if (options.focus?.kind !== "community") return;
-    if (options.selection?.kind !== "node" && !hoverNodeId && !hoverEdgeId && !options.temporaryObject) return;
-    clearCommunityNodeInteraction();
+    if (options.focus?.kind === "community") {
+      if (options.selection?.kind !== "node" && !hoverNodeId && !hoverEdgeId && !options.temporaryObject) return;
+      if (clearCommunityNodeInteraction()) event.preventDefault();
+      return;
+    }
+    if (!options.selection && !hoverNodeId && !hoverEdgeId && !options.temporaryObject) return;
+    clearSigmaTransientHoverState();
+    clearOfflineInteraction();
+    event.preventDefault();
   }
 
   function clearCommunityNodeInteraction(): boolean {
