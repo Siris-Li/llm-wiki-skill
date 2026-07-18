@@ -25,6 +25,7 @@ try {
   assert.ok(await panel.locator(".graph-selection-fact").count() >= 4, "Shift selection should show structural facts");
   assert.equal(await panel.getByText("提问选区").count(), 0, "offline selection panel must not show ask actions");
 
+  await panel.getByRole("button", { name: "关闭选区面板" }).focus();
   await page.keyboard.press("Escape");
   await page.waitForSelector(".graph-selection-panel[data-state='closed']");
 

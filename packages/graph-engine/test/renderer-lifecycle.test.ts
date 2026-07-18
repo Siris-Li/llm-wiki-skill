@@ -492,16 +492,23 @@ describe("graph renderer lifecycle", () => {
     assert.deepEqual(clearRequests, [1]);
 
     renderer.select({ kind: "nodes", ids: ["a", "b"] });
-    findByClass(selectionPanel, "graph-selection-close")[0]?.dispatch("click");
+    const selectionClose = findByClass(selectionPanel, "graph-selection-close")[0];
+    assert.ok(selectionClose);
+    ownerDocument.dispatch("keydown", { key: "Escape", target: selectionClose });
     assert.equal(selectionPanel.dataset.state, "closed");
     assert.deepEqual(clearRequests, [1, 1]);
+
+    renderer.select({ kind: "nodes", ids: ["a", "b"] });
+    findByClass(selectionPanel, "graph-selection-close")[0]?.dispatch("click");
+    assert.equal(selectionPanel.dataset.state, "closed");
+    assert.deepEqual(clearRequests, [1, 1, 1]);
 
     renderer.select({ kind: "community", id: "community-a" });
     const enterCommunity = findByClass(selectionPanel, "graph-selection-enter-community")[0];
     assert.equal(enterCommunity?.textContent, "进入社区");
     enterCommunity?.dispatch("click");
     assert.equal(selectionPanel.dataset.state, "closed");
-    assert.deepEqual(clearRequests, [1, 1, 1]);
+    assert.deepEqual(clearRequests, [1, 1, 1, 1]);
 
     renderer.destroy();
   });

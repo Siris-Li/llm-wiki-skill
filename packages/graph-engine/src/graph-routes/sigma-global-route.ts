@@ -596,9 +596,20 @@ export function createSigmaGlobalFacadeRenderer(input: GraphFacadeRouteRendererF
     if (!target) return true;
     const ownerDocument = input.container.ownerDocument;
     if (target === ownerDocument || target === ownerDocument.body || target === ownerDocument.documentElement) return true;
+    if (isSigmaOfflineOverlayKeyboardTarget(target)) return true;
     if (isSigmaRouteControlKeyboardTarget(target)) return false;
     if (typeof shell.contains !== "function" || typeof (target as { nodeType?: unknown }).nodeType !== "number") return false;
     return shell.contains(target as Node);
+  }
+
+  function isSigmaOfflineOverlayKeyboardTarget(target: EventTarget): boolean {
+    let current: SigmaRouteKeyboardTargetLike | null = target as SigmaRouteKeyboardTargetLike;
+    while (current) {
+      if (hasSigmaRouteClass(current, "graph-reader")) return true;
+      if (hasSigmaRouteClass(current, "graph-selection-panel")) return true;
+      current = current.parentElement ?? null;
+    }
+    return false;
   }
 
   function isSigmaRouteControlKeyboardTarget(target: EventTarget): boolean {
