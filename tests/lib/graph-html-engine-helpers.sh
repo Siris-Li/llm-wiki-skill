@@ -121,6 +121,7 @@ assert_single_file_engine_output() {
     assert_file_contains "$html" "persistPins: function"
     assert_file_contains "$html" "window.__LLM_WIKI_GRAPH_PINS_KEY__"
     assert_file_not_contains "$html" 'src="graph-wash.js"'
+    assert_file_not_contains "$html" 'src="graph-wash-helpers.js"'
     assert_file_not_contains "$html" 'src="d3.min.js"'
     assert_file_not_contains "$html" 'sourceMappingURL'
 }

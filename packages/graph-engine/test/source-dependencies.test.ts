@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -11,14 +11,46 @@ import {
 } from "./support/source-dependencies";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
+const REPO_ROOT = path.resolve(PACKAGE_ROOT, "../..");
 const BASELINE_PATH = path.join(import.meta.dirname, "fixtures/issue-159/dependency-baseline.json");
+const RETIRED_REPOSITORY_PATHS = [
+  "packages/graph-engine/src/model/legacy-helpers.ts",
+  "packages/graph-engine/src/model/learning.ts",
+  "packages/graph-engine/src/model/queue.ts",
+  "packages/graph-engine/src/model/storage.ts",
+  "packages/graph-engine/test/learning.test.ts",
+  "templates/graph-styles/wash/footer.html",
+  "templates/graph-styles/wash/graph-wash-helpers.js",
+  "templates/graph-styles/wash/graph-wash.js",
+  "templates/graph-styles/wash/header.html",
+  "tests/expected/graph-interactive-basic.html",
+  "tests/js/graph-wash-bootstrap.test.js",
+  "tests/js/graph-wash-helpers.test.js",
+  "tests/js/graph-wash-learning.test.js",
+  "tests/js/graph-wash-queue.test.js",
+  "tests/js/graph-wash-runtime-state.test.js"
+] as const;
 
 describe("issue #159 source dependency gate", () => {
-  it("matches the migration allowlist, which may shrink but may not grow", async () => {
+  it("has no real source dependency on the retired legacy toolbox", async () => {
     const baseline = JSON.parse(await readFile(BASELINE_PATH, "utf8")) as GraphDependencyBaseline;
     const graph = await readTypeScriptModuleGraph(path.join(PACKAGE_ROOT, "src"));
 
+    assert.deepEqual(baseline.legacyReferences, []);
+    assert.deepEqual(
+      graph.edges.filter((edge) => edge.target === "model/legacy-helpers.ts"),
+      []
+    );
     assert.deepEqual(auditGraphSourceDependencies(graph, baseline), []);
+  });
+
+  it("keeps retired toolbox and wash source paths absent from the repository", async () => {
+    for (const retiredPath of RETIRED_REPOSITORY_PATHS) {
+      await assert.rejects(
+        access(path.join(REPO_ROOT, retiredPath)),
+        `${retiredPath} must stay retired`
+      );
+    }
   });
 
   it("resolves imports, dynamic imports, and re-exports before checking forbidden routes", async () => {
@@ -138,23 +170,25 @@ describe("issue #159 source dependency gate", () => {
     }
   });
 
-  it("requires the shrink-only baseline to drop references that no longer exist", async () => {
-    const baseline = JSON.parse(await readFile(BASELINE_PATH, "utf8")) as GraphDependencyBaseline;
-    const graph = await readTypeScriptModuleGraph(path.join(PACKAGE_ROOT, "src"));
-    const removed = baseline.legacyReferences[0];
-    const reducedGraph = {
-      ...graph,
-      edges: graph.edges.filter((edge) => !(
-        edge.source === removed.source
-        && edge.target === removed.target
-        && edge.kind === removed.kind
-      ))
-    };
+  it("keeps the zero legacy baseline from accepting a newly introduced old path", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-wiki-graph-zero-legacy-"));
+    try {
+      await mkdir(path.join(root, "model"), { recursive: true });
+      await writeFile(path.join(root, "model/legacy-helpers.ts"), "export const legacy = true;\n");
+      await writeFile(path.join(root, "model/consumer.ts"), "export { legacy } from './legacy-helpers';\n");
 
-    assert.deepEqual(
-      auditGraphSourceDependencies(reducedGraph, baseline).map((finding) => finding.rule),
-      ["stale-legacy-reference"]
-    );
+      const graph = await readTypeScriptModuleGraph(root);
+      assert.deepEqual(
+        auditGraphSourceDependencies(graph, {
+          legacyReferences: [],
+          internalModelBarrelReferences: [],
+          rendererRouteBypasses: []
+        }).map((finding) => finding.rule),
+        ["legacy-reference-growth"]
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("keeps semantic visibility independent from layout, camera, rendering, and hosts", async () => {

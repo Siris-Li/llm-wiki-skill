@@ -1,16 +1,16 @@
 import type { EdgeId, GraphAggregationMarker, GraphData, GraphFocusInput, GraphPinHint, GraphSummaryObjectRef, GraphTypeFilters, NodeId, PinMap, SelectionInput, ThemeId, WikiPath } from "../types";
 import {
   getAtlasDensityMode,
-  resolveAtlasVisibleSnapshot,
   type AtlasCommunity,
   type AtlasDensityMode,
   type AtlasEdge,
   type AtlasModel,
   type AtlasNode,
-  type AtlasVisibleSnapshot
+  type AtlasVisibleSnapshot,
+  type AtlasVisibleState
 } from "../model/atlas";
 import { atlasNodePoint, type AtlasLayout } from "../layout/initial-layout";
-import { applyAtlasTypeAndTemporaryVisibility } from "../model/visibility";
+import { applyAtlasTypeAndTemporaryVisibility, resolveAtlasSemanticVisibility } from "../model/visibility";
 import {
   edgeCurveOffset,
   edgeRelationClass,
@@ -515,16 +515,111 @@ function structureSkeletonBudget(nodeCount: number): number {
 
 export function resolveRenderPolicyVisibility(
   model: AtlasModel,
-  layout: AtlasLayout,
   options: RenderPolicyOptions = {}
 ): AtlasVisibleSnapshot {
   const selectedNodeIds = resolveSelectedNodeIds(model, options);
   const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null;
   const focus = normalizeGraphFocus(options.focus, model);
-  return resolveAtlasVisibleSnapshot(model, layout, {
+  return resolveAtlasRenderVisibility(model, {
     activeCommunityId: focus?.kind === "community" ? focus.id : "all",
     selectedNodeId
   });
+}
+
+export function resolveAtlasRenderVisibility(
+  model: AtlasModel,
+  uiState: AtlasVisibleState = {}
+): AtlasVisibleSnapshot {
+  const activeCommunityId = uiState.activeCommunityId == null ? "all" : String(uiState.activeCommunityId);
+  const selectedNodeId = uiState.selectedNodeId == null ? null : String(uiState.selectedNodeId);
+  const semanticVisibility = resolveAtlasSemanticVisibility(model, uiState);
+  const visibleNodes = semanticVisibility.nodes;
+  const visibleIdSet = new Set(visibleNodes.map((node) => node.id));
+  const matchedNodeIds = semanticVisibility.matchedNodeIds;
+  const densityMode = getAtlasDensityMode(visibleNodes.length);
+  const labelNodeIds: NodeFlagLookup = {};
+  const startNodeIds: NodeFlagLookup = {};
+  const importantNodeIds: NodeFlagLookup = {};
+  const visibleStarts = model.starts.filter((entry) => (
+    visibleIdSet.has(entry.node.id)
+    && (activeCommunityId === "all" || entry.node.community === activeCommunityId)
+  ));
+
+  for (const entry of visibleStarts) {
+    startNodeIds[entry.node.id] = true;
+    importantNodeIds[entry.node.id] = true;
+  }
+
+  visibleNodes.slice()
+    .sort((left, right) => (right.priority || 0) - (left.priority || 0))
+    .slice(0, Math.max(0, Math.min(8, Math.ceil(visibleNodes.length * 0.08))))
+    .forEach((node) => { importantNodeIds[node.id] = true; });
+
+  visibleNodes.slice()
+    .sort((left, right) => {
+      const leftForced = selectedNodeId === left.id || matchedNodeIds[left.id] || importantNodeIds[left.id] ? 1 : 0;
+      const rightForced = selectedNodeId === right.id || matchedNodeIds[right.id] || importantNodeIds[right.id] ? 1 : 0;
+      if (rightForced !== leftForced) return rightForced - leftForced;
+      return (right.priority || 0) - (left.priority || 0);
+    })
+    .slice(0, atlasRenderLabelBudget(densityMode, visibleNodes.length))
+    .forEach((node) => { labelNodeIds[node.id] = true; });
+
+  if (selectedNodeId && visibleIdSet.has(selectedNodeId)) {
+    labelNodeIds[selectedNodeId] = true;
+    importantNodeIds[selectedNodeId] = true;
+  }
+  for (const id of Object.keys(matchedNodeIds)) {
+    if (!visibleIdSet.has(id)) continue;
+    labelNodeIds[id] = true;
+    importantNodeIds[id] = true;
+  }
+  for (const id of Object.keys(startNodeIds)) {
+    if (visibleIdSet.has(id)) labelNodeIds[id] = true;
+  }
+
+  const visibleEdges = semanticVisibility.edges.slice()
+    .sort((left, right) => {
+      const leftSelected = selectedNodeId && (left.source === selectedNodeId || left.target === selectedNodeId) ? 1 : 0;
+      const rightSelected = selectedNodeId && (right.source === selectedNodeId || right.target === selectedNodeId) ? 1 : 0;
+      if (rightSelected !== leftSelected) return rightSelected - leftSelected;
+      return (right.weight || 0) - (left.weight || 0);
+    })
+    .slice(0, atlasRenderEdgeBudget(densityMode, semanticVisibility.edges.length));
+
+  return {
+    node_ids: visibleNodes.map((node) => node.id),
+    nodes: visibleNodes,
+    edges: visibleEdges,
+    links: visibleEdges,
+    searchIndex: semanticVisibility.searchIndex,
+    densityMode,
+    labelNodeIds,
+    matchedNodeIds,
+    importantNodeIds,
+    startNodeIds,
+    starts: visibleStarts,
+    counts: {
+      visible_nodes: visibleNodes.length,
+      visible_edges: visibleEdges.length,
+      total_nodes: model.nodes.length,
+      total_edges: model.edges.length,
+      total_communities: model.communities.length
+    }
+  };
+}
+
+function atlasRenderLabelBudget(mode: AtlasDensityMode, count: number): number {
+  if (mode === "overview") return 40;
+  if (mode === "point-plus-focus") return 60;
+  if (mode === "compact-card") return Math.min(120, count);
+  return count;
+}
+
+function atlasRenderEdgeBudget(mode: AtlasDensityMode, count: number): number {
+  if (mode === "overview") return 1000;
+  if (mode === "point-plus-focus") return 800;
+  return count;
 }
 
 export function resolveRenderPolicy(input: RenderPolicyInput): RenderableGraph {

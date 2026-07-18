@@ -7,7 +7,6 @@ import {
   cardDims,
   deriveAtlasLayout,
   measureLabelWidth,
-  resolveAtlasVisibleSnapshot,
   resolveGraphSearchState,
   splitLabelGraphemes,
   stripAtlasMarkdown,
@@ -17,6 +16,7 @@ import {
 } from "../../src";
 import type { AtlasLayout, AtlasModel, AtlasNode, AtlasVisibleSnapshot, RenderableGraph } from "../../src";
 import type { GraphRendererAdapterData } from "../../src/render";
+import { resolveAtlasRenderVisibility } from "../../src/render/render-policy";
 import { prepareRendererAdapterDataForTest } from "./prepared-renderer-adapter";
 
 export function captureSupportedMigrationBehavior(input: GraphData): unknown {
@@ -24,12 +24,12 @@ export function captureSupportedMigrationBehavior(input: GraphData): unknown {
   const model = buildAtlasModel(input);
   const modelBeforeLayout = stableClone(model);
   const layout = deriveAtlasLayout(model);
-  const visible = resolveAtlasVisibleSnapshot(model, layout, {
+  const visible = resolveAtlasRenderVisibility(model, {
     activeCommunityId: "all",
     selectedNodeId: "alpha",
     filters: { INFERRED: true, AMBIGUOUS: true, EXTRACTED: true, UNVERIFIED: false }
   });
-  const atlasSearch = resolveAtlasVisibleSnapshot(model, layout, {
+  const atlasSearch = resolveAtlasRenderVisibility(model, {
     activeCommunityId: "all",
     query: "only-atlas-501"
   });

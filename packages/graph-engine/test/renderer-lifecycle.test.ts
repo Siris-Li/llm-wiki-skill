@@ -487,18 +487,68 @@ describe("graph renderer lifecycle", () => {
     assert.equal(findByClass(selectionPanel, "graph-selection-page").length, 2);
     assert.equal(findByClass(selectionPanel, "graph-selection-title")[0]?.textContent, "手动选区 · 2 页");
 
-    findByClass(selectionPanel, "graph-selection-close")[0]?.dispatch("click");
+    const selectionClose = findByClass(selectionPanel, "graph-selection-close")[0];
+    assert.ok(selectionClose);
+    ownerDocument.dispatch("keydown", { key: "Escape", target: selectionClose });
     assert.equal(selectionPanel.dataset.state, "closed");
     assert.deepEqual(clearRequests, [1]);
+
+    renderer.select({ kind: "nodes", ids: ["a", "b"] });
+    findByClass(selectionPanel, "graph-selection-close")[0]?.dispatch("click");
+    assert.equal(selectionPanel.dataset.state, "closed");
+    assert.deepEqual(clearRequests, [1, 1]);
 
     renderer.select({ kind: "community", id: "community-a" });
     const enterCommunity = findByClass(selectionPanel, "graph-selection-enter-community")[0];
     assert.equal(enterCommunity?.textContent, "进入社区");
     enterCommunity?.dispatch("click");
     assert.equal(selectionPanel.dataset.state, "closed");
-    assert.deepEqual(clearRequests, [1, 1]);
+    assert.deepEqual(clearRequests, [1, 1, 1]);
 
     renderer.destroy();
+  });
+
+  it("routes Escape only to the graph that owns the focused offline panel", async () => {
+    const ownerDocument = new FakeDocument();
+    const containers = [ownerDocument.createElement("div"), ownerDocument.createElement("div")];
+    const clearRequests = [0, 0];
+    const renderers = containers.map((container, index) => createSigmaGlobalFacadeRenderer({
+      container: container as unknown as HTMLElement,
+      sigmaRuntime: fakeSigmaRouteRuntime(),
+      options: {
+        ...projectGraphInput(graphDataForReturnGlobal()),
+        pins: {},
+        theme: "shan-shui",
+        focus: null,
+        typeFilters: {},
+        aggregationMarkers: [],
+        selection: { kind: "nodes", ids: ["a", "b"] },
+        sourceCommunityId: null,
+        searchQuery: "",
+        searchResultIds: [],
+        temporaryObject: null,
+        callbacks: {
+          onSelectionClearRequested: () => { clearRequests[index] += 1; }
+        }
+      }
+    }));
+
+    await Promise.resolve();
+    const panels = containers.map((container) => findByClass(container, "graph-selection-panel")[0]);
+    assert.deepEqual(panels.map((panel) => panel?.dataset.state), ["open", "open"]);
+
+    ownerDocument.dispatch("keydown", { key: "Escape", target: ownerDocument as unknown as FakeElement });
+    assert.deepEqual(clearRequests, [0, 0]);
+
+    const secondPanel = panels[1];
+    assert.ok(secondPanel);
+    const secondClose = findByClass(secondPanel, "graph-selection-close")[0];
+    assert.ok(secondClose);
+    ownerDocument.dispatch("keydown", { key: "Escape", target: secondClose });
+
+    assert.deepEqual(clearRequests, [0, 1]);
+    assert.deepEqual(panels.map((panel) => panel?.dataset.state), ["open", "closed"]);
+    renderers.forEach((renderer) => renderer.destroy());
   });
 
   it("keeps offline community entry within shared community semantics and route state", async () => {
@@ -1731,9 +1781,18 @@ describe("graph renderer lifecycle", () => {
 
     assert.deepEqual(clearRequests, []);
 
-    ownerDocument.dispatch("keydown", { key: "Escape", target: ownerDocument as unknown as FakeElement });
+    const readerClose = findByClass(container, "graph-reader-close")[0];
+    assert.ok(readerClose);
+    ownerDocument.dispatch("keydown", { key: "Escape", target: readerClose });
 
     assert.deepEqual(clearRequests, [1]);
+
+    renderer.select({ kind: "nodes", ids: ["a", "b"] });
+    const selectionClose = findByClass(container, "graph-selection-close")[0];
+    assert.ok(selectionClose);
+    ownerDocument.dispatch("keydown", { key: "Escape", target: selectionClose });
+
+    assert.deepEqual(clearRequests, [1, 1]);
 
     renderer.destroy();
   });
@@ -2513,6 +2572,7 @@ class FakeElement {
   scrollLeft = 0;
   scrollTop = 0;
   id = "";
+  readonly nodeType = 1;
   private capturedPointerId: number | null = null;
 
   constructor(readonly tagName: string, ownerDocument: FakeDocument) {

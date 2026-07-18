@@ -126,9 +126,7 @@ import path from "node:path";
 const repoRoot = process.argv[2];
 const engine = await import(pathToFileURL(path.join(repoRoot, "packages/graph-engine/dist/engine.esm.js")).href);
 const {
-  buildAtlasModel,
-  deriveAtlasLayout,
-  resolveAtlasVisibleSnapshot,
+  buildRenderableGraph,
   nodeDisplayModeForDensity,
   screenEffectiveDensityMode
 } = engine;
@@ -158,30 +156,25 @@ function makeGraph(count, edgeCount) {
 }
 
 function snapshotFor(count, edgeCount, selectedNodeId) {
-  const model = buildAtlasModel(makeGraph(count, edgeCount));
-  const layout = deriveAtlasLayout(model);
-  return resolveAtlasVisibleSnapshot(model, layout, {
-    activeCommunityId: "all",
-    focusMode: "all",
-    query: "",
-    selectedNodeId,
-    filters: { EXTRACTED: true, INFERRED: true, AMBIGUOUS: true, UNVERIFIED: true }
+  return buildRenderableGraph(makeGraph(count, edgeCount), {
+    focus: { kind: "global" },
+    selectedNodeId
   });
 }
 
 const pointSnapshot = snapshotFor(201, 900, "node-200");
 assert.equal(pointSnapshot.densityMode, "point-plus-focus");
-assert.ok(Object.keys(pointSnapshot.labelNodeIds).length <= 61);
-assert.ok(pointSnapshot.labelNodeIds["node-200"]);
-assert.ok(pointSnapshot.importantNodeIds["node-0"]);
-assert.ok(pointSnapshot.edges.length <= 800);
+assert.ok(pointSnapshot.nodes.filter((node) => node.labelVisible).length <= 61);
+assert.ok(pointSnapshot.nodes.find((node) => node.id === "node-200")?.labelVisible);
+assert.ok(pointSnapshot.nodes.find((node) => node.id === "node-0")?.startNode);
+assert.ok(pointSnapshot.budget.usage.maxVisibleEdges <= pointSnapshot.budget.limits.maxVisibleEdges);
 
 const overviewSnapshot = snapshotFor(501, 1500, "node-500");
 assert.equal(overviewSnapshot.densityMode, "overview");
-assert.ok(Object.keys(overviewSnapshot.labelNodeIds).length <= 41);
-assert.ok(overviewSnapshot.labelNodeIds["node-500"]);
-assert.ok(overviewSnapshot.importantNodeIds["node-0"]);
-assert.ok(overviewSnapshot.edges.length <= 1000);
+assert.ok(overviewSnapshot.nodes.filter((node) => node.labelVisible).length <= 41);
+assert.ok(overviewSnapshot.nodes.find((node) => node.id === "node-500")?.labelVisible);
+assert.ok(overviewSnapshot.nodes.find((node) => node.id === "node-0")?.startNode);
+assert.ok(overviewSnapshot.budget.usage.maxVisibleEdges <= overviewSnapshot.budget.limits.maxVisibleEdges);
 
 assert.equal(screenEffectiveDensityMode(120, 1), "compact-card");
 assert.equal(screenEffectiveDensityMode(120, 2), "card");

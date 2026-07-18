@@ -16,6 +16,36 @@ interface SupportedExportsBaseline {
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const BASELINE_PATH = path.join(import.meta.dirname, "fixtures/issue-159/supported-exports.json");
+const RETIRED_PUBLIC_EXPORTS = [
+  "applyFocusMode",
+  "appendQueueNote",
+  "atlasPointToMinimap",
+  "atlasViewportRect",
+  "atlasViewportToMinimapRect",
+  "centerAtlasViewportOnPoint",
+  "clampAtlasViewport",
+  "createSafeStorage",
+  "defaultLearning",
+  "defaultQueue",
+  "fitAtlasViewport",
+  "filterLinksByTypes",
+  "getAtlasModelBounds",
+  "getCommunityNodeIds",
+  "getVisibleLinks",
+  "getVisibleNodeIds",
+  "getWikiStorageNamespace",
+  "minimapPointToAtlasPoint",
+  "normalizeAtlasViewport",
+  "normalizeLearning",
+  "normalizeQueue",
+  "resolveAtlasVisibleSnapshot",
+  "resolveInitialMode",
+  "resolveVisibleSnapshot",
+  "shouldAutoOpenDrawer",
+  "summarizeQueue",
+  "toggleQueueFavorite",
+  "zoomAtlasViewport"
+] as const;
 
 describe("issue #159 supported graph-engine exports", () => {
   it("records the exact exports imported by both workbench packages", async () => {
@@ -42,6 +72,12 @@ describe("issue #159 supported graph-engine exports", () => {
       assert.equal(typeof (graphEngine as Record<string, unknown>)[name], "function", `${name} must remain exported`);
     }
     assert.equal(graphEngine.createGraphRenderer, graphEngine.createStaticGraphRenderer);
+  });
+
+  it("does not expose the retired graph toolbox from the package entry", () => {
+    for (const name of RETIRED_PUBLIC_EXPORTS) {
+      assert.equal(name in graphEngine, false, `${name} must not remain exported`);
+    }
   });
 
   it("records namespace imports independently", async () => {

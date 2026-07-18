@@ -11,7 +11,6 @@ import {
   resolveAtlasSearchMatches,
   resolveAtlasSelectedNodeId,
   resolveAtlasSemanticVisibility,
-  resolveAtlasVisibleSnapshot,
   resolvePositionAndRangePolicy,
   resolveRenderPolicy,
   resolveRegularSearchMatches,
@@ -36,6 +35,7 @@ import {
   type RenderPositionMap
 } from "../src/index.js";
 import type { GraphFacadeState } from "../src/facade.js";
+import { resolveRenderPolicyVisibility } from "../src/render/render-policy.js";
 
 const graph: GraphData = {
   meta: {
@@ -60,10 +60,9 @@ const typedNode: AtlasNode | undefined = typedModel.byId.a;
 const typedEdge: AtlasEdge | undefined = typedModel.edges[0];
 const typedCommunity: AtlasCommunity | undefined = typedModel.communityById.c1;
 const typedInsights: AtlasInsights = typedModel.insights;
-const typedVisible: AtlasVisibleSnapshot = resolveAtlasVisibleSnapshot(
+const typedVisible: AtlasVisibleSnapshot = resolveRenderPolicyVisibility(
   typedModel,
-  typedLayout,
-  { activeCommunityId: "all" }
+  {}
 );
 const semanticVisibility: AtlasSemanticVisibility = resolveAtlasSemanticVisibility(typedModel, {
   activeCommunityId: "c1",

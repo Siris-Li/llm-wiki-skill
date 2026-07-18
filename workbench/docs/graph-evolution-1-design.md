@@ -94,7 +94,7 @@
 **现状证据**（多为"半成品收尾"而非新建）：
 - `focusNode` 引擎已有且工作台已接：[GraphPanel.tsx:361](../web/src/components/GraphPanel.tsx#L361)
 - `neighbors` 选区全链路已通（App / GraphSelection / GraphPanel / RightDrawer）
-- 密度模式 `point-plus-focus`、`model/visibility.ts::applyFocusMode`、`Community` 全套类型均在
+- 密度模式 `point-plus-focus`、`model/visibility.ts::resolveAtlasSemanticVisibility`、`Community` 全套类型均在
 - ❗ 区分：现有 `focusNode` 是"镜头对准某点"，`neighbors` 是"全局图上叠加高亮"；本批新增的是"**隐藏非聚焦集、只渲染聚焦子集**"的视图过滤层
 
 **类型筛选**：节点 `type`（entities/topics/sources）建库即分好（[build-graph-data.sh:89](../../scripts/build-graph-data.sh#L89)），纯前端开关。**时间筛选（最近 N 天）本批不做**——节点数据无 mtime，需轻度改管线，归二期。

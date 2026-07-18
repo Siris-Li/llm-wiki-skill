@@ -62,7 +62,14 @@ async function runOfflineJourney(viewport, label) {
   await page.getByRole("button", { name: "关闭选区面板" }).click();
 
   const themeToggle = page.locator("[data-testid='offline-theme-toggle']");
-  const themeBefore = await graphTheme(page);
+  const themeKey = await page.evaluate(() => window.__LLM_WIKI_GRAPH_THEME_KEY__ || "");
+  assert.notEqual(themeKey, "", `${label} should expose its compatible theme storage key`);
+  const initialTheme = await graphTheme(page);
+  const themeBefore = initialTheme === "shan-shui" ? "mo-ye" : "shan-shui";
+  await page.evaluate(({ key, theme }) => window.localStorage.setItem(key, theme), { key: themeKey, theme: themeBefore });
+  await page.reload({ waitUntil: "load" });
+  await waitForSigma(page);
+  assert.equal(await graphTheme(page), themeBefore, `${label} should read an existing theme record on startup`);
   await themeToggle.click();
   const themeAfter = await waitForThemeChange(page, themeBefore);
   assert.notEqual(themeAfter, themeBefore, `${label} should switch theme`);

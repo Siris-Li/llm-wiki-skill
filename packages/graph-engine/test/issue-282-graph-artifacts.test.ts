@@ -8,13 +8,50 @@ import { pathToFileURL } from "node:url";
 
 // Issue #282: 迁移收尾时,工作台(ESM)与离线(IIFE)两种发布产物必须都能被各自宿主加载使用。
 // 这份测试是确定性的快速门禁(无浏览器),随引擎单测一起跑;重型真机性能验收走
-// tests/issue-282-performance-acceptance.sh。dist 在 CI 的 build-graph 步骤已构建,
-// 独立运行时由 ensureEngineBuilt 兜底构建一次。
+// tests/issue-282-performance-acceptance.sh。这里始终从当前源码重新构建，避免本地遗留的
+// dist 让退休检查误报成功或失败。
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const ENGINE_DIST = path.join(REPO_ROOT, "packages/graph-engine/dist");
 const ESM_PATH = path.join(ENGINE_DIST, "engine.esm.js");
 const IIFE_PATH = path.join(ENGINE_DIST, "engine.iife.js");
+const DECLARATION_PATH = path.join(ENGINE_DIST, "index.d.ts");
+const ESM_MAP_PATH = path.join(ENGINE_DIST, "engine.esm.js.map");
+const IIFE_MAP_PATH = path.join(ENGINE_DIST, "engine.iife.js.map");
 const SUPPORTED_EXPORTS_PATH = path.join(import.meta.dirname, "fixtures/issue-159/supported-exports.json");
+const RETIRED_ARTIFACT_MARKERS = [
+  "legacy-helpers",
+  "model/learning",
+  "model/queue",
+  "model/storage",
+  "applyFocusMode",
+  "appendQueueNote",
+  "atlasPointToMinimap",
+  "atlasViewportRect",
+  "atlasViewportToMinimapRect",
+  "centerAtlasViewportOnPoint",
+  "clampAtlasViewport",
+  "createSafeStorage",
+  "defaultLearning",
+  "defaultQueue",
+  "fitAtlasViewport",
+  "filterLinksByTypes",
+  "getAtlasModelBounds",
+  "getCommunityNodeIds",
+  "getVisibleLinks",
+  "getVisibleNodeIds",
+  "getWikiStorageNamespace",
+  "minimapPointToAtlasPoint",
+  "normalizeAtlasViewport",
+  "normalizeLearning",
+  "normalizeQueue",
+  "resolveAtlasVisibleSnapshot",
+  "resolveInitialMode",
+  "resolveVisibleSnapshot",
+  "shouldAutoOpenDrawer",
+  "summarizeQueue",
+  "toggleQueueFavorite",
+  "zoomAtlasViewport"
+] as const;
 // 产物字节下限:仅防"空壳/未真实构建",不断言精确字节数(随实现演进);精确值记入验收结论文档。
 const MIN_ARTIFACT_BYTES = 50_000;
 
@@ -50,6 +87,15 @@ describe("issue #282 graph artifacts (ESM + IIFE dual host)", () => {
     }
   });
 
+  it("contains no retired toolbox path, export, or source-map source", () => {
+    for (const artifact of [ESM_PATH, IIFE_PATH, DECLARATION_PATH, ESM_MAP_PATH, IIFE_MAP_PATH]) {
+      const content = fs.readFileSync(artifact, "utf8");
+      for (const marker of RETIRED_ARTIFACT_MARKERS) {
+        assert.equal(content.includes(marker), false, `${path.basename(artifact)} must not contain ${marker}`);
+      }
+    }
+  });
+
   it("records non-trivial byte sizes for both artifacts", () => {
     const esmSize = fs.statSync(ESM_PATH).size;
     const iifeSize = fs.statSync(IIFE_PATH).size;
@@ -61,6 +107,5 @@ describe("issue #282 graph artifacts (ESM + IIFE dual host)", () => {
 });
 
 function ensureEngineBuilt(): void {
-  if (fs.existsSync(ESM_PATH) && fs.existsSync(IIFE_PATH)) return;
   execSync("npm run build -w @llm-wiki/graph-engine", { cwd: REPO_ROOT, stdio: "inherit" });
 }

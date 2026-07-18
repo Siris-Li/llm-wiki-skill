@@ -4,13 +4,12 @@ import { describe, it } from "node:test";
 import {
   buildAtlasModel,
   buildRegularSearchIndex,
-  deriveAtlasLayout,
   resolveAtlasSearchMatches,
   resolveAtlasSelectedNodeId,
   resolveAtlasSemanticVisibility,
-  resolveAtlasVisibleSnapshot,
   resolveRegularSearchMatches
 } from "../src";
+import { resolveAtlasRenderVisibility } from "../src/render/render-policy";
 
 describe("Atlas search and semantic visibility", () => {
   it("keeps regular search at 500 UTF-16 units while Atlas searches the complete cleaned body", () => {
@@ -114,7 +113,7 @@ describe("Atlas search and semantic visibility", () => {
       ],
       edges: []
     });
-    const snapshot = resolveAtlasVisibleSnapshot(model, deriveAtlasLayout(model), {
+    const snapshot = resolveAtlasRenderVisibility(model, {
       activeCommunityId: "c1",
       query: "community one match"
     });
@@ -140,7 +139,7 @@ describe("Atlas search and semantic visibility", () => {
         edges: []
       });
 
-      const snapshot = resolveAtlasVisibleSnapshot(model, deriveAtlasLayout(model), { focusMode: "core" });
+      const snapshot = resolveAtlasRenderVisibility(model, { focusMode: "core" });
 
       assert.equal(snapshot.node_ids.includes(specialId), true, specialId);
     }
@@ -157,7 +156,7 @@ describe("Atlas search and semantic visibility", () => {
       ]
     });
 
-    const snapshot = resolveAtlasVisibleSnapshot(model, deriveAtlasLayout(model), { query: "search match" });
+    const snapshot = resolveAtlasRenderVisibility(model, { query: "search match" });
 
     assert.deepEqual(snapshot.node_ids, ["match"]);
     assert.deepEqual(snapshot.edges.map((edge) => edge.id), ["legacy-visible-edge"]);
