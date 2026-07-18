@@ -4,7 +4,6 @@ import { describe, it } from "node:test";
 import {
   buildAtlasModel,
   buildRegularSearchIndex,
-  deriveAtlasLayout,
   resolveAtlasSearchMatches,
   resolveAtlasSelectedNodeId,
   resolveAtlasSemanticVisibility,
