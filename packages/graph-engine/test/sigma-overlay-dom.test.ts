@@ -242,10 +242,23 @@ describe("Sigma overlay DOM controller", () => {
     assert.equal(fixture.document.listenerCount("pointercancel"), 0);
   });
 
+  it("exposes recommended-start markers from the shared renderable snapshot", () => {
+    const data = adapterDataFixture();
+    data.renderable.nodes[0]!.startNode = true;
+    data.renderable.nodes[0]!.previewStart = true;
+    const fixture = controllerFixture({ adapterData: data });
+
+    fixture.controller.rebuild();
+
+    const alpha = nodeTarget(fixture.overlayRoot, "alpha");
+    assert.equal(alpha?.dataset.startNode, "true");
+    assert.equal(alpha?.dataset.previewStart, "true");
+  });
+
   it("rebuild prunes stale elements and refreshes reused node data attributes", () => {
     const initialData = adapterDataFixture({
       nodes: [
-        nodeFixture("alpha", { selected: true, startNode: true }),
+        nodeFixture("alpha", { selected: true }),
         nodeFixture("beta", { searchHit: true, pinned: true })
       ],
       communities: [communityFixture("community-a"), communityFixture("community-b")]
@@ -256,7 +269,7 @@ describe("Sigma overlay DOM controller", () => {
 
     fixture.setAdapterData(adapterDataFixture({
       nodes: [
-        nodeFixture("alpha", { selected: false, searchHit: true, pinned: true, previewStart: true })
+        nodeFixture("alpha", { selected: false, searchHit: true, pinned: true })
       ],
       communities: [communityFixture("community-a")]
     }));
@@ -267,8 +280,6 @@ describe("Sigma overlay DOM controller", () => {
     assert.equal(alphaAfter?.dataset.selected, "false");
     assert.equal(alphaAfter?.dataset.searchHit, "true");
     assert.equal(alphaAfter?.dataset.pinned, "true");
-    assert.equal(alphaAfter?.dataset.startNode, "false");
-    assert.equal(alphaAfter?.dataset.previewStart, "true");
     assert.equal(nodeTarget(fixture.overlayRoot, "beta"), undefined);
     assert.equal(communityRegion(fixture.overlayRoot, "community-b"), undefined);
   });
@@ -581,7 +592,37 @@ function adapterDataFixture(options: {
     })),
     aggregations: [],
     renderable: {
-      nodes: [],
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        label: node.label,
+        type: node.type,
+        kind: node.type,
+        community: node.communityId ?? "_none",
+        communityColor: "#4f6f52",
+        sourcePath: node.sourcePath,
+        x: node.point.x,
+        y: node.point.y,
+        point: node.point,
+        displayMode: "point",
+        visualRole: "landmark",
+        priority: node.render.priority,
+        weight: 1,
+        stableImportance: 1,
+        temporaryBoost: 0,
+        coreAnchor: false,
+        unavailable: false,
+        selected: node.selected,
+        relationFocusDepth: node.relationFocusDepth,
+        startNode: false,
+        previewStart: false,
+        labelVisible: node.render.labelVisible,
+        interactionLabelVisible: node.render.labelVisible,
+        communityMapImportance: node.render.communityMapImportance,
+        communityMapDotSize: node.render.communityMapDotSize,
+        communityMapLabelSide: node.render.communityMapLabelSide,
+        communityMapRelationLabel: node.render.communityMapRelationLabel,
+        communityMapTier: node.render.communityMapTier
+      })),
       edges: [],
       communities,
       aggregationContainers: [],
@@ -644,8 +685,6 @@ function nodeFixture(id: string, options: {
   pinned?: boolean;
   communityId?: string;
   labelVisible?: boolean;
-  startNode?: boolean;
-  previewStart?: boolean;
   relationFocusDepth?: GraphRendererAdapterData["nodes"][number]["relationFocusDepth"];
 } = {}) {
   const index = Number(id.match(/\d+$/)?.[0] ?? 1);
@@ -676,8 +715,6 @@ function nodeFixture(id: string, options: {
       visualRole: "landmark",
       priority: options.selected ? 1000 : 100,
       labelVisible: options.labelVisible ?? Boolean(options.selected),
-      startNode: options.startNode ?? false,
-      previewStart: options.previewStart ?? false,
       communityMapTier: "related",
       communityMapImportance: 3,
       communityMapDotSize: 18,

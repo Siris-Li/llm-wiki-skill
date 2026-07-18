@@ -110,6 +110,7 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
   function rebuild(): void {
     if (input.isDestroyed()) return;
     const adapterData = input.getAdapterData();
+    const renderNodeById = new Map(adapterData.renderable.nodes.map((node) => [node.id, node]));
     const ordered: HTMLElement[] = [];
     const spotlightCommunityIds = sigmaSpotlightCommunityIds(adapterData);
     // Region/label highlight = active community selections (may be several) plus
@@ -168,8 +169,8 @@ export function createSigmaOverlayDomController(input: SigmaOverlayDomController
       element.dataset.selected = node.selected ? "true" : "false";
       element.dataset.pinned = node.pinHint.pinned ? "true" : "false";
       element.dataset.labelVisible = node.render.labelVisible ? "true" : "false";
-      element.dataset.startNode = node.render.startNode ? "true" : "false";
-      element.dataset.previewStart = node.render.previewStart ? "true" : "false";
+      element.dataset.startNode = renderNodeById.get(node.id)?.startNode ? "true" : "false";
+      element.dataset.previewStart = renderNodeById.get(node.id)?.previewStart ? "true" : "false";
       element.dataset.relationFocusDepth = node.relationFocusDepth ?? "none";
       element.dataset.communityDimmed = sigmaGlobalNodeSpotlightState(node, spotlightCommunityIds).dimmed ? "true" : "false";
       ordered.push(element);
