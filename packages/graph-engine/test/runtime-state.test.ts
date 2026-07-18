@@ -1,12 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  applyFocusMode,
   resolveVisibleSnapshot,
   buildAtlasModel,
   deriveAtlasLayout,
   resolveAtlasSelectedNodeId,
   getAtlasDensityMode,
-  atlasNodePoint
+  atlasNodePoint,
+  shouldAutoOpenDrawer
 } from "../src/model";
 import { resolveAtlasRenderVisibility } from "../src/render/render-policy";
 
@@ -91,6 +93,40 @@ describe("resolveVisibleSnapshot", () => {
   });
 });
 
+describe("retained visibility behavior", () => {
+  it("prefers high-score nodes for core focus mode", () => {
+    const nodes = [
+      { id: "A", degree: 3 },
+      { id: "B", degree: 2 },
+      { id: "C", degree: 2 },
+      { id: "D", degree: 1 }
+    ];
+    const links = [
+      { source: "A", target: "B", weight: 0.95 },
+      { source: "A", target: "C", weight: 0.82 },
+      { source: "C", target: "D", weight: 0.45 }
+    ];
+
+    const result = applyFocusMode({
+      mode: "core",
+      nodes,
+      links,
+      nodeIds: ["A", "B", "C", "D"],
+      coreLimit: 2
+    });
+
+    assert.deepEqual(result.node_ids, ["A", "C"]);
+    assert.equal(result.links.length, 1);
+  });
+
+  it("opens the drawer only after an explicit path entry", () => {
+    assert.equal(shouldAutoOpenDrawer("path"), true);
+    assert.equal(shouldAutoOpenDrawer("community"), false);
+    assert.equal(shouldAutoOpenDrawer("global"), false);
+    assert.equal(shouldAutoOpenDrawer(null), false);
+  });
+});
+
 describe("atlas state contract", () => {
   const rawGraph = {
     meta: { wiki_title: "测试知识库", build_date: "2026-04-27" },
@@ -166,7 +202,6 @@ describe("atlas state contract", () => {
 
   it("uses one visible snapshot for filters, search, density, and starts", () => {
     const model = buildAtlasModel(rawGraph);
-    const layout = deriveAtlasLayout(model);
     const snapshot = resolveAtlasRenderVisibility(model, {
       activeCommunityId: "method",
       focusMode: "all",
@@ -186,7 +221,6 @@ describe("atlas state contract", () => {
 
   it("keeps recommended starts and high-priority nodes readable as atlas index slips", () => {
     const model = buildAtlasModel(rawGraph);
-    const layout = deriveAtlasLayout(model);
     const snapshot = resolveAtlasRenderVisibility(model, {
       activeCommunityId: "all",
       focusMode: "all",
@@ -203,7 +237,6 @@ describe("atlas state contract", () => {
 
   it("preserves only explicit selections inside the current visible atlas range", () => {
     const model = buildAtlasModel(rawGraph);
-    const layout = deriveAtlasLayout(model);
     const methodSnapshot = resolveAtlasRenderVisibility(model, {
       activeCommunityId: "source",
       focusMode: "all",
@@ -226,7 +259,6 @@ describe("atlas state contract", () => {
 
   it("does not auto-select a recommended start on first open", () => {
     const model = buildAtlasModel(rawGraph);
-    const layout = deriveAtlasLayout(model);
     const snapshot = resolveAtlasRenderVisibility(model, {
       activeCommunityId: "all",
       focusMode: "all",

@@ -8,8 +8,8 @@ import { pathToFileURL } from "node:url";
 
 // Issue #282: 迁移收尾时,工作台(ESM)与离线(IIFE)两种发布产物必须都能被各自宿主加载使用。
 // 这份测试是确定性的快速门禁(无浏览器),随引擎单测一起跑;重型真机性能验收走
-// tests/issue-282-performance-acceptance.sh。dist 在 CI 的 build-graph 步骤已构建,
-// 独立运行时由 ensureEngineBuilt 兜底构建一次。
+// tests/issue-282-performance-acceptance.sh。这里始终从当前源码重新构建，避免本地遗留的
+// dist 让退休检查误报成功或失败。
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const ENGINE_DIST = path.join(REPO_ROOT, "packages/graph-engine/dist");
 const ESM_PATH = path.join(ENGINE_DIST, "engine.esm.js");
@@ -103,6 +103,5 @@ describe("issue #282 graph artifacts (ESM + IIFE dual host)", () => {
 });
 
 function ensureEngineBuilt(): void {
-  if (fs.existsSync(ESM_PATH) && fs.existsSync(IIFE_PATH)) return;
   execSync("npm run build -w @llm-wiki/graph-engine", { cwd: REPO_ROOT, stdio: "inherit" });
 }
