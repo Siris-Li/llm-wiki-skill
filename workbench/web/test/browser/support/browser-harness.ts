@@ -145,18 +145,16 @@ export async function closeBrowserResources(resources: {
 	browserServer?: BrowserServer;
 }): Promise<void> {
 	const errors: unknown[] = [];
-	if (resources.context) {
-		await withTimeout(resources.context.close(), STOP_TIMEOUT_MS, "browser context did not close").catch((error) => errors.push(error));
-	}
-	if (resources.browser) {
-		await withTimeout(resources.browser.close(), STOP_TIMEOUT_MS, "browser did not close").catch((error) => errors.push(error));
-	}
 	const server = resources.browserServer;
 	if (server && server.process().exitCode === null && server.process().signalCode === null) {
 		await withTimeout(server.close(), STOP_TIMEOUT_MS, "browser server did not close").catch(async (error) => {
 			errors.push(error);
 			await withTimeout(server.kill(), STOP_TIMEOUT_MS, "browser process could not be killed").catch((killError) => errors.push(killError));
 		});
+	} else if (resources.browser) {
+		await withTimeout(resources.browser.close(), STOP_TIMEOUT_MS, "browser did not close").catch((error) => errors.push(error));
+	} else if (resources.context) {
+		await withTimeout(resources.context.close(), STOP_TIMEOUT_MS, "browser context did not close").catch((error) => errors.push(error));
 	}
 	if (errors.length > 0) throw new AggregateError(errors, "browser resource cleanup failed");
 }

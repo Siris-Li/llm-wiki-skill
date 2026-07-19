@@ -1,4 +1,4 @@
-import { GRAPH_WORLD_SIZE } from "./geometry";
+import { GRAPH_WORLD_SIZE, worldBoundsForPoints } from "./geometry";
 
 export interface CommunityWashPoint {
   x: number;
@@ -7,6 +7,19 @@ export interface CommunityWashPoint {
 
 export interface CommunityWashNodeLike {
   point: CommunityWashPoint;
+}
+
+export interface CommunityMapLayoutGeometry {
+  coordinateSpace: "world";
+  bounds: {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    width: number;
+    height: number;
+  };
+  viewportAspectRatio: number | null;
 }
 
 export interface CommunityWash {
@@ -66,6 +79,33 @@ export function computeCommunityWash(nodes: CommunityWashNodeLike[], options: Co
     rx: round((finalBounds.maxX - finalBounds.minX) / 2),
     ry: round((finalBounds.maxY - finalBounds.minY) / 2),
     opacity: nodes.length > 1 ? 0.11 : 0.06
+  };
+}
+
+export function computeCommunityMapDotSize(importance: number): number {
+  const clamped = Math.max(0, Math.min(10, importance || 0));
+  return round(9 + clamped * 1.45);
+}
+
+export function computeCommunityMapLayout(
+  nodes: readonly CommunityWashNodeLike[],
+  viewportSize?: { width: number; height: number }
+): CommunityMapLayoutGeometry {
+  const bounds = worldBoundsForPoints(nodes.map((node) => node.point));
+  const viewportAspectRatio = viewportSize && viewportSize.width > 0 && viewportSize.height > 0
+    ? viewportSize.width / viewportSize.height
+    : null;
+  return {
+    coordinateSpace: "world",
+    bounds: {
+      minX: bounds.minX,
+      minY: bounds.minY,
+      maxX: bounds.maxX,
+      maxY: bounds.maxY,
+      width: bounds.width,
+      height: bounds.height
+    },
+    viewportAspectRatio
   };
 }
 

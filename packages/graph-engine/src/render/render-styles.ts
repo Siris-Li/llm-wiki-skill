@@ -75,7 +75,7 @@ const STATIC_RENDERER_CSS = `
 .sigma-global-overlay {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 6;
   pointer-events: none;
 }
 .sigma-global-node-hit-target,
@@ -645,6 +645,15 @@ const STATIC_RENDERER_CSS = `
   margin-top: 2px;
   color: var(--muted);
   font-size: 11px;
+}
+.graph-selection-enter-community {
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--cinnabar) 56%, var(--rule));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cinnabar) 12%, var(--surface));
+  color: var(--ink);
+  cursor: pointer;
+  font: 600 13px/1.2 var(--font-ui);
 }
 .graph-content-layer.is-viewport-animating {
   transition: transform .2s ease-out;

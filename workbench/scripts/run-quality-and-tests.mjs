@@ -51,6 +51,7 @@ export const QUALITY_STEPS = [
 		commands: [
 			command([VITE, "build"], path.join(REPO_ROOT, "packages/graph-engine")),
 			command([TSC, "-p", "packages/graph-engine/tsconfig.json", "--emitDeclarationOnly"]),
+			command([TSC, "-p", "packages/graph-engine/test-types/dist-consumer/tsconfig.json"]),
 		],
 	},
 	{
@@ -75,6 +76,7 @@ export const QUALITY_STEPS = [
 		commands: [
 			nodeTest("workbench/scripts/check-workbench-boundaries.test.mjs"),
 			command([
+				"--test-concurrency=1",
 				"--test",
 				"workbench/scripts/run-quality-and-tests.test.mjs",
 				"workbench/scripts/run-browser-main-flows-ci.test.mjs",
@@ -85,6 +87,15 @@ export const QUALITY_STEPS = [
 		id: "boundaries",
 		timeoutMs: COMMAND_TIMEOUT_MS,
 		commands: [command(["--import", "tsx", "workbench/scripts/check-workbench-boundaries.mjs"])],
+	},
+	{
+		id: "browser-trial-contracts",
+		timeoutMs: COMMAND_TIMEOUT_MS,
+		commands: [nodeTest(
+			"tests/browser/graph-renderer-trial-shared.test.ts",
+			"tests/browser/capture-issue-159-hover-baseline.test.ts",
+			"tests/browser/compare-issue-159-hover-baseline.test.ts",
+		)],
 	},
 	{
 		id: "contracts",
@@ -143,7 +154,7 @@ export const QUALITY_STEPS = [
 	{
 		id: "types-graph",
 		timeoutMs: COMMAND_TIMEOUT_MS,
-		commands: [command([TSC, "-p", "packages/graph-engine/tsconfig.json", "--noEmit"])],
+		commands: [command([TSC, "-p", "packages/graph-engine/tsconfig.type-tests.json"])],
 	},
 	{
 		id: "types-server",

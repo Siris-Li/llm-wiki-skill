@@ -313,6 +313,43 @@ export interface GraphAggregationMarker {
   totalCount?: number;
 }
 
+export interface GraphResolvedAggregation {
+  id: string;
+  label: string;
+  communityId: CommunityId | null;
+  nodeIds: NodeId[];
+  selectedNodeIds: NodeId[];
+  searchResultIds: NodeId[];
+  pinnedNodeIds: NodeId[];
+  totalCount: number;
+  pinHints: GraphPinHint[];
+}
+
+export interface GraphRendererNodeSemantics {
+  id: NodeId;
+  communityId: CommunityId | null;
+}
+
+export interface GraphRendererEdgeSemantics {
+  id: EdgeId;
+  sourceNodeId: NodeId;
+  targetNodeId: NodeId;
+  sourceCommunityId: CommunityId | null;
+  targetCommunityId: CommunityId | null;
+  relationType: GraphRelationType | null;
+  confidence: Confidence | null;
+  weight: number;
+}
+
+export interface GraphRendererSemantics {
+  selection: GraphSummarySelectionState;
+  searchResultIds: NodeId[];
+  pinHints: GraphPinHint[];
+  aggregations: GraphResolvedAggregation[];
+  nodes: GraphRendererNodeSemantics[];
+  edges: GraphRendererEdgeSemantics[];
+}
+
 export interface GraphRelationSummary {
   edgeId: EdgeId;
   fromNodeId: NodeId;
@@ -512,7 +549,7 @@ export interface GraphEngineCapabilities {
 }
 
 export interface GraphEngineOptions {
-  data: GraphData;
+  data: unknown;
   pins?: PinMap;
   theme: ThemeId;
   edgeStyle?: GraphEdgeStyleOptions;
@@ -526,7 +563,7 @@ export interface GraphEngineOptions {
 export interface GraphEngine {
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
-  setData(data: GraphData, pins?: PinMap): void;
+  setData(data: unknown, pins?: PinMap): void;
   setEdgeStyle(style: GraphEdgeStyleOptions): void;
   setAggregationMarkers(markers: GraphAggregationMarker[]): void;
   focusNode(path: WikiPath): void;

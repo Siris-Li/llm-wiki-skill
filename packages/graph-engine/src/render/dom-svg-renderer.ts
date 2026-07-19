@@ -3,9 +3,10 @@ import { createGraphAggregationContainerElement, type GraphAggregationContainerE
 import { createCommunityWashElement } from "./community-washes";
 import { createGraphEdgeElement, type GraphEdgeElementHandlers } from "./edges";
 import { createGraphMinimap } from "./minimap";
-import type { RenderableGraph } from "./model";
+import type { RenderableGraph } from "./render-policy";
 import { createGraphNodeElement, type GraphNodeElementHandlers } from "./nodes";
 import type { PaintedGraphDom } from "./render-context";
+import type { GraphRendererAdapterData } from "./adapter";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -21,14 +22,15 @@ export interface DomSvgGraphPaintHandlers extends GraphNodeElementHandlers, Grap
 export interface PaintDomSvgGraphInput {
   ownerDocument: Document;
   root: HTMLElement;
-  graph: RenderableGraph;
+  adapterData: GraphRendererAdapterData;
   theme: ThemeId;
   hasHostReader: boolean;
   handlers: DomSvgGraphPaintHandlers;
 }
 
 export function paintDomSvgGraph(input: PaintDomSvgGraphInput): PaintedGraphDom {
-  const { ownerDocument, root, graph, handlers } = input;
+  const { ownerDocument, root, adapterData, handlers } = input;
+  const graph = adapterData.renderable;
   root.replaceChildren();
   root.dataset.theme = input.theme;
   root.dataset.baseDensity = graph.densityMode;

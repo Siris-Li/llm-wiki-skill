@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { sigmaCanvasNonBackgroundPixelCount } from "./lib/png-pixels.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -58,6 +59,10 @@ async function runViewport(viewport, label, options) {
     for (const community of COMMUNITY_CASES) {
       await resetToPlainGlobal(page);
       const global = await captureState(page, `${label}-${community.slug}-01-global.png`);
+      const representative = options.fullPath && community.id === "dense-agent";
+      const globalCanvasPixels = representative
+        ? await assertSigmaCanvasPixels(page, `${label} global graph`)
+        : null;
 
       const selected = await openCommunitySummary(page, community);
       const selectedShot = await captureState(page, `${label}-${community.slug}-02-selected.png`);
@@ -71,20 +76,38 @@ async function runViewport(viewport, label, options) {
       await page.waitForTimeout(520);
       await waitForCommunityCentered(page, community, label);
       const readingShot = await captureState(page, `${label}-${community.slug}-03-community.png`);
+      const readingCanvasPixels = representative
+        ? await assertSigmaCanvasPixels(page, `${label} community reading`)
+        : null;
       const reading = await communityReadingSnapshot(page, community);
       assertCommunityReading(community, reading);
       const visualReview = reviewVisualContinuity(community, selected.selected, reading);
       assertVisualReview(visualReview);
 
-      const record = { community, global, selected: selectedShot, reading: readingShot, readingState: reading, visualReview };
+      const record = {
+        community,
+        global,
+        selected: selectedShot,
+        reading: readingShot,
+        readingState: reading,
+        visualReview,
+        globalCanvasPixels,
+        readingCanvasPixels,
+        cameraNavigation: null
+      };
       visualCases.push(record);
 
-      if (options.fullPath && community.id === "dense-agent") {
+      if (representative) {
         fullPath = await runFullDesktopPath(page, community);
       }
 
       await clickReturnGlobal(page);
       await waitForSigmaGlobalUnfocused(page);
+      if (representative) {
+        await resetToPlainGlobal(page);
+        record.cameraNavigation = await runSigmaCameraNavigation(page);
+        await resetToPlainGlobal(page);
+      }
     }
   } finally {
     await page.close();
@@ -148,6 +171,64 @@ async function runFullDesktopPath(page, community) {
   assert.equal(returned.typeFiltersActive, false, "returning global should clear community-local type filters");
 
   return { beforeSearch, hoverFocus, nearNodeBlankClick, afterSearchActivation, hiddenByFilter, drag, afterDrag, afterReset, multiSelect, returned };
+}
+
+async function runSigmaCameraNavigation(page) {
+  const target = await page.locator(".sigma-global-node-hit-target").evaluateAll((nodes) => {
+    const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    return nodes
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          id: node.getAttribute("data-node-id") || "",
+          distance: Math.hypot(rect.left + rect.width / 2 - center.x, rect.top + rect.height / 2 - center.y)
+        };
+      })
+      .filter((item) => item.id)
+      .sort((left, right) => right.distance - left.distance)[0];
+  });
+  assert.ok(target?.id, "Sigma camera acceptance needs a visible node target");
+  const before = await nodeBox(page, target.id);
+
+  await page.getByRole("button", { name: "放大图谱" }).click();
+  await page.waitForFunction(({ id, before }) => {
+    const node = document.querySelector(`.sigma-global-node-hit-target[data-node-id="${CSS.escape(id)}"]`);
+    if (!node) return false;
+    const rect = node.getBoundingClientRect();
+    return Math.abs(rect.left + rect.width / 2 - before.centerX) > 6
+      || Math.abs(rect.top + rect.height / 2 - before.centerY) > 6;
+  }, { id: target.id, before });
+  const zoomed = await nodeBox(page, target.id);
+  assert.ok(
+    Math.hypot(zoomed.centerX - before.centerX, zoomed.centerY - before.centerY) > 6
+      || zoomed.width > before.width + 0.5,
+    `Sigma zoom should visibly move or enlarge a graph node: before=${JSON.stringify(before)} after=${JSON.stringify(zoomed)}`
+  );
+
+  const [blank] = await graphBlankCandidates(page);
+  assert.ok(blank, "Sigma camera acceptance needs a blank pan target");
+  await page.mouse.move(blank.x, blank.y);
+  await page.mouse.down();
+  await page.mouse.move(blank.x + 96, blank.y + 54, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForFunction(({ id, zoomed }) => {
+    const node = document.querySelector(`.sigma-global-node-hit-target[data-node-id="${CSS.escape(id)}"]`);
+    if (!node) return false;
+    const rect = node.getBoundingClientRect();
+    return Math.abs(rect.left + rect.width / 2 - zoomed.centerX) > 10
+      || Math.abs(rect.top + rect.height / 2 - zoomed.centerY) > 10;
+  }, { id: target.id, zoomed });
+  const panned = await nodeBox(page, target.id);
+  assertPointShifted(panned, zoomed, "Sigma blank drag should pan the graph");
+
+  await page.getByRole("button", { name: "回全图" }).click({ force: true });
+  await page.waitForTimeout(520);
+  const reset = await nodeBox(page, target.id);
+  assert.ok(
+    Math.abs(reset.centerX - before.centerX) <= 24 && Math.abs(reset.centerY - before.centerY) <= 24,
+    `Sigma reset should restore the original framing: before=${JSON.stringify(before)} reset=${JSON.stringify(reset)}`
+  );
+  return { targetId: target.id, before, zoomed, panned, reset };
 }
 
 async function openWorkbenchGraphPage(viewport) {
@@ -1202,6 +1283,15 @@ function assertPointShifted(after, before, label) {
 
 function cssString(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+async function assertSigmaCanvasPixels(page, label) {
+  const root = page.locator('.sigma-global-renderer[data-renderer="sigma-global"]');
+  assert.ok(await root.locator("canvas").count() > 0, `${label} should have Sigma canvases`);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const nonBackgroundPixels = await sigmaCanvasNonBackgroundPixelCount(root);
+  assert.ok(nonBackgroundPixels > 20, `${label} should have nonblank Sigma canvas pixels, got ${nonBackgroundPixels}`);
+  return { nonBackgroundPixels };
 }
 
 function round(value) {

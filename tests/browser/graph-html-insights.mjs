@@ -12,12 +12,11 @@ const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   await page.goto(pathToFileURL(html).href);
-  await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+  await page.waitForSelector('.sigma-global-route[data-route="sigma-global"]');
+  await page.waitForSelector('.sigma-global-node-hit-target[data-node-id="A"]');
 
-  await page.keyboard.down("Shift");
-  await page.locator(".node[data-id='A']").click();
-  await page.locator(".node[data-id='B']").click();
-  await page.keyboard.up("Shift");
+  await page.locator('.sigma-global-node-hit-target[data-node-id="A"]').click({ modifiers: ["Shift"], force: true });
+  await page.locator('.sigma-global-node-hit-target[data-node-id="B"]').click({ modifiers: ["Shift"], force: true });
   await page.waitForSelector(".graph-selection-panel[data-state='open']");
   const panel = page.locator(".graph-selection-panel");
   await panel.getByText("Shift+点击 增删节点").waitFor();
@@ -26,6 +25,7 @@ try {
   assert.ok(await panel.locator(".graph-selection-fact").count() >= 4, "Shift selection should show structural facts");
   assert.equal(await panel.getByText("提问选区").count(), 0, "offline selection panel must not show ask actions");
 
+  await panel.getByRole("button", { name: "关闭选区面板" }).focus();
   await page.keyboard.press("Escape");
   await page.waitForSelector(".graph-selection-panel[data-state='closed']");
 

@@ -12,6 +12,7 @@ const executablePath = process.env.GRAPH_WORKBENCH_CHROME_EXECUTABLE || "";
 const GLOBAL_NODE_IDS = ["A", "B", "C", "D", "E", "F", "G"];
 const T1_NODE_IDS = ["A", "B", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"];
 const COMMUNITY_NODE_IDS = { t1: T1_NODE_IDS };
+const SIGMA_WHEEL_ZOOM_SPEED = 0.0016;
 const NODE_CLICK_CANDIDATE_RATIOS = [
   [0.5, 0.5],
   [0.35, 0.5],
@@ -24,13 +25,19 @@ assert.notEqual(workbenchUrl, "", "GRAPH_WORKBENCH_URL must point at the workben
 
 const browser = await chromium.launch(executablePath ? { executablePath } : {});
 try {
-  const normal = await runLayoutOnlyChecks(browser, { width: 1366, height: 768 }, "light", "normal-laptop");
-  const desktop = await runFullVisualAcceptanceChecks(browser, { width: 1440, height: 960 }, "dark");
-  const conversationHandoff = await runGraphConversationHandoffCheck(browser);
-  const large = await runLayoutOnlyChecks(browser, { width: 1920, height: 1080 }, "light", "large-display");
-  const narrow = await runNarrowChecks(browser);
-  const reducedMotion = await runReducedMotionChecks(browser);
-  const evidence = { normal, desktop, conversationHandoff, large, narrow, reducedMotion };
+  const zoomOwnership = await runSigmaZoomOwnershipChecks(browser);
+  const zoomOnly = process.env.GRAPH_WORKBENCH_ZOOM_ONLY === "1";
+  const evidence = zoomOnly
+    ? { zoomOwnership }
+    : {
+        zoomOwnership,
+        normal: await runLayoutOnlyChecks(browser, { width: 1366, height: 768 }, "light", "normal-laptop"),
+        desktop: await runFullVisualAcceptanceChecks(browser, { width: 1440, height: 960 }, "dark"),
+        conversationHandoff: await runGraphConversationHandoffCheck(browser),
+        large: await runLayoutOnlyChecks(browser, { width: 1920, height: 1080 }, "light", "large-display"),
+        narrow: await runNarrowChecks(browser),
+        reducedMotion: await runReducedMotionChecks(browser)
+      };
   if (artifactDir) {
     await fs.mkdir(artifactDir, { recursive: true });
     await fs.writeFile(path.join(artifactDir, "issue-138-graph-visual-acceptance.json"), `${JSON.stringify(evidence, null, 2)}\n`);
@@ -114,6 +121,29 @@ async function runFullVisualAcceptanceChecks(browser, viewport, theme) {
   }
   await page.close();
   return evidence;
+}
+
+async function runSigmaZoomOwnershipChecks(browser) {
+  const viewport = { width: 1440, height: 960 };
+  const globalPage = await openWorkbenchGraphPage(browser, viewport, "dark");
+  try {
+    const global = await runSigmaGlobalZoomOwnershipCheck(globalPage, "t1");
+    return { viewport: `${viewport.width}x${viewport.height}`, global, community: await runSigmaCommunityZoomOwnershipCheckInFreshPage(browser, viewport) };
+  } finally {
+    await globalPage.close();
+  }
+}
+
+async function runSigmaCommunityZoomOwnershipCheckInFreshPage(browser, viewport) {
+  const page = await openWorkbenchGraphPage(browser, viewport, "dark");
+  try {
+    await openCommunitySummaryFromRegion(page, "t1");
+    await page.locator('[data-testid="graph-community-summary"] button', { hasText: "进入社区" }).click();
+    await waitForSigmaCommunity(page, "t1");
+    return await runSigmaCommunityZoomOwnershipCheck(page, "t1");
+  } finally {
+    await page.close();
+  }
 }
 
 async function runNarrowChecks(browser) {
@@ -1230,6 +1260,558 @@ async function waitForSigmaCommunity(page, communityId) {
   await waitForVisibleSigmaNodeIds(page, T1_NODE_IDS);
 }
 
+async function runSigmaGlobalZoomOwnershipCheck(page, communityId) {
+  await closeDrawerIfOpen(page);
+  await waitForSigmaGlobal(page);
+
+  const ordinaryPoint = await findExposedSigmaCommunityPoint(page, communityId);
+  const ordinaryWheel = await assertSigmaWheelZoomAtPoint(page, ordinaryPoint, "global community background", {
+    deltaY: -80,
+    assertSingleStep: true,
+    expectedCommunityId: communityId
+  });
+
+  const nodePoint = await sigmaNodeCenter(page);
+  const nodeWheel = await assertSigmaWheelZoomAtPoint(page, nodePoint, "global node", {
+    deltaY: -40,
+    assertSingleStep: true,
+    expectedNodeId: nodePoint.nodeId
+  });
+
+  const blankPoint = await findSigmaBlankPoint(page);
+  const blankWheel = await assertSigmaWheelZoomAtPoint(page, blankPoint, "global blank surface", {
+    deltaY: 40,
+    assertSingleStep: true
+  });
+
+  const pinchPoint = await findExposedSigmaCommunityPoint(page, communityId);
+  const pinchWheel = await assertSigmaWheelZoomAtPoint(page, pinchPoint, "global community background pinch", {
+    deltaY: -48,
+    ctrlKey: true,
+    assertSingleStep: true,
+    expectedCommunityId: communityId
+  });
+
+  const trustedPoint = await findExposedSigmaCommunityPoint(page, communityId);
+  const trustedPinch = await assertTrustedModifiedWheelZoomsGraph(page, trustedPoint, "global community background");
+  const controls = await assertSigmaControlWheelOwnership(page);
+  const outside = await assertOutsideGraphWheelOwnership(page);
+
+  return { ordinaryWheel, nodeWheel, blankWheel, pinchWheel, trustedPinch, controls, outside };
+}
+
+async function runSigmaCommunityZoomOwnershipCheck(page, communityId) {
+  await waitForSigmaCommunity(page, communityId);
+  await waitForBrowserLayoutFrame(page, 24);
+
+  const point = await findSigmaCommunityBackgroundPoint(page, communityId);
+  const backgroundWheel = await assertSigmaWheelZoomAtPoint(page, point, "community-reading background", {
+    deltaY: -80,
+    ctrlKey: true,
+    assertSingleStep: true
+  });
+  const bounds = await assertSigmaZoomBounds(page);
+  return { backgroundWheel, bounds };
+}
+
+async function assertSigmaWheelZoomAtPoint(page, point, label, options) {
+  const beforeGeometry = await sigmaNodePairGeometry(page);
+  const beforeMetrics = await browserPageMetrics(page);
+  const event = await dispatchCancelableWheelAt(page, point, {
+    deltaY: options.deltaY,
+    ctrlKey: options.ctrlKey === true,
+    metaKey: options.metaKey === true
+  });
+
+  assert.equal(event.cancelled, true, `${label} wheel should cancel browser default`);
+  assert.equal(event.defaultPrevented, true, `${label} wheel should be default-prevented`);
+  assert.equal(event.insideGraph, true, `${label} wheel should start inside the Sigma graph`);
+  if (options.expectedCommunityId) {
+    assert.equal(event.communityId, options.expectedCommunityId, `${label} wheel should hit the exposed community background`);
+  }
+  if (options.expectedNodeId) {
+    assert.equal(event.nodeId, options.expectedNodeId, `${label} wheel should hit the requested node`);
+  }
+
+  const afterGeometry = await waitForSigmaNodePairChange(page, beforeGeometry);
+  const afterMetrics = await browserPageMetrics(page);
+  assert.deepEqual(afterMetrics, beforeMetrics, `${label} wheel should not change browser page metrics`);
+
+  const observedScale = afterGeometry.distance / beforeGeometry.distance;
+  if (options.assertSingleStep) {
+    const expectedScale = Math.exp(-options.deltaY * SIGMA_WHEEL_ZOOM_SPEED);
+    const relativeError = Math.abs(observedScale - expectedScale) / expectedScale;
+    assert.ok(
+      relativeError < 0.04,
+      `${label} should apply one zoom step, not zero or two: ${JSON.stringify({ observedScale, expectedScale, relativeError })}`
+    );
+  }
+
+  return {
+    point: roundedPoint(point),
+    event,
+    beforeGeometry: compactSigmaNodePair(beforeGeometry),
+    afterGeometry: compactSigmaNodePair(afterGeometry),
+    observedScale: round(observedScale),
+    beforeMetrics,
+    afterMetrics
+  };
+}
+
+async function assertTrustedModifiedWheelZoomsGraph(page, point, label) {
+  const deltaY = -48;
+  const beforeGeometry = await sigmaNodePairGeometry(page);
+  const beforeMetrics = await browserPageMetrics(page);
+  await dispatchTrustedModifiedWheelAt(page, point, { deltaY, ctrlKey: true });
+  const afterGeometry = await waitForSigmaNodePairChange(page, beforeGeometry);
+  const afterMetrics = await browserPageMetrics(page);
+  assert.deepEqual(afterMetrics, beforeMetrics, `trusted modified wheel over ${label} should not zoom the browser page`);
+
+  const observedScale = afterGeometry.distance / beforeGeometry.distance;
+  const expectedScale = Math.exp(-deltaY * SIGMA_WHEEL_ZOOM_SPEED);
+  const relativeError = Math.abs(observedScale - expectedScale) / expectedScale;
+  assert.ok(
+    relativeError < 0.04,
+    `trusted modified wheel over ${label} should apply one graph zoom step: ${JSON.stringify({ observedScale, expectedScale, relativeError })}`
+  );
+  return {
+    point: roundedPoint(point),
+    beforeGeometry: compactSigmaNodePair(beforeGeometry),
+    afterGeometry: compactSigmaNodePair(afterGeometry),
+    observedScale: round(observedScale),
+    beforeMetrics,
+    afterMetrics
+  };
+}
+
+async function assertSigmaControlWheelOwnership(page) {
+  await openSearch(page);
+  await setGraphSearchQuery(page, "节点");
+  await page.waitForFunction(() => {
+    const list = document.querySelector(".graph-search-results-list[data-state='visible']");
+    return list instanceof HTMLElement && list.scrollHeight > list.clientHeight;
+  });
+  await page.locator(".graph-search-results-list").evaluate((list) => {
+    list.scrollTop = 0;
+  });
+
+  const point = await scrollableSearchListPoint(page);
+  const geometryBeforeScroll = await sigmaNodePairGeometry(page);
+  const metricsBeforeScroll = await browserPageMetrics(page);
+  const scrollBefore = await graphSearchScrollTop(page);
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.wheel(0, 220);
+  await page.waitForFunction((before) => {
+    const list = document.querySelector(".graph-search-results-list");
+    return list instanceof HTMLElement && list.scrollTop > before;
+  }, scrollBefore);
+  const scrollAfter = await graphSearchScrollTop(page);
+  const geometryAfterScroll = await sigmaNodePairGeometry(page, geometryBeforeScroll.nodeIds);
+  const metricsAfterScroll = await browserPageMetrics(page);
+  assert.ok(scrollAfter > scrollBefore, "ordinary wheel over graph search results should scroll the list");
+  assertSigmaNodePairStable(geometryBeforeScroll, geometryAfterScroll, "ordinary graph-control scroll");
+  assert.deepEqual(metricsAfterScroll, metricsBeforeScroll, "ordinary graph-control scroll should not move or zoom the page");
+
+  const geometryBeforePinch = await sigmaNodePairGeometry(page, geometryBeforeScroll.nodeIds);
+  const metricsBeforePinch = await browserPageMetrics(page);
+  const scrollBeforePinch = await graphSearchScrollTop(page);
+  const pinch = await dispatchCancelableWheelAt(page, point, { deltaY: -80, ctrlKey: true });
+  assert.equal(pinch.cancelled, true, "pinch over graph search results should cancel browser page zoom");
+  assert.equal(pinch.defaultPrevented, true, "pinch over graph search results should be default-prevented");
+  await waitForBrowserLayoutFrame(page, 2);
+  const geometryAfterPinch = await sigmaNodePairGeometry(page, geometryBeforeScroll.nodeIds);
+  const metricsAfterPinch = await browserPageMetrics(page);
+  const scrollAfterPinch = await graphSearchScrollTop(page);
+  assertSigmaNodePairStable(geometryBeforePinch, geometryAfterPinch, "graph-control pinch");
+  assert.equal(scrollAfterPinch, scrollBeforePinch, "graph-control pinch should not scroll the search list");
+  assert.deepEqual(metricsAfterPinch, metricsBeforePinch, "graph-control pinch should not zoom the browser page");
+
+  const geometryBeforeTrustedPinch = await sigmaNodePairGeometry(page, geometryBeforeScroll.nodeIds);
+  const metricsBeforeTrustedPinch = await browserPageMetrics(page);
+  const scrollBeforeTrustedPinch = await graphSearchScrollTop(page);
+  await dispatchTrustedModifiedWheelAt(page, point, { deltaY: -80, ctrlKey: true });
+  await waitForBrowserLayoutFrame(page, 2);
+  const geometryAfterTrustedPinch = await sigmaNodePairGeometry(page, geometryBeforeScroll.nodeIds);
+  const metricsAfterTrustedPinch = await browserPageMetrics(page);
+  const scrollAfterTrustedPinch = await graphSearchScrollTop(page);
+  assertSigmaNodePairStable(geometryBeforeTrustedPinch, geometryAfterTrustedPinch, "trusted graph-control pinch");
+  assert.equal(scrollAfterTrustedPinch, scrollBeforeTrustedPinch, "trusted graph-control pinch should not scroll the search list");
+  assert.deepEqual(metricsAfterTrustedPinch, metricsBeforeTrustedPinch, "trusted graph-control pinch should not zoom the browser page");
+
+  const toolbar = await assertSigmaPassiveControlWheelOwnership(page, ".graph-toolbar-actions", "graph toolbar");
+  const zoomControls = await assertSigmaPassiveControlWheelOwnership(page, ".graph-zoom-controls", "graph zoom controls");
+
+  return {
+    point: roundedPoint(point),
+    ordinary: { scrollBefore, scrollAfter },
+    pinch: { event: pinch, scrollBefore: scrollBeforePinch, scrollAfter: scrollAfterPinch },
+    trustedPinch: { scrollBefore: scrollBeforeTrustedPinch, scrollAfter: scrollAfterTrustedPinch },
+    toolbar,
+    zoomControls
+  };
+}
+
+async function assertSigmaPassiveControlWheelOwnership(page, selector, label) {
+  const point = await page.locator(selector).evaluate((control) => {
+    const rect = control.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  const before = await sigmaNodePairGeometry(page);
+  const ordinary = await dispatchCancelableWheelAt(page, point, { deltaY: 80 });
+  await waitForBrowserLayoutFrame(page, 2);
+  const afterOrdinary = await sigmaNodePairGeometry(page, before.nodeIds);
+  assert.equal(ordinary.cancelled, false, `${label} ordinary wheel should keep its own behavior`);
+  assert.equal(ordinary.defaultPrevented, false, `${label} ordinary wheel should not prevent browser default`);
+  assertSigmaNodePairStable(before, afterOrdinary, `${label} ordinary wheel`);
+
+  const pinch = await dispatchCancelableWheelAt(page, point, { deltaY: -80, ctrlKey: true });
+  await waitForBrowserLayoutFrame(page, 2);
+  const afterPinch = await sigmaNodePairGeometry(page, before.nodeIds);
+  assert.equal(pinch.cancelled, true, `${label} pinch should block browser page zoom`);
+  assert.equal(pinch.defaultPrevented, true, `${label} pinch should be default-prevented`);
+  assertSigmaNodePairStable(afterOrdinary, afterPinch, `${label} pinch`);
+  return { point: roundedPoint(point), ordinary, pinch };
+}
+
+async function assertOutsideGraphWheelOwnership(page) {
+  const point = await outsideGraphPoint(page);
+  const beforeGeometry = await sigmaNodePairGeometry(page);
+  const event = await dispatchCancelableWheelAt(page, point, { deltaY: -80, ctrlKey: true });
+  await waitForBrowserLayoutFrame(page, 2);
+  const afterGeometry = await sigmaNodePairGeometry(page, beforeGeometry.nodeIds);
+  assert.equal(event.insideGraph, false, "outside point should not belong to the graph route");
+  assert.equal(event.cancelled, false, "modified wheel outside the graph should remain available to the browser");
+  assert.equal(event.defaultPrevented, false, "modified wheel outside the graph should not be default-prevented by the graph");
+  assertSigmaNodePairStable(beforeGeometry, afterGeometry, "outside-graph wheel");
+  return { point: roundedPoint(point), event };
+}
+
+async function assertSigmaZoomBounds(page) {
+  const beforeMetrics = await browserPageMetrics(page);
+  const farPoint = await findSigmaSurfacePoint(page);
+  const farBoundary = await dispatchBoundaryDrive(page, farPoint, 100000, "far zoom boundary");
+  const geometryAtFarBoundary = await sigmaNodePairGeometry(page);
+  const furtherOut = await dispatchCancelableWheelAt(page, await findSigmaSurfacePoint(page), {
+    deltaY: 100000,
+    ctrlKey: true
+  });
+  assert.equal(furtherOut.cancelled, true, "wheel beyond the far boundary should stay graph-owned");
+  assert.equal(furtherOut.defaultPrevented, true, "wheel beyond the far boundary should prevent browser default");
+  await waitForBrowserLayoutFrame(page, 2);
+  const geometryBeyondFarBoundary = await sigmaNodePairGeometry(page, geometryAtFarBoundary.nodeIds);
+  assertSigmaNodePairStable(geometryAtFarBoundary, geometryBeyondFarBoundary, "wheel beyond the far zoom boundary");
+
+  const nearPoint = await findSigmaSurfacePoint(page);
+  const nearBoundary = await dispatchBoundaryDrive(page, nearPoint, -100000, "near zoom boundary");
+  const geometryAtNearBoundary = await sigmaNodePairGeometry(page);
+  const furtherIn = await dispatchCancelableWheelAt(page, await findSigmaSurfacePoint(page), {
+    deltaY: -100000,
+    ctrlKey: true
+  });
+  assert.equal(furtherIn.cancelled, true, "wheel beyond the near boundary should stay graph-owned");
+  assert.equal(furtherIn.defaultPrevented, true, "wheel beyond the near boundary should prevent browser default");
+  await waitForBrowserLayoutFrame(page, 2);
+  const geometryBeyondNearBoundary = await sigmaNodePairGeometry(page, geometryAtNearBoundary.nodeIds);
+  assertSigmaNodePairStable(geometryAtNearBoundary, geometryBeyondNearBoundary, "wheel beyond the near zoom boundary");
+
+  const afterMetrics = await browserPageMetrics(page);
+  assert.deepEqual(afterMetrics, beforeMetrics, "zoom boundary checks should not change browser page metrics");
+  return {
+    farBoundary,
+    furtherOut,
+    nearBoundary,
+    furtherIn,
+    beforeMetrics,
+    afterMetrics
+  };
+}
+
+async function dispatchBoundaryDrive(page, point, deltaY, label) {
+  const events = [];
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const event = await dispatchCancelableWheelAt(page, point, { deltaY, ctrlKey: true });
+    assert.equal(event.cancelled, true, `${label} drive ${attempt + 1} should stay graph-owned`);
+    assert.equal(event.defaultPrevented, true, `${label} drive ${attempt + 1} should prevent browser default`);
+    events.push(event);
+  }
+  await waitForBrowserLayoutFrame(page, 4);
+  return { point: roundedPoint(point), events };
+}
+
+async function sigmaNodePairGeometry(page, nodeIds = []) {
+  return page.evaluate((requestedNodeIds) => {
+    const readNode = (nodeId) => {
+      const element = document.querySelector(`.sigma-global-node-hit-target[data-node-id="${CSS.escape(nodeId)}"]`);
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      return {
+        id: nodeId,
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+        width: rect.width,
+        height: rect.height
+      };
+    };
+    const available = [...document.querySelectorAll(".sigma-global-node-hit-target[data-node-id]")]
+      .map((element) => readNode(element.getAttribute("data-node-id") || ""))
+      .filter((node) => node && Number.isFinite(node.x) && Number.isFinite(node.y));
+    const requested = requestedNodeIds.length === 2
+      ? requestedNodeIds.map(readNode).filter(Boolean)
+      : [];
+    const candidates = requested.length === 2
+      ? requested
+      : (() => {
+          const square = available.filter((node) => Math.abs(node.width - node.height) <= 2);
+          return square.length >= 2 ? square : available;
+        })();
+    if (candidates.length < 2) throw new Error("Sigma should expose at least two node hit targets for zoom geometry");
+    let pair = [candidates[0], candidates[1]];
+    let distance = 0;
+    for (let left = 0; left < candidates.length; left += 1) {
+      for (let right = left + 1; right < candidates.length; right += 1) {
+        const candidateDistance = Math.hypot(
+          candidates[right].x - candidates[left].x,
+          candidates[right].y - candidates[left].y
+        );
+        if (candidateDistance > distance) {
+          pair = [candidates[left], candidates[right]];
+          distance = candidateDistance;
+        }
+      }
+    }
+    return {
+      nodeIds: pair.map((node) => node.id),
+      points: pair.map(({ id, x, y }) => ({ id, x, y })),
+      distance
+    };
+  }, nodeIds);
+}
+
+async function waitForSigmaNodePairChange(page, previous) {
+  await page.waitForFunction(({ nodeIds, distance }) => {
+    const centers = nodeIds.map((nodeId) => {
+      const element = document.querySelector(`.sigma-global-node-hit-target[data-node-id="${CSS.escape(nodeId)}"]`);
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    });
+    if (!centers[0] || !centers[1]) return false;
+    const nextDistance = Math.hypot(centers[1].x - centers[0].x, centers[1].y - centers[0].y);
+    return Math.abs(nextDistance - distance) > Math.max(1, distance * 0.01);
+  }, { nodeIds: previous.nodeIds, distance: previous.distance }, { timeout: 3000 });
+  await waitForBrowserLayoutFrame(page, 2);
+  return sigmaNodePairGeometry(page, previous.nodeIds);
+}
+
+function assertSigmaNodePairStable(before, after, label) {
+  const tolerance = sigmaNodePairTolerance(before);
+  assert.ok(
+    Math.abs(after.distance - before.distance) <= tolerance,
+    `${label} should not change graph geometry: ${JSON.stringify({ before: compactSigmaNodePair(before), after: compactSigmaNodePair(after), tolerance })}`
+  );
+}
+
+function sigmaNodePairTolerance(geometry) {
+  return Math.max(0.75, geometry.distance * 0.0005);
+}
+
+function compactSigmaNodePair(geometry) {
+  return {
+    nodeIds: geometry.nodeIds,
+    distance: round(geometry.distance),
+    points: geometry.points.map((point) => ({ id: point.id, x: round(point.x), y: round(point.y) }))
+  };
+}
+
+async function browserPageMetrics(page) {
+  return page.evaluate(() => ({
+    devicePixelRatio: window.devicePixelRatio,
+    visualViewportScale: window.visualViewport?.scale || 1,
+    clientWidth: document.documentElement.clientWidth,
+    clientHeight: document.documentElement.clientHeight,
+    scrollX: window.scrollX,
+    scrollY: window.scrollY
+  }));
+}
+
+async function dispatchCancelableWheelAt(page, point, options) {
+  return page.evaluate(({ point, options }) => {
+    const target = document.elementFromPoint(point.x, point.y);
+    if (!(target instanceof Element)) throw new Error(`No wheel target at ${JSON.stringify(point)}`);
+    const event = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      clientX: point.x,
+      clientY: point.y,
+      deltaY: options.deltaY,
+      deltaMode: 0,
+      ctrlKey: options.ctrlKey === true,
+      metaKey: options.metaKey === true
+    });
+    const dispatchResult = target.dispatchEvent(event);
+    return {
+      cancelled: !dispatchResult,
+      defaultPrevented: event.defaultPrevented,
+      insideGraph: Boolean(target.closest(".sigma-global-route")),
+      communityId: target.closest(".sigma-global-community-region")?.getAttribute("data-community-id") || "",
+      nodeId: target.closest(".sigma-global-node-hit-target")?.getAttribute("data-node-id") || "",
+      targetClass: target.getAttribute("class") || "",
+      targetTag: target.tagName
+    };
+  }, { point, options });
+}
+
+async function dispatchTrustedModifiedWheelAt(page, point, options) {
+  const client = await page.context().newCDPSession(page);
+  try {
+    await client.send("Input.dispatchMouseEvent", {
+      type: "mouseWheel",
+      x: point.x,
+      y: point.y,
+      deltaX: 0,
+      deltaY: options.deltaY,
+      modifiers: options.metaKey === true ? 4 : options.ctrlKey === true ? 2 : 0
+    });
+  } finally {
+    await client.detach().catch(() => undefined);
+  }
+}
+
+async function findExposedSigmaCommunityPoint(page, communityId) {
+  return page.evaluate((communityId) => {
+    const region = document.querySelector(`.sigma-global-community-region[data-community-id="${CSS.escape(communityId)}"]`);
+    if (!(region instanceof HTMLElement)) throw new Error(`Missing Sigma community region ${communityId}`);
+    const rect = region.getBoundingClientRect();
+    const ratios = [0.5, 0.18, 0.82, 0.32, 0.68];
+    for (const ry of ratios) {
+      for (const rx of ratios) {
+        const x = rect.left + rect.width * rx;
+        const y = rect.top + rect.height * ry;
+        const hit = document.elementFromPoint(x, y);
+        if (!(hit instanceof Element) || hit.closest(".sigma-global-node-hit-target")) continue;
+        if (hit.closest(".sigma-global-community-region") === region) {
+          return { x, y, communityId, targetClass: hit.getAttribute("class") || "" };
+        }
+      }
+    }
+    throw new Error(`Could not find exposed Sigma community point for ${communityId}`);
+  }, communityId);
+}
+
+async function findSigmaCommunityBackgroundPoint(page, communityId) {
+  return page.evaluate((communityId) => {
+    const region = document.querySelector(`.sigma-global-community-region[data-community-id="${CSS.escape(communityId)}"]`);
+    const route = document.querySelector(".sigma-global-route");
+    const renderer = document.querySelector(".sigma-global-renderer");
+    if (!(region instanceof HTMLElement) || !(route instanceof HTMLElement) || !(renderer instanceof HTMLElement)) {
+      throw new Error(`Missing community-reading Sigma surface for ${communityId}`);
+    }
+    const regionRect = region.getBoundingClientRect();
+    const rendererRect = renderer.getBoundingClientRect();
+    const left = Math.max(regionRect.left, rendererRect.left);
+    const right = Math.min(regionRect.right, rendererRect.right);
+    const top = Math.max(regionRect.top, rendererRect.top);
+    const bottom = Math.min(regionRect.bottom, rendererRect.bottom);
+    const blocked = ".sigma-global-node-hit-target,.graph-search,.graph-toolbar,.graph-zoom-controls,.community-legend,.graph-reader,.graph-selection-panel,[data-graph-drawer='true']";
+    for (let row = 1; row <= 8; row += 1) {
+      for (let column = 1; column <= 8; column += 1) {
+        const x = left + ((right - left) * column) / 9;
+        const y = top + ((bottom - top) * row) / 9;
+        const hit = document.elementFromPoint(x, y);
+        if (!(hit instanceof Element) || !route.contains(hit) || hit.closest(blocked)) continue;
+        return { x, y, communityId, targetClass: hit.getAttribute("class") || "", targetTag: hit.tagName };
+      }
+    }
+    throw new Error(`Could not find exposed community-reading background point for ${communityId}`);
+  }, communityId);
+}
+
+async function findSigmaSurfacePoint(page) {
+  return page.evaluate(() => {
+    const route = document.querySelector(".sigma-global-route");
+    const renderer = document.querySelector(".sigma-global-renderer");
+    if (!(route instanceof HTMLElement) || !(renderer instanceof HTMLElement)) throw new Error("Missing Sigma graph surface");
+    const rect = renderer.getBoundingClientRect();
+    const blocked = ".sigma-global-node-hit-target,.graph-search,.graph-toolbar,.graph-zoom-controls,.community-legend,.graph-reader,.graph-selection-panel,[data-graph-drawer='true']";
+    for (let row = 1; row <= 10; row += 1) {
+      for (let column = 1; column <= 12; column += 1) {
+        const x = rect.left + (rect.width * column) / 13;
+        const y = rect.top + (rect.height * row) / 11;
+        const hit = document.elementFromPoint(x, y);
+        if (!(hit instanceof Element) || !route.contains(hit) || hit.closest(blocked)) continue;
+        return { x, y, targetClass: hit.getAttribute("class") || "", targetTag: hit.tagName };
+      }
+    }
+    throw new Error("Could not find an exposed Sigma graph surface point");
+  });
+}
+
+async function sigmaNodeCenter(page) {
+  return page.locator(".sigma-global-node-hit-target[data-node-id]").first().evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      nodeId: node.getAttribute("data-node-id") || ""
+    };
+  });
+}
+
+async function findSigmaBlankPoint(page) {
+  return page.evaluate(() => {
+    const route = document.querySelector(".sigma-global-route");
+    const renderer = document.querySelector(".sigma-global-renderer");
+    if (!(route instanceof HTMLElement) || !(renderer instanceof HTMLElement)) throw new Error("Missing Sigma graph surface");
+    const rect = renderer.getBoundingClientRect();
+    const blocked = ".sigma-global-node-hit-target,.sigma-global-community-region,.graph-search,.graph-toolbar,.graph-zoom-controls,.community-legend,.graph-reader,.graph-selection-panel,[data-graph-drawer='true']";
+    for (let row = 1; row <= 12; row += 1) {
+      for (let column = 1; column <= 16; column += 1) {
+        const x = rect.left + (rect.width * column) / 17;
+        const y = rect.top + (rect.height * row) / 13;
+        const hit = document.elementFromPoint(x, y);
+        if (!(hit instanceof Element) || !route.contains(hit) || hit.closest(blocked)) continue;
+        return { x, y, targetClass: hit.getAttribute("class") || "", targetTag: hit.tagName };
+      }
+    }
+    throw new Error("Could not find an exposed blank Sigma point");
+  });
+}
+
+async function scrollableSearchListPoint(page) {
+  return page.locator(".graph-search-results-list").evaluate((list) => {
+    const rect = list.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + Math.min(rect.height / 2, 80);
+    const hit = document.elementFromPoint(x, y);
+    if (!(hit instanceof Element) || !hit.closest(".graph-search")) {
+      throw new Error(`Search list point is not exposed: ${JSON.stringify({ x, y, hit: hit?.getAttribute?.("class") || hit?.tagName || "" })}`);
+    }
+    return { x, y, targetClass: hit.getAttribute("class") || "" };
+  });
+}
+
+async function graphSearchScrollTop(page) {
+  return page.locator(".graph-search-results-list").evaluate((list) => list.scrollTop);
+}
+
+async function outsideGraphPoint(page) {
+  return page.locator(".topbar").evaluate((topbar) => {
+    const rect = topbar.getBoundingClientRect();
+    const candidates = [
+      { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+      { x: rect.left + 24, y: rect.top + rect.height / 2 },
+      { x: rect.right - 24, y: rect.top + rect.height / 2 }
+    ];
+    for (const point of candidates) {
+      const hit = document.elementFromPoint(point.x, point.y);
+      if (hit instanceof Element && !hit.closest(".sigma-global-route")) {
+        return { ...point, targetClass: hit.getAttribute("class") || "", targetTag: hit.tagName };
+      }
+    }
+    throw new Error("Could not find an exposed point outside the graph");
+  });
+}
+
 async function sigmaGlobalSnapshot(page) {
   return page.evaluate(() => {
     const sigma = document.querySelector(".sigma-global-renderer");
@@ -1323,14 +1905,14 @@ async function runCommunityNodeMultiSelectCheck(page) {
   const singleVisual = await waitForEdgeFocusDepth(page, "first");
   assertSelectedNodeRelationFocusVisible(singleVisual, "community selected node A");
   const singleLayout = await assertGraphLayout(page, "community-selected-node-drawer");
+  await waitForStableNodeHitTarget(page, "B");
 
   await page.keyboard.down("Shift");
   try {
-    const secondPoint = await stableSigmaNodeClickPoint(page, ["A"]);
+    const secondPoint = await firstClickableSigmaNodePoint(page, ["A"], "B");
     const secondNodeId = secondPoint.nodeId;
     assert.notEqual(secondNodeId, "A", `Shift+click should choose a second node: ${JSON.stringify(secondPoint)}`);
-    await page.mouse.down();
-    await page.mouse.up();
+    await page.mouse.click(secondPoint.x, secondPoint.y);
     await page.waitForSelector('[data-testid="graph-selection-drawer"]');
     const multi = await drawerSelectionSnapshot(page);
     assert.equal(multi.drawerTestId, "graph-selection-drawer", "Shift+click should show an exact multi-node selection");
@@ -1847,6 +2429,7 @@ async function runStatePreservationCheck(page) {
   assert.equal(returned.nodeAPinned, "true", "fixed node should survive community return");
   assertPointStable(returned.nodeABox, afterDrag.nodeABox, "dragged fixed node should remain at the released global position after community return", 10);
   assert.equal(returned.oldDomGlobalNodeCount, 0, "state-preserving return should still use Sigma, not old DOM global");
+  await waitForPersistedGraphPin(page, "wiki/entities/A.md");
 
   await page.reload();
   await waitForSigmaGlobal(page);
@@ -2029,7 +2612,7 @@ async function reloadPinDiagnostics(page, nodeId) {
       route: document.querySelector(".sigma-global-route")?.getAttribute("data-route") || "",
       renderer: document.querySelector(".sigma-global-renderer")?.getAttribute("data-renderer") || "",
       layoutUrl,
-      layoutPins: layoutPayload?.layout?.pins || null,
+      layoutPins: layoutPayload?.data?.pins || null,
       allTargets: [...document.querySelectorAll(".sigma-global-node-hit-target")].map((node) => ({
         id: node.getAttribute("data-node-id") || "",
         pinned: node.getAttribute("data-pinned") || "",
@@ -2053,7 +2636,7 @@ async function waitForPersistedGraphPin(page, pinKey) {
       const response = await fetch(layoutUrl);
       if (!response.ok) return false;
       const payload = await response.json();
-      return Boolean(payload?.layout?.pins?.[pinKey]);
+      return Boolean(payload?.data?.pins?.[pinKey]);
     }, pinKey, { timeout: 5000 });
   } catch (err) {
     const diagnostics = await page.evaluate(async (pinKey) => {
@@ -2191,6 +2774,10 @@ async function closeBrowserForRegression(browser) {
 
 function round(value) {
   return Math.round(value * 1000) / 1000;
+}
+
+function roundedPoint(point) {
+  return { ...point, x: round(point.x), y: round(point.y) };
 }
 
 function cssString(value) {

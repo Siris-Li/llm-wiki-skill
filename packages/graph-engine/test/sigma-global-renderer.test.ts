@@ -25,7 +25,7 @@ import { createSigmaGlobalHitProjector } from "../src/render/sigma-hit-projector
 import type {
   GraphRendererAdapterData
 } from "../src";
-import { buildGraphRendererAdapterData } from "../src";
+import { prepareRendererAdapterDataForTest } from "./support/prepared-renderer-adapter";
 import { getThemeTokens } from "../src/themes";
 import type { GraphData, PinMap } from "../src/types";
 
@@ -1233,14 +1233,15 @@ describe("Sigma global renderer production boundary", () => {
   it("ignores stale animation frame owners after wheel invalidates the baseline", () => {
     const animationFrames: FrameRequestCallback[] = [];
     const runtime = fakeRuntime();
+    const container = fakeContainer({
+      requestAnimationFrame: (callback: FrameRequestCallback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      },
+      cancelAnimationFrame: () => undefined
+    });
     const renderer = createSigmaGlobalRenderer({
-      container: fakeContainer({
-        requestAnimationFrame: (callback: FrameRequestCallback) => {
-          animationFrames.push(callback);
-          return animationFrames.length;
-        },
-        cancelAnimationFrame: () => undefined
-      }),
+      container,
       adapterData: adapterDataFixture(),
       theme: "shan-shui",
       runtime
@@ -1252,7 +1253,7 @@ describe("Sigma global renderer production boundary", () => {
     const staleFrame = animationFrames.shift();
     assert.ok(staleFrame, "zoom animation should schedule an owned overlay frame");
 
-    sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
+    emitRootWheel(container, { x: 240, y: 160, deltaY: 80, deltaMode: 0 });
     staleFrame?.(16);
 
     assert.equal(renderer.overlayRoot.style.transform, "");
@@ -1263,8 +1264,9 @@ describe("Sigma global renderer production boundary", () => {
 
   it("keeps exact overlay reposition after wheel setState until a prior camera animation settles", () => {
     const runtime = fakeRuntime();
+    const container = fakeContainer();
     const renderer = createSigmaGlobalRenderer({
-      container: fakeContainer(),
+      container,
       adapterData: adapterDataFixture(),
       theme: "shan-shui",
       runtime
@@ -1275,7 +1277,7 @@ describe("Sigma global renderer production boundary", () => {
     sigma.emit("afterRender");
     assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
 
-    sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
+    emitRootWheel(container, { x: 240, y: 160, deltaY: 80, deltaMode: 0 });
     sigma.emit("afterRender");
 
     assert.equal(renderer.overlayRoot.style.transform, "");
@@ -1540,7 +1542,7 @@ describe("Sigma global renderer production boundary", () => {
 
   it("keeps dense accepted global data visibly mapped as a capped point map", () => {
     const data = densePointMapGraph();
-    const adapterData = buildGraphRendererAdapterData(data, {
+    const adapterData = prepareRendererAdapterDataForTest(data, {
       theme: "shan-shui",
       selection: { kind: "node", id: "dense-1999" },
       searchResultIds: Array.from({ length: 260 }, (_, index) => `dense-${index * 3}`),
@@ -2443,8 +2445,9 @@ describe("Sigma global renderer production boundary", () => {
 
   it("cancels resetView when wheel input takes over and leaves no overlay transition state", () => {
     const runtime = fakeRuntime({ worldScale: 200 });
+    const container = fakeContainer();
     const renderer = createSigmaGlobalRenderer({
-      container: fakeContainer(),
+      container,
       adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
       theme: "shan-shui",
       runtime
@@ -2461,7 +2464,7 @@ describe("Sigma global renderer production boundary", () => {
     sigma.emit("afterRender");
     assert.match(renderer.overlayRoot.style.transform || "", /^translate\(/);
 
-    const wheel = sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
+    const wheel = emitRootWheel(container, { x: 240, y: 160, deltaY: 80, deltaMode: 0 });
     const takeoverState = sigma.camera.getState();
     sigma.emit("afterRender");
 
@@ -2556,8 +2559,9 @@ describe("Sigma global renderer production boundary", () => {
 
   it("keeps later wheel input from being reclaimed by a cancelled resetView animation", () => {
     const runtime = fakeRuntime({ worldScale: 200 });
+    const container = fakeContainer();
     const renderer = createSigmaGlobalRenderer({
-      container: fakeContainer(),
+      container,
       adapterData: nodeSpotlightAdapterData({ selectedCommunityId: "community-1" }),
       theme: "shan-shui",
       runtime
@@ -2568,9 +2572,9 @@ describe("Sigma global renderer production boundary", () => {
     sigma.camera.advanceAnimation(0.5);
     sigma.emit("afterRender");
 
-    sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
+    emitRootWheel(container, { x: 240, y: 160, deltaY: 80, deltaMode: 0 });
     const firstWheelState = sigma.camera.getState();
-    sigma.mouseCaptor.emitWheel({ x: 120, y: 90, deltaY: 80, deltaMode: 0 });
+    emitRootWheel(container, { x: 120, y: 90, deltaY: 80, deltaMode: 0 });
     const secondWheelState = sigma.camera.getState();
 
     assert.notDeepEqual(secondWheelState, firstWheelState);
@@ -2625,8 +2629,9 @@ describe("Sigma global renderer production boundary", () => {
 
   it("lets wheel input take over an active node drawer accommodation", () => {
     const runtime = fakeRuntime();
+    const container = fakeContainer();
     const renderer = createSigmaGlobalRenderer({
-      container: fakeContainer(),
+      container,
       adapterData: communityReadingAdapterDataFixture(),
       theme: "shan-shui",
       runtime,
@@ -2640,7 +2645,7 @@ describe("Sigma global renderer production boundary", () => {
 
     sigma.camera.advanceAnimation(0.5);
     sigma.emit("afterRender");
-    const wheel = sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
+    const wheel = emitRootWheel(container, { x: 240, y: 160, deltaY: 80, deltaMode: 0 });
     const takeoverState = sigma.camera.getState();
     sigma.emit("afterRender");
 
@@ -2823,6 +2828,68 @@ describe("Sigma global renderer production boundary", () => {
       /webgl unavailable/
     );
     assert.deepEqual(errors, [failure]);
+  });
+
+  it("releases all initialized resources when setup fails after wheel binding", () => {
+    const failure = new Error("resize observer failed");
+    let disconnectCalls = 0;
+    const container = fakeContainer({
+      ResizeObserver: class {
+        observe(): void {
+          throw failure;
+        }
+
+        disconnect(): void {
+          disconnectCalls += 1;
+        }
+        unobserve(): void {}
+      } as unknown as typeof ResizeObserver
+    });
+    const runtime = fakeRuntime();
+
+    assert.throws(
+      () => createSigmaGlobalRenderer({
+        container,
+        adapterData: adapterDataFixture(),
+        theme: "shan-shui",
+        runtime
+      }),
+      /resize observer failed/
+    );
+
+    const wheel = emitRootWheel(container, { x: 240, y: 160, deltaY: 80 });
+    assert.equal(wheel.prevented, false);
+    assert.equal(wheel.propagationStopped, false);
+    assert.equal(disconnectCalls, 1);
+    assert.equal(runtime.instances[0]?.killed, true);
+    assert.equal([...runtime.instances[0].listeners.values()].every((listeners) => listeners.size === 0), true);
+    assert.equal(container.children.length, 0);
+  });
+
+  it("releases route wheel ownership before destroy callbacks can re-enter", () => {
+    const runtime = fakeRuntime();
+    const container = fakeContainer();
+    const renderer = createSigmaGlobalRenderer({
+      container,
+      adapterData: adapterDataFixture(),
+      theme: "shan-shui",
+      runtime
+    });
+    let callbackWheel: ReturnType<typeof emitRootWheel> | null = null;
+
+    renderer.resetView({
+      onCancel: () => {
+        callbackWheel = emitRootWheel(container, { x: 240, y: 160, deltaY: 80 });
+        renderer.destroy();
+      }
+    });
+    renderer.destroy();
+
+    assert.deepEqual(callbackWheel, { prevented: false, propagationStopped: false });
+    assert.deepEqual(emitRootWheel(container, { x: 240, y: 160, deltaY: 80 }), {
+      prevented: false,
+      propagationStopped: false
+    });
   });
 
   it("suppresses stale events after replacement and update-after-destroy", () => {
@@ -3115,33 +3182,40 @@ describe("Sigma global renderer production boundary", () => {
     assert.equal(sigma.settings.zoomDuration, 120);
   });
 
-  it("uses continuous wheel delta to zoom the Sigma camera without default Sigma jumping", () => {
+  it("uses continuous wheel delta from a community background without default Sigma jumping", () => {
     const runtime = fakeRuntime();
+    const container = fakeContainer();
     createSigmaGlobalRenderer({
-      container: fakeContainer(),
+      container,
       adapterData: adapterDataFixture(),
       theme: "shan-shui",
       runtime
     });
     const sigma = runtime.instances[0];
 
-    const small = sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 4, deltaMode: 0 });
+    const communityWash = fakeClosestTarget(".community-wash");
+    const small = emitRootWheel(container, { x: 240, y: 160, deltaY: 4, deltaMode: 0, target: communityWash });
     assert.equal(small.prevented, true);
+    assert.equal(small.propagationStopped, true);
     assert.equal(sigma.camera.animateCalls.length, 0);
+    assert.equal(sigma.zoomTargets.length, 1, "one wheel event must zoom exactly once");
     assert.deepEqual(sigma.zoomTargets.at(-1)?.point, { x: 240, y: 160 });
     assertClose(sigma.zoomTargets.at(-1)?.ratio ?? 0, Math.exp(4 * 0.0016));
     assertClose(sigma.camera.getState().ratio, Math.exp(4 * 0.0016));
     assert.notEqual(sigma.camera.getState().x, 240, "camera x is not the raw pointer x");
 
-    const larger = sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
+    const larger = emitRootWheel(container, { x: 240, y: 160, deltaY: 80, deltaMode: 0, target: communityWash });
     assert.equal(larger.prevented, true);
+    assert.equal(larger.propagationStopped, true);
+    assert.equal(sigma.zoomTargets.length, 2, "each wheel event must zoom exactly once");
     assert.equal(sigma.camera.getState().ratio > Math.exp(4 * 0.0016), true);
   });
 
   it("zooms in for negative wheel deltas and respects camera bounds", () => {
     const runtime = fakeRuntime();
+    const container = fakeContainer();
     createSigmaGlobalRenderer({
-      container: fakeContainer(),
+      container,
       adapterData: adapterDataFixture(),
       theme: "shan-shui",
       runtime
@@ -3149,7 +3223,7 @@ describe("Sigma global renderer production boundary", () => {
     const sigma = runtime.instances[0];
     sigma.camera.setState({ ratio: 0.31 });
 
-    const wheel = sigma.mouseCaptor.emitWheel({ x: 120, y: 90, deltaY: -1000, deltaMode: 0 });
+    const wheel = emitRootWheel(container, { x: 120, y: 90, deltaY: -1000, deltaMode: 0 });
 
     assert.equal(wheel.prevented, true);
     assert.equal(sigma.camera.getState().ratio, 0.3);
@@ -3157,59 +3231,65 @@ describe("Sigma global renderer production boundary", () => {
 
   it("falls back to the viewport center when a wheel delta lacks pointer coordinates", () => {
     const runtime = fakeRuntime();
+    const container = fakeContainer();
     createSigmaGlobalRenderer({
-      container: fakeContainer(),
+      container,
       adapterData: adapterDataFixture(),
       theme: "shan-shui",
       runtime
     });
     const sigma = runtime.instances[0];
 
-    const wheel = sigma.mouseCaptor.emitWheel({ deltaY: 80, deltaMode: 0 });
+    const wheel = emitRootWheel(container, { deltaY: 80, deltaMode: 0 });
 
     assert.equal(wheel.prevented, true);
     assert.deepEqual(sigma.zoomTargets.at(-1)?.point, { x: 500, y: 340 });
     assert.equal(sigma.camera.getState().ratio > 1, true);
   });
 
-  it("prevents Sigma zoom when the wheel starts over the zoom controls", () => {
+  it("preserves ordinary scrolling and blocks page pinch zoom over the zoom controls", () => {
     const runtime = fakeRuntime();
+    const container = fakeContainer();
     createSigmaGlobalRenderer({
-      container: fakeContainer(),
+      container,
       adapterData: adapterDataFixture(),
       theme: "shan-shui",
       runtime
     });
     const sigma = runtime.instances[0];
 
-    const wheel = sigma.mouseCaptor.emitWheel({
+    const wheel = emitRootWheel(container, {
       x: 120,
       y: 90,
       deltaY: 80,
       deltaMode: 0,
-      target: fakeClosestTarget("[data-control=\"sigma-zoom\"]")
+      target: fakeClosestTarget(".graph-zoom-controls")
     });
 
-    assert.equal(wheel.prevented, true);
+    assert.equal(wheel.prevented, false);
+    assert.equal(wheel.propagationStopped, false);
     assert.equal(sigma.camera.getState().ratio, 1);
     assert.equal(sigma.zoomTargets.length, 0);
 
-    const textTargetWheel = sigma.mouseCaptor.emitWheel({
+    const textTargetWheel = emitRootWheel(container, {
       x: 120,
       y: 90,
       deltaY: 80,
       deltaMode: 0,
-      target: fakeTextTargetInside("[data-control=\"sigma-zoom\"]")
+      ctrlKey: true,
+      target: fakeTextTargetInside(".graph-zoom-controls")
     });
     assert.equal(textTargetWheel.prevented, true);
+    assert.equal(textTargetWheel.propagationStopped, true);
     assert.equal(sigma.camera.getState().ratio, 1);
     assert.equal(sigma.zoomTargets.length, 0);
   });
 
   it("exposes button zoom methods and lets wheel zoom override an active button animation without queuing", () => {
     const runtime = fakeRuntime();
+    const container = fakeContainer();
     const renderer = createSigmaGlobalRenderer({
-      container: fakeContainer(),
+      container,
       adapterData: adapterDataFixture(),
       theme: "shan-shui",
       runtime
@@ -3230,7 +3310,7 @@ describe("Sigma global renderer production boundary", () => {
     // 不再排队 animate(duration:1)——这是触控板连续手感的关键（设计 §5）。
     const animateCallsBeforeWheel = sigma.camera.animateCalls.length;
     const setStateCallsBeforeWheel = sigma.camera.setStateCalls.length;
-    const takeoverWheel = sigma.mouseCaptor.emitWheel({ x: 240, y: 160, deltaY: 80, deltaMode: 0 });
+    const takeoverWheel = emitRootWheel(container, { x: 240, y: 160, deltaY: 80, deltaMode: 0 });
     assert.equal(takeoverWheel.prevented, true);
     assert.equal(sigma.camera.animateCalls.length, animateCallsBeforeWheel, "wheel must not queue a new animation");
     assert.ok(sigma.camera.setStateCalls.length > setStateCallsBeforeWheel, "wheel must apply via direct setState");
@@ -4165,6 +4245,7 @@ type FakeDefaultView = Partial<Pick<Window, "ResizeObserver" | "requestAnimation
 
 function fakeContainer(defaultView?: FakeDefaultView): HTMLElement & { children: HTMLElement[] } {
   const children: HTMLElement[] = [];
+  const listeners = new Map<string, EventListenerOrEventListenerObject[]>();
   const container = {
     ownerDocument: {
       createElement: (tagName: string) => fakeElement(tagName, defaultView),
@@ -4173,6 +4254,22 @@ function fakeContainer(defaultView?: FakeDefaultView): HTMLElement & { children:
     },
     append: (child: HTMLElement) => {
       children.push(child);
+    },
+    addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => {
+      const list = listeners.get(type) ?? [];
+      list.push(listener);
+      listeners.set(type, list);
+    },
+    removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => {
+      const list = listeners.get(type) ?? [];
+      listeners.set(type, list.filter((item) => item !== listener));
+    },
+    dispatchEvent: (event: Event) => {
+      for (const listener of listeners.get(event.type) ?? []) {
+        if (typeof listener === "function") listener.call(container, event);
+        else listener.handleEvent(event);
+      }
+      return !event.defaultPrevented;
     },
     children
   } as unknown as HTMLElement & { children: HTMLElement[] };
@@ -4290,6 +4387,43 @@ function fakePointerEvent(type: string, init: Partial<PointerEvent> = {}): Point
     ...init
   };
   return event as unknown as PointerEvent;
+}
+
+function emitRootWheel(
+  container: HTMLElement,
+  input: {
+    x?: number;
+    y?: number;
+    deltaY: number;
+    deltaMode?: number;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    target?: unknown;
+  }
+): { prevented: boolean; propagationStopped: boolean } {
+  const wheel = {
+    type: "wheel",
+    clientX: input.x,
+    clientY: input.y,
+    deltaY: input.deltaY,
+    deltaMode: input.deltaMode ?? 0,
+    ctrlKey: input.ctrlKey ?? false,
+    metaKey: input.metaKey ?? false,
+    target: input.target ?? fakeClosestTarget("[data-graph-blank=\"true\"]"),
+    defaultPrevented: false,
+    propagationStopped: false,
+    preventDefault() {
+      wheel.defaultPrevented = true;
+    },
+    stopPropagation() {
+      wheel.propagationStopped = true;
+    }
+  };
+  container.dispatchEvent(wheel as unknown as WheelEvent);
+  return {
+    prevented: wheel.defaultPrevented,
+    propagationStopped: wheel.propagationStopped
+  };
 }
 
 const containerRegistry: Array<HTMLElement & { children: HTMLElement[] }> = [];

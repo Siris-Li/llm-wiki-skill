@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildRenderableGraph,
+  DEFAULT_RENDERER_VIEWPORT,
   centerRendererViewportOnPoint,
   createViewportFrameCommitter,
   fitRendererViewportToPoints,
@@ -35,6 +36,46 @@ function sampleGraph(): GraphData {
 }
 
 describe("renderer viewport state", () => {
+  it("preserves zoom, pan, reset, resize, and minimap conversion results", () => {
+    const size = { width: 1200, height: 800 };
+    const worldBounds = { minX: -200, minY: -100, maxX: 1400, maxY: 1000, width: 1600, height: 1100 };
+    const zoom = viewportAfterWheelZoom(
+      { x: -120, y: 45, scale: 1.4 },
+      { deltaY: -80, deltaMode: 0 },
+      { x: 360, y: 220 },
+      size,
+      { worldBounds }
+    );
+    const pan = panRendererViewport(zoom, { x: 55, y: -35 }, size, { worldBounds });
+    const resize = viewportAfterResize(pan, size, { width: 900, height: 700 }, {
+      worldBounds,
+      anchorPoint: { x: 700, y: 400 }
+    });
+
+    assert.deepEqual(DEFAULT_RENDERER_VIEWPORT, { x: 0, y: 0, scale: 1 });
+    assert.deepEqual(zoom, {
+      x: -185.54544129458895,
+      y: 21.103224528014437,
+      scale: 1.5911742037758843
+    });
+    assert.deepEqual(pan, {
+      x: -130.54544129458895,
+      y: -13.896775471985563,
+      scale: 1.5911742037758843
+    });
+    assert.deepEqual(resize, {
+      x: -103.5319406615414,
+      y: -12.159678537987418,
+      scale: 1.5911742037758843
+    });
+    assert.deepEqual(rendererViewportToMinimapRect(resize, { width: 900, height: 700 }, { worldBounds }), {
+      x: 15.84439617148333,
+      y: 3.5240196367817553,
+      width: 94.27000490835471,
+      height: 30.166401570673504
+    });
+  });
+
   it("serializes pan and zoom as one content-layer transform", () => {
     assert.equal(
       rendererViewportToTransform({ x: 32.1254, y: -18.8754, scale: 1.4567 }),

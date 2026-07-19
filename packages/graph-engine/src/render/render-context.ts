@@ -2,12 +2,16 @@ import type { GraphAggregationMarker, GraphData, GraphDiff, GraphSummaryObjectRe
 import type { LiveGraphSimulation, PinState } from "../sim";
 import type { GraphHitTargetResolver } from "./hit-testing";
 import type { GraphGestureController, GraphGestureStateMachine } from "./gestures";
-import type { DensityMode, RenderableGraph, RenderPathCache } from "./model";
+import type { DensityMode, RenderableGraph } from "./render-policy";
+import type { RenderPathCache } from "../layout/edge-geometry";
 import type { resolveGraphSearchState } from "./search";
 import type { GraphRendererSurface } from "./renderer-surface";
 import type { GraphRuntimeState } from "./state";
 import type { GraphToolbarPanelState } from "./toolbar";
 import type { createViewportFrameCommitter } from "./viewport";
+import type { RegularSearchNodeProjection } from "../model/atlas";
+import type { GraphRendererAdapterData } from "./adapter";
+import type { GraphRendererAdapterDataPreparation } from "./graph-renderer-root";
 
 export interface PaintedGraphDom {
   contentLayer: HTMLElement | null;
@@ -44,6 +48,7 @@ export interface GraphRendererCallbacks {
 
 export interface GraphRenderContext {
   data: GraphData;
+  regularSearchByNode: RegularSearchNodeProjection[];
   theme: ThemeId;
   destroyed: boolean;
   simulation: LiveGraphSimulation | null;
@@ -77,6 +82,8 @@ export interface GraphRenderContext {
   lastViewportSize: { width: number; height: number };
   resizeObserver: ResizeObserver | null;
   graph: RenderableGraph;
+  adapterData: GraphRendererAdapterData;
+  prepareAdapterData: GraphRendererAdapterDataPreparation;
   runtimeState: GraphRuntimeState;
   hitTargetResolver: GraphHitTargetResolver;
   pinState: PinState;

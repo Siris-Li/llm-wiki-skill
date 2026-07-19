@@ -42,5 +42,5 @@ GRAPH_SIGMA_TRIAL_ARTIFACT_DIR="$artifact_dir" \
 GRAPH_SIGMA_TRIAL_CHROME_EXECUTABLE="$chrome_executable" \
 node --import tsx tests/browser/graph-sigma-graphology-trial.ts
 
-node tests/browser/validate-graph-trial-result.mjs "$artifact_dir/sigma-graphology-trial-results.json"
+node --import tsx tests/browser/validate-graph-trial-result.mjs "$artifact_dir/sigma-graphology-trial-results.json"
 echo "PASS: Sigma/Graphology performance trial ($artifact_dir/sigma-graphology-trial-results.json)"

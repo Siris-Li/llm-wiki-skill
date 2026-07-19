@@ -5,8 +5,7 @@ import {
   labelCharWidth,
   measureLabelWidth,
   truncateLabel,
-  cardDims,
-  createSafeStorage
+  cardDims
 } from "../src/model";
 
 const LABEL_CJK_WIDTH = 15;
@@ -18,7 +17,7 @@ async function loadHelpersWithoutSegmenter() {
   const originalIntl = globalThis.Intl;
   Object.defineProperty(globalThis, "Intl", { value: {}, configurable: true });
   try {
-    return await import(`../src/model/legacy-helpers.ts?fallback=${Date.now()}`);
+    return await import(`../src/model/labels.ts?fallback=${Date.now()}`);
   } finally {
     Object.defineProperty(globalThis, "Intl", { value: originalIntl, configurable: true });
   }
@@ -58,6 +57,8 @@ describe("splitLabelGraphemes", () => {
 
     assert.deepEqual(Array.from(fallbackHelpers.splitLabelGraphemes("abc")), ["a", "b", "c"]);
     assert.deepEqual(Array.from(fallbackHelpers.splitLabelGraphemes("中文")), ["中", "文"]);
+    assert.deepEqual(Array.from(fallbackHelpers.splitLabelGraphemes("e\u0301")), ["e\u0301"]);
+    assert.deepEqual(Array.from(fallbackHelpers.splitLabelGraphemes("𠮷")), ["𠮷"]);
     assert.deepEqual(Array.from(fallbackHelpers.splitLabelGraphemes("👨‍👩‍👧‍👦")), ["👨‍👩‍👧‍👦"]);
 
     const truncated = fallbackHelpers.truncateLabel("节点A👨‍👩‍👧‍👦AlphaBeta超长标签" + "超".repeat(20), 120);
@@ -221,7 +222,6 @@ describe("module export", () => {
 
     assert.equal(typeof model.truncateLabel, "function");
     assert.equal(typeof model.cardDims, "function");
-    assert.equal(typeof model.createSafeStorage, "function");
   });
 
   it("keeps legacy renderer exports available from the package entry", async () => {
@@ -234,54 +234,5 @@ describe("module export", () => {
     assert.equal(typeof render.createGraphRenderer, "function");
     assert.equal(render.createStaticGraphRenderer, render.createGraphRenderer);
     assert.equal(typeof render.createStaticGraphRenderer, "function");
-  });
-});
-
-// --- createSafeStorage ---
-
-describe("createSafeStorage", () => {
-  it("gets and sets normally", () => {
-    const store = {};
-    const storage = createSafeStorage({
-      getItem: (k) => store[k],
-      setItem: (k, v) => { store[k] = v; }
-    });
-    storage.set("k", "v");
-    assert.equal(storage.get("k"), "v");
-  });
-
-  it("returns null when get throws", () => {
-    const logs = [];
-    const storage = createSafeStorage({
-      getItem: () => { throw new Error("boom"); },
-      setItem: () => {}
-    }, (...args) => logs.push(args));
-    assert.equal(storage.get("k"), null);
-    assert.equal(logs.length, 1);
-  });
-
-  it("swallows set errors", () => {
-    const logs = [];
-    const storage = createSafeStorage({
-      getItem: () => null,
-      setItem: () => { throw new Error("boom"); }
-    }, (...args) => logs.push(args));
-    storage.set("k", "v");
-    assert.equal(logs.length, 1);
-  });
-
-  it("handles null logger", () => {
-    const storage = createSafeStorage({
-      getItem: () => { throw new Error("boom"); },
-      setItem: () => { throw new Error("boom"); }
-    }, null);
-    assert.equal(storage.get("k"), null);
-    storage.set("k", "v");
-  });
-
-  it("handles null storage", () => {
-    const storage = createSafeStorage(null, null);
-    assert.equal(storage.get("k"), null);
-    storage.set("k", "v");
   });
 });

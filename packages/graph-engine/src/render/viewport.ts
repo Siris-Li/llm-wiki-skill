@@ -1,4 +1,3 @@
-import { clampAtlasViewport } from "../model";
 import {
   GRAPH_WORLD_BOUNDS,
   GRAPH_WORLD_SIZE,
@@ -116,11 +115,11 @@ export function viewportAfterWheelZoom(
   const anchorWorld = screenPointToWorldPoint(point, safe, size, opts.worldBounds);
   const anchorLayer = worldPointToLayerPoint(anchorWorld, size, opts.worldBounds);
 
-  return clampAtlasViewport({
+  return clampRendererViewport({
     x: point.x - nextScale * anchorLayer.x,
     y: point.y - nextScale * anchorLayer.y,
     scale: nextScale
-  }, size, opts) as RendererViewport;
+  }, size, opts);
 }
 
 export function panRendererViewport(
@@ -130,7 +129,7 @@ export function panRendererViewport(
   options: RendererViewportOptions = {}
 ): RendererViewport {
   const safe = normalizeRendererViewport(viewport);
-  return clampAtlasViewport(
+  return clampRendererViewport(
     {
       x: safe.x + finiteNumber(delta.x, 0),
       y: safe.y + finiteNumber(delta.y, 0),
@@ -138,7 +137,7 @@ export function panRendererViewport(
     },
     viewportSize,
     viewportOptions(options)
-  ) as RendererViewport;
+  );
 }
 
 export function fitRendererViewportToPoints(
@@ -163,11 +162,11 @@ export function fitRendererViewportToPoints(
   };
   const centerLayer = worldPointToLayerPoint(center, size, opts.worldBounds);
 
-  return clampAtlasViewport({
+  return clampRendererViewport({
     x: size.width / 2 - scale * centerLayer.x,
     y: size.height / 2 - scale * centerLayer.y,
     scale
-  }, size, opts) as RendererViewport;
+  }, size, opts);
 }
 
 export function centerRendererViewportOnPoint(
@@ -182,11 +181,11 @@ export function centerRendererViewportOnPoint(
   const scale = clamp(safe.scale, opts.minScale, opts.maxScale);
   const layerPoint = worldPointToLayerPoint(point, size, opts.worldBounds);
 
-  return clampAtlasViewport({
+  return clampRendererViewport({
     x: size.width / 2 - scale * layerPoint.x,
     y: size.height / 2 - scale * layerPoint.y,
     scale
-  }, size, opts) as RendererViewport;
+  }, size, opts);
 }
 
 export function viewportAfterResize(
@@ -205,11 +204,11 @@ export function viewportAfterResize(
   const desiredYRatio = clamp(previousScreen.y / previous.height, COMFORTABLE_ANCHOR_MIN_Y, COMFORTABLE_ANCHOR_MAX_Y);
   const nextAnchorLayer = worldPointToLayerPoint(anchorPoint, next, opts.worldBounds);
 
-  return clampAtlasViewport({
+  return clampRendererViewport({
     x: next.width * desiredXRatio - safe.scale * nextAnchorLayer.x,
     y: next.height * desiredYRatio - safe.scale * nextAnchorLayer.y,
     scale: safe.scale
-  }, next, opts) as RendererViewport;
+  }, next, opts);
 }
 
 export function rendererViewportToMinimapRect(
@@ -273,6 +272,50 @@ function viewportCenterPoint(viewport: RendererViewport, size: RendererViewportS
   return {
     x: clamp(center.x, worldBounds.minX, worldBounds.maxX),
     y: clamp(center.y, worldBounds.minY, worldBounds.maxY)
+  };
+}
+
+function clampRendererViewport(
+  viewport: Partial<RendererViewport>,
+  viewportSize: RendererViewportSize,
+  options: Required<RendererViewportOptions>
+): RendererViewport {
+  const size = {
+    width: clamp(finiteNumber(viewportSize.width, GRAPH_WORLD_SIZE.width), 1, 100000),
+    height: clamp(finiteNumber(viewportSize.height, GRAPH_WORLD_SIZE.height), 1, 100000)
+  };
+  const safe = {
+    x: clamp(finiteNumber(viewport.x, 0), -1000000, 1000000),
+    y: clamp(finiteNumber(viewport.y, 0), -1000000, 1000000),
+    scale: clamp(finiteNumber(viewport.scale, 1), 0.62, 3.2)
+  };
+  const minScale = clamp(finiteNumber(options.minScale, 0.62), 0.1, 3.2);
+  const maxScale = clamp(finiteNumber(options.maxScale, 3.2), minScale, 10);
+  const marginX = size.width * 0.38;
+  const marginY = size.height * 0.38;
+  const scale = clamp(safe.scale, minScale, maxScale);
+  const scaledWidth = size.width * scale;
+  const scaledHeight = size.height * scale;
+  let minX = size.width - scaledWidth - marginX;
+  let maxX = marginX;
+  let minY = size.height - scaledHeight - marginY;
+  let maxY = marginY;
+
+  if (scaledWidth <= size.width) {
+    const centerX = (size.width - scaledWidth) / 2;
+    minX = centerX - marginX;
+    maxX = centerX + marginX;
+  }
+  if (scaledHeight <= size.height) {
+    const centerY = (size.height - scaledHeight) / 2;
+    minY = centerY - marginY;
+    maxY = centerY + marginY;
+  }
+
+  return {
+    x: clamp(safe.x, minX, maxX),
+    y: clamp(safe.y, minY, maxY),
+    scale
   };
 }
 

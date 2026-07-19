@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { chromium, type Browser, type BrowserContext, type BrowserServer, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type { GraphReadData } from "@llm-wiki/workbench-contracts";
 
 import {
@@ -62,7 +62,6 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 	const webOrigin = `http://127.0.0.1:${webPort}`;
 	let server: RunningProcess | undefined;
 	let vite: RunningProcess | undefined;
-	let browserServer: BrowserServer | undefined;
 	let browser: Browser | undefined;
 	let context: BrowserContext | undefined;
 	let page: Page | undefined;
@@ -71,10 +70,9 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 	const cleanup = async () => {
 		if (cleanupComplete) return;
 		const errors: unknown[] = [];
-		await closeBrowserResources({ context, browser, browserServer }).catch((error) => errors.push(error));
+		await closeBrowserResources({ context, browser }).catch((error) => errors.push(error));
 		context = undefined;
 		browser = undefined;
-		browserServer = undefined;
 		if (vite) await stopProcess(vite, [0, 143]).catch((error) => errors.push(error));
 		vite = undefined;
 		if (server) await stopProcess(server).catch((error) => errors.push(error));
@@ -132,7 +130,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 			viteNetworkProbe,
 		);
 
-		browserServer = await chromium.launchServer({
+		browser = await chromium.launch({
 			headless: true,
 			env: {
 				HOME: home,
@@ -142,7 +140,6 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 				...platformSandboxEnvironment(home),
 			},
 		});
-		browser = await chromium.connect(browserServer.wsEndpoint());
 		context = await browser.newContext({ acceptDownloads: true, serviceWorkers: "block" });
 		const blockedExternalRequests: string[] = [];
 		await blockExternalBrowserTraffic(context, blockedExternalRequests);
@@ -454,6 +451,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 			await page.getByText("2 节点 · 0 关联", { exact: true }).waitFor();
 			assert.equal(await page.locator(".sidebar-error").count(), 0);
 			await cdp.detach();
+			await assertSharedGraphHostFailures(context, webOrigin);
 
 		// Messages: controlled terminal failures, direct failures, cancellation, disconnect recovery, and normal recovery.
 		await page.getByRole("tab", { name: "对话" }).click();
@@ -576,6 +574,34 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		throw error;
 	}
 });
+
+async function assertSharedGraphHostFailures(context: BrowserContext, webOrigin: string): Promise<void> {
+	for (const failure of [
+		{ mode: "shared-create-failure", message: "共享图谱首次创建失败" },
+		{ mode: "shared-update-failure", message: "共享图谱更新失败" },
+	] as const) {
+		const page = await context.newPage();
+		const pageErrors: Error[] = [];
+		page.on("pageerror", (error) => pageErrors.push(error));
+		try {
+			await page.goto(`${webOrigin}?graphTest=${failure.mode}`, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+			const graphTab = page.getByRole("tab", { name: "图谱" });
+			if (await graphTab.getAttribute("aria-selected") !== "true") await graphTab.click();
+			if (failure.mode === "shared-update-failure") {
+				await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+				await page.locator(".sigma-global-node-hit-target").first().waitFor({ timeout: START_TIMEOUT_MS });
+				await page.getByRole("button", { name: "重构" }).click();
+			}
+			await page.locator("[data-graph-status='error']").waitFor({ timeout: START_TIMEOUT_MS });
+			await page.getByText(failure.message, { exact: false }).waitFor();
+			assert.equal(await page.locator(".graph-host").evaluate((host) => host.childElementCount), 0, `${failure.mode} should clear the stale graph`);
+			assert.equal(await page.locator(".llm-wiki-graph-engine, [data-llm-wiki-graph-root='true']").count(), 0, `${failure.mode} should not leave an engine or fallback route`);
+			assert.equal(pageErrors.length, 0, `${failure.mode} should not leak browser exceptions: ${pageErrors.map(String).join("; ")}`);
+		} finally {
+			await page.close();
+		}
+	}
+}
 
 async function startBackend(home: string, port: number, selectedDirectory: string, networkProbeFile: string) {
 	return startNetworkGuardedProcess(

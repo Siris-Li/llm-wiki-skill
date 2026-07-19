@@ -1,4 +1,4 @@
-import type { RenderableMinimap } from "./model";
+import type { RenderableMinimap } from "./render-policy";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 

@@ -60,4 +60,31 @@ describe("graph architecture layer contract", () => {
     const renderer = GRAPH_ARCHITECTURE_LAYERS.find((layer) => layer.id === "renderer");
     assert.ok(renderer?.mustNotOwn.includes("browser default policy"));
   });
+
+  it("assigns both search contracts and semantic visibility to data without drawing policy", () => {
+    const data = GRAPH_ARCHITECTURE_LAYERS.find((layer) => layer.id === "data");
+
+    assert.ok(data?.owns.includes("regular and Atlas search contracts"));
+    assert.ok(data?.owns.includes("semantic visible node and edge sets"));
+    assert.ok(data?.mustNotOwn.includes("drawing budgets"));
+  });
+
+  it("assigns cross-object render decisions to the shared render policy", () => {
+    const layout = GRAPH_ARCHITECTURE_LAYERS.find((layer) => layer.id === "layout");
+    const renderer = GRAPH_ARCHITECTURE_LAYERS.find((layer) => layer.id === "renderer");
+
+    assert.ok(layout?.owns.includes("community wash and local-map geometry"));
+    assert.ok(renderer?.owns.includes("shared density, display mode, and render budgets"));
+    assert.ok(renderer?.owns.includes("stable cross-object priorities and community hierarchy"));
+    assert.ok(renderer?.owns.includes("final positions, content bounds, and viewport framing"));
+    assert.ok(renderer?.mustNotOwn.includes("graph normalization, layout, or semantic visibility algorithms"));
+  });
+
+  it("keeps renderer adaptation downstream of prepared graph and semantic results", () => {
+    const renderer = GRAPH_ARCHITECTURE_LAYERS.find((layer) => layer.id === "renderer");
+
+    assert.ok(renderer?.owns.includes("combine prepared render snapshots with resolved renderer semantics"));
+    assert.ok(renderer?.entrypoints.includes("src/render/adapter.ts"));
+    assert.ok(renderer?.mustNotOwn.includes("raw node or edge rereading during renderer adaptation"));
+  });
 });

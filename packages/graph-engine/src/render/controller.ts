@@ -8,7 +8,7 @@ import {
   type GraphGestureTargetLike
 } from "./gestures";
 import { classifyGraphKeyboardIntent, isTextEditingElement } from "./keyboard";
-import type { RenderPositionMap } from "./model";
+import type { RenderPositionMap } from "./render-policy";
 import {
   cancelFrozenGraphNodeDrag,
   cancelGraphNodeDrag,
@@ -21,6 +21,7 @@ import { resolveGraphSearchState, resolveNextGraphSearchFocus, resolvePreviousGr
 import { beginGraphNodeDrag, resolveGraphNodeDragTarget } from "./simulation-bridge";
 import type { GraphRuntimeStateSnapshot } from "./state";
 import {
+  graphToolbarStorageForWindow,
   shouldBlankClickCloseToolbar,
   toolbarPanelStateAfterBlankClick,
   writeToolbarPanelState
@@ -44,7 +45,7 @@ export interface GraphController {
   setNodeFixed(id: NodeId, mode: "fix" | "unfix"): boolean;
   handleBlankClick(): void;
   openSearch(): void;
-  applySearchQuery(query: string): void;
+  applySearchQuery(query: string, preparedMatchIds?: NodeId[]): void;
   focusNextSearchResult(): void;
   focusPreviousSearchResult(): void;
   activateSearchResult(): void;
@@ -409,12 +410,16 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     }
   }
 
-  function applySearchQuery(query: string): void {
+  function applySearchQuery(query: string, preparedMatchIds?: NodeId[]): void {
     if (query !== context.searchQuery) context.searchFocusedNodeId = null;
     context.searchQuery = query;
     delegates.setInteractionDegraded(Boolean(query), { restoreDelayMs: 180 });
-    const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex);
-    context.searchIndex = state.searchIndex;
+    const resolvedState = preparedMatchIds
+      ? null
+      : resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex, context.regularSearchByNode);
+    if (resolvedState) context.searchIndex = resolvedState.searchIndex;
+    const state = resolvedState
+      ?? preparedGraphSearchState(context.graph.nodes, context.searchQuery, preparedMatchIds ?? []);
     if (!state.matchIds.includes(context.searchFocusedNodeId || "")) context.searchFocusedNodeId = null;
     context.rendererSurface.setSearchState({
       query: state.query,
@@ -438,6 +443,18 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
     });
   }
 
+  function preparedGraphSearchState(nodes: Array<{ id: NodeId }>, query: string, matchIds: NodeId[]) {
+    const matches = new Set(matchIds);
+    return {
+      query,
+      matchIds,
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        searchState: query ? (matches.has(node.id) ? "match" as const : "faded" as const) : "none" as const
+      }))
+    };
+  }
+
   function focusNextSearchResult(): void {
     focusSearchResult("next");
   }
@@ -447,7 +464,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
   }
 
   function focusSearchResult(direction: "next" | "previous"): void {
-    const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex);
+    const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex, context.regularSearchByNode);
     context.searchIndex = state.searchIndex;
     const next = direction === "next"
       ? resolveNextGraphSearchFocus(state.matchIds, context.searchFocusedNodeId)
@@ -471,7 +488,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
   }
 
   function activateSearchResult(): void {
-    const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex);
+    const state = resolveGraphSearchState(context.data.nodes, context.searchQuery, context.searchIndex, context.regularSearchByNode);
     context.searchIndex = state.searchIndex;
     const current = context.searchFocusedNodeId && state.matchIds.includes(context.searchFocusedNodeId)
       ? context.searchFocusedNodeId
@@ -496,7 +513,7 @@ export function createGraphController(context: GraphRenderContext, delegates: Gr
 
   function closeToolbarPanel(): void {
     context.toolbarPanelState = toolbarPanelStateAfterBlankClick(context.toolbarPanelState);
-    writeToolbarPanelState(context.ownerDocument.defaultView?.localStorage, context.toolbarPanelState);
+    writeToolbarPanelState(graphToolbarStorageForWindow(context.ownerDocument.defaultView), context.toolbarPanelState);
     if (context.dom.toolbarPanelElement) context.dom.toolbarPanelElement.dataset.state = context.toolbarPanelState;
     if (context.dom.toolbarElement) context.dom.toolbarElement.dataset.panel = context.toolbarPanelState;
     context.root.dataset.toolbarPanel = context.toolbarPanelState;

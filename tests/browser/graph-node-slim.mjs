@@ -17,6 +17,54 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   await page.goto(pathToFileURL(html).href);
   await page.waitForSelector("[data-llm-wiki-graph-root='true']");
+  await page.waitForFunction(() => document.querySelector("[data-llm-wiki-graph-route]")?.dataset.llmWikiGraphRoute === "dom-svg-small-fallback");
+
+  const graphRoot = page.locator("[data-llm-wiki-graph-root='true']");
+  const contentLayer = page.locator("[data-viewport-layer='true']");
+  const minimapViewport = page.locator("[data-mini-map-viewport='true']");
+  await minimapViewport.waitFor();
+  const initialTransform = await contentLayer.evaluate((element) => element.style.transform);
+  const initialMinimapRect = await minimapViewport.evaluate((element) => ({
+    x: element.getAttribute("x"),
+    y: element.getAttribute("y"),
+    width: element.getAttribute("width"),
+    height: element.getAttribute("height")
+  }));
+  await page.mouse.move(64, 120);
+  await page.mouse.wheel(0, -500);
+  await page.waitForFunction((previous) => document.querySelector("[data-viewport-layer='true']")?.style.transform !== previous, initialTransform);
+  const zoomedTransform = await contentLayer.evaluate((element) => element.style.transform);
+  await page.mouse.move(72, 132);
+  await page.mouse.down();
+  await page.mouse.move(190, 182, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(100);
+  const pannedTransform = await contentLayer.evaluate((element) => element.style.transform);
+  const navigatedMinimapRect = await minimapViewport.evaluate((element) => ({
+    x: element.getAttribute("x"),
+    y: element.getAttribute("y"),
+    width: element.getAttribute("width"),
+    height: element.getAttribute("height")
+  }));
+  assert.notDeepEqual(navigatedMinimapRect, initialMinimapRect, "DOM/SVG minimap should follow viewport navigation");
+  await graphRoot.dblclick({ position: { x: 48, y: 132 } });
+  await page.waitForTimeout(250);
+  const resetTransform = await contentLayer.evaluate((element) => element.style.transform);
+  const resetMinimapRect = await minimapViewport.evaluate((element) => ({
+    x: element.getAttribute("x"),
+    y: element.getAttribute("y"),
+    width: element.getAttribute("width"),
+    height: element.getAttribute("height")
+  }));
+  assert.equal(typeof resetTransform, "string", "DOM/SVG reset should keep a valid viewport transform");
+  assert.equal(typeof resetMinimapRect.x, "string", "DOM/SVG reset should keep a valid minimap viewport");
+
+  await page.keyboard.press("/");
+  const searchInput = page.locator(".graph-search-input");
+  await searchInput.waitFor();
+  await searchInput.fill("节点A");
+  await page.waitForFunction(() => document.querySelector(".node[data-id='A']")?.dataset.searchState === "match");
+  await page.keyboard.press("Escape");
 
   const node = page.locator(".node[data-id='A']");
   await node.waitFor();
@@ -38,7 +86,36 @@ try {
 
   await node.click();
   await page.waitForSelector(".graph-reader[data-state='open']");
+  assert.equal(await node.getAttribute("aria-pressed"), "true", "DOM/SVG node selection should remain visible");
   await assertNodeDetailDisplay(node, "block", "flex", "selected card node should expose type and weight details");
+
+  const fixed = await page.evaluate(() => window.__LLM_WIKI_GRAPH_ENGINE__.setNodeFixed("A", "fix"));
+  assert.equal(fixed, true, "DOM/SVG should fix a prepared node");
+  await page.waitForFunction(() => document.querySelector(".node[data-id='A']")?.dataset.pinned === "true");
+  const unfixed = await page.evaluate(() => window.__LLM_WIKI_GRAPH_ENGINE__.setNodeFixed("A", "unfix"));
+  assert.equal(unfixed, true, "DOM/SVG should unfix a prepared node");
+  await page.waitForFunction(() => document.querySelector(".node[data-id='A']")?.dataset.pinned === "false");
+
+  await page.evaluate(() => window.__LLM_WIKI_GRAPH_ENGINE__.focusCommunity("t1"));
+  await page.waitForFunction(() => document.querySelector("[data-llm-wiki-graph-route]")?.dataset.llmWikiGraphRoute === "dom-svg-community");
+  await page.getByRole("button", { name: "回全图" }).click();
+  await page.waitForFunction(() => document.querySelector("[data-llm-wiki-graph-route]")?.dataset.llmWikiGraphRoute === "dom-svg-small-fallback");
+
+  await page.evaluate(() => {
+    const source = document.querySelector("#graph-data")?.textContent || "{}";
+    const data = JSON.parse(source);
+    data.nodes.push({
+      id: "prepared-update",
+      label: "准备结果更新节点",
+      type: "topic",
+      community: "t1",
+      content: "更新后的 DOM/SVG 节点",
+      source_path: "/fake/wiki/topics/prepared-update.md"
+    });
+    data.meta.total_nodes = data.nodes.length;
+    window.__LLM_WIKI_GRAPH_ENGINE__.setData(data);
+  });
+  await page.waitForSelector(".node[data-id='prepared-update']");
 
   const emptyNode = page.locator(".node[data-id='empty-preview']");
   if (await emptyNode.count()) {

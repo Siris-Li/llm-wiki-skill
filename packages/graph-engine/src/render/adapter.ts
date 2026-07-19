@@ -1,49 +1,29 @@
-import { wikiPathForGraphNode } from "../graph-node";
-import { resolveSelectionForCapabilities } from "../select";
 import { UNGROUPED_COMMUNITY_ID } from "../types";
 import type {
   CommunityId,
   Confidence,
   EdgeId,
-  GraphAggregationMarker,
-  GraphData,
-  GraphEdge,
-  GraphNode,
   GraphNodeType,
   GraphPinHint,
   GraphRelationType,
+  GraphResolvedAggregation,
+  GraphRendererSemantics,
   GraphSummaryCommand,
   GraphSummaryObjectRef,
   GraphSummarySelectionState,
-  GraphTypeFilters,
-  GraphFocusInput,
   NodeId,
-  PinMap,
-  SelectionInput,
-  ThemeId,
   WikiPath
 } from "../types";
-import { buildRenderableGraph, type CommunityMapEdgeLayer, type CommunityMapLabelSide, type CommunityMapNodeTier, type RenderPosition, type RenderPositionMap, type RenderableGraph } from "./model";
-import type { RendererViewportSize } from "./viewport";
+import type { CommunityMapEdgeLayer, CommunityMapLabelSide, CommunityMapNodeTier, RenderPosition, RenderableGraph } from "./render-policy";
 import type { GraphRelationFocusDepth } from "./relation-focus";
 
 export const GRAPH_RENDERER_ADAPTER_ROUTES = ["dom-svg", "candidate-global", "aggregation-fallback"] as const;
 
 export type GraphRendererAdapterRoute = typeof GRAPH_RENDERER_ADAPTER_ROUTES[number];
 
-export interface GraphRendererAdapterOptions {
-  theme?: ThemeId;
-  pins?: PinMap;
-  selection?: SelectionInput | null;
-  searchResultIds?: NodeId[];
-  aggregationMarkers?: GraphAggregationMarker[];
-  focus?: GraphFocusInput;
-  typeFilters?: GraphTypeFilters;
-  positions?: RenderPositionMap;
-  viewportSize?: RendererViewportSize;
-  sourceCommunityId?: string | null;
-  relationFocusNodeId?: NodeId | null;
-  temporaryObject?: GraphSummaryObjectRef | null;
+export interface GraphRendererAdapterInput extends GraphRendererSemantics {
+  renderable: RenderableGraph;
+  sourceCommunityId: string | null;
 }
 
 export interface GraphRendererAdapterData {
@@ -197,35 +177,23 @@ export interface GraphRendererEnterCommunityBehavior {
 }
 
 export function buildGraphRendererAdapterData(
-  data: GraphData,
-  options: GraphRendererAdapterOptions = {}
+  input: GraphRendererAdapterInput
 ): GraphRendererAdapterData {
-  const renderable = buildRenderableGraph(data, {
-    theme: options.theme,
-    pins: options.pins,
-    selection: options.selection,
-    focus: options.focus,
-    typeFilters: options.typeFilters,
-    positions: options.positions,
-    viewportSize: options.viewportSize,
-    searchResultIds: options.searchResultIds,
-    sourceCommunityId: options.sourceCommunityId,
-    relationFocusNodeId: options.relationFocusNodeId,
-    temporaryObject: options.temporaryObject
-  });
-  const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
+  const { renderable } = input;
   const renderNodeById = new Map(renderable.nodes.map((node) => [node.id, node]));
-  const searchResultIds = options.searchResultIds ?? [];
+  const nodeSemanticsById = new Map(input.nodes.map((node) => [node.id, node]));
+  const edgeSemanticsByObject = new Map(input.edges.map((edge) => [edgeSemanticKey(edge.id, edge.sourceNodeId, edge.targetNodeId), edge]));
+  const pinHintByNodeId = new Map(input.pinHints.map((hint) => [hint.nodeId, hint]));
+  const searchResultIds = input.searchResultIds;
   const searchSet = new Set(searchResultIds);
-  const selection = adapterSelectionState(data, options.selection);
+  const selection = input.selection;
   const selectedNodeSet = new Set(selection.selectedNodeIds);
   const selectedCommunitySet = new Set(selection.selectedCommunityIds);
-  const markers = options.aggregationMarkers ?? [];
+  const aggregations = input.aggregations;
 
   const nodes = renderable.nodes.map((renderNode): GraphRendererAdapterNode => {
-    const rawNode = nodeById.get(renderNode.id);
-    const communityId = rawNode?.community ?? renderNode.community ?? null;
-    const pinHint = pinHintForNode(rawNode, renderNode.id, renderNode.sourcePath, options.pins);
+    const communityId = nodeSemanticsById.get(renderNode.id)?.communityId ?? renderNode.community ?? null;
+    const pinHint = pinHintByNodeId.get(renderNode.id) ?? unpinnedHint(renderNode.id, renderNode.sourcePath);
     return {
       id: renderNode.id,
       object: { kind: "node", nodeId: renderNode.id },
@@ -238,7 +206,7 @@ export function buildGraphRendererAdapterData(
       searchHit: searchSet.has(renderNode.id),
       relationFocusDepth: renderNode.relationFocusDepth,
       pinHint,
-      aggregationIds: markersContainingNode(markers, renderNode.id).map((marker) => marker.id),
+      aggregationIds: aggregationsContainingNode(aggregations, renderNode.id).map((aggregation) => aggregation.id),
       drawerTarget: {
         summaryKind: "node-summary",
         object: { kind: "node", nodeId: renderNode.id }
@@ -259,8 +227,8 @@ export function buildGraphRendererAdapterData(
 
   const communities = renderable.communities.map((community): GraphRendererAdapterCommunity => {
     const nodeIds = renderable.nodes.filter((node) => node.community === community.id).map((node) => node.id);
-    const communityMarkers = markersContainingCommunity(markers, community.id);
-    const pinHints = nodeIds.map((id) => pinHintForNode(nodeById.get(id), id, null, options.pins)).filter((hint) => hint.pinned);
+    const communityAggregations = aggregationsContainingCommunity(aggregations, community.id);
+    const pinHints = nodeIds.map((id) => pinHintByNodeId.get(id)).filter((hint): hint is GraphPinHint => Boolean(hint?.pinned));
     return {
       id: community.id,
       object: { kind: "community", communityId: community.id },
@@ -270,7 +238,7 @@ export function buildGraphRendererAdapterData(
       selected: selectedCommunitySet.has(community.id),
       searchResultIds: stableIntersection(nodeIds, searchResultIds),
       pinHints,
-      aggregationIds: communityMarkers.map((marker) => marker.id),
+      aggregationIds: communityAggregations.map((aggregation) => aggregation.id),
       drawerTarget: {
         summaryKind: "community-summary",
         object: { kind: "community", communityId: community.id }
@@ -280,18 +248,16 @@ export function buildGraphRendererAdapterData(
   });
 
   const edges = renderable.edges.map((edge): GraphRendererAdapterEdge => {
-    const source = nodeById.get(edge.source);
-    const target = nodeById.get(edge.target);
-    const rawEdge = data.edges.find((item) => item.id === edge.id);
+    const semantics = edgeSemanticsByObject.get(edgeSemanticKey(edge.id, edge.source, edge.target));
     return {
       id: edge.id,
       sourceNodeId: edge.source,
       targetNodeId: edge.target,
-      sourceCommunityId: source?.community ?? null,
-      targetCommunityId: target?.community ?? null,
-      relationType: rawEdge?.relation_type ?? edge.relationType ?? null,
-      confidence: rawEdge?.confidence ?? rawEdge?.type ?? edge.confidence ?? null,
-      weight: numericWeight(rawEdge?.weight),
+      sourceCommunityId: semantics?.sourceCommunityId ?? null,
+      targetCommunityId: semantics?.targetCommunityId ?? null,
+      relationType: semantics?.relationType ?? edge.relationType ?? null,
+      confidence: semantics?.confidence ?? edge.confidence ?? null,
+      weight: semantics?.weight ?? 0,
       render: {
         strokeWidth: edge.strokeWidth,
         opacity: edge.opacity,
@@ -304,33 +270,30 @@ export function buildGraphRendererAdapterData(
     };
   });
 
-  const aggregations = markers.map((marker): GraphRendererAdapterAggregation => {
-    const object = { kind: "aggregation" as const, aggregationId: marker.id, nodeIds: [...marker.nodeIds], communityId: marker.communityId ?? null };
-    const drawerTarget: GraphRendererDrawerTarget = marker.communityId
+  const adaptedAggregations = aggregations.map((aggregation): GraphRendererAdapterAggregation => {
+    const object = { kind: "aggregation" as const, aggregationId: aggregation.id, nodeIds: [...aggregation.nodeIds], communityId: aggregation.communityId };
+    const drawerTarget: GraphRendererDrawerTarget = aggregation.communityId
       ? {
           summaryKind: "community-summary",
-          object: { kind: "community", communityId: marker.communityId }
+          object: { kind: "community", communityId: aggregation.communityId }
         }
       : {
           summaryKind: "excluded-object",
           object,
           reason: "aggregation"
         };
-    const selectedNodeIds = stableIntersection(marker.nodeIds, marker.selectedNodeIds ?? selection.selectedNodeIds);
-    const pinnedNodeIds = stableIntersection(marker.nodeIds, marker.pinnedNodeIds ?? pinnedNodeIdsForMarker(marker, nodeById, options.pins));
-    const pinHints = pinnedNodeIds.map((id) => pinHintForNode(nodeById.get(id), id, null, options.pins)).filter((hint) => hint.pinned);
     return {
-      id: marker.id,
+      id: aggregation.id,
       object,
-      label: marker.label ?? marker.id,
-      communityId: marker.communityId ?? null,
-      nodeIds: [...marker.nodeIds],
-      selectedNodeIds,
-      searchResultIds: stableIntersection(marker.nodeIds, marker.searchResultIds ?? searchResultIds),
-      pinnedNodeIds,
-      totalCount: marker.totalCount ?? marker.nodeIds.length,
-      selected: selectedNodeIds.length > 0 || Boolean(marker.communityId && selectedCommunitySet.has(marker.communityId)),
-      pinHints,
+      label: aggregation.label,
+      communityId: aggregation.communityId,
+      nodeIds: [...aggregation.nodeIds],
+      selectedNodeIds: [...aggregation.selectedNodeIds],
+      searchResultIds: [...aggregation.searchResultIds],
+      pinnedNodeIds: [...aggregation.pinnedNodeIds],
+      totalCount: aggregation.totalCount,
+      selected: aggregation.selectedNodeIds.length > 0 || Boolean(aggregation.communityId && selectedCommunitySet.has(aggregation.communityId)),
+      pinHints: [...aggregation.pinHints],
       drawerTarget,
       commands: [
         { kind: "show-this-object", object, label: "显示这个对象" },
@@ -343,11 +306,11 @@ export function buildGraphRendererAdapterData(
     renderable,
     counts: renderable.counts,
     selection,
-    sourceCommunityId: options.sourceCommunityId ?? null,
+    sourceCommunityId: input.sourceCommunityId,
     nodes,
     edges: edges.filter((edge) => renderNodeById.has(edge.sourceNodeId) && renderNodeById.has(edge.targetNodeId)),
     communities,
-    aggregations
+    aggregations: adaptedAggregations
   };
 }
 
@@ -418,52 +381,25 @@ export function buildGraphRendererBehaviorContract(
   };
 }
 
-function adapterSelectionState(data: GraphData, input?: SelectionInput | null): GraphSummarySelectionState {
-  if (!input) {
-    return {
-      input: null,
-      selectionId: null,
-      selectedNodeIds: [],
-      selectedCommunityIds: [],
-      containsCurrentObject: false
-    };
-  }
-  const selection = resolveSelectionForCapabilities(data, input, { canAsk: false });
-  return {
-    input,
-    selectionId: selection.id,
-    selectedNodeIds: selection.nodeIds,
-    selectedCommunityIds: selection.communityIds,
-    containsCurrentObject: selection.nodeIds.length > 0 || selection.communityIds.length > 0
-  };
-}
-
-function pinHintForNode(node: GraphNode | undefined, nodeId: NodeId, sourcePath: WikiPath | null, pins?: PinMap): GraphPinHint {
-  const wikiPath = node ? wikiPathForGraphNode(node) : sourcePath ?? nodeId;
-  const position = pins?.[wikiPath] ?? null;
+function unpinnedHint(nodeId: NodeId, sourcePath: WikiPath): GraphPinHint {
   return {
     nodeId,
-    wikiPath,
-    pinned: Boolean(position),
-    position
+    wikiPath: sourcePath,
+    pinned: false,
+    position: null
   };
 }
 
-function pinnedNodeIdsForMarker(marker: GraphAggregationMarker, nodeById: Map<NodeId, GraphNode>, pins?: PinMap): NodeId[] {
-  if (!pins) return [];
-  return marker.nodeIds.filter((id) => {
-    const node = nodeById.get(id);
-    if (!node) return false;
-    return Boolean(pins[wikiPathForGraphNode(node)]);
-  });
+function aggregationsContainingNode(aggregations: GraphResolvedAggregation[], nodeId: NodeId): GraphResolvedAggregation[] {
+  return aggregations.filter((aggregation) => aggregation.nodeIds.includes(nodeId));
 }
 
-function markersContainingNode(markers: GraphAggregationMarker[], nodeId: NodeId): GraphAggregationMarker[] {
-  return markers.filter((marker) => marker.nodeIds.includes(nodeId));
+function aggregationsContainingCommunity(aggregations: GraphResolvedAggregation[], communityId: CommunityId): GraphResolvedAggregation[] {
+  return aggregations.filter((aggregation) => aggregation.communityId === communityId);
 }
 
-function markersContainingCommunity(markers: GraphAggregationMarker[], communityId: CommunityId): GraphAggregationMarker[] {
-  return markers.filter((marker) => marker.communityId === communityId);
+function edgeSemanticKey(id: EdgeId, sourceNodeId: NodeId, targetNodeId: NodeId): string {
+  return `${id}\u0000${sourceNodeId}\u0000${targetNodeId}`;
 }
 
 function stableIntersection(sourceIds: NodeId[], candidateIds: NodeId[]): NodeId[] {
@@ -473,8 +409,4 @@ function stableIntersection(sourceIds: NodeId[], candidateIds: NodeId[]): NodeId
 
 function enterCommunityCommand(communityId: CommunityId): Extract<GraphSummaryCommand, { kind: "enter-community" }> {
   return { kind: "enter-community", communityId, label: "进入社区" };
-}
-
-function numericWeight(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }

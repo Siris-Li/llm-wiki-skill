@@ -19,15 +19,21 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
   {
     id: "data",
     name: "GraphData",
-    owns: ["graph schema", "node and edge facts", "selection data inputs"],
+    owns: [
+      "graph schema",
+      "node and edge facts",
+      "selection data inputs",
+      "regular and Atlas search contracts",
+      "semantic visible node and edge sets"
+    ],
     entrypoints: ["src/types.ts", "src/model/", "src/graph-node.ts", "src/select/"],
-    mustNotOwn: ["DOM", "screen projection", "host callbacks", "pointer or wheel events"]
+    mustNotOwn: ["DOM", "screen projection", "host callbacks", "pointer or wheel events", "drawing budgets"]
   },
   {
     id: "layout",
     name: "GraphLayout",
-    owns: ["world positions", "layout bounds", "community wash geometry", "spatial hit testing"],
-    entrypoints: ["src/layout/", "src/render/model.ts", "src/render/community-wash.ts", "src/sim/"],
+    owns: ["immutable initial world positions", "layout bounds", "community wash and local-map geometry", "spatial hit testing"],
+    entrypoints: ["src/layout/initial-layout.ts", "src/layout/spatial-index.ts", "src/render/community-wash.ts", "src/sim/"],
     mustNotOwn: ["host callbacks", "browser default policy", "screen projection"]
   },
   {
@@ -47,8 +53,19 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
   {
     id: "renderer",
     name: "GraphRenderer",
-    owns: ["DOM/SVG drawing", "node, edge, wash, toolbar, overlay, reader painting", "render-only CSS state"],
+    owns: [
+      "final positions, content bounds, and viewport framing",
+      "shared density, display mode, and render budgets",
+      "stable cross-object priorities and community hierarchy",
+      "combine prepared render snapshots with resolved renderer semantics",
+      "DOM/SVG drawing",
+      "node, edge, wash, toolbar, overlay, reader painting",
+      "render-only CSS state"
+    ],
     entrypoints: [
+      "src/render/render-policy.ts",
+      "src/render/model.ts",
+      "src/render/adapter.ts",
       "src/render/graph-renderer-root.ts",
       "src/render/render-pipeline.ts",
       "src/render/overlays-presenter.ts",
@@ -60,7 +77,13 @@ export const GRAPH_ARCHITECTURE_LAYERS = [
       "src/render/hover-card.ts",
       "src/render/offline-reader.ts"
     ],
-    mustNotOwn: ["host callbacks", "selection semantics", "browser default policy"]
+    mustNotOwn: [
+      "host callbacks",
+      "selection semantics",
+      "browser default policy",
+      "raw node or edge rereading during renderer adaptation",
+      "graph normalization, layout, or semantic visibility algorithms"
+    ]
   },
   {
     id: "gestures",

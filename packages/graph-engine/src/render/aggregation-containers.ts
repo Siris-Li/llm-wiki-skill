@@ -1,4 +1,4 @@
-import type { RenderableAggregationContainer } from "./model";
+import type { RenderableAggregationContainer } from "./render-policy";
 
 export interface GraphAggregationContainerElementHandlers {
   onAggregationContainerClick: (container: RenderableAggregationContainer) => void;

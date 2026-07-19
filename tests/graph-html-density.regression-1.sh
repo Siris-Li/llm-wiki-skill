@@ -74,27 +74,6 @@ fs.writeFileSync(output, JSON.stringify(graph, null, 2));
 NODE
 }
 
-test_graph_engine_exports_density_rules() {
-    local tmp_dir html
-    tmp_dir="$(mktemp -d)"
-
-    build_graph_html_fixture "$tmp_dir"
-    html="$tmp_dir/wiki/knowledge-graph.html"
-
-    assert_file_contains "$html" "e.getAtlasDensityMode="
-    assert_file_contains "$html" "screenEffectiveDensityMode"
-    assert_file_contains "$html" "nodeDisplayModeForDensity"
-    assert_file_contains "$html" "e.resolveAtlasVisibleSnapshot="
-    assert_file_contains "$html" "e.edgeStrokeWidth="
-    assert_file_contains "$html" "e.cardDims="
-    assert_file_contains "$html" ".node.is-overview"
-    assert_file_contains "$html" ".node[data-visual-role=\"map-pin\"]"
-    assert_file_contains "$html" "dataset.densityMode"
-    assert_file_contains "$html" "dataset.effectiveDensity"
-
-    rm -rf "$tmp_dir"
-}
-
 test_graph_html_builds_large_density_fixture_as_single_file() {
     local tmp_dir output_dir html
     tmp_dir="$(mktemp -d)"
@@ -147,9 +126,7 @@ import path from "node:path";
 const repoRoot = process.argv[2];
 const engine = await import(pathToFileURL(path.join(repoRoot, "packages/graph-engine/dist/engine.esm.js")).href);
 const {
-  buildAtlasModel,
-  deriveAtlasLayout,
-  resolveAtlasVisibleSnapshot,
+  buildRenderableGraph,
   nodeDisplayModeForDensity,
   screenEffectiveDensityMode
 } = engine;
@@ -179,30 +156,25 @@ function makeGraph(count, edgeCount) {
 }
 
 function snapshotFor(count, edgeCount, selectedNodeId) {
-  const model = buildAtlasModel(makeGraph(count, edgeCount));
-  const layout = deriveAtlasLayout(model);
-  return resolveAtlasVisibleSnapshot(model, layout, {
-    activeCommunityId: "all",
-    focusMode: "all",
-    query: "",
-    selectedNodeId,
-    filters: { EXTRACTED: true, INFERRED: true, AMBIGUOUS: true, UNVERIFIED: true }
+  return buildRenderableGraph(makeGraph(count, edgeCount), {
+    focus: { kind: "global" },
+    selectedNodeId
   });
 }
 
 const pointSnapshot = snapshotFor(201, 900, "node-200");
 assert.equal(pointSnapshot.densityMode, "point-plus-focus");
-assert.ok(Object.keys(pointSnapshot.labelNodeIds).length <= 61);
-assert.ok(pointSnapshot.labelNodeIds["node-200"]);
-assert.ok(pointSnapshot.importantNodeIds["node-0"]);
-assert.ok(pointSnapshot.edges.length <= 800);
+assert.ok(pointSnapshot.nodes.filter((node) => node.labelVisible).length <= 61);
+assert.ok(pointSnapshot.nodes.find((node) => node.id === "node-200")?.labelVisible);
+assert.ok(pointSnapshot.nodes.find((node) => node.id === "node-0")?.startNode);
+assert.ok(pointSnapshot.budget.usage.maxVisibleEdges <= pointSnapshot.budget.limits.maxVisibleEdges);
 
 const overviewSnapshot = snapshotFor(501, 1500, "node-500");
 assert.equal(overviewSnapshot.densityMode, "overview");
-assert.ok(Object.keys(overviewSnapshot.labelNodeIds).length <= 41);
-assert.ok(overviewSnapshot.labelNodeIds["node-500"]);
-assert.ok(overviewSnapshot.importantNodeIds["node-0"]);
-assert.ok(overviewSnapshot.edges.length <= 1000);
+assert.ok(overviewSnapshot.nodes.filter((node) => node.labelVisible).length <= 41);
+assert.ok(overviewSnapshot.nodes.find((node) => node.id === "node-500")?.labelVisible);
+assert.ok(overviewSnapshot.nodes.find((node) => node.id === "node-0")?.startNode);
+assert.ok(overviewSnapshot.budget.usage.maxVisibleEdges <= overviewSnapshot.budget.limits.maxVisibleEdges);
 
 assert.equal(screenEffectiveDensityMode(120, 1), "compact-card");
 assert.equal(screenEffectiveDensityMode(120, 2), "card");
@@ -217,7 +189,6 @@ NODE
 main() {
     npm run build -w @llm-wiki/graph-engine > /dev/null 2>&1 \
         || fail "graph-engine build should succeed before density regression"
-    test_graph_engine_exports_density_rules
     test_graph_html_builds_large_density_fixture_as_single_file
     test_graph_html_density_preview_for_compact_and_point_nodes
     test_graph_density_thresholds_and_budgets

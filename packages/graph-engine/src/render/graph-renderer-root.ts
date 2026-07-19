@@ -14,10 +14,16 @@ import type {
 } from "../types";
 import { PinState } from "../sim";
 import {
-  buildRenderableGraph,
-  createRenderPathCache,
-  type RenderableGraph
-} from "./model";
+  type RenderableGraph,
+  type RenderPolicyOptions
+} from "./render-policy";
+import { createRenderPathCache } from "../layout/edge-geometry";
+import { buildRenderableGraph } from "./model";
+import {
+  buildGraphRendererAdapterData,
+  type GraphRendererAdapterData
+} from "./adapter";
+import { resolveGraphRendererSemantics } from "../summary";
 import {
   DEFAULT_RENDERER_VIEWPORT,
   createViewportFrameCommitter
@@ -28,7 +34,7 @@ import { createGraphHitTargetResolver } from "./hit-testing";
 import {
   GraphGestureStateMachine
 } from "./gestures";
-import { readToolbarPanelState } from "./toolbar";
+import { graphToolbarStorageForWindow, readToolbarPanelState } from "./toolbar";
 import type { GraphRenderContext, GraphRendererCallbacks } from "./render-context";
 import { createGraphController, type GraphController } from "./controller";
 import {
@@ -41,6 +47,8 @@ import {
 } from "./render-pipeline";
 import { createGraphOverlaysPresenter, type GraphOverlaysPresenter } from "./overlays-presenter";
 import { createDomSvgRendererSurface } from "./renderer-surface";
+import type { GraphInputProjection, RegularSearchNodeProjection } from "../model/atlas";
+import { buildSearchIndex } from "../model/visibility";
 
 // 聚焦单个社区时，子集包围盒常很小；用默认 4× fit 会把少量节点放大成糊屏巨卡。
 // 聚焦 fit 限制到适度放大，让节点保持可读、社区居中留白（镜头推进而非贴脸）。
@@ -49,6 +57,9 @@ const FOCUS_FIT_MAX_SCALE = 1.5;
 
 export interface GraphRendererOptions {
   data: GraphData;
+  preparedAdapterData?: GraphRendererAdapterData;
+  prepareAdapterData?: GraphRendererAdapterDataPreparation;
+  regularSearchByNode?: RegularSearchNodeProjection[];
   pins?: PinMap;
   theme: ThemeId;
   onNodeOpen?: (nodeId: NodeId) => void;
@@ -68,6 +79,11 @@ export interface GraphRendererOptions {
   sourceCommunityId?: string | null;
 }
 
+export type GraphRendererAdapterDataPreparation = (
+  data: GraphData,
+  options: RenderPolicyOptions
+) => GraphRendererAdapterData;
+
 type RenderNextOptions = Partial<GraphRendererOptions> & {
   selectedNodeId?: string | null;
   selection?: SelectionInput | null;
@@ -79,7 +95,12 @@ export interface GraphRenderer {
   render(next?: RenderNextOptions): void;
   applyDiff(diff: GraphDiff, options?: { reducedMotion?: boolean; durationMs?: number }): Promise<void>;
   isDragging(): boolean;
-  setData(data: GraphData, pins?: PinMap): void;
+  setData(
+    data: GraphData,
+    pins?: PinMap,
+    regularSearchByNode?: RegularSearchNodeProjection[],
+    preparedAdapterData?: GraphRendererAdapterData
+  ): void;
   setAggregationMarkers(markers: GraphAggregationMarker[]): void;
   setTheme(theme: ThemeId): void;
   setPins(pins: PinMap): void;
@@ -100,8 +121,16 @@ export interface GraphRenderer {
 }
 
 export function createGraphRenderer(container: HTMLElement, options: GraphRendererOptions): GraphRenderer {
-  const initialPins = options.pins || {};
-  const initialFocus = options.focus || null;
+  const initialProjection = rendererGraphInput(options.data, options.regularSearchByNode);
+  const initialPins = options.preparedAdapterData
+    ? pinsFromPreparedAdapterData(options.preparedAdapterData)
+    : options.pins || {};
+  const initialFocus = options.preparedAdapterData
+    ? options.preparedAdapterData.renderable.focus
+    : options.focus || null;
+  const initialSourceCommunityId = options.preparedAdapterData
+    ? options.preparedAdapterData.sourceCommunityId
+    : options.sourceCommunityId ?? null;
   const pathCache = createRenderPathCache();
   const root = createGraphRootElement(container);
   const toolbarContainer = options.toolbarContainer || root;
@@ -111,7 +140,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
   let controller: GraphController;
   let pipeline: GraphRenderPipeline;
   let presenter: GraphOverlaysPresenter;
-  const initialGraph = buildRenderableGraph(options.data, {
+  const initialRendererViewportSize = initialViewportSize(root);
+  const initialRenderOptions: RenderPolicyOptions = {
     pins: initialPins,
     theme: options.theme,
     selectedNodeId: null,
@@ -120,14 +150,19 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     typeFilters: {},
     pathCache,
     aggregationMarkers: options.aggregationMarkers,
-    sourceCommunityId: options.sourceCommunityId ?? null
-  });
+    viewportSize: initialRendererViewportSize,
+    sourceCommunityId: initialSourceCommunityId
+  };
+  const prepareAdapterData = options.prepareAdapterData ?? prepareGraphRendererAdapterData;
+  const initialAdapterData = options.preparedAdapterData
+    ?? prepareAdapterData(initialProjection.data, initialRenderOptions);
+  const initialGraph = initialAdapterData.renderable;
   const runtimeState = createGraphRuntimeState({
     viewport: DEFAULT_RENDERER_VIEWPORT,
     positions: positionsFromRenderableGraph(initialGraph),
     pins: initialPins,
-    selection: null,
-    selectionSurface: null,
+    selection: initialAdapterData.selection.input,
+    selectionSurface: initialAdapterData.selection.input ? "selection-panel" : null,
     focus: initialFocus
   });
   const hitTargetResolver = createGraphHitTargetResolver({
@@ -136,7 +171,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     viewportSize: () => pipeline.viewportSize()
   });
   context = {
-    data: options.data,
+    data: initialProjection.data,
+    regularSearchByNode: initialProjection.regularSearchByNode,
     theme: options.theme,
     destroyed: false,
     simulation: null,
@@ -162,7 +198,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     hasExternalToolbarContainer,
     ownerDocument,
     legendCollapsed: readLegendCollapsed(ownerDocument),
-    toolbarPanelState: readToolbarPanelState(ownerDocument.defaultView?.localStorage),
+    toolbarPanelState: readToolbarPanelState(graphToolbarStorageForWindow(ownerDocument.defaultView)),
     viewportCommitter: createViewportFrameCommitter((next, commitOptions) => {
       pipeline.commitViewport(next, commitOptions);
     }, root.ownerDocument.defaultView || undefined),
@@ -172,9 +208,11 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     interactionDegradationTimer: null,
     relationFocusClearTimer: null,
     lastEffectiveDensityMode: null,
-    lastViewportSize: initialViewportSize(root),
+    lastViewportSize: initialRendererViewportSize,
     resizeObserver: null,
     graph: initialGraph,
+    adapterData: initialAdapterData,
+    prepareAdapterData,
     runtimeState,
     hitTargetResolver,
     pinState: new PinState(initialGraph, runtimeState.snapshot().pins),
@@ -189,7 +227,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
       onDragActiveChange: options.onDragActiveChange,
       onVisibilityStateChange: options.onVisibilityStateChange
     },
-    sourceCommunityId: options.sourceCommunityId ?? null
+    sourceCommunityId: initialSourceCommunityId
   };
   presenter = createGraphOverlaysPresenter(context, {
     viewportSize: () => pipeline.viewportSize(),
@@ -219,7 +257,7 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
         controller.resetViewState();
       },
       openSearch: () => controller.openSearch(),
-      applySearchQuery: (query) => controller.applySearchQuery(query),
+      applySearchQuery: (query, preparedMatchIds) => controller.applySearchQuery(query, preparedMatchIds),
       focusNextSearchResult: () => controller.focusNextSearchResult(),
       focusPreviousSearchResult: () => controller.focusPreviousSearchResult(),
       activateSearchResult: () => controller.activateSearchResult(),
@@ -275,11 +313,30 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     delete context.root.dataset.diffNewCommunities;
     delete context.root.dataset.diffReducedMotion;
     applyOptionChanges(next);
-    pipeline.rebuildAndPaint();
+    if (next.preparedAdapterData) {
+      context.adapterData = next.preparedAdapterData;
+      context.graph = next.preparedAdapterData.renderable;
+      context.runtimeState.setPositions(positionsFromRenderableGraph(context.graph));
+      context.runtimeState.setSelection(
+        next.preparedAdapterData.selection.input,
+        next.preparedAdapterData.selection.input ? "selection-panel" : null
+      );
+      pipeline.paintPreparedGraph();
+    } else {
+      pipeline.rebuildAndPaint();
+    }
   }
 
   function applyOptionChanges(next: RenderNextOptions): void {
-    context.data = next.data || context.data;
+    if (next.data) {
+      const projection = rendererGraphInput(next.data, next.regularSearchByNode);
+      context.data = projection.data;
+      context.regularSearchByNode = projection.regularSearchByNode;
+      context.searchIndex = undefined;
+    } else if (Object.hasOwn(next, "regularSearchByNode") && next.regularSearchByNode) {
+      context.regularSearchByNode = next.regularSearchByNode;
+      context.searchIndex = undefined;
+    }
     context.theme = next.theme || context.theme;
     if (Object.hasOwn(next, "typeFilters")) context.typeFilters = next.typeFilters || {};
     if (Object.hasOwn(next, "aggregationMarkers")) context.aggregationMarkers = next.aggregationMarkers || [];
@@ -295,7 +352,8 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     }
   }
 
-  render();
+  context.renderEpoch += 1;
+  pipeline.paintPreparedGraph();
 
   return {
     root: context.root,
@@ -310,9 +368,19 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
     isDragging(): boolean {
       return context.runtimeState.snapshot().activeGesture?.kind === "node-drag";
     },
-    setData(nextData: GraphData, nextPins?: PinMap): void {
+    setData(
+      nextData: GraphData,
+      nextPins?: PinMap,
+      regularSearchByNode?: RegularSearchNodeProjection[],
+      preparedAdapterData?: GraphRendererAdapterData
+    ): void {
       controller.clearTransientInteractionForDataRefresh();
-      render({ data: nextData, pins: nextPins ?? context.runtimeState.snapshot().pins });
+      render({
+        data: nextData,
+        regularSearchByNode,
+        pins: nextPins ?? context.runtimeState.snapshot().pins,
+        preparedAdapterData
+      });
     },
     setAggregationMarkers(markers: GraphAggregationMarker[]): void {
       render({ aggregationMarkers: markers });
@@ -392,4 +460,32 @@ export function createGraphRenderer(container: HTMLElement, options: GraphRender
   function assertActive(): void {
     if (context.destroyed) throw new Error("Graph renderer has been destroyed");
   }
+}
+
+export function prepareGraphRendererAdapterData(
+  data: GraphData,
+  options: RenderPolicyOptions = {}
+): GraphRendererAdapterData {
+  return buildGraphRendererAdapterData({
+    renderable: buildRenderableGraph(data, options),
+    ...resolveGraphRendererSemantics(data, options),
+    sourceCommunityId: options.sourceCommunityId ?? null
+  });
+}
+
+function pinsFromPreparedAdapterData(adapterData: GraphRendererAdapterData): PinMap {
+  return Object.fromEntries(adapterData.nodes.flatMap((node) => {
+    const hint = node.pinHint;
+    return hint.pinned && hint.position ? [[hint.wikiPath, hint.position]] : [];
+  }));
+}
+
+function rendererGraphInput(
+  data: GraphData,
+  regularSearchByNode?: RegularSearchNodeProjection[]
+): GraphInputProjection {
+  return {
+    data,
+    regularSearchByNode: regularSearchByNode ?? buildSearchIndex(Array.isArray(data.nodes) ? data.nodes : [])
+  };
 }

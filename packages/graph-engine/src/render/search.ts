@@ -1,5 +1,6 @@
-import { applySearchToNodeIds, buildSearchIndex } from "../model/legacy-helpers";
+import { buildRegularSearchIndex, resolveRegularSearchMatches } from "../model/visibility";
 import type { GraphNode, NodeId } from "../types";
+import type { RegularSearchNodeProjection } from "../model/atlas";
 
 export type GraphSearchNodeState = "none" | "match" | "faded";
 
@@ -12,7 +13,7 @@ export interface GraphSearchState {
   query: string;
   matchIds: NodeId[];
   nodes: GraphSearchNodeView[];
-  searchIndex: Array<{ node: GraphNode; haystack: string }>;
+  searchIndex: RegularSearchNodeProjection[];
 }
 
 export interface GraphSearchFocus {
@@ -23,23 +24,33 @@ export interface GraphSearchFocus {
 export function resolveGraphSearchState(
   nodes: GraphNode[],
   query: string,
-  cachedIndex?: Array<{ node: GraphNode; haystack: string }>
+  cachedIndex?: RegularSearchNodeProjection[],
+  regularSearchByNode?: RegularSearchNodeProjection[]
 ): GraphSearchState {
-  const searchIndex = cachedIndex ?? buildSearchIndex(nodes);
-  const normalizedQuery = query.trim();
+  const searchIndex = cachedIndex ?? compatibleSearchIndex(nodes, regularSearchByNode);
+  const search = resolveRegularSearchMatches(searchIndex, query);
   // 空查询表示“没有搜索”，命中集应为空（而非全部）。否则它作为“搜索命中集”
   // 被全局视图当成 searchHit，会让无搜索时所有节点被标成命中（橙色）。
-  const matchIds = normalizedQuery ? applySearchToNodeIds(searchIndex, normalizedQuery) : [];
+  const matchIds = search.matchIds;
   const matches = new Set(matchIds);
   return {
-    query: normalizedQuery,
+    query: search.query,
     matchIds,
     nodes: nodes.map((node) => ({
       id: node.id,
-      searchState: normalizedQuery ? (matches.has(node.id) ? "match" : "faded") : "none"
+      searchState: search.query ? (matches.has(node.id) ? "match" : "faded") : "none"
     })),
     searchIndex
   };
+}
+
+function compatibleSearchIndex(
+  nodes: GraphNode[],
+  regularSearchByNode?: RegularSearchNodeProjection[]
+): RegularSearchNodeProjection[] {
+  if (!regularSearchByNode) return buildRegularSearchIndex(nodes);
+  const includedNodes = new Set(nodes);
+  return regularSearchByNode.filter((entry) => includedNodes.has(entry.node));
 }
 
 export function resolveNextGraphSearchFocus(matchIds: NodeId[], currentId: NodeId | null | undefined): GraphSearchFocus {

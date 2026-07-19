@@ -1,5 +1,5 @@
 import type { NodeId } from "../types";
-import type { RenderableCommunity, RenderableNode } from "./model";
+import type { RenderableCommunity, RenderableNode } from "./render-policy";
 
 export interface CommunityLegendRow {
   id: string;
