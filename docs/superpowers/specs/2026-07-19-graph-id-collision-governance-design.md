@@ -1,326 +1,355 @@
-# 图谱重复 ID 与自动生成 ID 碰撞治理 · 设计文档
+# 图谱身份、重复 ID 与歧义 wikilink 治理 · 设计文档
 
 - 日期：2026-07-19
-- 状态：草案 v2（多视角审查后修订）
+- 状态：草案 v3（第四方案待端到端验证，验证门见第 9 节）
 - 关联 issue：[#270](https://github.com/sdyckjq-lab/llm-wiki-skill/issues/270)（父票 #269，由 #159 迁移期间发现）
 - 分支：`feat/graph-id-collision-governance`
-- 目标版本：v3.6.87
-- 审查：3 个对抗性子代理（决策最优性 / 可实施性 / 回归风险）审查后修订；修正 6 处事实硬伤 + 3 处方案升级。修正记录见第 13 节。
+- 目标版本：验证通过后再定
+- Supersedes：本文件 v2（“强制改名 + 事后人工检查链接”方案）
 
-## 1. 背景
+## 1. 背景与重新定性
 
-#159（图谱底层 legacy helpers 拆分，已关闭）在迁移时发现：图谱对"重复 ID"和"自动生成 ID 与真实 ID 碰撞"两类问题的处理是历史遗留行为，被有意冻结成契约（`packages/graph-engine/test/fixtures/issue-159/README.md:15` 明确点名 "duplicate and generated IDs … last-write lookup behavior"），长期治理推给 #270。
+#159 在迁移图谱底层能力时发现两类历史问题：
 
-本设计是 #270 的解决方案。
+1. 生成端用 Markdown 文件名作为节点 ID。递归扫描时，`wiki/entities/foo.md` 与 `wiki/topics/foo.md` 都会得到 ID `foo`。
+2. 引擎为缺失 ID 的畸形输入生成 `node-N` / `edge-N`，可能与真实输入碰撞。
+3. 重复 ID 进入引擎后，不同子系统采用“先写胜出”或“后写胜出”，同一个 ID 可能指向不同对象，造成孤儿节点、度数错算和社区统计失真。
 
-### 1.1 诊断结论（问题确实存在，审查已复核）
+这些问题真实存在。但 v2 把“图谱内部用错了身份”直接转化成“要求用户重命名知识文件”，又把改名后的链接风险留给用户人工处理。外部问卷与仓库事实复核后，确认该方向有一个致命反例：
 
-**根因 A：生成端节点 ID = markdown 文件名**
+```
+改名前：wiki/entities/foo.md + wiki/topics/foo.md
+链接：  [[foo]]
 
-- `scripts/build-graph-data.sh:83`：`id=$(basename "$f" .md)`
-- `scripts/build-graph-data.sh:90`：`find "$dir" -type f` 是递归扫描
-- 因此 `entities/foo.md` + `topics/foo.md`，或 `synthesis/x.md` + `synthesis/sessions/x.md`（`init-wiki.sh` 默认建嵌套目录）会撞出同一个节点 ID。
+若把 topics/foo.md 改成 topics/foo-2.md：
+  [[foo]] 不会断链
+  [[foo]] 会全部落到仍叫 foo.md 的 entities/foo.md
+  其中原本想指 topics/foo.md 的链接会静默指错
+```
 
-**根因 B：引擎层兜底自动 ID 可能撞真实 ID**
+因此，“不改链接 = 零误改”不成立。A 方案没有消除误指，只是隐式地把所有未改链接判给了保留旧名的页面。
 
-- `packages/graph-engine/src/model/atlas.ts:246, 572`：节点缺 id 时补 `node-${index}`
-- `packages/graph-engine/src/model/atlas.ts:282, 606`：边缺 id 时补 `edge-${index}`
-- 用户若恰好有 `node-1.md`，真实 ID 与自动 ID 撞名。
+本设计重新把问题拆成三层：
 
-**根因 C：引擎各子系统"谁覆盖谁"规则不一致（真 bug）**
-
-| 子系统 | 重复 ID 时谁赢 |
-|---|---|
-| Atlas 建模层 `byId`（`atlas.ts:185`） | 后写覆盖（last-write） |
-| summary / select / adapter / render-pipeline / sim / layout（`new Map(arr.map)`） | 先写胜出（first-write） |
-
-后果：同一 ID 在"建模"和"摘要/选择"里可能指向不同对象；度数全算到最后一条；社区成员数虚高；第一个同名节点成为"视觉孤儿"。
-
-**当前行为**：不检测、不报错、不去重数组。
-
-### 1.2 自动 ID 与真实 ID 碰撞
-
-生成端不产生缺失 id 的节点；边 ID = `e<idx>` 自增、按 `(from,to)` 已去重；社区 ID 由 Louvain 从节点 ID 派生。碰撞风险集中在**引擎运行时兜底**（畸形输入、旧离线 HTML 内嵌数据），已被 `runtime-graph-projection.test.ts:34` 的 "legacy generated-ID collisions" 测试锁为契约。
+- **页面身份**：图谱怎样唯一识别一个 Markdown 页面。
+- **链接解析**：裸名、路径、别名和标题锚点怎样映射到页面。
+- **可选改名**：用户确实想改文件名时，怎样预览、确认、更新和撤销。
 
 ## 2. 目标与非目标
 
 ### 目标
-1. **阶段一（治 bug）**：引擎层消灭 first/last-write 不一致；自动 ID 物理隔离防撞；告警数据通路打通；重复 ID 输入下图谱不再产生孤儿点/不一致。
-2. **阶段二（治本）**：工作台交互式撞名解决——预检 → 弹窗（默认加后缀，可自定义）→ 改名 → 重建，从根上消除重复 ID。
-3. 覆盖 #270 验收第 4 条：数据生成、运行时输入、工作台、离线图谱、回归测试。
+
+1. 图谱内部不再把文件名当作唯一身份；不同目录的同名页面可以同时存在并正确展示。
+2. 裸 `[[foo]]` 只在目标唯一时解析；重名时不猜、不连错，并给出可定位的歧义提示。
+3. 明确路径链接能稳定指向目标；别名、标题锚点和块锚点不影响页面身份解析。
+4. 引擎收到旧数据或畸形输入时仍统一去重、稳定降级并报告问题。
+5. 工作台和离线 HTML 使用同一套图谱语义；离线/CI 默认不修改知识库文件。
+6. 用户主动改名时，先看到全部影响，再确认修改；改名、明确链接更新和重建作为一个完整操作处理。
 
 ### 非目标
-- 不改变搜索、社区布局、密度、标签、缩放、小地图等用户可见结果（除"重复 ID 不再产生孤儿点 / 不再首末不一致"这一行为变化，以及阶段二改名带来的必然内容切换）。
-- 不做实体解析（语义判断两个不同名节点是否同一实体）——超出 #270 范围。
-- 不做 wikilink 全自动修复（误指风险高，见 D7）。
+
+- 不做实体解析，不判断两个不同页面是否描述同一个现实对象。
+- 不用模型自动猜测歧义裸链接的真实意图。
+- 不把 UUID 写入每个 Markdown 页面；相对路径足以解决当前身份碰撞。
+- 不把工作台扩成通用 Markdown 编辑器。
+- 不在本 issue 内支持普通 Markdown 链接作为图谱边；本次只治理 `[[wikilink]]`。
 
 ## 3. 决策记录
 
-| 编号 | 决策 | 理由 |
+| 编号 | 决策 | 状态与理由 |
 |---|---|---|
-| **D1** | 生成端撞名：**阶段一**「保留首个 + 强化警告」（lint 风格，列出两个文件完整路径 + 内容摘要）；**阶段二**「工作台交互式重命名」治本 | 阶段一不破坏现有数据（init-wiki.sh 默认嵌套目录就可能撞名，fail-fast 会让新手第一次用就踩坑）；阶段二用 Obsidian/Google Drive 式交互弹窗让用户一键解决，避开 Dropbox 纯自动改名招用户抱怨的坑 |
-| **D2** | 引擎层：**入口一次 dedupe + 软告警**（`model.warnings`）；下游 `new Map` 不动 | 入口（`projectGraphInput` / `buildAtlasModel` 的 raw 处理起点）dedupe 后，下游拿到的都是唯一数据，first/last-write 自然等价。这比"替换 11 处建索引点"简单一个数量级，且治本。软告警而非硬失败：引擎服务工作台+离线两宿主，硬失败会让单个坏数据搞挂整个界面 |
-| **D3** | baseline：**直接更新 issue-159** `behavior-baseline.json`，并**显式放宽 `README.md:5` 的 "must not regenerate" 契约** | 行为变了就更新契约；但 baseline 里 "duplicate" 散布 187 行/约 20 段、degree/社区/starts/searchIndex 级联，**无法纯脚本批量**，需人工逐段校验。与 README:5 的冲突必须在 ADR 显式声明 |
-| **D4** | 自动 ID 前缀：`node-N`/`edge-N` → **`__auto_node_N__`/`__auto_edge_N__`** | 双下划线，markdown 文件名物理上不可能包含，真隔离（`auto-` 前缀只是降低概率，半吊子） |
-| **D5** | 告警两路：`meta.warnings`（生成端）+ `model.warnings`（引擎，含 input 透传 + 自产）；`GraphWarning` 补 **`severity`**（error/warning）+ **`source_path`**（定位文件）字段 | 数据与呈现分离；severity 让 duplicate_node_id（用户数据问题）与 generated_id_collision（引擎兜底良性）分级显示；source_path 让用户能定位文件 |
-| **D6** | 分两期：**阶段一引擎治理**（治 bug，可独立合并）+ **阶段二工作台交互式重命名**（治本） | 不让"治本的大功能"挡住"治 bug 的小改动"；阶段一几周内落地，阶段二单独做单独验证 |
-| **D7** | wikilink 修复：**简版起步**——改名后扫全仓找 `[[旧名]]`，列出 N 处可能受影响链接**提示用户检查**，不自动改 | 全自动修复会"误指"（`[[foo]]` 在不同文件可能指不同 foo，自动判断错就静默指错），误指比断链更危险（断链可见，指错隐藏）。简版零误改风险，用户掌控 |
+| **D1** | 图谱节点的规范身份改为知识库内相对路径，如 `wiki/topics/foo.md` | **待第 9 节验证**。路径已经是页面读取和图谱固定位置的事实依据；标题继续只负责展示 |
+| **D2** | 裸链接只在 basename 全库唯一时解析；重名时不建边并产生 `ambiguous_wikilink` | 已选。缺失信息不能靠启发式或模型恢复，宁可明确缺边，也不静默连错 |
+| **D3** | 明确路径链接精确解析；规范输出采用 `[[wiki/.../page.md]]`，解析时兼容省略 `.md`、别名与锚点 | **待第 9 节验证**。与工作台现有 `@` 引用格式一致，并兼容 Obsidian 路径链接 |
+| **D4** | 引擎入口统一去重并软告警；下游索引不分别修补 | 保留 v2 决策。入口保证唯一后，下游先写/后写差异自然消失 |
+| **D5** | 缺失 ID 的自动值采用“先收集真实 ID，再分配未占用值”，不宣称某个字符串前缀物理上不可碰撞 | 修正 v2。任何可序列化字符串都可能由外部输入提供，必须实际检查占用 |
+| **D6** | `meta.warnings` 记录生成端问题，`model.warnings` 合并输入警告与引擎自产警告 | 保留，但警告只保存知识库内相对路径，不把本机完整路径嵌入可分享 HTML |
+| **D7** | 删除“强制改名 + 事后人工检查”主线；改名降为用户主动选择的修复动作 | A 已否决。事后清单太晚，且工作台没有通用页面编辑能力 |
+| **D8** | 可确定的链接更新自动完成；歧义链接执行前确认，未解决时不执行改名 | 取代 A/B/C 三选一。自动化只处理确定事实，不自动猜语义 |
+| **D9** | 离线 HTML 只展示问题；CI 默认检查并失败或输出降级报告；任何无界面流程都不自动改名 | 修正 v2 与 Dropbox 反例自相矛盾的问题 |
+| **D10** | `graph-data.json` 始终由源 Markdown 重建，不在改名流程中手工修改 | 符合 ADR-29“图谱是 wiki 结构的派生视图” |
+| **D11** | 分三期：引擎兜底、路径身份与链接解析、可选改名体验 | 先消灭内部不一致，再改变生成契约，最后增加用户写操作 |
 
-## 4. 业界依据
+## 4. 依据
 
-- **Neo4j**：`MERGE` + `UNIQUE CONSTRAINT`；明确警告"不要用内部 id 当业务键"。[^1]
-- **知识图谱构建**：Normalization → Deduplication → Entity Resolution 标准流程，进图前完成。[^2]
-- **Obsidian**（最贴近，同是 markdown 知识库）：允许同名但链接歧义；`NameGuard` 插件创建前阻止重名；链接消歧时自动加路径。改名断 wikilink 是社区核心痛点（印证 D7 谨慎）。[^3]
-- **Dropbox**：纯自动加后缀 → 用户强烈抱怨"偷偷改我文件名"（反证 D1 阶段二"弹窗确认"的价值）。[^4]
-- **Google Drive**：撞名弹对话框让用户选（D1 阶段二参考模式）。[^5]
-- **Cytoscape.js / graphology**：重复 ID 直接渲染失败/抛错——我们引擎现在的"软覆盖"是人为用前置 `new Map` 关掉了 graphology 的硬约束。[^6]
+### 4.1 仓库内事实
 
-> D2 选"软告警"而非 Neo4j/Cytoscape 式"硬失败"：因引擎服务工作台+离线两宿主，硬失败会让单个坏数据搞挂整个图谱界面。生成端（阶段二）治本后，引擎层只兜畸形输入。
+- `scripts/build-graph-data.sh` 当前以 `basename` 生成节点 ID，并递归扫描目录。
+- 当前链接解析只去掉 `|别名`，不会去掉 `#标题`，也不会把路径链接解析到 basename 节点。
+- 工作台页面列表和读取接口已经使用 `wiki/.../*.md` 相对路径。
+- 图谱固定位置已经以 `source_path` 为稳定 key，而不是 basename ID。
+- ADR-29 明确规定图谱是 wiki 结构的派生视图；不应为了满足图谱内部键值而强迫修改知识源。
+- ADR-32 要求工作台和离线 HTML 共用同一套图谱语义。
+- PRODUCT.md 明确工作台不是 Obsidian/Logseq 替代品，不提供通用手写编辑器。
 
-## 5. 架构与数据流
+### 4.2 外部产品事实
 
-### 阶段一：引擎治理（治 bug）
+- Obsidian 支持重命名时更新内部链接；关闭自动更新后会改为询问。
+- Obsidian 支持最短唯一路径、相对路径和 vault 内完整路径。
+- Notion 用独立 UUID 区分页面身份与标题，证明“标题不应兼任身份”；但 llm-wiki 保持普通 Markdown 可读性，不直接照搬 UUID。
+- Dropbox / Google Drive 的重名体验只能证明“改名前需要用户确认”，不能证明 wikilink 应如何修复。
 
-```
-wiki/*.md
-  │  ① 生成端（build-graph-data.sh + graph-analysis.js）
-  │     撞名 → 保留首个 + 强化警告（lint 风格，列两个文件路径）→ meta.warnings
-  ▼
-graph-data.json（含 meta.warnings）
-  │  ② 引擎层（packages/graph-engine）
-  │     入口（projectGraphInput / buildAtlasModel 的 raw 起点一次 dedupe）
-  │     → 下游 new Map 拿到的都是唯一数据，first/last-write 自然等价
-  │     model.warnings = input.meta.warnings 透传 + 入口 dedupe 自产
-  │     自动 ID 前缀 node-N → __auto_node_N__
-  ▼
-工作台 web（GraphWarningsBanner）/ 离线宿主（轻量提示）
-```
+## 5. 目标数据流
 
-### 阶段二：工作台交互式重命名（治本）
+### 5.1 构建图谱
 
 ```
-用户点「重建图谱」
+wiki/**/*.md
+  ↓ 规范化为 POSIX 风格知识库相对路径
+节点 id = source_path = wiki/<目录>/<页面>.md
+  ↓ 建两个解析索引
+path → 唯一节点
+basename → 0 / 1 / N 个候选
+  ↓ 扫描每个页面的 wikilink
+明确路径 ───────────────→ 精确目标 → 建边
+裸名且候选唯一 ─────────→ 唯一目标 → 建边
+裸名且候选超过一个 ─────→ 不建边   → ambiguous_wikilink
+目标不存在 ─────────────→ 不建边   → broken_wikilink
   ↓
-① server 跑「撞名预检」（find + basename + uniq -d，快，不构建）
-  ↓ 有冲突？
-  ├─ 有 → 返回冲突列表，暂停构建
-  │     ↓
-  │   ② 工作台弹「交互式解决弹窗」
-  │      每对：两个文件完整路径 + 内容摘要（标题/首行）
-  │      默认：第二个加后缀 foo → foo-2，【一键确定】
-  │      用户也可手动输入想要的名字
-  │     ↓ 用户确认
-  │   ③ server 执行「改名」（rename 文件 + 改 graph-data.json 的 nodes[].id）
-  │   ④ wikilink 简版提示：扫全仓 [[旧名]]，列出 N 处可能受影响链接，提示用户检查（不自动改）
-  │     ↓
-  │   ⑤ 重新构建 → ID 唯一 → 图谱正常
-  └─ 无 → 直接构建
+graph-data.json
+  ↓
+共享图谱引擎入口兜底去重
+  ↓
+工作台 / 离线 HTML
 ```
 
-**降级场景**：
-- **离线导出 / CI**（无 UI）：自动用默认加后缀规则 + 警告日志；或要求"先在工作台解决再导出离线"。
-- **引擎层兜底**（始终保留）：万一上述流程漏了，阶段一的入口 dedupe + model.warnings 兜底。
+### 5.2 用户主动改名
 
-## 6. 组件改动清单（文件级）
+```
+用户从警告或页面动作进入“解决同名/改名”
+  ↓
+先扫描：目标名称、已有文件、全部相关 wikilink、固定位置和文件版本
+  ↓
+展示完整预览
+  ├─ 明确路径链接：默认勾选确定性更新
+  ├─ 唯一裸链接：按改名前解析结果给出确定性更新
+  └─ 歧义裸链接：逐条选择目标，或取消本次改名
+  ↓ 用户确认
+暂停图谱文件监听
+  ↓
+改名源 Markdown + 写入已确认的链接更新
+  ↓ 任一步失败
+回滚本次写入并恢复旧文件名
+  ↓ 成功
+恢复监听并只触发一次重建
+```
 
-### 6.1 生成端
+改名流程不直接写 `graph-data.json`。如果预览后文件被 Obsidian 或其他程序改动，确认结果失效，必须重新扫描，不能用过期位置改写。
 
-| 位置 | 当前 | 改成 |
-|---|---|---|
-| `scripts/build-graph-data.sh` `scan_kind`（:76-98） | 递归 find，同名都进 `NODES_TSV` | 跨 `scan_kind` 全局 `seen_ids` 关联数组；撞名保留首个、其余记 warning |
-| `scripts/build-graph-data.sh` 末尾 jq 拼装（:320-368） | 输出 5 字段 | `--argjson warnings` 注入 `meta.warnings` |
-| `scripts/graph-analysis.js` `loadNodeDetails`（:36-58，:54 覆盖） | `byId[id]=node` 后写覆盖 | 首个写入，重复记 warning 不覆盖 |
+## 6. 组件边界
 
-> 边 ID（`e<idx>`）已按 `(from,to)` 去重，无需额外处理。社区 ID 由节点派生，节点去重后随之唯一。
+### 6.1 共享 wikilink 解析能力
 
-### 6.2 引擎层（核心：入口一次 dedupe，下游不动）
+在根目录脚本能力区提供一个单一解析器，作为以下流程的共同事实来源：
 
-**新增** `packages/graph-engine/src/model/dedupe.ts`：
+- 图谱边生成；
+- lint 的断链与歧义检查；
+- 工作台改名前影响扫描；
+- 可选的确定性链接改写计划。
+
+工作台调用根目录脚本能力，不再用 server 里的 `find + basename + uniq` 重写一套扫描规则。实现必须兼容项目默认的 macOS Bash 3.2，复杂索引与解析放在现有 Node 脚本侧，不依赖 Bash 关联数组。
+
+解析规则：
+
+1. 识别 `[[target]]`、`[[target|alias]]`、`[[target#heading]]`、`[[target#^block|alias]]`。
+2. `|alias` 只影响显示；`#...` 只影响页内位置；二者都不参与页面身份匹配。
+3. `wiki/.../page.md` 和省略 `.md` 的等价路径都精确匹配规范路径。
+4. 裸名按全库 basename 索引解析，仅有一个候选才成功。
+5. 围栏代码块、行内代码中的示例文本不算真实链接。
+6. 输出保留原始链接文本、来源相对路径、行号和候选列表，供警告和预览使用。
+
+### 6.2 生成端
+
+- 节点 ID 从 basename 改为规范相对路径。
+- 边端点、社区成员、学习路径、起点和洞察中的节点引用全部使用路径 ID。
+- `source_path` 与 ID 保持同值，先保留字段以维持公开数据契约清晰度。
+- 生成端不再因同 basename 丢弃页面；所有 Markdown 页面都进入节点数组。
+- 重名只有在裸链接实际产生歧义时影响关系；同名本身可作为提示，不是构建失败。
+
+### 6.3 引擎层
+
+- `projectGraphInput` 与 `buildAtlasModel` 的 raw 入口共用一次规范化与去重能力。
+- 重复节点、边、社区 ID 保留首个并生成警告；所有下游只接收唯一数组。
+- 自动节点/边 ID 先收集显式 ID，再循环选择未占用值。
+- 引擎把 ID 视为不透明字符串，不从 ID 猜文件路径；页面路径始终优先使用 `source_path`。
+- 旧 basename graph-data 仍能打开；新构建才切换为路径 ID。
+
+### 6.4 工作台
+
+- `GraphWarningsBanner` 同时展示重复输入、歧义链接和断链摘要。
+- 警告详情只显示知识库内相对路径。
+- “解决”动作进入专用预览，不增加通用 Markdown 编辑器。
+- 页面改名端点必须沿用现有本地可信来源检查，并验证所有路径都在当前知识库内。
+- 改名期间复用现有图谱监听暂停/恢复能力，避免重复重建。
+
+### 6.5 离线 HTML 与 CLI/CI
+
+- 离线 HTML 显示警告、候选路径和被忽略的歧义关系，不尝试写文件。
+- CLI 默认 `check` 行为；只有显式修复命令才允许修改。
+- CI 遇到歧义时返回非零或由明确的非严格选项生成降级图谱；默认永不修改 checkout。
+- 警告数据不得包含用户主目录等本机完整路径。
+
+## 7. 告警契约
 
 ```ts
-export type GraphWarningCode =
-  | 'duplicate_node_id' | 'duplicate_edge_id' | 'duplicate_community_id'
-  | 'generated_id_collision';
+type GraphWarningCode =
+  | 'duplicate_node_id'
+  | 'duplicate_edge_id'
+  | 'duplicate_community_id'
+  | 'generated_id_collision'
+  | 'ambiguous_wikilink'
+  | 'broken_wikilink';
 
-export type WarningSeverity = 'error' | 'warning';
-
-export interface GraphWarning {
+interface GraphWarning {
   code: GraphWarningCode;
-  severity: WarningSeverity;   // D5 新增：分级
-  id: string;
-  sourcePath?: string;          // D5 新增：定位文件
+  severity: 'error' | 'warning';
   message: string;
+  id?: string;
+  source_path?: string;       // 仅知识库相对路径
+  line?: number;
+  raw_link?: string;
+  candidates?: string[];      // 仅知识库相对路径
 }
-
-export function dedupeById<T extends { id: string }>(
-  items: T[], warnings: GraphWarning[], code: GraphWarningCode,
-): { items: T[]; byId: Map<string, T> };
 ```
 
-**入口 dedupe（替代原"11 处替换"）**：
-- 在 `projectGraphInput`（`atlas.ts:527-566`）和 `buildAtlasModel`（`atlas.ts:178-223`）**各自处理 raw input 的起点**调用 `dedupeById`（或抽 `normalizeGraphInput(raw)` 公共函数，两处复用）。
-- 下游 `summary` / `select` / `adapter` / `render-pipeline` / `sim` / `layout` 的 `new Map(arr.map)` **保持不动**——输入唯一后 first/last-write 等价，行为自然正确。
+字段命名统一使用现有 graph-data 风格的 `snake_case`。大量警告在界面上折叠显示，但数据不能只截断前五条；用户进入详情和改名预览时必须拿到完整集合。
 
-**明确范围声明**（审查发现的归类问题，治不干净就留隐患）：
-- 核心节点 byId 主路径（原 spec 列的方向对）：`atlas.ts:185`、`summary/index.ts:264,269-272,316,530`、`select/index.ts:166-167`、`adapter.ts:183-186`、`render-pipeline.ts:489,685`、`render-policy.ts:672`、`sim/index.ts:85`、`layout/spatial-index.ts:131` —— 入口 dedupe 后**不需改**。
-- **社区 byId**（`atlas.ts:204` `communityById[id]=community`，与节点 byId 同类 last-write）：**纳入** dedupe 范围。
-- **render 层 sigma-\* 系列**（约 15 处 `new Map`：`sigma-graphology-model.ts:106,107,167,168`、`sigma-global-renderer.ts:511,1432,1438` 等）：消费的是已 dedupe 的数据，**不需改**，但需 grep 确认无绕过入口的路径。
-- **merge-write**（`anim/index.ts:151-159`，重复 ID 时合并字段而非丢弃）与 **max-merge**（`render-policy.ts:1151`）：**语义不同，不纳入统一去重**，保持现状。
-- 剔除原 spec 误列：`atlas.ts:186-188`（社区聚合 push，非 ID 重复处理）、`194-197`（degree 自增，非建索引）。
+## 8. 错误与恢复边界
 
-**自动 ID 前缀**（D4）：`atlas.ts:246, 282, 572, 606`，`node-${i}`/`edge-${i}` → `__auto_node_${i}__`/`__auto_edge_${i}__`。
-
-### 6.3 数据通路 `meta.warnings → model.warnings`（审查发现：当前不通）
-
-需改动（原 spec 低估）：
-1. `packages/graph-engine/src/types.ts:45-53` `GraphMeta` 加 `warnings?: GraphWarning[]` + 新增 `GraphWarning` 类型。
-2. `atlas.ts:89-94` `AtlasModelMeta` + `atlas.ts:104-114` `AtlasModel` 加 `warnings` 字段。
-3. `projectGraphInput`（`atlas.ts:527-566`，**不是** buildAtlasModel）显式拷贝 `rawMeta.warnings` 到 model；同时收集入口 dedupe 自产的 warnings。
-4. `facade.ts` 暴露 warnings 给宿主。
-5. 可选：`packages/workbench-contracts/src/graph.ts:3-13` `GraphMetaSchema` 显式声明（不声明也不丢，见 6.6）。
-
-### 6.4 工作台（阶段二）
-
-- **server**：
-  - 新增「撞名预检」端点：`find` + `basename` + `uniq -d`，返回冲突列表（每对含两个文件路径 + 标题/首行摘要 + 默认建议名）。
-  - 新增「执行改名」端点：rename 文件 + 改 `graph-data.json` 的 `nodes[].id`，然后触发重建。
-  - wikilink 简版提示端点：扫全仓 `[[旧名]]`，返回可能受影响的链接列表。
-- **web**（`workbench/web/src/components/GraphPanel.tsx`，图谱视图主组件）：
-  - 新建 `CollisionResolveDialog` 组件（仓库无现成 Dialog，需新建）：列出每对冲突 + 默认加后缀建议 + 用户可改输入框 + 一键确定。
-  - 新建 `GraphWarningsBanner` 组件：读 `model.warnings` 展示（阶段一就要）。
-  - wikilink 提示组件：改名后展示"N 处链接可能受影响，点击查看"。
-
-### 6.5 离线宿主
-
-- `meta.warnings` 已随 `scripts/build-graph-html.sh` 内嵌进离线 graph-data.json。
-- 离线宿主读 `model.warnings`，轻量提示。
-- 阶段二交互式重命名**不在离线宿主做**（无 UI），降级为"自动加后缀 + 警告"或"要求先在工作台解决"。
-
-### 6.6 契约与测试（审查发现：原清单不全 + 工作量低估）
-
-**baseline 重写**（`packages/graph-engine/test/fixtures/issue-159/`）：
-- `behavior-baseline.json`：`duplicate` 散布 **187 行/约 20 个 snapshot 段**，degree/community node_count/starts/searchIndex/renderable 快照级联变化——**无法纯脚本批量**，需人工逐段校验或重跑生成器。
-- `README.md:5` 明文 "must not regenerate that file" → D3 显式声明放宽此契约。
-- `behavior-input.json:105` 的 `"from": "node-5"` 是**真实 ID 字面量**（用户文件名），改 `__auto__` 前缀时勿误伤。
-
-**要更新的锁行为测试**（原 spec 漏了 `typed-graph-model.test.ts`，且误列 `facade.test.ts`）：
-- `runtime-graph-projection.test.ts:34-72, 99-100`（`node-N` → `__auto_node_N__` 断言）
-- `render-policy.test.ts:94-127`
-- `summary-contract.test.ts:72-96`
-- `typed-graph-model.test.ts:48-57`（**原 spec 漏**：锁 last-write + 数组多条 + degree 累加到最后）
-- ~~`facade.test.ts:66-90`~~（**原 spec 误列**：该测试用显式 `node-0` 用户 ID，无缺 id 节点也无两条同 id，不受影响，从清单移除）
-
-**server 透传修正**（原 spec 函数名错）：
-- `rebuildGraph`（`workbench/server/src/graph.ts:341-374`）**只 spawn 脚本**，不做透传。
-- `readGraphData`（`graph.ts:78-93`，`:85` `JSON.parse`）才透传。
-- `GraphDataSchema` 用 `.passthrough()`（`packages/workbench-contracts/src/graph.ts:130-138`），meta 上的 warnings 不会被 strip，会原样到前端。
-
-**新增测试**：
-- `dedupe.test.ts`：`dedupeById` 单元测试。
-- issue-270 回归测试：撞名输入 → 保留首个 + warnings + degree 正确。
-- 阶段二：预检/弹窗/改名/wikilink 提示的端到端测试。
-
-**新增 ADR**：`docs/adr/0033-graph-id-uniqueness-contract.md`（记录 D1–D7 + 业界依据 + baseline 契约放宽）。
-
-**CHANGELOG**：v3.6.87。
-
-## 7. wikilink 简版提示方案（D7）
-
-改名 `topics/foo.md` → `topics/foo-2.md` 后：
-1. server 扫全仓 `*.md`，grep `[[foo]]`（含别名/锚点变体，按现有 wikilink 解析规则）。
-2. 收集所有命中位置（文件路径 + 行号 + 链接原文）。
-3. **不自动改**，作为"待检查链接列表"返回前端。
-4. 前端展示：「改名后，以下 N 处链接可能需要更新（它们原本指向旧名 foo）：[列表，每条可点击跳转]」。
-5. 用户自行决定每条是否改、改成什么。
-
-> 不做全自动的理由：`[[foo]]` 在不同文件可能指不同 foo（entities/foo 或 topics/foo），自动判断靠启发式，误判则**静默指错**，比断链危险。简版把判断权交还用户。
-
-## 8. 错误处理边界
-
-| 情况 | 处理 | 中断？ |
+| 场景 | 行为 | 是否修改源文件 |
 |---|---|---|
-| 生成端撞名（阶段一） | warning：保留首个 + 强化提示 | 否 |
-| 工作台撞名（阶段二） | 交互式弹窗，用户确认后改名 | 暂停构建待确认 |
-| 引擎重复 ID（畸形/旧数据兜底） | warning：入口 dedupe + model.warnings | 否 |
-| 边端点指向不存在节点 | 保持现有过滤（`atlas.ts:191-192`） | 否 |
-| 引擎畸形输入（非对象/缺字段） | 保持现有 `objectRecord` 兜底 | 否 |
-| 离线/CI 撞名 | 自动加后缀 + 警告日志 | 否 |
-| 系统级故障（脚本崩溃、文件不可读） | error | 是 |
+| 同 basename 页面，无裸链接歧义 | 全部进入图谱，可显示提示 | 否 |
+| 裸链接命中多个候选 | 不建边，列出候选 | 否 |
+| 明确路径链接存在 | 精确建边 | 否 |
+| 明确路径或裸链接目标不存在 | 不建边，报断链 | 否 |
+| 引擎收到重复 ID | 保留首个并警告 | 否 |
+| 用户取消改名 | 保持原状 | 否 |
+| 改名前文件已变化 | 预览失效，要求重新扫描 | 否 |
+| 改名中途失败 | 回滚已完成写入 | 恢复原状 |
+| 离线 HTML / CI 发现歧义 | 展示或报告；默认不修复 | 否 |
+| 系统故障、文件不可读 | 明确失败，不生成伪成功结果 | 否 |
 
-**warning 上限**（审查发现：旧离线 HTML 兜底会刷屏）：`model.warnings` 自产部分设上限（如最多 5 条 +「还有 N 条」），避免旧数据（nodes 数组多条重复）触发引擎 dedupe 产生大量警告刷屏。
+## 9. 端到端验证门
 
-## 9. 测试方案
+在 D1 / D3 定案前，必须用真实代码路径完成以下验证。任何一项失败，先修订本设计，不进入实施计划。
 
-- **生成端**：撞名 fixture（两个同名 .md）→ 验证 `NODES_TSV` 只 1 条 + `meta.warnings` 有记录 + 强化警告含两个文件路径。
-- **引擎层**：更新 4 个旧测试期望值；`dedupeById` 单元测试；issue-270 回归测试（撞名 → 保留首个 + warnings + degree 在首个累加）。
-- **阶段二工作台**：预检 → 弹窗 → 改名 → wikilink 提示端到端。
-- **离线**：离线单文件带 warnings → 验证提示；旧离线 HTML（无 warnings）→ 验证不崩 + 兜底 warnings 不刷屏。
+### 9.1 代表性知识库
+
+至少包含：
+
+- `wiki/entities/foo.md`
+- `wiki/topics/foo.md`
+- `wiki/entities/unique.md`
+- 第三个同名页面，证明冲突不是“每对”模型
+- 已存在的 `foo-2.md`，证明建议名不会二次碰撞
+- 中文、空格、大小写差异的文件名
+
+链接样本：
+
+- `[[unique]]`
+- `[[foo]]`
+- `[[wiki/topics/foo.md]]`
+- `[[wiki/topics/foo|别名]]`
+- `[[wiki/topics/foo#标题]]`
+- `[[wiki/topics/foo#^block|别名]]`
+- 围栏代码块和行内代码中的 `[[foo]]` 示例
+
+### 9.2 必须通过的结果
+
+| 验证项 | 通过标准 | 状态 |
+|---|---|---|
+| 生成 | 三个同名页面都生成独立节点，ID 为各自相对路径 | 待验证 |
+| 裸唯一链接 | `[[unique]]` 建到唯一页面 | 待验证 |
+| 裸歧义链接 | `[[foo]]` 不建边，产生含全部候选的警告 | 待验证 |
+| 路径链接 | 路径、别名、标题锚点、块锚点都建到同一正确页面 | 待验证 |
+| 代码示例 | 代码块和行内代码不产生边 | 待验证 |
+| 引擎 | 路径 ID 不被截断或误解，摘要、搜索、选择、社区和渲染可用 | 待验证 |
+| 工作台 | 图谱可打开，节点详情读取正确页面，警告可见 | 待验证 |
+| 离线 HTML | 图谱可打开，节点数量与工作台一致，警告不含本机完整路径 | 待验证 |
+| 固定位置 | 已有以 `source_path` 保存的固定位置仍能应用 | 待验证 |
+| 首次迁移 | basename ID → 路径 ID 不播放“全库删除再新增”的误导动画 | 待验证 |
+| 无界面流程 | CLI/CI 检查不修改任何 Markdown 文件 | 待验证 |
+| 性能 | 单次扫描完成索引与解析，不按冲突数重复全库扫描 | 待验证 |
+
+### 9.3 验证输出
+
+验证完成后在 `docs/graph/` 写结果记录，包含：输入 fixture、执行命令、实际输出、失败与修正、最终结论。第 9.2 表必须更新为“通过”或明确写出阻塞原因。
 
 ## 10. 分阶段实施
 
-### 阶段一：引擎治理（治 bug，可独立合并）
-1. 生成端撞名去重 + 强化警告 + `meta.warnings`（6.1）
-2. 引擎入口 `dedupeById` + 范围声明（6.2）
-3. 数据通路 `meta.warnings → model.warnings`（6.3）
-4. `__auto_node_N__` 前缀（D4）
-5. 更新 baseline（人工逐段）+ 4 个锁行为测试 + `dedupe.test.ts`（6.6）
-6. 工作台 `GraphWarningsBanner`（阶段一就要展示 warnings）
-7. ADR-0033 + CHANGELOG
+### 阶段一：引擎兜底，可独立合并
 
-**阶段一完成判定**：重复 ID 输入下，引擎各子系统指向同一对象（first/last-write 等价）；baseline 全绿；warnings 在工作台可见。
+1. 入口一次去重，统一重复 ID 语义。
+2. 自动 ID 改为实际避让已占用 ID。
+3. warnings 数据通路进入工作台和离线宿主。
+4. 更新 #159 行为契约与 issue-270 回归测试。
 
-### 阶段二：工作台交互式重命名（治本）
-1. server 撞名预检 + 执行改名 + wikilink 扫描端点（6.4）
-2. web `CollisionResolveDialog` + wikilink 提示组件（6.4）
-3. 离线/CI 降级策略（6.5）
-4. 端到端测试
+### 阶段二：路径身份与链接解析
 
-> 两期拆分用 `/to-tickets` 落成独立 issue 跟踪。
+1. 建立共享 wikilink 解析能力。
+2. 生成端切换到路径 ID，所有节点引用同步切换。
+3. 裸唯一、裸歧义、明确路径和断链按 D2 / D3 处理。
+4. 处理首次身份迁移，避免固定位置丢失和全库假动画。
+5. 工作台与离线 HTML 展示一致的警告。
+
+### 阶段三：用户主动改名
+
+1. 完整影响预览和目标名校验。
+2. 确定性链接更新与歧义逐条确认。
+3. 文件版本复核、监听暂停、单次重建和失败回滚。
+4. 端到端测试覆盖外部编辑并发和中途失败。
+
+阶段三不是阶段二的前置条件。同名页面在阶段二已经能安全进入图谱；改名只是帮助用户改善知识库命名，不再是修复图谱的唯一办法。
 
 ## 11. 迁移与兼容
 
-- **旧知识库（有同名文件）**：阶段一升级后图谱照常打开（保留首个 + 强化警告）；阶段二后可交互式解决。
-- **旧离线 HTML**（内嵌旧 graph-data.json，无 `meta.warnings`，nodes 数组可能含多条重复）：引擎读不到 warnings 视为空数组；入口 dedupe 兜底，但**自产 warnings 有上限**防刷屏（第 8 节）。
-- **byId last→first 内容切换**（审查发现，用户可见回归）：升级后，用户点同名节点看到的内容会从"最后写入的文件"变成"最先写入的文件"（entities > topics > sources > ...）。**必须在 ADR-0033 + CHANGELOG 用用户能看懂的话说明**。
-- **依赖 `node-N`/`edge-N` 自动 ID 的下游**：仓库内 grep 确认仅测试断言依赖（`runtime-graph-projection.test.ts`、`typed-graph-model.test.ts`），无运行时下游。离线 HTML 内嵌的 id 是用户文件名，非兜底产物，不受前缀变化影响。
+- **现有无重名知识库**：内容和链接不改；重新构建后节点 ID 从 basename 变为相对路径，视觉和关系结果应保持一致。
+- **现有有重名知识库**：所有同名页面都进入图谱；原裸链接变为明确歧义，不再任意指向某一个页面。
+- **旧 graph-data.json**：引擎保持可读；工作台下一次重建生成新身份。
+- **旧离线 HTML**：作为自包含历史产物不迁移；新导出使用新规则。
+- **固定位置**：存储 key 已是页面路径，目标是无感延续；第 9 节必须实测。
+- **首次重建动画**：旧 ID 与新 ID 应按 `source_path` 对齐，不能把身份迁移冒充知识结构巨变。
+- **Obsidian**：保留裸 wikilink 兼容，并接受明确路径；不改 `.obsidian/`。
 
 ## 12. 风险
 
 | 风险 | 严重度 | 缓解 |
 |---|---|---|
-| baseline 重写工作量大（187 行/20 段级联） | 高 | 人工逐段校验；ADR 显式放宽 README:5 "must not regenerate" 契约 |
-| 入口 dedupe 范围遗漏（绕过入口的路径） | 中 | grep 全仓 `new Map(.*\.map` + `byId\[` 确认；sigma-* 系列、merge-write 显式声明范围 |
-| 旧离线 HTML warnings 刷屏 | 中 | model.warnings 自产部分设上限（第 8 节） |
-| byId last→first 内容切换（用户可见） | 中 | ADR + CHANGELOG 明确说明语义切换 |
-| 阶段二 wikilink 简版仍需用户手动检查 | 低 | 设计如此（D7，避免全自动误指）；未来可升级 |
-| `CollisionResolveDialog` 与现有 UI 风格冲突 | 低 | 实现阶段参考 GraphPanel 现有视觉惯例 |
+| 路径 ID 触发大量旧快照变化 | 高 | 单独迁移提交；按 `source_path` 对照旧新结果；逐段复核 baseline |
+| 首次重建被误判为全库新增/删除 | 高 | diff 增加 `source_path` 对齐迁移；验证后再定实现 |
+| 解析器改写误碰代码示例 | 高 | 共享解析器排除代码块/行内代码；专门回归 fixture |
+| 裸链接歧义导致边减少 | 中 | 这是诚实降级；界面明确列候选和解决入口，不静默猜测 |
+| 工作台与 Skill 各写一套解析规则 | 高 | 解析能力归根目录脚本，工作台调用而不复制 |
+| 改名中途失败留下半套结果 | 高 | 预览版本校验、临时备份、回滚、单次重建 |
+| 路径或警告泄露本机目录 | 中 | 所有持久化与离线数据只使用知识库相对路径 |
+| 大型知识库扫描变慢 | 中 | 一次建索引、一次扫描，按文件与链接总量线性增长 |
 
-## 13. 审查发现与修正记录（v1 → v2）
+## 13. 审查记录
 
-本次修订由 3 个对抗性子代理审查驱动：
+### v1 → v2
 
-**事实硬伤（6 处，已修）**：
-1. 「11 处建索引点」数字与归类错（实际 17-34 处，混入 ID 生成点/社区聚合/degree 自增）→ 改为「入口一次 dedupe + 范围声明」。
-2. baseline 重写工作量低估（187 行/20 段级联）+ 与 `README.md:5` 冲突 → D3 显式声明放宽契约。
-3. `meta.warnings → model.warnings` 当前不通（GraphMeta/AtlasModel 无字段，函数名 buildAtlasModel 错）→ 6.3 列全改动。
-4. 漏 `typed-graph-model.test.ts:48-57` → 补进测试清单。
-5. 误列 `facade.test.ts:66-90`（测投影缓存，不受影响）→ 从清单移除。
-6. server 透传挂错函数（rebuildGraph 只 spawn，readGraphData 才透传）→ 6.6 修正。
+- 引擎从多处分别防御改为入口一次去重。
+- 自动 ID 从普通前缀改成双下划线前缀。
+- 增加生成端与引擎 warnings 通路。
+- 新增“强制改名 + 事后链接提示”方案。
 
-**方案升级（3 处，用户拍板）**：
-- D1：从「保留首个 + 警告」升级为「阶段一保留首个强化警告 + 阶段二工作台交互式重命名」（用户想法，避 Dropbox 坑）。
-- D4：从 `auto-` 前缀升级为 `__auto_node_N__` 物理隔离（红队指出 auto- 是半吊子）。
-- 引擎层：从「替换 11 处建索引点」改为「入口一次 dedupe」（红队指出过度防御，治症状不治病因）。
+### v2 → v3
 
-**新增**：D7 wikilink 简版提示（用户拍板，不做全自动）；warning 上限（防旧 HTML 刷屏）；byId 内容切换的迁移说明。
+- 发现 A 的核心反例：改名后裸链接不会断，而会静默落到保留旧名的页面。
+- 纠正 Obsidian 事实：它支持重命名时自动更新或询问，并支持路径链接。
+- 删除强制改名主线，改为路径身份、歧义不猜、改名可选。
+- 删除离线/CI 自动加后缀；所有无界面流程默认只读。
+- 删除手工修改 `graph-data.json`；图谱只从 Markdown 重建。
+- 修正“自动前缀物理不碰撞”的错误说法，改为实际避让。
+- 统一 warning 字段为 `source_path`，禁止完整本机路径进入离线 HTML。
+- 增加 macOS Bash 3.2、三重同名、已有后缀、外部并发修改、固定位置和首次迁移验证。
 
 ## 14. 参考
 
-[^1]: [Neo4j: Graph Data Modeling — All About Keys](https://medium.com/neo4j/graph-data-modeling-keys-a5a5334a1297)；[Neo4j Community: MERGE vs CREATE](https://community.neo4j.com/t/duplicate-nodes-but-with-different-graph-ids/13296)
-[^2]: [Knowledge Graphs: Normalization, Deduplication, and Entity Resolution](https://medium.com/@QuarkAndCode/knowledge-graphs-normalization-deduplication-and-entity-resolution-a8ba384d539c)
-[^3]: [Obsidian: Note with same name exists in another folder](https://forum.obsidian.md/t/warning-note-with-same-name-exists-in-another-folder/35549)；[NameGuard plugin](https://community.obsidian.md/plugins/name-guard)
-[^4]: [Dropbox keeps changing my file names](https://www.reddit.com/r/dropbox/comments/y52t9t/help_dropbox_keeps_changing_my_file_names/)
-[^5]: [Why does Google Drive use a dialog for renaming files?](https://ux.stackexchange.com/questions/95794/why-does-google-drive-use-a-dialog-for-renaming-files)
-[^6]: [Cytoscape.js: redundant edges](https://stackoverflow.com/questions/47634974/cytoscape-js-redundant-edges)
+- [Obsidian Internal links](https://help.obsidian.md/links)
+- [Obsidian Settings / Files and links](https://help.obsidian.md/settings#Files%20and%20links)
+- [Notion Page object](https://developers.notion.com/reference/page)
+- [ADR-29：图谱是 wiki 结构的视图](../../adr/0029-graph-is-a-view-of-wiki-structure.md)
+- [ADR-32：一个图谱引擎，两个宿主](../../adr/0032-one-graph-engine-two-hosts.md)
 
-仓库内证据见第 1 节与第 6 节的文件:行号。
+仓库内事实以当前分支代码、PRODUCT.md、CONTEXT.md 与相关 ADR 为准。
