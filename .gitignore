@@ -46,7 +46,6 @@ deps/baoyu-url-to-markdown/scripts/bun.lock
 
 # 旧 Skill 时代的研究与记录（本地留存，不进版本库）
 /docs/solutions/
-/docs/superpowers/
 /docs/competitive-analysis-*.md
 /docs/obsidian.md
 
