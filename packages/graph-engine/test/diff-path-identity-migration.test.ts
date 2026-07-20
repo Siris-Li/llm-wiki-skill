@@ -102,8 +102,15 @@ describe("path identity migration diff", () => {
 
   it("aligns all supported legacy source path fields", () => {
     const previous = graph([
-      { ...node("legacy-source", undefined, "legacy"), source: "wiki\\entities\\.\\source.md" },
-      { ...node("legacy-path", undefined, "legacy"), path: "wiki/topics/path.md" },
+      {
+        ...node("legacy-source", "", "legacy"),
+        source: "wiki\\entities\\.\\source.md",
+      },
+      {
+        ...node("legacy-path", "../outside.md", "legacy"),
+        source: "",
+        path: "wiki/topics/path.md",
+      },
     ]);
     const next = graph([
       node("wiki/entities/source.md", "wiki/entities/source.md", "current"),

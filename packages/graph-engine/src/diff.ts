@@ -151,7 +151,11 @@ function nodesBySourcePath(nodes: GraphNode[]): Map<string, GraphNode[]> {
 }
 
 function migrationSourcePathForNode(node: GraphNode): string | null {
-  return normalizeMigrationSourcePath(node.source_path ?? node.source ?? node.path);
+  for (const value of [node.source_path, node.source, node.path]) {
+    const sourcePath = normalizeMigrationSourcePath(value);
+    if (sourcePath != null) return sourcePath;
+  }
+  return null;
 }
 
 function diffSemanticEdges(
