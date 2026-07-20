@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { watch } from "node:fs";
-import { access, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -95,11 +95,15 @@ export function graphLayoutPath(kbPath: string): string {
 
 export async function readGraphData(kbPath: string): Promise<GraphReadResult> {
 	const graphPath = graphDataPath(kbPath);
-	const content = await readFile(graphPath, "utf8").catch((err: NodeJS.ErrnoException) => {
+	const graphStat = await lstat(graphPath).catch((err: NodeJS.ErrnoException) => {
 		if (err.code === "ENOENT") return null;
 		throw err;
 	});
-	if (content === null) return { ok: true, needsBuild: true, graphPath };
+	if (graphStat === null) return { ok: true, needsBuild: true, graphPath };
+	if (graphStat.isSymbolicLink() || !graphStat.isFile()) {
+		throw new Error("graph-data.json must be a regular non-symlink file");
+	}
+	const content = await readFile(graphPath, "utf8");
 	const data = JSON.parse(content) as GraphData;
 	if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
 		throw new Error("graph-data.json 格式不完整");

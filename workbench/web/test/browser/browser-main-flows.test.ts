@@ -298,6 +298,11 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await warningBanner.waitFor();
 		await page.locator(".sigma-global-node-hit-target").first().waitFor({ timeout: START_TIMEOUT_MS });
 		assert.ok(await page.locator(".graph-host > *").count(), "warning graph must keep rendered graph pixels");
+		await page.locator(".sigma-global-node-hit-target").first().click();
+		await page.getByText("Atlas Notes shared", { exact: true }).last().waitFor();
+		await page.getByRole("button", { name: "打开详情" }).click();
+		await page.getByText("Atlas-only fictional signal", { exact: false }).waitFor();
+		await page.getByLabel("关闭").last().click();
 		await warningBanner.getByRole("button", { name: "查看详情" }).click();
 		await warningBanner.getByText("wiki/synthesis/browser-warning-source.md", { exact: true }).first().waitFor();
 		await warningBanner.getByRole("button", { name: "加载更多" }).click();

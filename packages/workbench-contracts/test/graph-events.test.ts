@@ -115,6 +115,37 @@ test("graph update accepts migration warnings and normalizes legacy diffs", () =
 	assert.deepEqual(parsed.diff?.migrationWarnings, []);
 });
 
+test("graph migration warnings reject absolute or escaping source paths", () => {
+	for (const source_path of ["/Users/private/wiki/a.md", "../wiki/a.md", "wiki\\a.md"]) {
+		const event = {
+			...identity,
+			seq: 2,
+			type: "graph_updated",
+			kbPath: "/fake/kb",
+			diff: {
+				addedNodes: [],
+				removedNodes: [],
+				recoloredNodes: [],
+				addedEdges: [],
+				removedEdges: [],
+				newCommunities: [],
+				migrationWarnings: [{
+					code: "identity_alignment_ambiguous",
+					source_path,
+					previous_ids: ["old"],
+					next_ids: ["next"],
+				}],
+				stats: { nodeCount: 1, edgeCount: 0, communityCount: 1 },
+			},
+			rebuiltAt: "2026-07-11T12:01:00.000Z",
+			stats: { nodeCount: 1, edgeCount: 0 },
+			warning_summary: warningSummary,
+			warning_details_status: "available",
+		};
+		assert.equal(GraphSseEventSchema.safeParse(event).success, false, source_path);
+	}
+});
+
 test("graph update requires warning summary and detail status", () => {
 	const valid = {
 		...identity,

@@ -196,6 +196,7 @@ describe("GraphPanel Paper shell", () => {
 		assert.ok(document.querySelector(".graph-host"));
 		assert.equal(screen.queryByTestId("graph-state"), null);
 		assert.equal(document.querySelector(".graph-screen")?.getAttribute("data-graph-status"), "ready");
+		assert.equal(document.querySelector(".graph-screen")?.getAttribute("data-graph-theme"), "mo-ye");
 		assert.deepEqual(statuses.at(-1), {
 			status: "ready",
 			summary: "1 节点 · 0 关联 · 1 告警",
@@ -682,6 +683,10 @@ describe("GraphPanel Paper shell", () => {
 		assert.doesNotMatch(css, /(^|\n)\s*\.graph-toolbar\b/);
 		assert.doesNotMatch(css, /(^|\n)\s*\.graph-legend\b/);
 		assert.doesNotMatch(css, /render-styles|sigma-node|sigma-edge/);
+		assert.match(css, /\.graph-warnings-banner\s*\{[\s\S]*max-height:\s*min\(38vh, 360px\)[\s\S]*var\(--app-warn\)[\s\S]*var\(--app-surface\)/);
+		assert.match(css, /\.graph-warning-group p,\s*\n\s*\.graph-warning-group li\s*\{[\s\S]*overflow-wrap:\s*anywhere/);
+		assert.match(css, /@media \(max-width: 420px\)\s*\{[\s\S]*\.graph-warning-code-list\s*\{[\s\S]*grid-template-columns:\s*1fr/);
+		assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*\.graph-warnings-banner \*[\s\S]*transition:\s*none !important/);
 	});
 });
 

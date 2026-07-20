@@ -7,6 +7,7 @@ import {
 import {
 	GraphWarningDetailsStatusSchema,
 	GraphWarningSummarySchema,
+	KnowledgeBaseRelativePathSchema,
 } from "./graph-warnings.js";
 
 export const GRAPH_SSE_SCHEMA_VERSION = WORKBENCH_SSE_SCHEMA_VERSION;
@@ -52,7 +53,7 @@ const GraphMigrationWarningSchema = z.discriminatedUnion("code", [
 	z
 		.object({
 			code: z.literal("identity_alignment_ambiguous"),
-			source_path: z.string().nullable(),
+			source_path: KnowledgeBaseRelativePathSchema.nullable(),
 			previous_ids: z.array(z.string()),
 			next_ids: z.array(z.string()),
 		})

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -28,6 +28,25 @@ test("graph data without node source paths is treated as stale", async () => {
 		assert.equal(result.needsBuild, true);
 	} finally {
 		await rm(kbPath, { recursive: true, force: true });
+	}
+});
+
+test("graph data rejects a symbolic-link artifact before reading its target", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "llm-wiki-graph-symlink-"));
+	const kbPath = path.join(root, "kb");
+	const outsideGraph = path.join(root, "outside-graph-data.json");
+	try {
+		await mkdir(path.dirname(graphDataPath(kbPath)), { recursive: true });
+		await writeFile(outsideGraph, JSON.stringify({
+			meta: { build_date: "2026-01-01T00:00:00Z", wiki_title: "Outside", total_nodes: 1, total_edges: 0 },
+			nodes: [{ id: "outside", label: "Outside", type: "topic", source_path: "wiki/outside.md" }],
+			edges: [],
+		}), "utf8");
+		await symlink(outsideGraph, graphDataPath(kbPath));
+
+		await assert.rejects(readGraphData(kbPath), /regular non-symlink file/);
+	} finally {
+		await rm(root, { recursive: true, force: true });
 	}
 });
 
