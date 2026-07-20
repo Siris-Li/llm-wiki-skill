@@ -1,5 +1,6 @@
 import {
   buildGraphRendererAdapterData,
+  alignGraphIdentityBySourcePath,
   buildRenderableGraph,
   buildAtlasModel,
   createGraphEngine,
@@ -11,6 +12,7 @@ import {
   diffGraphData,
   deriveAtlasLayout,
   normalizeGraphLayoutFile,
+  normalizeGraphInputCollections,
   normalizeGraphPinMap,
   projectGraphInput,
   resolveGraphRendererSemantics,
@@ -18,6 +20,8 @@ import {
   type GraphData,
   type GraphEngine,
   type GraphInputProjection,
+  type GraphMigrationWarning,
+  type GraphWarningGroup,
   type GraphRendererAdapterData,
   type GraphVisibilityState,
   type PinMap,
@@ -41,9 +45,13 @@ const adapter: GraphRendererAdapterData = buildGraphRendererAdapterData({
 });
 const layout = normalizeGraphLayoutFile({ version: 2, pins });
 const diff = diffGraphData(graph, graph);
+const alignment = alignGraphIdentityBySourcePath(graph, graph);
 const unknownGraph: unknown = graph;
-const inputProjection: GraphInputProjection = projectGraphInput(unknownGraph);
-const model: AtlasModel = buildAtlasModel(inputProjection.data);
+const warnings: GraphWarningGroup[] = [];
+const normalized = normalizeGraphInputCollections(unknownGraph, warnings);
+const inputProjection: GraphInputProjection = projectGraphInput(unknownGraph, warnings);
+const model: AtlasModel = buildAtlasModel(inputProjection.data, warnings);
+const migrationWarning: GraphMigrationWarning | undefined = diff.migrationWarnings[0];
 const atlasLayout = deriveAtlasLayout(model);
 
 declare const container: HTMLElement;
@@ -57,4 +65,4 @@ const standalone = createGraphStandaloneCapabilities();
 declare const visibility: GraphVisibilityState;
 
 engine.setData(unknownGraph);
-void [renderable, layoutBounds, contentBounds, framingBounds, adapter, layout, diff, inputProjection, model, atlasLayout, engine, renderer, staticRenderer, workbench, offline, standalone, visibility];
+void [renderable, layoutBounds, contentBounds, framingBounds, adapter, layout, diff, alignment, normalized, inputProjection, model, atlasLayout, migrationWarning, engine, renderer, staticRenderer, workbench, offline, standalone, visibility];

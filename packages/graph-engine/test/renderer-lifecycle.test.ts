@@ -2487,6 +2487,7 @@ function diff(overrides: Partial<GraphDiff> & { nodeCount: number }): GraphDiff 
     addedEdges: overrides.addedEdges || [],
     removedEdges: overrides.removedEdges || [],
     newCommunities: overrides.newCommunities || [],
+    migrationWarnings: overrides.migrationWarnings || [],
     stats: {
       nodeCount: overrides.nodeCount,
       edgeCount: 0,

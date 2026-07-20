@@ -486,6 +486,7 @@ function rendererGraphInput(
 ): GraphInputProjection {
   return {
     data,
-    regularSearchByNode: regularSearchByNode ?? buildSearchIndex(Array.isArray(data.nodes) ? data.nodes : [])
+    regularSearchByNode: regularSearchByNode ?? buildSearchIndex(Array.isArray(data.nodes) ? data.nodes : []),
+    warnings: []
   };
 }

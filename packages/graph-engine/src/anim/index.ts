@@ -129,6 +129,7 @@ export function mergeGraphDiffs(previous: GraphDiff | null, next: GraphDiff): Gr
     addedEdges: orderedSet(addedEdges),
     removedEdges: orderedSet(removedEdges),
     newCommunities: orderedSet(new Set([...previous.newCommunities, ...next.newCommunities])),
+    migrationWarnings: mergeMigrationWarnings(previous.migrationWarnings, next.migrationWarnings),
     stats: next.stats
   };
 }
@@ -139,7 +140,8 @@ export function isEmptyDiff(diff: GraphDiff): boolean {
     && diff.recoloredNodes.length === 0
     && diff.addedEdges.length === 0
     && diff.removedEdges.length === 0
-    && diff.newCommunities.length === 0;
+    && diff.newCommunities.length === 0
+    && (diff.migrationWarnings?.length ?? 0) === 0;
 }
 
 function mergeRecolors(
@@ -170,8 +172,21 @@ function cloneDiff(diff: GraphDiff): GraphDiff {
     addedEdges: [...diff.addedEdges],
     removedEdges: [...diff.removedEdges],
     newCommunities: [...diff.newCommunities],
+    migrationWarnings: (diff.migrationWarnings ?? []).map((warning) => ({ ...warning })),
     stats: { ...diff.stats }
   };
+}
+
+function mergeMigrationWarnings(
+  previous: GraphDiff["migrationWarnings"] | undefined,
+  next: GraphDiff["migrationWarnings"] | undefined
+): GraphDiff["migrationWarnings"] {
+  const merged = new Map<string, GraphDiff["migrationWarnings"][number]>();
+  for (const warning of [...(previous ?? []), ...(next ?? [])]) {
+    const key = JSON.stringify(warning);
+    if (!merged.has(key)) merged.set(key, warning);
+  }
+  return Array.from(merged.values());
 }
 
 function orderedSet<T extends NodeId | EdgeId | CommunityId>(set: Set<T>): T[] {

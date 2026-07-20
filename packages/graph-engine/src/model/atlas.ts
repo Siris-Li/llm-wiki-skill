@@ -10,9 +10,12 @@ import type {
   GraphLearning,
   GraphNode,
   GraphRelationType,
+  GraphWarningGroup,
   NodeId,
   WikiPath
 } from "../types";
+
+import { normalizeGraphInputCollections } from "./input-normalization";
 
 import {
   atlasConfidenceLabel,
@@ -111,6 +114,7 @@ export interface AtlasModel {
   starts: AtlasStart[];
   searchIndex: AtlasSearchIndexEntry[];
   insights: AtlasInsights;
+  warnings: GraphWarningGroup[];
 }
 
 export interface AtlasPoint {
@@ -175,9 +179,13 @@ const ATLAS_CONFIDENCES = new Set<AtlasConfidence>([
   "UNVERIFIED"
 ]);
 
-export function buildAtlasModel(input: unknown): AtlasModel {
+export function buildAtlasModel(
+  input: unknown,
+  inputWarnings: readonly GraphWarningGroup[] = [],
+): AtlasModel {
   const raw = objectRecord(input);
-  const nodes = mapArrayValues(raw.nodes, normalizeAtlasNode);
+  const normalized = normalizeGraphInputCollections(raw, inputWarnings);
+  const nodes = normalized.nodes.map(normalizeAtlasNode);
   const byId: Partial<Record<NodeId, AtlasNode>> = Object.create(null) as Partial<Record<NodeId, AtlasNode>>;
   const groupedByCommunity: Record<CommunityId, AtlasCommunityGroup> = Object.create(null) as Record<CommunityId, AtlasCommunityGroup>;
 
@@ -188,7 +196,7 @@ export function buildAtlasModel(input: unknown): AtlasModel {
     groupedByCommunity[node.community] = group;
   });
 
-  const edges = mapArrayValues(raw.edges, normalizeAtlasEdge)
+  const edges = normalized.edges.map(normalizeAtlasEdge)
     .filter((edge) => Boolean(byId[edge.source] && byId[edge.target]));
 
   for (const edge of edges) {
@@ -199,7 +207,11 @@ export function buildAtlasModel(input: unknown): AtlasModel {
     node.priority = node.degree * 12 + node.weight + (node.type === "topic" ? 12 : node.type === "source" ? 6 : 0);
   });
 
-  const communities = deriveAtlasCommunities(raw, groupedByCommunity);
+  const rawLearning = objectRecord(raw.learning);
+  const communities = deriveAtlasCommunities({
+    ...raw,
+    learning: { ...rawLearning, communities: normalized.communities },
+  }, groupedByCommunity);
   const communityById: Partial<Record<CommunityId, AtlasCommunity>> = Object.create(null) as Partial<Record<CommunityId, AtlasCommunity>>;
   for (const community of communities) communityById[community.id] = community;
 
@@ -218,7 +230,8 @@ export function buildAtlasModel(input: unknown): AtlasModel {
     communityById,
     starts: buildAtlasStarts(raw, nodes, byId, communities),
     searchIndex: buildAtlasSearchIndex(nodes),
-    insights: normalizeAtlasModelInsights(raw.insights)
+    insights: normalizeAtlasModelInsights(raw.insights),
+    warnings: normalized.warnings,
   };
 }
 
@@ -522,24 +535,31 @@ export interface RegularSearchNodeProjection {
 export interface GraphInputProjection {
   data: GraphData;
   regularSearchByNode: RegularSearchNodeProjection[];
+  warnings: GraphWarningGroup[];
 }
 
-export function projectGraphInput(input: unknown): GraphInputProjection {
+export function projectGraphInput(
+  input: unknown,
+  inputWarnings: readonly GraphWarningGroup[] = [],
+): GraphInputProjection {
   try {
-    return projectGraphInputUnchecked(input);
+    return projectGraphInputUnchecked(input, inputWarnings);
   } catch {
-    return projectGraphInputUnchecked({});
+    return projectGraphInputUnchecked({}, inputWarnings);
   }
 }
 
-function projectGraphInputUnchecked(input: unknown): GraphInputProjection {
+function projectGraphInputUnchecked(
+  input: unknown,
+  inputWarnings: readonly GraphWarningGroup[],
+): GraphInputProjection {
   const rawGraph = { ...objectRecord(input) };
-  const rawNodes = arrayValues(rawGraph.nodes);
-  const nodes = rawNodes.map(projectNode);
-  const rawEdges = arrayValues(rawGraph.edges);
-  const edges = rawEdges.map(projectEdge);
+  const normalized = normalizeGraphInputCollections(rawGraph, inputWarnings);
+  const nodes = normalized.nodes;
+  const edges = normalized.edges;
   const rawMeta = objectRecord(rawGraph.meta);
   const learning = rawGraph.learning == null ? undefined : projectLearning(rawGraph.learning);
+  if (learning) learning.communities = normalized.communities;
   const insights = rawGraph.insights == null ? undefined : projectInsights(rawGraph.insights);
   const data = {
     ...rawGraph,
@@ -560,8 +580,12 @@ function projectGraphInputUnchecked(input: unknown): GraphInputProjection {
     data,
     regularSearchByNode: nodes.map((node, index) => ({
       node,
-      haystack: regularSearchHaystack(objectRecord(rawNodes[index]), node.id)
-    }))
+      haystack: regularSearchHaystack(
+        objectRecord(Array.isArray(rawGraph.nodes) ? rawGraph.nodes[index] : undefined),
+        node.id,
+      )
+    })),
+    warnings: normalized.warnings,
   };
 }
 

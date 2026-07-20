@@ -116,6 +116,7 @@ function diff(partial: Partial<GraphDiff> = {}): GraphDiff {
     addedEdges: partial.addedEdges ?? [],
     removedEdges: partial.removedEdges ?? [],
     newCommunities: partial.newCommunities ?? [],
+    migrationWarnings: partial.migrationWarnings ?? [],
     stats: partial.stats ?? { nodeCount: 0, edgeCount: 0, communityCount: 0 }
   };
 }
