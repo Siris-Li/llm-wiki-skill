@@ -6,6 +6,7 @@ import {
 	GraphSseEventSchema,
 	type GraphSseEvent,
 } from "@llm-wiki/workbench-contracts";
+import type { GraphDiff } from "@llm-wiki/graph-engine";
 
 import {
 	parseSseJson,
@@ -16,6 +17,13 @@ import {
 export type GraphNotificationEvent = Exclude<
 	GraphSseEvent,
 	{ type: "graph_stream_ready" }
+>;
+
+type AssertGraphEventDiffCompatibility<T extends true> = T;
+export type GraphEventDiffCompatibility = AssertGraphEventDiffCompatibility<
+	NonNullable<Extract<GraphSseEvent, { type: "graph_updated" }>["diff"]> extends GraphDiff
+		? true
+		: false
 >;
 
 export class GraphEventsProtocolError extends RecoverableSseProtocolError {

@@ -10,12 +10,14 @@ const availableHtml = process.env.GRAPH_WARNING_AVAILABLE_HTML || "";
 const availableGraph = process.env.GRAPH_WARNING_AVAILABLE_GRAPH || "";
 const availableWarnings = process.env.GRAPH_WARNING_AVAILABLE_SIDECAR || "";
 const mismatchHtml = process.env.GRAPH_WARNING_MISMATCH_HTML || "";
+const missingHtml = process.env.GRAPH_WARNING_MISSING_HTML || "";
+const legacyHtml = process.env.GRAPH_WARNING_LEGACY_HTML || "";
 const largeHtml = process.env.GRAPH_WARNING_LARGE_HTML || "";
 const tempKnowledgeBase = process.env.GRAPH_WARNING_TEMP_KB || "";
 const executablePath = process.env.GRAPH_OFFLINE_WARNING_CHROME_EXECUTABLE || undefined;
 const evidenceDir = path.resolve(".tmp/graph-offline-warnings");
 
-for (const [name, value] of Object.entries({ availableHtml, availableGraph, availableWarnings, mismatchHtml, largeHtml })) {
+for (const [name, value] of Object.entries({ availableHtml, availableGraph, availableWarnings, mismatchHtml, missingHtml, legacyHtml, largeHtml })) {
   assert.ok(value, `${name} must be provided`);
 }
 
@@ -23,7 +25,9 @@ await rm(evidenceDir, { recursive: true, force: true });
 const browser = await chromium.launch(executablePath ? { executablePath } : {});
 try {
   await verifyAvailableWarnings();
-  await verifyMismatch();
+  await verifyUnavailableDetails(mismatchHtml, "mismatch");
+  await verifyUnavailableDetails(missingHtml, "missing");
+  await verifyUnavailableDetails(legacyHtml, "legacy");
   await verifyLargePayload();
 } catch (error) {
   await mkdir(evidenceDir, { recursive: true });
@@ -87,12 +91,17 @@ async function verifyAvailableWarnings() {
   });
 }
 
-async function verifyMismatch() {
-  await withOfflinePage(mismatchHtml, "mismatch", async (page) => {
+async function verifyUnavailableDetails(htmlPath, label) {
+  await withOfflinePage(htmlPath, label, async (page) => {
     await page.locator('[data-testid="offline-warning-unavailable"]', {
       hasText: "告警详情暂不可用，请重新构建图谱"
     }).waitFor();
-    assert.ok(await page.locator(".sigma-global-node-hit-target").count() > 0, "mismatch must keep the graph readable");
+    assert.ok(await page.locator(".sigma-global-node-hit-target").count() > 0, `${label} must keep the graph readable`);
+    const details = page.locator('[data-testid="offline-warning-details"]');
+    await details.locator("summary").click();
+    const detailsText = await details.innerText();
+    assert.ok(detailsText.includes("duplicate_node_id"), `${label} must show live engine warnings`);
+    assert.equal(detailsText.includes("ambiguous_wikilink"), false, `${label} must discard untrusted persisted details`);
   });
 }
 

@@ -15,6 +15,54 @@ export const GRAPH_SSE_READY_EVENT_TYPE = "graph_stream_ready" as const;
 // with seq=1. Client close or transport disconnect is the lifecycle end rule.
 const GraphEventIdentitySchema = StreamSseEventIdentitySchema;
 
+export type GraphMigrationWarningContract =
+	| {
+			code: "identity_alignment_ambiguous";
+			source_path: string | null;
+			previous_ids: string[];
+			next_ids: string[];
+	  }
+	| {
+			code: "legacy_semantic_edge_duplicate";
+			semantic_key: string;
+			previous_edge_ids: string[];
+			next_edge_ids: string[];
+	  };
+
+export interface GraphDiffContract {
+	addedNodes: string[];
+	removedNodes: string[];
+	recoloredNodes: Array<{ id: string; from: string; to: string }>;
+	addedEdges: string[];
+	removedEdges: string[];
+	newCommunities: string[];
+	migrationWarnings: GraphMigrationWarningContract[];
+	stats: {
+		nodeCount: number;
+		edgeCount: number;
+		communityCount: number;
+	};
+}
+
+const GraphMigrationWarningSchema = z.discriminatedUnion("code", [
+	z
+		.object({
+			code: z.literal("identity_alignment_ambiguous"),
+			source_path: z.string().nullable(),
+			previous_ids: z.array(z.string()),
+			next_ids: z.array(z.string()),
+		})
+		.strict(),
+	z
+		.object({
+			code: z.literal("legacy_semantic_edge_duplicate"),
+			semantic_key: z.string(),
+			previous_edge_ids: z.array(z.string()),
+			next_edge_ids: z.array(z.string()),
+		})
+		.strict(),
+]);
+
 export const GraphDiffSchema = z
 	.object({
 		addedNodes: z.array(z.string()),
@@ -31,6 +79,7 @@ export const GraphDiffSchema = z
 		addedEdges: z.array(z.string()),
 		removedEdges: z.array(z.string()),
 		newCommunities: z.array(z.string()),
+		migrationWarnings: z.array(GraphMigrationWarningSchema).default([]),
 		stats: z
 			.object({
 				nodeCount: z.number().int().nonnegative(),
@@ -39,8 +88,8 @@ export const GraphDiffSchema = z
 			})
 			.strict(),
 	})
-	.strict();
-export type GraphDiffContract = z.infer<typeof GraphDiffSchema>;
+	.strict()
+	.transform((diff): GraphDiffContract => diff);
 
 const GraphStatsSchema = z
 	.object({

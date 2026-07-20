@@ -33,6 +33,20 @@ test("graph SSE schema validates ready, update, and recoverable graph error even
 				addedEdges: ["edge-1"],
 				removedEdges: [],
 				newCommunities: ["new"],
+				migrationWarnings: [
+					{
+						code: "identity_alignment_ambiguous",
+						source_path: "notes/ambiguous.md",
+						previous_ids: ["old-a", "old-b"],
+						next_ids: ["new-a", "new-b"],
+					},
+					{
+						code: "legacy_semantic_edge_duplicate",
+						semantic_key: '["a","b","依赖"]',
+						previous_edge_ids: ["old-edge"],
+						next_edge_ids: ["new-edge"],
+					},
+				],
 				stats: { nodeCount: 2, edgeCount: 1, communityCount: 2 },
 			},
 			rebuiltAt: "2026-07-11T12:01:00.000Z",
@@ -52,6 +66,38 @@ test("graph SSE schema validates ready, update, and recoverable graph error even
 	assert.equal(GRAPH_SSE_EVENT_NAME, "message");
 	assert.equal(events.length, GRAPH_SSE_EVENT_TYPES.length);
 	for (const event of events) assert.deepEqual(GraphSseEventSchema.parse(event), event);
+});
+
+test("graph update accepts migration warnings and normalizes legacy diffs", () => {
+	const current = {
+		...identity,
+		seq: 2,
+		type: "graph_updated",
+		kbPath: "/fake/kb",
+		diff: {
+			addedNodes: [],
+			removedNodes: [],
+			recoloredNodes: [],
+			addedEdges: [],
+			removedEdges: [],
+			newCommunities: [],
+			migrationWarnings: [{
+				code: "identity_alignment_ambiguous",
+				source_path: null,
+				previous_ids: ["old"],
+				next_ids: [],
+			}],
+			stats: { nodeCount: 1, edgeCount: 0, communityCount: 1 },
+		},
+		rebuiltAt: "2026-07-11T12:01:00.000Z",
+		stats: { nodeCount: 1, edgeCount: 0 },
+	} as const;
+	assert.deepEqual(GraphSseEventSchema.parse(current), current);
+
+	const legacy = structuredClone(current) as Record<string, any>;
+	delete legacy.diff.migrationWarnings;
+	const parsed = GraphSseEventSchema.parse(legacy);
+	assert.deepEqual(parsed.diff?.migrationWarnings, []);
 });
 
 test("graph SSE schema rejects drift in version, stream identity, sequence, and type", () => {

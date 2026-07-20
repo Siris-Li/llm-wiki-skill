@@ -14,6 +14,7 @@ const {
   commitGraphArtifactPair,
   OFFLINE_WARNING_LIMIT_BYTES,
   prepareOfflineWarningPayload,
+  serializeJsonForHtmlScript,
   verifyGraphArtifactPair
 } = require("../../scripts/lib/graph-warning-bundle");
 
@@ -284,6 +285,32 @@ describe("graph warning artifact commit and verification", () => {
     });
   });
 
+  it("rejects matching graph and sidecar summaries when detail-derived counts disagree", async () => {
+    await withKnowledgeBase(async (kbRoot) => {
+      const graphPath = path.join(kbRoot, "wiki", "graph-data.json");
+      const warningPath = path.join(kbRoot, "wiki", "graph-warnings.json");
+      const pair = assembledPair("Matching bad summaries");
+      await commitGraphArtifactPair({ kbRoot, graphPath, warningPath, pair });
+
+      const graph = JSON.parse(await fsp.readFile(graphPath, "utf8"));
+      const warnings = JSON.parse(await fsp.readFile(warningPath, "utf8"));
+      for (const summary of [graph.meta.warning_summary, warnings.summary]) {
+        summary.total_groups = 999;
+        summary.total_occurrences = 999;
+        summary.error_occurrences = 998;
+        summary.warning_occurrences = 1;
+        summary.by_code = { ambiguous_wikilink: 999 };
+      }
+      await fsp.writeFile(graphPath, `${JSON.stringify(graph)}\n`);
+      await fsp.writeFile(warningPath, `${JSON.stringify(warnings)}\n`);
+
+      const verified = await verifyGraphArtifactPair({ kbRoot, graphPath, warningPath });
+      assert.equal(verified.status, "unavailable");
+      assert.equal(verified.reason, "invalid");
+      assert.equal("warningBundle" in verified, false);
+    });
+  });
+
   it("preserves the graph summary when the sidecar is missing or malformed", async () => {
     await withKnowledgeBase(async (kbRoot) => {
       const graphPath = path.join(kbRoot, "wiki", "graph-data.json");
@@ -517,7 +544,61 @@ function embeddedCompressedBytes(payload) {
   return zlib.gzipSync(Buffer.from(JSON.stringify(payload), "utf8"), { level: 9 }).length;
 }
 
+function scriptSafeJsonBytes(payload) {
+  return Buffer.from(JSON.stringify(payload).replace(/[<>&\u2028\u2029]/g, (character) => (
+    `\\u${character.codePointAt(0).toString(16).padStart(4, "0")}`
+  )), "utf8");
+}
+
+function compressedScriptPayload(payload) {
+  return zlib.gzipSync(serializeJsonForHtmlScript(payload), { level: 9 }).length;
+}
+
+function truncatedPayloadFixture(bundle) {
+  return {
+    summary: bundle.summary,
+    details_status: "available",
+    details_unavailable_reason: null,
+    warning_details_truncated: true,
+    omitted_group_count: 0,
+    omitted_candidate_set_count: 0,
+    bundle: {
+      ...bundle,
+      groups: bundle.groups.map((group) => ({ ...group, occurrences: group.occurrences.slice(0, 20) })),
+      candidate_sets: bundle.candidate_sets.map((set) => ({ ...set, candidates: set.candidates.slice(0, 20) }))
+    }
+  };
+}
+
+function replaceHexWithScriptSensitiveCharacters(value) {
+  const replacements = { 0: "<", 1: ">", 2: "&", 3: "\u2028", 4: "\u2029" };
+  return value.replace(/[0-4]/g, (character) => replacements[character]);
+}
+
 describe("offline warning payload budget", () => {
+  it("measures the exact script-safe bytes for the final 2 MiB hard limit", () => {
+    const bundle = syntheticBundle(121, 30, 800);
+    bundle.groups = bundle.groups.map((group) => ({
+      ...group,
+      message: replaceHexWithScriptSensitiveCharacters(group.message),
+      occurrences: group.occurrences.map((item) => ({
+        ...item,
+        raw_link: replaceHexWithScriptSensitiveCharacters(item.raw_link)
+      }))
+    }));
+    bundle.candidate_sets = bundle.candidate_sets.map((candidateSet) => ({
+      ...candidateSet,
+      candidates: candidateSet.candidates.map(replaceHexWithScriptSensitiveCharacters)
+    }));
+
+    const result = prepareOfflineWarningPayload({ summary: bundle.summary, bundle });
+    const exactEmbeddedBytes = scriptSafeJsonBytes(result.payload);
+    const finalCompressedBytes = zlib.gzipSync(exactEmbeddedBytes, { level: 9 }).length;
+    assert.ok(finalCompressedBytes <= OFFLINE_WARNING_LIMIT_BYTES, `final script bytes were ${finalCompressedBytes}`);
+    assert.deepEqual(result.scriptBytes, exactEmbeddedBytes);
+    assert.equal(result.compressedBytes, finalCompressedBytes);
+  });
+
   it("embeds complete details below the limit and deterministically truncates details above it", () => {
     const completeBundle = assembledPair("Offline small").warningBundle;
     const small = prepareOfflineWarningPayload({ summary: completeBundle.summary, bundle: completeBundle });
@@ -565,6 +646,46 @@ describe("offline warning payload budget", () => {
     assert.deepEqual(
       prepareOfflineWarningPayload({ summary: reversed.summary, bundle: reversed }),
       large
+    );
+  });
+
+  it("removes only the stable tail detail needed after the 20-item compact pass", () => {
+    const occurrenceBundle = syntheticBundle(1, 21, 160, 0);
+    const occurrenceCompact = truncatedPayloadFixture(occurrenceBundle);
+    const occurrenceOneRemoved = structuredClone(occurrenceCompact);
+    occurrenceOneRemoved.bundle.groups.at(-1).occurrences.pop();
+    const occurrenceLimit = compressedScriptPayload(occurrenceOneRemoved);
+    assert.ok(compressedScriptPayload(occurrenceCompact) > occurrenceLimit);
+
+    const occurrenceResult = prepareOfflineWarningPayload({
+      summary: occurrenceBundle.summary,
+      bundle: occurrenceBundle,
+      maxCompressedBytes: occurrenceLimit
+    });
+    assert.equal(occurrenceResult.payload.bundle.groups[0].occurrences.length, 19);
+    assert.equal(occurrenceResult.payload.bundle.candidate_sets.length, 1);
+    assert.equal(
+      occurrenceResult.payload.bundle.groups[0].candidate_set_id,
+      occurrenceResult.payload.bundle.candidate_sets[0].candidate_set_id
+    );
+
+    const candidateBundle = syntheticBundle(1, 0, 320, 21);
+    const candidateCompact = truncatedPayloadFixture(candidateBundle);
+    const candidateOneRemoved = structuredClone(candidateCompact);
+    candidateOneRemoved.bundle.candidate_sets.at(-1).candidates.pop();
+    const candidateLimit = compressedScriptPayload(candidateOneRemoved);
+    assert.ok(compressedScriptPayload(candidateCompact) > candidateLimit);
+
+    const candidateResult = prepareOfflineWarningPayload({
+      summary: candidateBundle.summary,
+      bundle: candidateBundle,
+      maxCompressedBytes: candidateLimit
+    });
+    assert.equal(candidateResult.payload.bundle.candidate_sets[0].candidates.length, 19);
+    assert.equal(candidateResult.payload.bundle.groups.length, 1);
+    assert.equal(
+      candidateResult.payload.bundle.groups[0].candidate_set_id,
+      candidateResult.payload.bundle.candidate_sets[0].candidate_set_id
     );
   });
 

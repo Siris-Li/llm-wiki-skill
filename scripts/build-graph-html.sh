@@ -348,7 +348,7 @@ cat >> "$output_tmp" <<'HTML_MID'
   </script>
   <script id="graph-warning-data" type="application/json">
 HTML_MID
-json_for_script "$warning_data_tmp" >> "$output_tmp"
+cat "$warning_data_tmp" >> "$output_tmp"
 cat >> "$output_tmp" <<'HTML_WARNING_END'
   </script>
   <script id="graph-layout" type="application/json">
@@ -428,9 +428,26 @@ cat >> "$output_tmp" <<'HTML_BOOT'
         var groupsBox = document.querySelector("[data-testid='offline-warning-groups']");
         if (!banner || !summaryBox || !payload) return;
         var summary = payload.summary || {};
+        var warningById = {};
+        for (var warningIndex = 0; warningIndex < (modelWarnings || []).length; warningIndex++) {
+          var warning = modelWarnings[warningIndex];
+          if (warning && warning.warning_id && !warningById[warning.warning_id]) warningById[warning.warning_id] = warning;
+        }
+        var warnings = Object.keys(warningById).sort().map(function (warningId) { return warningById[warningId]; });
         var hasWarningSummary = typeof summary.total_groups === "number"
           || typeof summary.total_occurrences === "number";
-        if (!hasWarningSummary && payload.details_status !== "available") return;
+        if (!hasWarningSummary && warnings.length === 0) return;
+        if (!hasWarningSummary) {
+          summary = { total_groups: warnings.length, total_occurrences: 0, error_occurrences: 0, warning_occurrences: 0, by_code: {} };
+          for (var summaryIndex = 0; summaryIndex < warnings.length; summaryIndex++) {
+            var summaryWarning = warnings[summaryIndex];
+            var count = Number(summaryWarning.occurrence_count || 0);
+            summary.total_occurrences += count;
+            if (summaryWarning.severity === "error") summary.error_occurrences += count;
+            else summary.warning_occurrences += count;
+            summary.by_code[summaryWarning.code] = (summary.by_code[summaryWarning.code] || 0) + count;
+          }
+        }
         var codes = Object.keys(summary.by_code || {}).sort().map(function (code) {
           return code + ": " + summary.by_code[code];
         });
@@ -445,8 +462,6 @@ cat >> "$output_tmp" <<'HTML_BOOT'
             unavailable.hidden = false;
             unavailable.textContent = "告警详情暂不可用，请重新构建图谱";
           }
-          if (details) details.hidden = true;
-          return;
         }
         if (payload.warning_details_truncated && truncated) {
           truncated.hidden = false;
@@ -461,12 +476,6 @@ cat >> "$output_tmp" <<'HTML_BOOT'
           var candidateSet = bundle.candidate_sets[setIndex];
           candidateSets[candidateSet.candidate_set_id] = candidateSet;
         }
-        var warningById = {};
-        for (var warningIndex = 0; warningIndex < (modelWarnings || []).length; warningIndex++) {
-          var warning = modelWarnings[warningIndex];
-          if (warning && warning.warning_id && !warningById[warning.warning_id]) warningById[warning.warning_id] = warning;
-        }
-        var warnings = Object.keys(warningById).sort().map(function (warningId) { return warningById[warningId]; });
         if (groupsBox) groupsBox.innerHTML = "";
         for (var groupIndex = 0; groupsBox && groupIndex < warnings.length; groupIndex++) {
           var group = warnings[groupIndex];

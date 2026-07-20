@@ -14,6 +14,38 @@ import {
 } from "../src/lib/api/events";
 
 describe("graph EventSource client", () => {
+	it("accepts the real server graph diff with migration warnings", () => {
+		const parser = readyParser();
+		const received = parser.parse(JSON.stringify(event("graph_updated", 2, {
+			kbPath: "/fake/kb",
+			diff: {
+				addedNodes: [],
+				removedNodes: [],
+				recoloredNodes: [],
+				addedEdges: [],
+				removedEdges: [],
+				newCommunities: [],
+				migrationWarnings: [{
+					code: "legacy_semantic_edge_duplicate",
+					semantic_key: '["a","b","依赖"]',
+					previous_edge_ids: ["old-edge"],
+					next_edge_ids: ["new-edge"],
+				}],
+				stats: { nodeCount: 2, edgeCount: 1, communityCount: 1 },
+			},
+			rebuiltAt: "2026-07-11T12:01:00.000Z",
+			stats: { nodeCount: 2, edgeCount: 1 },
+		})));
+
+		assert.equal(received.type, "graph_updated");
+		assert.deepEqual(received.diff?.migrationWarnings, [{
+			code: "legacy_semantic_edge_duplicate",
+			semantic_key: '["a","b","依赖"]',
+			previous_edge_ids: ["old-edge"],
+			next_edge_ids: ["new-edge"],
+		}]);
+	});
+
 	it("accepts ready, graph_error, and later graph_updated with contiguous seq", () => {
 		const parser = new GraphEventParser();
 		const fixture = [

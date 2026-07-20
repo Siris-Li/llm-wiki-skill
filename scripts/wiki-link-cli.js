@@ -7,6 +7,7 @@ const {
   assembleGraphArtifactPair,
   commitGraphArtifactPair,
   prepareOfflineWarningPayload,
+  serializeJsonForHtmlScript,
   verifyGraphArtifactPair
 } = require("./lib/graph-warning-bundle");
 const { scanKnowledgeBaseLinks, validatePortableMarkdownFilename } = require("./lib/wiki-link-index");
@@ -124,11 +125,14 @@ async function writeWarningEmbed(args) {
     warningPath: args.warningPath
   });
   let payload;
+  let scriptBytes;
   if (verified.status === "available") {
-    payload = prepareOfflineWarningPayload({
+    const prepared = prepareOfflineWarningPayload({
       summary: verified.graphData.meta.warning_summary,
       bundle: verified.warningBundle
-    }).payload;
+    });
+    payload = prepared.payload;
+    scriptBytes = prepared.scriptBytes;
   } else {
     payload = {
       summary: verified.summary || {},
@@ -138,8 +142,9 @@ async function writeWarningEmbed(args) {
       omitted_group_count: 0,
       omitted_candidate_set_count: 0
     };
+    scriptBytes = serializeJsonForHtmlScript(payload);
   }
-  fs.writeFileSync(args.outputPath, `${JSON.stringify(payload)}\n`, "utf8");
+  fs.writeFileSync(args.outputPath, scriptBytes);
 }
 
 function basenameWithoutMarkdown(relativePath) {

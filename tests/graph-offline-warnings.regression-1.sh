@@ -26,6 +26,17 @@ cp "$KB_ROOT/wiki/knowledge-graph.html" "$TMP_DIR/available.html"
 cp "$KB_ROOT/wiki/graph-data.json" "$TMP_DIR/available-graph.json"
 cp "$KB_ROOT/wiki/graph-warnings.json" "$TMP_DIR/available-warnings.json"
 
+add_live_duplicate() {
+  node - "$1" <<'NODE'
+const fs = require("node:fs");
+const file = process.argv[2];
+const graph = JSON.parse(fs.readFileSync(file, "utf8"));
+graph.nodes.push({ ...graph.nodes[0], label: "LIVE DUPLICATE MARKER" });
+fs.writeFileSync(file, `${JSON.stringify(graph, null, 2)}\n`);
+NODE
+}
+
+add_live_duplicate "$KB_ROOT/wiki/graph-data.json"
 node - "$KB_ROOT/wiki/graph-warnings.json" <<'NODE'
 const fs = require("node:fs");
 const file = process.argv[2];
@@ -36,6 +47,27 @@ NODE
 bash "$REPO_ROOT/scripts/build-graph-html.sh" "$KB_ROOT" > /dev/null \
   || fail "mismatched warning HTML should remain exportable"
 cp "$KB_ROOT/wiki/knowledge-graph.html" "$TMP_DIR/mismatch.html"
+
+cp "$TMP_DIR/available-graph.json" "$KB_ROOT/wiki/graph-data.json"
+add_live_duplicate "$KB_ROOT/wiki/graph-data.json"
+rm -f "$KB_ROOT/wiki/graph-warnings.json"
+bash "$REPO_ROOT/scripts/build-graph-html.sh" "$KB_ROOT" > /dev/null \
+  || fail "missing warning sidecar HTML should remain exportable"
+cp "$KB_ROOT/wiki/knowledge-graph.html" "$TMP_DIR/missing.html"
+
+cp "$TMP_DIR/available-graph.json" "$KB_ROOT/wiki/graph-data.json"
+cp "$TMP_DIR/available-warnings.json" "$KB_ROOT/wiki/graph-warnings.json"
+add_live_duplicate "$KB_ROOT/wiki/graph-data.json"
+node - "$KB_ROOT/wiki/graph-data.json" <<'NODE'
+const fs = require("node:fs");
+const file = process.argv[2];
+const graph = JSON.parse(fs.readFileSync(file, "utf8"));
+delete graph.meta.warning_summary;
+fs.writeFileSync(file, `${JSON.stringify(graph, null, 2)}\n`);
+NODE
+bash "$REPO_ROOT/scripts/build-graph-html.sh" "$KB_ROOT" > /dev/null \
+  || fail "legacy graph without warning summary should remain exportable"
+cp "$KB_ROOT/wiki/knowledge-graph.html" "$TMP_DIR/legacy.html"
 
 cp -R "$KB_ROOT" "$LARGE_KB"
 cp "$TMP_DIR/available-graph.json" "$LARGE_KB/wiki/graph-data.json"
@@ -103,6 +135,8 @@ GRAPH_WARNING_AVAILABLE_HTML="$TMP_DIR/available.html" \
 GRAPH_WARNING_AVAILABLE_GRAPH="$TMP_DIR/available-graph.json" \
 GRAPH_WARNING_AVAILABLE_SIDECAR="$TMP_DIR/available-warnings.json" \
 GRAPH_WARNING_MISMATCH_HTML="$TMP_DIR/mismatch.html" \
+GRAPH_WARNING_MISSING_HTML="$TMP_DIR/missing.html" \
+GRAPH_WARNING_LEGACY_HTML="$TMP_DIR/legacy.html" \
 GRAPH_WARNING_LARGE_HTML="$TMP_DIR/large.html" \
 GRAPH_WARNING_TEMP_KB="$TMP_DIR" \
 GRAPH_OFFLINE_WARNING_CHROME_EXECUTABLE="$chrome_executable" \

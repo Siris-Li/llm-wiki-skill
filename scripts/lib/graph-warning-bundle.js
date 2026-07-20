@@ -35,6 +35,13 @@ function canonicalBytes(value) {
   return Buffer.from(JSON.stringify(canonicalize(value)), "utf8");
 }
 
+function serializeJsonForHtmlScript(value) {
+  const json = JSON.stringify(canonicalize(value));
+  return Buffer.from(json.replace(/[<>&\u2028\u2029]/g, (character) => (
+    `\\u${character.codePointAt(0).toString(16).padStart(4, "0")}`
+  )), "utf8");
+}
+
 function compareText(left, right) {
   return String(left).localeCompare(String(right), "en");
 }
@@ -144,6 +151,35 @@ function canonicalWarningDetailBytes(bundle) {
   });
 }
 
+function summarizeWarningGroups(groups) {
+  const byCode = {};
+  let errorOccurrences = 0;
+  let warningOccurrences = 0;
+  for (const group of groups) {
+    byCode[group.code] = (byCode[group.code] || 0) + group.occurrence_count;
+    if (group.severity === "error") errorOccurrences += group.occurrence_count;
+    else warningOccurrences += group.occurrence_count;
+  }
+  return canonicalize({
+    total_groups: groups.length,
+    total_occurrences: errorOccurrences + warningOccurrences,
+    error_occurrences: errorOccurrences,
+    warning_occurrences: warningOccurrences,
+    by_code: byCode
+  });
+}
+
+function summaryCountsMatch(summary, groups) {
+  const actual = canonicalize({
+    total_groups: summary.total_groups,
+    total_occurrences: summary.total_occurrences,
+    error_occurrences: summary.error_occurrences,
+    warning_occurrences: summary.warning_occurrences,
+    by_code: summary.by_code
+  });
+  return canonicalBytes(actual).equals(canonicalBytes(summarizeWarningGroups(groups)));
+}
+
 function assembleGraphArtifactPair({
   graphData,
   groups,
@@ -165,21 +201,10 @@ function assembleGraphArtifactPair({
     groups: normalizedGroups
   };
   const details_sha256 = sha256(canonicalBytes(detailProjection));
-  const byCode = {};
-  let errorOccurrences = 0;
-  let warningOccurrences = 0;
-  for (const group of normalizedGroups) {
-    byCode[group.code] = (byCode[group.code] || 0) + group.occurrence_count;
-    if (group.severity === "error") errorOccurrences += group.occurrence_count;
-    else warningOccurrences += group.occurrence_count;
-  }
+  const counts = summarizeWarningGroups(normalizedGroups);
   const summary = canonicalize({
     build_id,
-    total_groups: normalizedGroups.length,
-    total_occurrences: errorOccurrences + warningOccurrences,
-    error_occurrences: errorOccurrences,
-    warning_occurrences: warningOccurrences,
-    by_code: byCode,
+    ...counts,
     details_ref: validatedDetailsRef,
     details_sha256
   });
@@ -256,6 +281,9 @@ function validateArtifactObjects({ graphData, warningBundle, expectedDetailsRef 
     candidate_sets: normalizedSets,
     groups: normalizedGroups
   });
+  if (!summaryCountsMatch(summary, normalizedGroups)) {
+    return { status: "unavailable", reason: "invalid", summary };
+  }
   const actualDetailsSha256 = sha256(canonicalWarningDetailBytes(canonicalBundle));
   if (summary.details_sha256 !== actualDetailsSha256) {
     return { status: "unavailable", reason: "details_sha256_mismatch", summary };
@@ -513,7 +541,11 @@ function offlinePayload(summary, bundle, truncated, omittedGroupCount, omittedCa
 }
 
 function compressedPayloadBytes(payload) {
-  return zlib.gzipSync(canonicalBytes(payload), { level: 9 }).length;
+  const scriptBytes = serializeJsonForHtmlScript(payload);
+  return {
+    scriptBytes,
+    compressedBytes: zlib.gzipSync(scriptBytes, { level: 9 }).length
+  };
 }
 
 function prepareOfflineWarningPayload({
@@ -526,8 +558,8 @@ function prepareOfflineWarningPayload({
   }
   const completeBundle = canonicalOfflineBundle(bundle);
   let payload = offlinePayload(summary, completeBundle, false, 0, 0);
-  let compressedBytes = compressedPayloadBytes(payload);
-  if (compressedBytes <= maxCompressedBytes) return { payload, compressedBytes };
+  let { scriptBytes, compressedBytes } = compressedPayloadBytes(payload);
+  if (compressedBytes <= maxCompressedBytes) return { payload, scriptBytes, compressedBytes };
 
   const compactBundle = canonicalOfflineBundle({
     ...completeBundle,
@@ -544,39 +576,38 @@ function prepareOfflineWarningPayload({
   let omittedCandidateSetCount = 0;
   const refresh = () => {
     payload = offlinePayload(summary, compactBundle, true, omittedGroupCount, omittedCandidateSetCount);
-    compressedBytes = compressedPayloadBytes(payload);
+    ({ scriptBytes, compressedBytes } = compressedPayloadBytes(payload));
     return compressedBytes <= maxCompressedBytes;
   };
-  if (refresh()) return { payload, compressedBytes };
+  if (refresh()) return { payload, scriptBytes, compressedBytes };
 
   for (let index = compactBundle.groups.length - 1; index >= 0; index -= 1) {
-    if (compactBundle.groups[index].occurrences.length === 0) continue;
-    compactBundle.groups[index] = canonicalize({ ...compactBundle.groups[index], occurrences: [] });
-    if (refresh()) return { payload, compressedBytes };
+    while (compactBundle.groups[index].occurrences.length > 0) {
+      compactBundle.groups[index].occurrences.pop();
+      if (refresh()) return { payload, scriptBytes, compressedBytes };
+    }
   }
   for (let index = compactBundle.candidate_sets.length - 1; index >= 0; index -= 1) {
-    if (compactBundle.candidate_sets[index].candidates.length === 0) continue;
-    compactBundle.candidate_sets[index] = canonicalize({
-      ...compactBundle.candidate_sets[index],
-      candidates: []
-    });
-    if (refresh()) return { payload, compressedBytes };
+    while (compactBundle.candidate_sets[index].candidates.length > 0) {
+      compactBundle.candidate_sets[index].candidates.pop();
+      if (refresh()) return { payload, scriptBytes, compressedBytes };
+    }
   }
 
   while (compactBundle.groups.length > 0) {
     compactBundle.groups.pop();
     omittedGroupCount += 1;
-    if (refresh()) return { payload, compressedBytes };
+    if (refresh()) return { payload, scriptBytes, compressedBytes };
   }
   while (compactBundle.candidate_sets.length > 0) {
     compactBundle.candidate_sets.pop();
     omittedCandidateSetCount += 1;
-    if (refresh()) return { payload, compressedBytes };
+    if (refresh()) return { payload, scriptBytes, compressedBytes };
   }
   if (!refresh()) {
     throw new Error("offline warning summary exceeds the compressed payload limit");
   }
-  return { payload, compressedBytes };
+  return { payload, scriptBytes, compressedBytes };
 }
 
 module.exports = {
@@ -586,5 +617,6 @@ module.exports = {
   canonicalWarningDetailBytes,
   commitGraphArtifactPair,
   prepareOfflineWarningPayload,
+  serializeJsonForHtmlScript,
   verifyGraphArtifactPair
 };
