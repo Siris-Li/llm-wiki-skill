@@ -214,6 +214,7 @@ export function shouldIgnoreGraphWatchPath(filename: string | null): boolean {
 	}
 	if (normalized === ".wiki-graph-layout.json") return true;
 	if (normalized === "wiki/graph-data.json") return true;
+	if (normalized === "wiki/graph-warnings.json") return true;
 	if (/^wiki\/knowledge-graph.*\.html$/.test(normalized)) return true;
 	return false;
 }

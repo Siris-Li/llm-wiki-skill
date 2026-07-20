@@ -57,6 +57,7 @@ test("graph watcher ignores external noise and generated graph artifacts", async
 		"node_modules/pkg/index.js",
 		".DS_Store",
 		"wiki/graph-data.json",
+		"wiki/graph-warnings.json",
 		"wiki/knowledge-graph.html",
 		"wiki/knowledge-graph-dark.html",
 		".wiki-graph-layout.json",

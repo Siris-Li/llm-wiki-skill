@@ -9,6 +9,7 @@ const {
   discoverKnowledgeBaseFiles,
   normalizeRelativePosixPath
 } = require("./wiki-file-discovery");
+const { extractFrontmatter, parseSourcesFrontmatter } = require("./source-signal-eligibility");
 const { parseWikilinks, renderWikilinkReplacement } = require("./wikilink-parser");
 
 function sha256(text) {
@@ -211,6 +212,32 @@ function scanPolicySources(inventory, policy) {
   throw new Error(`Unknown scan policy: ${policy}`);
 }
 
+function parseImagePaths(frontmatter) {
+  if (!frontmatter) return [];
+  const lines = frontmatter.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^image_paths:\s*(.*)$/);
+    if (!match) continue;
+    const inline = match[1].trim();
+    if (inline) {
+      if (inline === "[]") return [];
+      if (!inline.startsWith("[") || !inline.endsWith("]")) return [];
+      return inline.slice(1, -1).split(",")
+        .map((value) => value.trim().replace(/^['"]|['"]$/g, ""))
+        .filter(Boolean);
+    }
+    const values = [];
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      if (!lines[cursor].trim()) continue;
+      const item = lines[cursor].match(/^\s*-\s*(.+?)\s*$/);
+      if (!item) break;
+      values.push(item[1].trim().replace(/^['"]|['"]$/g, ""));
+    }
+    return values.filter(Boolean);
+  }
+  return [];
+}
+
 function scanKnowledgeBaseLinks(kbRoot, policy) {
   const inventory = discoverKnowledgeBaseFiles(kbRoot);
   const index = buildWikiTargetIndex(inventory.targets);
@@ -219,11 +246,16 @@ function scanKnowledgeBaseLinks(kbRoot, policy) {
   const groupMap = new Map();
   const occurrences = [];
   const edges = [];
+  const sourceDocuments = [];
   const stalePendingWrappers = [];
-  const edgeKeys = new Set();
+  const edgeByEndpoints = new Map();
   const metrics = {
+    inventory_walks: 1,
+    target_index_builds: 1,
+    source_files_parsed: 0,
     files_read: 0,
     files_parsed: 0,
+    graph_source_bytes: 0,
     utf8_bytes_scanned: 0,
     position_bytes_advanced: 0
   };
@@ -248,14 +280,36 @@ function scanKnowledgeBaseLinks(kbRoot, policy) {
 
   for (const source of sources) {
     const buffer = fs.readFileSync(source.absolutePath);
+    const rawContent = buffer.toString("utf8");
+    const frontmatter = extractFrontmatter(rawContent);
+    const parsedSources = parseSourcesFrontmatter(frontmatter.frontmatter);
+    const heading = frontmatter.body.match(/^#\s+(.+?)\s*$/m);
+    sourceDocuments.push({
+      source_path: source.path,
+      graph_type: source.graphType,
+      label: heading ? heading[1].trim() : path.posix.basename(source.path, ".md"),
+      _content: rawContent,
+      _signals: {
+        sources: parsedSources.sources,
+        sourceSignalAvailable: parsedSources.signalAvailable,
+        sourceFieldPresent: parsedSources.hasField,
+        sourceFieldParsed: parsedSources.parsed,
+        imagePaths: parseImagePaths(frontmatter.frontmatter)
+      }
+    });
     metrics.files_read += 1;
     metrics.files_parsed += 1;
+    metrics.source_files_parsed += 1;
+    if (source.graphType) metrics.graph_source_bytes += buffer.length;
 
     const parsed = parseWikilinks(buffer, source.path);
     metrics.utf8_bytes_scanned += parsed.metrics.utf8_bytes_scanned;
     metrics.position_bytes_advanced += parsed.metrics.position_bytes_advanced;
     for (const occurrence of parsed.occurrences) {
       const resolution = resolveWikilink(occurrence, source.path, index);
+      const resolutionCandidateSetId = resolution.candidate_paths.length > 0
+        ? stableId("candidate-set", resolution.candidate_paths.join("\n"))
+        : null;
       const occurrenceRecord = {
         occurrence_id: stableId(
           "occurrence",
@@ -275,7 +329,11 @@ function scanKnowledgeBaseLinks(kbRoot, policy) {
       occurrences.push({
         ...occurrence,
         read_only: source.editable === false,
-        resolution
+        resolution: {
+          ...resolution,
+          candidate_paths: undefined,
+          candidate_set_id: resolutionCandidateSetId || undefined
+        }
       });
 
       if (occurrence.pending && resolution.status === "resolved") {
@@ -290,14 +348,27 @@ function scanKnowledgeBaseLinks(kbRoot, policy) {
 
       if (resolution.creates_edge && resolution.target_path) {
         const edgeKey = `${source.path}\0${resolution.target_path}`;
-        if (!edgeKeys.has(edgeKey)) {
-          edgeKeys.add(edgeKey);
-          edges.push({
+        if (!edgeByEndpoints.has(edgeKey)) {
+          const edge = {
             from: source.path,
             to: resolution.target_path,
             relation_type: occurrence.relation_type || "依赖",
-            confidence: occurrence.confidence || "EXTRACTED"
-          });
+            confidence: occurrence.confidence || "EXTRACTED",
+            _relation_explicit: Boolean(occurrence.relation_type),
+            _confidence_explicit: Boolean(occurrence.confidence)
+          };
+          edgeByEndpoints.set(edgeKey, edge);
+          edges.push(edge);
+        } else {
+          const edge = edgeByEndpoints.get(edgeKey);
+          if (!edge._confidence_explicit && occurrence.confidence) {
+            edge.confidence = occurrence.confidence;
+            edge._confidence_explicit = true;
+          }
+          if (!edge._relation_explicit && occurrence.relation_type) {
+            edge.relation_type = occurrence.relation_type;
+            edge._relation_explicit = true;
+          }
         }
       }
     }
@@ -322,6 +393,10 @@ function scanKnowledgeBaseLinks(kbRoot, policy) {
     const rightKey = `${right.from}\0${right.to}\0${right.relation_type}`;
     return leftKey.localeCompare(rightKey, "en");
   });
+  for (const edge of edges) {
+    delete edge._confidence_explicit;
+    delete edge._relation_explicit;
+  }
 
   stalePendingWrappers.sort((left, right) => left.source_path.localeCompare(right.source_path, "en"));
 
@@ -330,7 +405,8 @@ function scanKnowledgeBaseLinks(kbRoot, policy) {
     edges,
     candidate_sets,
     groups,
-    occurrences,
+    occurrences: policy === "graph" ? [] : occurrences,
+    source_documents: sourceDocuments,
     stale_pending_wrappers: stalePendingWrappers,
     metrics
   };

@@ -1027,7 +1027,10 @@ function graphTestEngineFactory(engineFactory: typeof createGraphEngine): typeof
 		};
 	}
 	if (mode === "shared-update-failure") {
+		let initialData: unknown = null;
 		return (container, options) => {
+			if (initialData && options.data !== initialData) throw new Error("共享图谱更新失败");
+			initialData = options.data;
 			const engine = createGraphEngine(container, options);
 			return {
 				...engine,
@@ -1101,6 +1104,7 @@ function sampleDiffForGraphTest(data: GraphData): GraphDiff {
 		addedEdges: edge ? [edge.id] : [],
 		removedEdges: [],
 		newCommunities: community ? [community] : [],
+		migrationWarnings: [],
 		stats: {
 			nodeCount: data.nodes.length,
 			edgeCount: data.edges.length,

@@ -25,6 +25,7 @@ const REQUIRED_STEPS = [
 	"boundary-negative-controls",
 	"boundaries",
 	"browser-trial-contracts",
+	"graph-path-identity-root",
 	"contracts",
 	"startup-isolation",
 	"route-registry-negative-controls",
@@ -72,6 +73,20 @@ test("quality entrypoint covers every required check in a stable sequence", () =
 	assert.ok(browserTrialArgs.includes("tests/browser/graph-renderer-trial-shared.test.ts"));
 	assert.ok(browserTrialArgs.includes("tests/browser/capture-issue-159-hover-baseline.test.ts"));
 	assert.ok(browserTrialArgs.includes("tests/browser/compare-issue-159-hover-baseline.test.ts"));
+	const graphPathIdentity = QUALITY_STEPS.find((step) => step.id === "graph-path-identity-root");
+	assert.deepEqual(graphPathIdentity.commands.flatMap((item) => item.args).filter((arg) => (
+		arg.startsWith("tests/js/") || arg.startsWith("tests/graph-")
+	)), [
+		"tests/js/unicode-normalization.test.js",
+		"tests/js/unicode-case-folding.test.js",
+		"tests/js/wiki-file-discovery.test.js",
+		"tests/js/wikilink-parser.test.js",
+		"tests/js/wiki-link-index.test.js",
+		"tests/js/graph-warning-bundle.test.js",
+		"tests/js/wiki-link-performance.test.js",
+		"tests/graph-path-identity-build.regression-1.sh",
+		"tests/graph-warning-exit-codes.regression-1.sh",
+	]);
 	const graphBuildArgs = QUALITY_STEPS.find((step) => step.id === "build-graph").commands.flatMap((item) => item.args);
 	assert.ok(graphBuildArgs.includes("packages/graph-engine/test-types/dist-consumer/tsconfig.json"));
 	const graphTypeStep = QUALITY_STEPS.find((step) => step.id === "types-graph");

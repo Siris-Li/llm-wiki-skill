@@ -1434,111 +1434,135 @@ trap - RETURN
 source "$REPO_ROOT/tests/lib/graph-html-engine-helpers.sh"
 
 test_graph_data_sample_wiki_matches_expected() {
-    local tmp_dir
+    local tmp_dir kb
     tmp_dir="$(mktemp -d)"
     trap 'rm -rf "$tmp_dir"' RETURN
+    kb="$tmp_dir/graph-data-sample-wiki"
+    cp -R "$REPO_ROOT/$GRAPH_DATA_SAMPLE" "$kb"
 
     LLM_WIKI_TEST_MODE=1 \
         bash "$REPO_ROOT/scripts/build-graph-data.sh" \
-        "$REPO_ROOT/$GRAPH_DATA_SAMPLE" \
-        "$tmp_dir/graph-data.json" > /dev/null 2>&1 \
+        "$kb" > /dev/null 2>&1 \
         || fail "build-graph-data.sh should succeed on sample wiki"
 
-    jq 'del(.nodes[].source_path)' "$tmp_dir/graph-data.json" > "$tmp_dir/normalized.json"
-    diff "$tmp_dir/normalized.json" "$REPO_ROOT/tests/expected/graph-data-sample.json" \
+    diff "$kb/wiki/graph-data.json" "$REPO_ROOT/tests/expected/graph-data-sample.json" \
         || fail "sample wiki graph-data output differs from expected"
+    assert_path_exists "$kb/wiki/graph-warnings.json"
 }
 
 test_graph_data_empty_wiki_matches_expected() {
-    local tmp_dir
+    local tmp_dir kb
     tmp_dir="$(mktemp -d)"
     trap 'rm -rf "$tmp_dir"' RETURN
+    kb="$tmp_dir/graph-data-empty-wiki"
+    cp -R "$REPO_ROOT/$GRAPH_DATA_EMPTY" "$kb"
 
     LLM_WIKI_TEST_MODE=1 \
         bash "$REPO_ROOT/scripts/build-graph-data.sh" \
-        "$REPO_ROOT/$GRAPH_DATA_EMPTY" \
-        "$tmp_dir/graph-data.json" > /dev/null 2>&1 \
+        "$kb" > /dev/null 2>&1 \
         || fail "build-graph-data.sh should succeed on empty wiki"
 
-    diff "$tmp_dir/graph-data.json" "$REPO_ROOT/tests/expected/graph-data-empty.json" \
+    diff "$kb/wiki/graph-data.json" "$REPO_ROOT/tests/expected/graph-data-empty.json" \
         || fail "empty wiki graph-data output differs from expected"
+    assert_path_exists "$kb/wiki/graph-warnings.json"
 }
 
 test_graph_data_test_mode_is_stable() {
-    local tmp_dir
+    local tmp_dir kb output_dir second_output_dir
     tmp_dir="$(mktemp -d)"
     trap 'rm -rf "$tmp_dir"' RETURN
+    kb="$tmp_dir/kb"
+    output_dir="$kb/exports/stable"
+    second_output_dir="$kb/exports/second"
+    cp -R "$REPO_ROOT/$GRAPH_DATA_SAMPLE" "$kb"
+    mkdir -p "$output_dir" "$second_output_dir"
 
     LLM_WIKI_TEST_MODE=1 \
         bash "$REPO_ROOT/scripts/build-graph-data.sh" \
-        "$REPO_ROOT/$GRAPH_DATA_SAMPLE" \
-        "$tmp_dir/run1.json" > /dev/null 2>&1
+        "$kb" \
+        "$output_dir/graph-data.json" > /dev/null 2>&1
+    cp "$output_dir/graph-data.json" "$tmp_dir/run1.json"
+    cp "$output_dir/graph-warnings.json" "$tmp_dir/run1-warnings.json"
 
     LLM_WIKI_TEST_MODE=1 \
         bash "$REPO_ROOT/scripts/build-graph-data.sh" \
-        "$REPO_ROOT/$GRAPH_DATA_SAMPLE" \
-        "$tmp_dir/run2.json" > /dev/null 2>&1
+        "$kb" \
+        "$output_dir/graph-data.json" > /dev/null 2>&1
 
-    diff "$tmp_dir/run1.json" "$tmp_dir/run2.json" \
+    diff "$tmp_dir/run1.json" "$output_dir/graph-data.json" \
         || fail "TEST_MODE output should be identical across runs"
+    diff "$tmp_dir/run1-warnings.json" "$output_dir/graph-warnings.json" \
+        || fail "TEST_MODE warning output should be identical across runs"
+    LLM_WIKI_TEST_MODE=1 \
+        bash "$REPO_ROOT/scripts/build-graph-data.sh" \
+        "$kb" \
+        "$second_output_dir/graph-data.json" > /dev/null 2>&1
+    [ "$(jq -r '.meta.warning_summary.details_ref' "$output_dir/graph-data.json")" = "exports/stable/graph-warnings.json" ] \
+        || fail "first custom graph should reference its own sibling warning file"
+    [ "$(jq -r '.meta.warning_summary.details_ref' "$second_output_dir/graph-data.json")" = "exports/second/graph-warnings.json" ] \
+        || fail "second custom graph should reference its own sibling warning file"
+    [ ! -e "$kb/wiki/graph-warnings.json" ] || fail "custom graph builds must not touch the normal warning sidecar"
 }
 
 test_graph_data_has_three_confidence_types() {
-    local tmp_dir edges
+    local tmp_dir kb edges
     tmp_dir="$(mktemp -d)"
     trap 'rm -rf "$tmp_dir"' RETURN
+    kb="$tmp_dir/kb"
+    cp -R "$REPO_ROOT/$GRAPH_DATA_SAMPLE" "$kb"
 
     LLM_WIKI_TEST_MODE=1 \
         bash "$REPO_ROOT/scripts/build-graph-data.sh" \
-        "$REPO_ROOT/$GRAPH_DATA_SAMPLE" \
-        "$tmp_dir/graph-data.json" > /dev/null 2>&1
+        "$kb" > /dev/null 2>&1
 
-    edges=$(jq -r '.edges[].type' "$tmp_dir/graph-data.json" | sort -u)
+    edges=$(jq -r '.edges[].type' "$kb/wiki/graph-data.json" | sort -u)
     assert_text_contains "$edges" "EXTRACTED"
     assert_text_contains "$edges" "INFERRED"
     assert_text_contains "$edges" "AMBIGUOUS"
 }
 
 test_graph_data_community_clustering() {
-    local tmp_dir arch_nodes finetune_nodes paper_comm attention_comm
+    local tmp_dir kb arch_nodes finetune_nodes paper_comm attention_comm
     tmp_dir="$(mktemp -d)"
     trap 'rm -rf "$tmp_dir"' RETURN
+    kb="$tmp_dir/kb"
+    cp -R "$REPO_ROOT/$GRAPH_DATA_SAMPLE" "$kb"
 
     LLM_WIKI_TEST_MODE=1 \
         bash "$REPO_ROOT/scripts/build-graph-data.sh" \
-        "$REPO_ROOT/$GRAPH_DATA_SAMPLE" \
-        "$tmp_dir/graph-data.json" > /dev/null 2>&1
+        "$kb" > /dev/null 2>&1
 
-    arch_nodes=$(jq -r '.nodes[] | select(.community == "arch") | .id' "$tmp_dir/graph-data.json" | sort | tr '\n' ' ')
-    assert_text_contains "$arch_nodes" "Decoder"
-    assert_text_contains "$arch_nodes" "Encoder"
-    assert_text_contains "$arch_nodes" "Transformer"
-    assert_text_contains "$arch_nodes" "arch"
+    arch_nodes=$(jq -r '.nodes[] | select(.community == "wiki/topics/arch.md") | .id' "$kb/wiki/graph-data.json" | sort | tr '\n' ' ')
+    assert_text_contains "$arch_nodes" "wiki/entities/Decoder.md"
+    assert_text_contains "$arch_nodes" "wiki/entities/Encoder.md"
+    assert_text_contains "$arch_nodes" "wiki/entities/Transformer.md"
+    assert_text_contains "$arch_nodes" "wiki/topics/arch.md"
 
-    finetune_nodes=$(jq -r '.nodes[] | select(.community == "finetune") | .id' "$tmp_dir/graph-data.json" | sort | tr '\n' ' ')
-    assert_text_contains "$finetune_nodes" "GPT"
-    assert_text_contains "$finetune_nodes" "finetune"
+    finetune_nodes=$(jq -r '.nodes[] | select(.community == "wiki/topics/finetune.md") | .id' "$kb/wiki/graph-data.json" | sort | tr '\n' ' ')
+    assert_text_contains "$finetune_nodes" "wiki/entities/GPT.md"
+    assert_text_contains "$finetune_nodes" "wiki/topics/finetune.md"
 
-    attention_comm=$(jq -r '.nodes[] | select(.community == "Attention") | .id' "$tmp_dir/graph-data.json" | sort | tr '\n' ' ')
-    assert_text_contains "$attention_comm" "Attention"
-    assert_text_contains "$attention_comm" "paper"
+    attention_comm=$(jq -r '.nodes[] | select(.community == "wiki/entities/Attention.md") | .id' "$kb/wiki/graph-data.json" | sort | tr '\n' ' ')
+    assert_text_contains "$attention_comm" "wiki/entities/Attention.md"
+    assert_text_contains "$attention_comm" "wiki/sources/paper.md"
 
-    paper_comm=$(jq -r '.nodes[] | select(.id == "paper") | .community' "$tmp_dir/graph-data.json")
-    [ "$paper_comm" = "Attention" ] || fail "Expected paper community to be Attention, got: $paper_comm"
+    paper_comm=$(jq -r '.nodes[] | select(.id == "wiki/sources/paper.md") | .community' "$kb/wiki/graph-data.json")
+    [ "$paper_comm" = "wiki/entities/Attention.md" ] || fail "Expected paper community to use the Attention path, got: $paper_comm"
 }
 
 test_graph_data_empty_wiki_has_zero_nodes_and_edges() {
-    local tmp_dir nodes_count edges_count
+    local tmp_dir kb nodes_count edges_count
     tmp_dir="$(mktemp -d)"
     trap 'rm -rf "$tmp_dir"' RETURN
+    kb="$tmp_dir/kb"
+    cp -R "$REPO_ROOT/$GRAPH_DATA_EMPTY" "$kb"
 
     LLM_WIKI_TEST_MODE=1 \
         bash "$REPO_ROOT/scripts/build-graph-data.sh" \
-        "$REPO_ROOT/$GRAPH_DATA_EMPTY" \
-        "$tmp_dir/graph-data.json" > /dev/null 2>&1
+        "$kb" > /dev/null 2>&1
 
-    nodes_count=$(jq '.meta.total_nodes' "$tmp_dir/graph-data.json")
-    edges_count=$(jq '.meta.total_edges' "$tmp_dir/graph-data.json")
+    nodes_count=$(jq '.meta.total_nodes' "$kb/wiki/graph-data.json")
+    edges_count=$(jq '.meta.total_edges' "$kb/wiki/graph-data.json")
     [ "$nodes_count" = "0" ] || fail "Expected 0 nodes in empty wiki, got: $nodes_count"
     [ "$edges_count" = "0" ] || fail "Expected 0 edges in empty wiki, got: $edges_count"
 }
@@ -1586,10 +1610,10 @@ test_graph_html_escapes_script_tag_in_content() {
     bash "$REPO_ROOT/scripts/build-graph-html.sh" \
         "$tmp_dir" > /dev/null 2>&1
 
-    # </script> 必须被转义为 <\/script>
+    # HTML-sensitive characters must be escaped inside application/json scripts.
     html=$(cat "$output_dir/knowledge-graph.html")
     assert_text_not_contains "$html" '</script> 标签'
-    assert_text_contains "$html" '<\/script> 标签'
+    assert_text_contains "$html" '\u003c/script\u003e 标签'
 }
 
 test_graph_html_escapes_title_text() {
@@ -1719,6 +1743,7 @@ bash "$REPO_ROOT/tests/graph-analysis-helper.regression-1.sh" || fail "graph-ana
 bash "$REPO_ROOT/tests/graph-build-failures.regression-1.sh" || fail "graph-build-failures.regression-1.sh 测试失败"
 bash "$REPO_ROOT/tests/graph-host-errors.regression-1.sh" || fail "graph-host-errors.regression-1.sh 测试失败"
 bash "$REPO_ROOT/tests/graph-offline-host-acceptance.regression-1.sh" || fail "graph-offline-host-acceptance.regression-1.sh 测试失败"
+bash "$REPO_ROOT/tests/graph-offline-warnings.regression-1.sh" || fail "graph-offline-warnings.regression-1.sh 测试失败"
 bash "$REPO_ROOT/tests/graph-data-confidence-merge.regression-1.sh" || fail "graph-data-confidence-merge.regression-1.sh 测试失败"
 bash "$REPO_ROOT/tests/graph-data-source-paths.regression-1.sh" || fail "graph-data-source-paths.regression-1.sh 测试失败"
 bash "$REPO_ROOT/tests/graph-html-brand-link.regression-1.sh" || fail "graph-html-brand-link.regression-1.sh 测试失败"
@@ -1750,6 +1775,10 @@ node --test "$REPO_ROOT/tests/js/wiki-file-discovery.test.js" || fail "wiki-file
 node --test "$REPO_ROOT/tests/js/wikilink-parser.test.js" || fail "wikilink-parser unit tests failed"
 node --test "$REPO_ROOT/tests/js/wiki-link-index.test.js" || fail "wiki-link-index unit tests failed"
 node --test "$REPO_ROOT/tests/js/wiki-link-cli.test.js" || fail "wiki-link-cli process tests failed"
+node --test "$REPO_ROOT/tests/js/graph-warning-bundle.test.js" || fail "graph-warning-bundle unit tests failed"
+node --test "$REPO_ROOT/tests/js/wiki-link-performance.test.js" || fail "wiki-link-performance unit tests failed"
+bash "$REPO_ROOT/tests/graph-path-identity-build.regression-1.sh" || fail "graph-path-identity-build regression failed"
+bash "$REPO_ROOT/tests/graph-warning-exit-codes.regression-1.sh" || fail "graph-warning-exit-codes regression failed"
 
 # ─── Lint 回归 ────────────────────────────────────────────────────
 bash "$REPO_ROOT/tests/lint-output.regression-1.sh" || fail "lint output regression failed"

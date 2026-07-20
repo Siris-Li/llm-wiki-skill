@@ -28,6 +28,7 @@ export function interruptedExitCode(signal) {
 
 const command = (args, cwd = REPO_ROOT) => ({ command: NODE, args, cwd });
 const nodeTest = (...files) => command(["--import", "tsx", "--test", ...files]);
+const shellCommand = (file) => ({ command: "bash", args: [file], cwd: REPO_ROOT });
 
 export const QUALITY_STEPS = [
 	{
@@ -96,6 +97,23 @@ export const QUALITY_STEPS = [
 			"tests/browser/capture-issue-159-hover-baseline.test.ts",
 			"tests/browser/compare-issue-159-hover-baseline.test.ts",
 		)],
+	},
+	{
+		id: "graph-path-identity-root",
+		timeoutMs: COMMAND_TIMEOUT_MS,
+		commands: [
+			command(["--test",
+				"tests/js/unicode-normalization.test.js",
+				"tests/js/unicode-case-folding.test.js",
+				"tests/js/wiki-file-discovery.test.js",
+				"tests/js/wikilink-parser.test.js",
+				"tests/js/wiki-link-index.test.js",
+				"tests/js/graph-warning-bundle.test.js",
+				"tests/js/wiki-link-performance.test.js",
+			]),
+			shellCommand("tests/graph-path-identity-build.regression-1.sh"),
+			shellCommand("tests/graph-warning-exit-codes.regression-1.sh"),
+		],
 	},
 	{
 		id: "contracts",

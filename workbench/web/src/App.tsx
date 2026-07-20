@@ -307,8 +307,9 @@ function App() {
 					setSidebarError(null);
 					setGraphBuildError(null);
 					setGraphRefreshToken((token) => token + 1);
-					setPendingGraphDiff(event.diff);
-					if (mainViewRef.current !== "graph" && event.diff) setGraphHasPendingUpdate(true);
+					const compatibleDiff = event.diff ? { ...event.diff, migrationWarnings: [] } : null;
+					setPendingGraphDiff(compatibleDiff);
+					if (mainViewRef.current !== "graph" && compatibleDiff) setGraphHasPendingUpdate(true);
 					return;
 				}
 				setSidebarError(event.message);

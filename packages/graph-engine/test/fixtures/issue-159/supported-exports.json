@@ -52,7 +52,8 @@
     "createGraphEngine",
     "createGraphOfflineCapabilities",
     "normalizeGraphLayoutFile",
-    "normalizeGraphPinMap"
+    "normalizeGraphPinMap",
+    "projectGraphInput"
   ],
   "supportedPublicCompatibility": [
     "createGraphEngine",

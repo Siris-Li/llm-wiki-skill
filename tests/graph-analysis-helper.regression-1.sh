@@ -161,6 +161,38 @@ EOF
     rm -rf "$tmp_dir"
 }
 
+test_helper_prefers_preloaded_content_and_signals() {
+    local tmp_dir output
+    tmp_dir="$(mktemp -d)"
+
+    cat > "$tmp_dir/nodes.json" <<'EOF'
+[
+  {
+    "id":"wiki/entities/preloaded.md",
+    "label":"Preloaded",
+    "type":"entity",
+    "source_path":"wiki/entities/preloaded.md",
+    "_file_path":"/definitely/unreadable/should-not-be-opened.md",
+    "_content":"---\nsources: [paper.pdf]\n---\n# Preloaded\n\nBody from the shared source buffer.",
+    "_signals":{
+      "sources":["paper.pdf"],
+      "sourceSignalAvailable":true,
+      "sourceFieldPresent":true,
+      "sourceFieldParsed":true
+    }
+  }
+]
+EOF
+    printf '[]\n' > "$tmp_dir/edges.json"
+
+    node "$HELPER" "$tmp_dir/nodes.json" "$tmp_dir/edges.json" "$tmp_dir/out.json" 0 500 250 1000 > /dev/null
+    output="$(jq -r '.nodes[0] | [.id, .source_path, .content] | @tsv' "$tmp_dir/out.json")"
+    [ "$output" = $'wiki/entities/preloaded.md\twiki/entities/preloaded.md\t# Preloaded\\n\\nBody from the shared source buffer.' ] \
+      || fail "Expected preloaded content without filesystem fallback, got: $output"
+
+    rm -rf "$tmp_dir"
+}
+
 test_helper_reports_sparse_and_bridge_insights() {
     local output
 
@@ -230,6 +262,7 @@ main() {
     test_parse_sources_yaml_multiline
     test_node_helper_bad_json_exits_with_error
     test_helper_preserves_node_source_path
+    test_helper_prefers_preloaded_content_and_signals
     test_helper_reports_sparse_and_bridge_insights
     echo "PASS: graph analysis helper regression coverage"
 }
