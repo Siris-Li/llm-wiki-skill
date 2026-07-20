@@ -29,6 +29,7 @@ export function alignGraphIdentityBySourcePath(previous: GraphData, next: GraphD
   const previousToNext = new Map<NodeId, NodeId>();
   const usedNext = new Set<NodeId>();
   const warnings: GraphMigrationWarning[] = [];
+  const warnedSourcePaths = new Set<string | null>();
 
   for (const [sourcePath, previousNodes] of previousByPath) {
     const nextNodes = nextByPath.get(sourcePath) ?? [];
@@ -44,6 +45,7 @@ export function alignGraphIdentityBySourcePath(previous: GraphData, next: GraphD
       previous_ids: previousNodes.map((node) => node.id),
       next_ids: nextNodes.map((node) => node.id),
     });
+    warnedSourcePaths.add(sourcePath);
   }
 
   const nextIds = new Set(next.nodes.map((node) => node.id));
@@ -52,6 +54,26 @@ export function alignGraphIdentityBySourcePath(previous: GraphData, next: GraphD
     if (!nextIds.has(previousNode.id) || usedNext.has(previousNode.id)) continue;
     previousToNext.set(previousNode.id, previousNode.id);
     usedNext.add(previousNode.id);
+  }
+
+  const unmatchedPreviousByPath = new Map<string | null, GraphNode[]>();
+  for (const previousNode of previous.nodes) {
+    if (previousToNext.has(previousNode.id)) continue;
+    const sourcePath = migrationSourcePathForNode(previousNode);
+    const group = unmatchedPreviousByPath.get(sourcePath) ?? [];
+    group.push(previousNode);
+    unmatchedPreviousByPath.set(sourcePath, group);
+  }
+  for (const [sourcePath, previousNodes] of unmatchedPreviousByPath) {
+    if (warnedSourcePaths.has(sourcePath)) continue;
+    warnings.push({
+      code: "identity_alignment_ambiguous",
+      source_path: sourcePath,
+      previous_ids: previousNodes.map((node) => node.id),
+      next_ids: sourcePath == null
+        ? []
+        : (nextByPath.get(sourcePath) ?? []).map((node) => node.id),
+    });
   }
 
   return { previousToNext, warnings };
@@ -119,13 +141,17 @@ function normalizeMigrationSourcePath(value: unknown): string | null {
 function nodesBySourcePath(nodes: GraphNode[]): Map<string, GraphNode[]> {
   const byPath = new Map<string, GraphNode[]>();
   for (const node of nodes) {
-    const sourcePath = normalizeMigrationSourcePath(node.source_path);
+    const sourcePath = migrationSourcePathForNode(node);
     if (!sourcePath) continue;
     const group = byPath.get(sourcePath) ?? [];
     group.push(node);
     byPath.set(sourcePath, group);
   }
   return byPath;
+}
+
+function migrationSourcePathForNode(node: GraphNode): string | null {
+  return normalizeMigrationSourcePath(node.source_path ?? node.source ?? node.path);
 }
 
 function diffSemanticEdges(

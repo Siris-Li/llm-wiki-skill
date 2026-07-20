@@ -13,14 +13,18 @@ import { captureSupportedMigrationBehavior } from "./support/migration-baseline"
 const FIXTURE_DIR = path.join(import.meta.dirname, "fixtures/issue-159");
 
 describe("issue #159 migration behavior baseline", () => {
-  it("preserves the unrelated reviewed text behavior", async () => {
+  it("matches the reviewed first-wins output field for field", async () => {
     const input = JSON.parse(await readFile(path.join(FIXTURE_DIR, "behavior-input.json"), "utf8")) as GraphData;
-    const expected = JSON.parse(await readFile(path.join(FIXTURE_DIR, "behavior-baseline.json"), "utf8")) as {
+    const legacy = JSON.parse(await readFile(path.join(FIXTURE_DIR, "behavior-baseline.json"), "utf8")) as {
       text: unknown;
     };
+    const expected = JSON.parse(
+      await readFile(path.join(FIXTURE_DIR, "behavior-first-wins-baseline.json"), "utf8"),
+    ) as { text: unknown };
     const actual = captureSupportedMigrationBehavior(input) as { text: unknown };
 
-    assert.deepEqual(actual.text, expected.text);
+    assert.deepEqual(actual, expected);
+    assert.deepEqual(actual.text, legacy.text);
   });
 
   it("supersedes collision rows with first-wins unique collections and warnings", async () => {

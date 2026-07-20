@@ -66,6 +66,60 @@ describe("path identity migration diff", () => {
     assert.deepEqual(diff.migrationWarnings, alignment.warnings);
   });
 
+  it("reports unmatched legacy identities after applying exact-id fallback", () => {
+    const previous = graph([
+      node("legacy-without-path", undefined, "legacy"),
+      node("legacy-stale", "wiki/entities/stale.md", "legacy"),
+      node("same", undefined, "legacy"),
+    ]);
+    const next = graph([
+      node("wiki/entities/current.md", "wiki/entities/current.md", "current"),
+      node("same", "wiki/entities/same.md", "current"),
+    ]);
+
+    const alignment = alignGraphIdentityBySourcePath(previous, next);
+    assert.deepEqual(Array.from(alignment.previousToNext.entries()), [["same", "same"]]);
+    assert.deepEqual(alignment.warnings, [
+      {
+        code: "identity_alignment_ambiguous",
+        source_path: null,
+        previous_ids: ["legacy-without-path"],
+        next_ids: [],
+      },
+      {
+        code: "identity_alignment_ambiguous",
+        source_path: "wiki/entities/stale.md",
+        previous_ids: ["legacy-stale"],
+        next_ids: [],
+      },
+    ]);
+
+    const diff = diffGraphData(previous, next);
+    assert.deepEqual(diff.addedNodes, ["wiki/entities/current.md"]);
+    assert.deepEqual(diff.removedNodes, ["legacy-without-path", "legacy-stale"]);
+    assert.deepEqual(diff.migrationWarnings, alignment.warnings);
+  });
+
+  it("aligns all supported legacy source path fields", () => {
+    const previous = graph([
+      { ...node("legacy-source", undefined, "legacy"), source: "wiki\\entities\\.\\source.md" },
+      { ...node("legacy-path", undefined, "legacy"), path: "wiki/topics/path.md" },
+    ]);
+    const next = graph([
+      node("wiki/entities/source.md", "wiki/entities/source.md", "current"),
+      node("wiki/topics/path.md", "wiki/topics/path.md", "current"),
+    ]);
+
+    const alignment = alignGraphIdentityBySourcePath(previous, next);
+    assert.deepEqual(Array.from(alignment.previousToNext.entries()), [
+      ["legacy-source", "wiki/entities/source.md"],
+      ["legacy-path", "wiki/topics/path.md"],
+    ]);
+    assert.deepEqual(alignment.warnings, []);
+    assert.deepEqual(diffGraphData(previous, next).addedNodes, []);
+    assert.deepEqual(diffGraphData(previous, next).removedNodes, []);
+  });
+
   it("matches repeated legacy semantic edges in stable order and reports real surplus rows", () => {
     const previous = graph(
       [
@@ -97,6 +151,34 @@ describe("path identity migration diff", () => {
       previous_edge_ids: ["legacy-first", "legacy-surplus"],
       next_edge_ids: ["path-match"],
     }]);
+  });
+
+  it("keeps edge direction in identity and ignores confidence changes", () => {
+    const previous = graph(
+      [
+        node("alpha", "wiki/entities/alpha.md", "legacy"),
+        node("beta", "wiki/topics/beta.md", "legacy"),
+      ],
+      [
+        edge("legacy-forward", "alpha", "beta", "依赖", "UNVERIFIED"),
+        edge("legacy-reverse", "beta", "alpha", "依赖", "EXTRACTED"),
+      ],
+    );
+    const next = graph(
+      [
+        node("wiki/entities/alpha.md", "wiki/entities/alpha.md", "current"),
+        node("wiki/topics/beta.md", "wiki/topics/beta.md", "current"),
+      ],
+      [
+        edge("path-reverse", "wiki/topics/beta.md", "wiki/entities/alpha.md", "依赖", "AMBIGUOUS"),
+        edge("path-forward", "wiki/entities/alpha.md", "wiki/topics/beta.md", "依赖", "INFERRED"),
+      ],
+    );
+
+    const diff = diffGraphData(previous, next);
+    assert.deepEqual(diff.addedEdges, []);
+    assert.deepEqual(diff.removedEdges, []);
+    assert.deepEqual(diff.migrationWarnings, []);
   });
 
   it("does not match edges through a legacy node that lost an exact-id fallback", () => {
@@ -142,16 +224,29 @@ function graph(nodes: GraphNode[], edges: GraphEdge[] = []): GraphData {
   };
 }
 
-function node(id: string, sourcePath: string, community: string): GraphNode {
-  return { id, label: id, type: "entity", source_path: sourcePath, community };
+function node(id: string, sourcePath: string | undefined, community: string): GraphNode {
+  return {
+    id,
+    label: id,
+    type: "entity",
+    ...(sourcePath == null ? {} : { source_path: sourcePath }),
+    community,
+  };
 }
 
-function edge(id: string, from: string, to: string, relationType?: string): GraphEdge {
+function edge(
+  id: string,
+  from: string,
+  to: string,
+  relationType?: string,
+  confidence?: GraphEdge["confidence"],
+): GraphEdge {
   return {
     id,
     from,
     to,
-    type: "EXTRACTED",
+    type: confidence ?? "EXTRACTED",
+    ...(confidence ? { confidence } : {}),
     ...(relationType ? { relation_type: relationType } : {}),
   };
 }

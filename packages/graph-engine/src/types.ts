@@ -306,7 +306,7 @@ export interface GraphDiff {
 export type GraphMigrationWarning =
   | {
       code: "identity_alignment_ambiguous";
-      source_path: string;
+      source_path: string | null;
       previous_ids: NodeId[];
       next_ids: NodeId[];
     }

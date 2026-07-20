@@ -18,6 +18,22 @@ describe("GraphDiffQueue", () => {
     assert.equal(done.snapshot.isAnimating, false);
   });
 
+  it("does not animate a warning-only refresh", () => {
+    const queue = new GraphDiffQueue({ visible: true });
+    const decision = queue.push(diff({
+      migrationWarnings: [{
+        code: "identity_alignment_ambiguous",
+        source_path: null,
+        previous_ids: ["legacy"],
+        next_ids: [],
+      }],
+    }));
+
+    assert.equal(decision.action, "queue");
+    assert.equal(decision.diff, null);
+    assert.equal(decision.snapshot.isAnimating, false);
+  });
+
   it("queues while hidden and consumes the net diff when shown", () => {
     const queue = new GraphDiffQueue({ visible: false });
 

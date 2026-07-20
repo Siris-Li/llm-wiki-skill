@@ -558,8 +558,9 @@ function projectGraphInputUnchecked(
   const nodes = normalized.nodes;
   const edges = normalized.edges;
   const rawMeta = objectRecord(rawGraph.meta);
-  const learning = rawGraph.learning == null ? undefined : projectLearning(rawGraph.learning);
-  if (learning) learning.communities = normalized.communities;
+  const learning = rawGraph.learning == null
+    ? undefined
+    : projectLearning(rawGraph.learning, normalized.communities);
   const insights = rawGraph.insights == null ? undefined : projectInsights(rawGraph.insights);
   const data = {
     ...rawGraph,
@@ -581,7 +582,11 @@ function projectGraphInputUnchecked(
     regularSearchByNode: nodes.map((node, index) => ({
       node,
       haystack: regularSearchHaystack(
-        objectRecord(Array.isArray(rawGraph.nodes) ? rawGraph.nodes[index] : undefined),
+        objectRecord(
+          Array.isArray(rawGraph.nodes)
+            ? rawGraph.nodes[normalized.nodeSourceIndexes[index]!]
+            : undefined,
+        ),
         node.id,
       )
     })),
@@ -589,61 +594,7 @@ function projectGraphInputUnchecked(
   };
 }
 
-function projectNode(value: unknown, index: number): GraphNode {
-  const raw = objectRecord(value);
-  const node = {
-    ...raw,
-    id: raw.id == null ? `node-${index}` : compatibleString(raw.id, `node-${index}`)
-  } as Record<string, unknown>;
-  copyCompatibleStrings(node, raw, [
-    "label",
-    "type",
-    "community",
-    "source_path",
-    "source",
-    "path",
-    "content",
-    "summary",
-    "date",
-    "updated_at",
-    "updatedAt",
-    "created_at",
-    "createdAt",
-    "source_title",
-    "source_url",
-    "url",
-    "author",
-    "source_name",
-    "confidence",
-    "type_confidence"
-  ]);
-  copyCompatibleNumbers(node, raw, ["x", "y", "weight", "score"]);
-  return node as GraphNode;
-}
-
-function projectEdge(value: unknown, index: number): GraphEdge {
-  const raw = objectRecord(value);
-  const from = endpointId(raw.from != null ? raw.from : raw.source);
-  const to = endpointId(raw.to != null ? raw.to : raw.target);
-  const edge = {
-    ...raw,
-    id: raw.id == null ? `edge-${index}` : compatibleString(raw.id, `edge-${index}`),
-    from,
-    to,
-    type: compatibleString(raw.type ?? raw.confidence ?? raw.type_confidence, "UNVERIFIED")
-  } as Record<string, unknown>;
-  copyCompatibleStrings(edge, raw, [
-    "confidence",
-    "type_confidence",
-    "relation_type",
-    "relationship_type",
-    "relation"
-  ]);
-  copyCompatibleNumbers(edge, raw, ["weight"]);
-  return edge as GraphEdge;
-}
-
-function projectLearning(value: unknown): GraphLearning {
+function projectLearning(value: unknown, communities: Community[]): GraphLearning {
   const raw = objectRecord(value);
   const entry = objectRecord(raw.entry);
   const views = objectRecord(raw.views);
@@ -651,9 +602,6 @@ function projectLearning(value: unknown): GraphLearning {
   const communityView = objectRecord(views.community);
   const globalView = objectRecord(views.global);
   const degraded = objectRecord(raw.degraded);
-  const communities = Array.isArray(raw.communities)
-    ? arrayValues(raw.communities).flatMap((community) => projectCommunity(community))
-    : [];
   return {
     version: compatibleCount(raw.version, 1),
     entry: {
@@ -688,19 +636,6 @@ function projectLearning(value: unknown): GraphLearning {
       community_to_global: presentValue(degraded.community_to_global, true)
     }
   } as GraphLearning;
-}
-
-function projectCommunity(value: unknown): Community[] {
-  const raw = objectRecord(value);
-  if (raw.id == null) return [];
-  return [{
-    ...raw,
-    id: compatibleString(raw.id, ""),
-    label: compatibleString(raw.label, compatibleString(raw.id, "")),
-    node_count: compatibleCount(raw.node_count, 0),
-    source_count: compatibleCount(raw.source_count, 0),
-    recommended_start_node_id: compatibleNullableString(raw.recommended_start_node_id)
-  } as Community];
 }
 
 function projectInsights(value: unknown): GraphInsights {
@@ -878,34 +813,5 @@ function mapObjectArrayValues<T>(
     return output;
   } catch {
     return [];
-  }
-}
-
-function copyCompatibleStrings(
-  target: Record<string, unknown>,
-  source: Record<string, unknown>,
-  keys: string[]
-): void {
-  for (const key of keys) {
-    if (source[key] != null) target[key] = compatibleString(source[key], "");
-  }
-}
-
-function copyCompatibleNumbers(
-  target: Record<string, unknown>,
-  source: Record<string, unknown>,
-  keys: string[]
-): void {
-  for (const key of keys) {
-    if (source[key] != null) target[key] = compatibleNumericInput(source[key]);
-  }
-}
-
-function compatibleNumericInput(value: unknown): unknown {
-  if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") return value;
-  try {
-    return Number(value);
-  } catch {
-    return undefined;
   }
 }

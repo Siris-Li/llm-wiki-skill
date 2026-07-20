@@ -8,6 +8,7 @@ import type {
 
 export interface NormalizedGraphCollections {
   nodes: GraphNode[];
+  nodeSourceIndexes: number[];
   edges: GraphEdge[];
   communities: Community[];
   warnings: GraphWarningGroup[];
@@ -24,13 +25,14 @@ export function normalizeGraphInputCollections(
   const nodeRows = arrayEntries(raw.nodes);
   const edgeRows = arrayEntries(raw.edges);
 
-  const nodes = normalizeUniqueRows({
+  const normalizedNodes = normalizeUniqueRows({
     rows: nodeRows,
     length: arrayLength(raw.nodes),
     kind: "node",
     normalize: projectNode,
     warnings,
   });
+  const nodes = normalizedNodes.values;
   const nodeIds = new Set<string>();
   nodes.forEach((node) => nodeIds.add(node.id));
   const normalizedEdges = normalizeUniqueRows({
@@ -40,10 +42,16 @@ export function normalizeGraphInputCollections(
     normalize: projectEdge,
     warnings,
   });
-  const edges = normalizedEdges.filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to));
+  const edges = normalizedEdges.values.filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to));
   const communities = normalizeUniqueCommunities(raw.learning, warnings);
 
-  return { nodes, edges, communities, warnings: Array.from(warnings.values()) };
+  return {
+    nodes,
+    nodeSourceIndexes: normalizedNodes.sourceIndexes,
+    edges,
+    communities,
+    warnings: Array.from(warnings.values()),
+  };
 }
 
 function normalizeUniqueRows<T extends GraphNode | GraphEdge>({
@@ -58,7 +66,7 @@ function normalizeUniqueRows<T extends GraphNode | GraphEdge>({
   kind: CollectionKind;
   normalize: (raw: Record<string, unknown>, index: number, id: string) => T;
   warnings: Map<string, GraphWarningGroup>;
-}): T[] {
+}): { values: T[]; sourceIndexes: number[] } {
   const explicitIds = new Set<string>();
   for (const row of rows) {
     const raw = row.raw;
@@ -67,6 +75,7 @@ function normalizeUniqueRows<T extends GraphNode | GraphEdge>({
 
   const usedIds = new Set<string>();
   const output = new Array<T>(length);
+  const sourceIndexes = new Array<number>(length);
   let generatedIndex = 0;
   let outputIndex = 0;
   let previousInputIndex = -1;
@@ -102,12 +111,14 @@ function normalizeUniqueRows<T extends GraphNode | GraphEdge>({
 
     usedIds.add(id);
     output[outputIndex] = normalize(raw, row.index, id);
+    sourceIndexes[outputIndex] = row.index;
     outputIndex += 1;
   }
 
   output.length = outputIndex + Math.max(0, length - previousInputIndex - 1);
+  sourceIndexes.length = output.length;
 
-  return output;
+  return { values: output, sourceIndexes };
 }
 
 function normalizeUniqueCommunities(

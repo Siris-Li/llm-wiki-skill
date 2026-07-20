@@ -140,8 +140,7 @@ export function isEmptyDiff(diff: GraphDiff): boolean {
     && diff.recoloredNodes.length === 0
     && diff.addedEdges.length === 0
     && diff.removedEdges.length === 0
-    && diff.newCommunities.length === 0
-    && (diff.migrationWarnings?.length ?? 0) === 0;
+    && diff.newCommunities.length === 0;
 }
 
 function mergeRecolors(
