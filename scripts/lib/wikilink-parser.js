@@ -32,6 +32,71 @@ function parseFenceCandidate(lineText) {
   };
 }
 
+function collectInlineBacktickRuns(text) {
+  const positionsByLength = new Map();
+  let fence = null;
+  let lineStartIndex = 0;
+
+  while (lineStartIndex <= text.length) {
+    const nextNewlineIndex = text.indexOf("\n", lineStartIndex);
+    const lineEndIndex = nextNewlineIndex === -1 ? text.length : nextNewlineIndex;
+    const lineText = text.slice(lineStartIndex, lineEndIndex);
+    const fenceCandidate = parseFenceCandidate(lineText);
+    let handledAsFence = false;
+
+    if (fence) {
+      handledAsFence = true;
+      if (
+        fenceCandidate
+        && fence.marker === fenceCandidate.marker
+        && fenceCandidate.length >= fence.length
+        && /^[ \t]*$/.test(fenceCandidate.rest)
+      ) {
+        fence = null;
+      }
+    } else if (
+      fenceCandidate
+      && !(fenceCandidate.marker === "`" && fenceCandidate.rest.includes("`"))
+    ) {
+      fence = { marker: fenceCandidate.marker, length: fenceCandidate.length };
+      handledAsFence = true;
+    }
+
+    if (!handledAsFence) {
+      for (let index = 0; index < lineText.length;) {
+        if (lineText[index] !== "`") {
+          index += String.fromCodePoint(lineText.codePointAt(index)).length;
+          continue;
+        }
+
+        let runLength = 1;
+        while (lineText[index + runLength] === "`") {
+          runLength += 1;
+        }
+        const positions = positionsByLength.get(runLength) || [];
+        positions.push(lineStartIndex + index);
+        positionsByLength.set(runLength, positions);
+        index += runLength;
+      }
+    }
+
+    if (nextNewlineIndex === -1) break;
+    lineStartIndex = nextNewlineIndex + 1;
+  }
+
+  return { positionsByLength, cursorsByLength: new Map() };
+}
+
+function consumeInlineBacktickRun(runIndex, runLength, absoluteIndex) {
+  const positions = runIndex.positionsByLength.get(runLength) || [];
+  let cursor = runIndex.cursorsByLength.get(runLength) || 0;
+  while (cursor < positions.length && positions[cursor] <= absoluteIndex) {
+    cursor += 1;
+  }
+  runIndex.cursorsByLength.set(runLength, cursor);
+  return cursor < positions.length;
+}
+
 function parseOccurrence(rawLink, sourcePath, fileSha256, line, column, startByte, annotations) {
   let innerStart = 0;
   let innerEnd = rawLink.length;
@@ -104,6 +169,7 @@ function parseWikilinks(buffer, sourcePath) {
   const text = buffer.toString("utf8");
   const fileSha256 = sha256(buffer);
   const occurrences = [];
+  const inlineBacktickRuns = collectInlineBacktickRuns(text);
 
   let fence = null;
   let inlineDelimiter = 0;
@@ -149,8 +215,15 @@ function parseWikilinks(buffer, sourcePath) {
           while (lineText[index + runLength] === "`") {
             runLength += 1;
           }
+          const hasEqualLengthCloser = consumeInlineBacktickRun(
+            inlineBacktickRuns,
+            runLength,
+            lineStartIndex + index
+          );
           if (inlineDelimiter === 0) {
-            inlineDelimiter = runLength;
+            if (hasEqualLengthCloser) {
+              inlineDelimiter = runLength;
+            }
           } else if (runLength === inlineDelimiter) {
             inlineDelimiter = 0;
           }

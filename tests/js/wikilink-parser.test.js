@@ -103,6 +103,28 @@ describe("parseWikilinks", () => {
     ]);
   });
 
+  it("treats unmatched single and multi-backtick runs as text across lines", () => {
+    const source = Buffer.from([
+      "unmatched single ` delimiter",
+      "[[visible-after-single]]",
+      "unmatched double `` delimiter",
+      "[[visible-after-double]]",
+      ""
+    ].join("\n"), "utf8");
+
+    const parsed = parseWikilinks(source, "wiki/topics/unmatched-code.md");
+    assert.deepEqual(parsed.occurrences.map((item) => item.raw_link), [
+      "[[visible-after-single]]",
+      "[[visible-after-double]]"
+    ]);
+    for (const occurrence of parsed.occurrences) {
+      assert.equal(
+        source.subarray(occurrence.start_byte, occurrence.end_byte).toString("utf8"),
+        occurrence.raw_link
+      );
+    }
+  });
+
   it("reports linear UTF-8 position progress for a representative link-heavy file", () => {
     const source = Buffer.from("中文🙂 [[target]] tail\n".repeat(2000), "utf8");
     const parsed = parseWikilinks(source, "wiki/topics/performance.md");
