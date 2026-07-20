@@ -10,13 +10,6 @@ const { normalizeRelativePosixPath } = require("./wiki-file-discovery");
 
 const DEFAULT_WARNING_DETAILS_REF = "wiki/graph-warnings.json";
 const OFFLINE_WARNING_LIMIT_BYTES = 2 * 1024 * 1024;
-const LINK_WARNING_CODES = new Set([
-  "ambiguous_wikilink",
-  "broken_wikilink",
-  "pending_wikilink",
-  "noncanonical_wikilink"
-]);
-
 function sha256(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
@@ -116,11 +109,8 @@ function normalizeGroups(groups, candidateSetIds) {
     }
     const occurrences = (group.occurrences || []).map(normalizeOccurrence)
       .sort((left, right) => compareText(left.occurrence_id, right.occurrence_id));
-    if (LINK_WARNING_CODES.has(group.code) && group.occurrence_count !== occurrences.length) {
+    if (group.occurrence_count !== occurrences.length) {
       throw new Error(`occurrence_count does not match occurrences for ${group.warning_id}`);
-    }
-    if (occurrences.length > group.occurrence_count) {
-      throw new Error(`occurrence_count is smaller than occurrences for ${group.warning_id}`);
     }
     return canonicalize({ ...group, occurrences });
   }).sort((left, right) => compareText(left.warning_id, right.warning_id));

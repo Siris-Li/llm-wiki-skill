@@ -11,6 +11,8 @@ import {
 	GraphWarningGroupSchema,
 	GraphWarningPageDataSchema,
 	GraphWarningSummarySchema,
+	type GraphWarningCodeContract,
+	type GraphWarningGroupContract,
 	type GraphWarningPageContract,
 	type GraphWarningStateContract,
 	type GraphWarningSummaryContract,
@@ -41,6 +43,18 @@ type WarningUnavailableReason = Exclude<
 >;
 
 const scheduledRebuilds = new Set<string>();
+
+const SAFE_WARNING_MESSAGES: Record<GraphWarningCodeContract, string> = {
+	duplicate_node_id: "输入中有多个节点使用同一标识，图谱只保留首个有效节点。",
+	duplicate_edge_id: "输入中有多个关系使用同一标识，图谱只保留首个有效关系。",
+	duplicate_community_id: "输入中有多个社区使用同一标识，图谱只保留首个有效社区。",
+	generated_id_collision: "自动生成的标识发生冲突，系统已改用另一个稳定标识。",
+	ambiguous_wikilink: "这个链接可能指向多个页面，因此没有自动建立关系。",
+	broken_wikilink: "这个链接找不到对应页面，因此没有建立关系。",
+	pending_wikilink: "这个链接指向尚未创建的页面，页面创建后可重新构建图谱。",
+	noncanonical_wikilink: "这个链接可以找到页面，但写法与实际路径不一致。",
+	portable_path_collision: "这些路径在其他操作系统上可能被视为同一路径。",
+};
 
 export async function readGraphWarningContext(input: {
 	kbPath: string;
@@ -121,7 +135,7 @@ export function paginateGraphWarningContext(
 		throw invalidCursor();
 	}
 	const end = Math.min(offset + query.limit, context.bundle.groups.length);
-	const groups = context.bundle.groups.slice(offset, end);
+	const groups = context.bundle.groups.slice(offset, end).map(publicWarningGroup);
 	const referencedCandidateSetIds = new Set(
 		groups.flatMap((group) => group.candidate_set_id ? [group.candidate_set_id] : []),
 	);
@@ -190,7 +204,14 @@ function defensiveEngineGroups(graphData: GraphData, bundle: GraphWarningBundle 
 	const projected = projectGraphInput(graphData, bundle?.groups ?? []);
 	return projected.warnings
 		.filter((group) => !persistedIds.has(group.warning_id))
-		.map((group) => GraphWarningGroupSchema.parse(group));
+		.map((group) => publicWarningGroup(GraphWarningGroupSchema.parse(group)));
+}
+
+function publicWarningGroup(group: GraphWarningGroupContract): GraphWarningGroupContract {
+	return {
+		...group,
+		message: SAFE_WARNING_MESSAGES[group.code],
+	};
 }
 
 function mapVerificationReason(reason: string): WarningUnavailableReason {

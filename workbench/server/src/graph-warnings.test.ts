@@ -6,11 +6,14 @@ import path from "node:path";
 import test from "node:test";
 
 import type { GraphData } from "@llm-wiki/graph-engine";
+import { GraphReadDataSchema } from "@llm-wiki/workbench-contracts";
 
+import { createApp } from "./app.js";
 import {
 	paginateGraphWarningContext,
 	readGraphWarningContext,
 } from "./graph-warnings.js";
+import type { GraphRouteService } from "./routes/graph.js";
 
 const require = createRequire(import.meta.url);
 const { assembleGraphArtifactPair } = require("../../../scripts/lib/graph-warning-bundle.js") as {
@@ -193,6 +196,98 @@ test("unverified warning files keep the graph summary readable and schedule one 
 	}
 });
 
+test("complete sidecar count mismatches stay readable but never return incomplete warning pages", async (t) => {
+	const cases: Array<{
+		name: string;
+		createPair: () => ReturnType<typeof makePair>;
+	}> = [
+		{ name: "group occurrence count", createPair: makeIncompleteOccurrencePair },
+		{ name: "summary group count", createPair: () => mutateSummaryCounts(makePair(2), (summary) => {
+			summary.total_groups = 3;
+		}) },
+		{ name: "summary occurrence total", createPair: () => mutateSummaryCounts(makePair(2), (summary) => {
+			summary.total_occurrences = 3;
+			summary.error_occurrences = 3;
+			summary.by_code.ambiguous_wikilink = 3;
+		}) },
+		{ name: "summary severity totals", createPair: () => mutateSummaryCounts(makePair(2), (summary) => {
+			summary.error_occurrences = 1;
+			summary.warning_occurrences = 1;
+		}) },
+		{ name: "summary code totals", createPair: () => mutateSummaryCounts(makePair(2), (summary) => {
+			summary.by_code = { broken_wikilink: 2 };
+		}) },
+	];
+
+	for (const testCase of cases) {
+		await t.test(testCase.name, async () => {
+			const kbPath = await tempKb();
+			try {
+				const pair = testCase.createPair();
+				const graphPath = await writePair(kbPath, pair);
+				const graphData = JSON.parse(await readFile(graphPath, "utf8")) as GraphData;
+				const scheduled: string[] = [];
+				const read = () => readGraphWarningContext({
+					kbPath,
+					graphPath,
+					graphData,
+					scheduleRebuild: (value) => scheduled.push(value),
+				});
+				const context = await read();
+				await read();
+				assert.equal(context.publicState.details_status, "unavailable");
+				assert.equal(context.publicState.details_unavailable_reason, "invalid");
+				assert.equal(context.bundle, null);
+				assert.deepEqual(scheduled, [kbPath]);
+
+				const app = createWarningContextApp(kbPath, graphData, context);
+				const graphResponse = await app.request("/api/graph");
+				assert.equal(graphResponse.status, 200);
+				const graphPayload = await graphResponse.json() as any;
+				assert.equal(graphPayload.data.state.status, "ready");
+				assert.equal(graphPayload.data.needsBuild, false);
+				assert.equal(graphPayload.data.warning_state.details_status, "unavailable");
+
+				const warningResponse = await app.request("/api/graph/warnings");
+				assert.equal(warningResponse.status, 200);
+				const warningPayload = await warningResponse.json() as any;
+				assert.equal(warningPayload.data.details_status, "unavailable");
+				assert.equal("groups" in warningPayload.data, false);
+				assert.equal("candidate_sets" in warningPayload.data, false);
+			} finally {
+				await rm(kbPath, { recursive: true, force: true });
+			}
+		});
+	}
+});
+
+test("warning API replaces untrusted sidecar messages while keeping safe relative paths readable", async () => {
+	const kbPath = await tempKb();
+	try {
+		const malicious = "/Users/private · C:\\Users\\private · wiki\\private.md · portable-key:nfc|casefold";
+		const pair = makePair(1, "wiki/graph-warnings.json", () => malicious);
+		const graphPath = await writePair(kbPath, pair);
+		const context = await readGraphWarningContext({
+			kbPath,
+			graphPath,
+			graphData: pair.graphData,
+			scheduleRebuild: () => assert.fail("valid pair must not rebuild"),
+		});
+		assert.equal(context.publicState.details_status, "available");
+		const app = createWarningContextApp(kbPath, pair.graphData, context);
+		const response = await app.request("/api/graph/warnings");
+		assert.equal(response.status, 200);
+		const body = await response.text();
+		for (const secret of ["/Users/private", "C:\\Users\\private", "wiki\\private.md", "portable-key:nfc|casefold"]) {
+			assert.equal(body.includes(secret), false, secret);
+		}
+		assert.match(body, /wiki\/synthesis\/source-0\.md/);
+		assert.match(body, /wiki\/entities\/foo-0\.md/);
+	} finally {
+		await rm(kbPath, { recursive: true, force: true });
+	}
+});
+
 test("legacy graphs expose unavailable details while defensive engine warnings stay separate", async () => {
 	const kbPath = await tempKb();
 	try {
@@ -209,7 +304,11 @@ test("legacy graphs expose unavailable details while defensive engine warnings s
 	}
 });
 
-function makePair(groupCount: number, detailsRef = "wiki/graph-warnings.json") {
+function makePair(
+	groupCount: number,
+	detailsRef = "wiki/graph-warnings.json",
+	messageForIndex?: (index: number) => string,
+) {
 	const candidateSets = Array.from({ length: groupCount }, (_, index) => ({
 		candidate_set_id: `candidate-${index}`,
 		candidate_count: 2,
@@ -219,7 +318,7 @@ function makePair(groupCount: number, detailsRef = "wiki/graph-warnings.json") {
 		warning_id: `warning-${index}`,
 		code: "ambiguous_wikilink",
 		severity: "error",
-		message: `Ambiguous ${index}`,
+		message: messageForIndex?.(index) ?? `Ambiguous ${index}`,
 		target_key: `foo-${index}`,
 		candidate_set_id: `candidate-${index}`,
 		occurrence_count: 1,
@@ -237,6 +336,71 @@ function makePair(groupCount: number, detailsRef = "wiki/graph-warnings.json") {
 		}],
 	}));
 	return assembleGraphArtifactPair({ graphData: baseGraph(), groups, candidateSets, detailsRef });
+}
+
+function makeIncompleteOccurrencePair(): ReturnType<typeof makePair> {
+	const pair = assembleGraphArtifactPair({
+		graphData: baseGraph(),
+		groups: [{
+			warning_id: "warning-incomplete",
+			code: "duplicate_node_id",
+			severity: "error",
+			message: "Duplicate input",
+			id: "duplicate",
+			occurrence_count: 1,
+			occurrences: [{
+				occurrence_id: "occurrence-only",
+				source_path: "wiki/synthesis/source.md",
+				line: 1,
+				column: 1,
+				start_byte: 0,
+				end_byte: 7,
+				raw_link: "[[foo]]",
+				file_sha256: "a".repeat(64),
+				link_kind: "page_wikilink",
+				read_only: false,
+			}],
+		}],
+		candidateSets: [],
+	}) as ReturnType<typeof makePair>;
+	pair.warningBundle.groups[0].occurrence_count = 2;
+	mutateSummaryCounts(pair, (summary) => {
+		summary.total_occurrences = 2;
+		summary.error_occurrences = 2;
+		summary.by_code.duplicate_node_id = 2;
+	});
+	return pair;
+}
+
+function mutateSummaryCounts(
+	pair: ReturnType<typeof makePair>,
+	mutate: (summary: Record<string, any>) => void,
+): ReturnType<typeof makePair> {
+	mutate(pair.graphData.meta.warning_summary as Record<string, any>);
+	mutate(pair.warningBundle.summary);
+	return pair;
+}
+
+function createWarningContextApp(
+	kbPath: string,
+	graphData: GraphData,
+	context: Awaited<ReturnType<typeof readGraphWarningContext>>,
+) {
+	const graphService: GraphRouteService = {
+		getActiveKnowledgeBasePath: () => kbPath,
+		assertRegisteredKnowledgeBase: async (requested) => requested,
+		triggerGraphRebuild: () => ({ status: "started" }),
+		readGraphData: async () => GraphReadDataSchema.parse({
+			state: { status: "ready", rebuiltAt: null },
+			needsBuild: false,
+			data: graphData,
+			warning_state: context.publicState,
+		}),
+		readGraphWarnings: async (_requested, query) => paginateGraphWarningContext(context, query),
+		readGraphLayout: async () => ({ version: 2, pins: {}, updatedAt: "" }),
+		writeGraphLayout: async (_requested, input) => ({ ...input, updatedAt: "" }),
+	};
+	return createApp({ graphService });
 }
 
 function baseGraph(): GraphData {

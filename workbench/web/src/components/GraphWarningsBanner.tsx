@@ -23,8 +23,21 @@ const WARNING_LABELS: Record<GraphWarningCodeContract, string> = {
 	portable_path_collision: "路径在其他系统可能冲突",
 };
 
+const WARNING_DESCRIPTIONS: Record<GraphWarningCodeContract, string> = {
+	duplicate_node_id: "输入中有多个节点使用同一标识，图谱只保留首个有效节点。",
+	duplicate_edge_id: "输入中有多个关系使用同一标识，图谱只保留首个有效关系。",
+	duplicate_community_id: "输入中有多个社区使用同一标识，图谱只保留首个有效社区。",
+	generated_id_collision: "自动生成的标识发生冲突，系统已改用另一个稳定标识。",
+	ambiguous_wikilink: "这个链接可能指向多个页面，因此没有自动建立关系。",
+	broken_wikilink: "这个链接找不到对应页面，因此没有建立关系。",
+	pending_wikilink: "这个链接指向尚未创建的页面，页面创建后可重新构建图谱。",
+	noncanonical_wikilink: "这个链接可以找到页面，但写法与实际路径不一致。",
+	portable_path_collision: "这些路径在其他操作系统上可能被视为同一路径。",
+};
+
 interface Props {
 	warningState: GraphWarningStateContract;
+	authorityRefreshToken?: number;
 	migrationWarnings?: GraphMigrationWarningContract[];
 	loadPage: (cursor?: string, limit?: number) => Promise<GraphWarningPageContract>;
 	onDismissMigrationWarnings?: () => void;
@@ -48,6 +61,7 @@ export function GraphWarningsBanner({
 
 function GraphWarningsBannerContent({
 	warningState,
+	authorityRefreshToken = 0,
 	migrationWarnings = [],
 	loadPage,
 	onDismissMigrationWarnings,
@@ -59,14 +73,18 @@ function GraphWarningsBannerContent({
 	const [nextCursor, setNextCursor] = useState<string | null | undefined>(undefined);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [unavailableBuildId, setUnavailableBuildId] = useState<string | null>(null);
+	const [unavailableAuthorityRefreshToken, setUnavailableAuthorityRefreshToken] = useState<number | null>(null);
 	const [dismissedMigrationKey, setDismissedMigrationKey] = useState<string | null>(null);
 	const migrationKey = JSON.stringify(migrationWarnings);
 	const warningBuildId = warningState.summary?.build_id;
 	const warningDetailsSha256 = warningState.summary?.details_sha256;
-	const detailsUnavailable = warningState.details_status === "unavailable"
-		|| (unavailableBuildId !== null && warningBuildId === unavailableBuildId);
+	const locallyUnavailable = unavailableAuthorityRefreshToken === authorityRefreshToken;
+	const authorityRecovered = warningState.details_status === "available"
+		&& unavailableAuthorityRefreshToken !== null
+		&& unavailableAuthorityRefreshToken !== authorityRefreshToken;
+	const detailsUnavailable = warningState.details_status === "unavailable" || locallyUnavailable;
 	const migrationVisible = migrationWarnings.length > 0 && dismissedMigrationKey !== migrationKey;
+	const detailsExpanded = expanded && !authorityRecovered;
 
 	const codeCounts = useMemo(() => {
 		const counts = new Map<GraphWarningCodeContract, number>();
@@ -96,9 +114,9 @@ function GraphWarningsBannerContent({
 	const clearDetailsAsUnavailable = useCallback(() => {
 		setGroups([]);
 		setCandidateSets([]);
-		setUnavailableBuildId(warningBuildId ?? null);
+		setUnavailableAuthorityRefreshToken(authorityRefreshToken);
 		setNextCursor(null);
-	}, [warningBuildId]);
+	}, [authorityRefreshToken]);
 
 	const requestPage = useCallback(async (cursor?: string) => {
 		setLoading(true);
@@ -126,8 +144,12 @@ function GraphWarningsBannerContent({
 
 	const showDetails = useCallback(() => {
 		setExpanded(true);
-		if (nextCursor === undefined && !loading) void requestPage();
-	}, [loading, nextCursor, requestPage]);
+		if (authorityRecovered) {
+			setUnavailableAuthorityRefreshToken(null);
+			setError(null);
+		}
+		if ((nextCursor === undefined || authorityRecovered) && !loading) void requestPage();
+	}, [authorityRecovered, loading, nextCursor, requestPage]);
 
 	const summary = warningState.summary;
 	const engineCount = warningState.engine_groups.reduce(
@@ -143,7 +165,7 @@ function GraphWarningsBannerContent({
 	}
 
 	return (
-		<section className="graph-warnings-banner" role="region" aria-label="图谱告警" data-expanded={expanded ? "true" : "false"}>
+		<section className="graph-warnings-banner" role="region" aria-label="图谱告警" data-expanded={detailsExpanded ? "true" : "false"}>
 			<div className="graph-warnings-summary">
 				<AlertTriangle aria-hidden="true" />
 				<div className="graph-warnings-summary-copy">
@@ -157,7 +179,7 @@ function GraphWarningsBannerContent({
 					<button
 						type="button"
 						className="graph-warnings-toggle"
-						aria-expanded={expanded}
+						aria-expanded={detailsExpanded}
 						onClick={showDetails}
 					>
 						<ChevronDown aria-hidden="true" />
@@ -179,7 +201,7 @@ function GraphWarningsBannerContent({
 						{warningState.engine_groups.map((group) => (
 							<li key={group.warning_id}>
 								<b>{WARNING_LABELS[group.code]}</b>
-								<p>{group.message}</p>
+								<p>{WARNING_DESCRIPTIONS[group.code]}</p>
 							</li>
 						))}
 					</ul>
@@ -230,7 +252,7 @@ function GraphWarningsBannerContent({
 				</div>
 			)}
 
-			{expanded && groups.length > 0 && (
+			{detailsExpanded && groups.length > 0 && (
 				<div className="graph-warning-details">
 					{groups.map((group) => {
 						const candidateSet = group.candidate_set_id
@@ -248,7 +270,7 @@ function GraphWarningsBannerContent({
 									<strong>{WARNING_LABELS[group.code]}</strong>
 									<span>{group.severity === "error" ? "错误" : "提醒"}</span>
 								</header>
-								<p>{group.message}</p>
+								<p>{WARNING_DESCRIPTIONS[group.code]}</p>
 								{showCandidateSet && candidateSet && (
 									<ul className="graph-warning-candidates">
 										{candidateSet.candidates.map((candidate) => <li key={candidate}>{candidate}</li>)}

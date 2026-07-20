@@ -307,6 +307,13 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await warningBanner.getByText("wiki/synthesis/browser-warning-source.md", { exact: true }).first().waitFor();
 		await warningBanner.getByRole("button", { name: "加载更多" }).click();
 		await warningBanner.getByText("wiki/synthesis/final-browser-warning.md", { exact: true }).waitFor();
+		const warningApiText = await page.evaluate((kbPath) => fetch(`/api/graph/warnings?kb=${encodeURIComponent(kbPath)}&limit=100`).then((response) => response.text()), kbA);
+		for (const secret of ["/Users/private", "C:\\Users\\private", "wiki\\private.md", "portable-key:nfc|casefold"]) {
+			assert.equal((await warningBanner.textContent())?.includes(secret), false, `warning UI leaked ${secret}`);
+			assert.equal(warningApiText.includes(secret), false, `warning API leaked ${secret}`);
+		}
+		assert.match(warningApiText, /wiki\/synthesis\/browser-warning-source\.md/);
+		assert.match(warningApiText, /wiki\/entities\/foo\.md/);
 		assert.equal((await warningBanner.textContent())?.includes(home), false, "warning UI must show only relative paths");
 		assert.equal(await warningBanner.getByText("解决此告警", { exact: true }).count(), 0);
 		await page.evaluate(() => {
@@ -343,6 +350,12 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
 			index >= tamperBaseline && event.type === "graph_updated" && event.kbPath === kbA
 		));
+		await warningBanner.getByRole("button", { name: "查看详情" }).waitFor();
+		await warningBanner.getByRole("button", { name: "查看详情" }).click();
+		await warningBanner.getByText("wiki/synthesis/browser-warning-source.md", { exact: true }).first().waitFor();
+		await warningBanner.getByRole("button", { name: "加载更多" }).click();
+		await warningBanner.getByText("第 29 行 · 第 1 列", { exact: true }).waitFor();
+		assert.equal(await warningBanner.getByText("详情暂不可用，已安排重新构建。摘要和图谱仍可阅读。", { exact: true }).count(), 0);
 		await rm(join(kbA, "wiki", "entities", "foo.md"), { force: true });
 		await rm(join(kbA, "wiki", "topics", "foo.md"), { force: true });
 		await rm(join(kbA, "wiki", "synthesis", "browser-warning-source.md"), { force: true });
@@ -728,7 +741,7 @@ function browserWarningFixture() {
 			warning_id: `browser-warning-${String(index).padStart(2, "0")}`,
 			code: ambiguous ? "ambiguous_wikilink" : pending ? "pending_wikilink" : "broken_wikilink",
 			severity: pending ? "warning" : "error",
-			message: ambiguous ? "同名页面需要明确路径" : pending ? "页面标记为待创建" : "链接目标不存在",
+			message: "/Users/private · C:\\Users\\private · wiki\\private.md · portable-key:nfc|casefold",
 			target_key: ambiguous ? "foo" : pending ? "future-browser-page" : `missing-${index}`,
 			...(ambiguous ? { candidate_set_id: "browser-foo-candidates" } : {}),
 			occurrence_count: 1,

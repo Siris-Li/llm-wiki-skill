@@ -121,6 +121,27 @@ function referencedCandidateSetsMatch(
 	return referenced.size === supplied.size && [...referenced].every((id) => supplied.has(id));
 }
 
+function fullBundleCountsMatch(
+	summary: GraphWarningSummaryContract,
+	groups: GraphWarningGroupContract[],
+): boolean {
+	const byCode: Partial<Record<GraphWarningCodeContract, number>> = {};
+	let errorOccurrences = 0;
+	let warningOccurrences = 0;
+	for (const group of groups) {
+		byCode[group.code] = (byCode[group.code] ?? 0) + group.occurrence_count;
+		if (group.severity === "error") errorOccurrences += group.occurrence_count;
+		else warningOccurrences += group.occurrence_count;
+	}
+	const actualByCode = Object.entries(byCode).sort(([left], [right]) => left.localeCompare(right));
+	const declaredByCode = Object.entries(summary.by_code).sort(([left], [right]) => left.localeCompare(right));
+	return summary.total_groups === groups.length
+		&& summary.total_occurrences === errorOccurrences + warningOccurrences
+		&& summary.error_occurrences === errorOccurrences
+		&& summary.warning_occurrences === warningOccurrences
+		&& JSON.stringify(declaredByCode) === JSON.stringify(actualByCode);
+}
+
 export const GraphWarningBundleSchema = z
 	.object({
 		version: z.literal(1),
@@ -138,6 +159,12 @@ export const GraphWarningBundleSchema = z
 	})
 	.refine((value) => hasUniqueIds(value.candidate_sets, (candidateSet) => candidateSet.candidate_set_id), {
 		message: "candidate set IDs must be unique",
+	})
+	.refine((value) => value.groups.every((group) => group.occurrence_count === group.occurrences.length), {
+		message: "complete bundle occurrence counts must match occurrences",
+	})
+	.refine((value) => fullBundleCountsMatch(value.summary, value.groups), {
+		message: "complete bundle summary counts must match groups",
 	})
 	.refine((value) => value.groups.every((group) => !group.candidate_set_id || value.candidate_sets.some((set) => set.candidate_set_id === group.candidate_set_id)), {
 		message: "warning references a missing candidate set",

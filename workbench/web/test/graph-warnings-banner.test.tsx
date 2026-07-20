@@ -230,6 +230,39 @@ describe("GraphWarningsBanner", () => {
 		assert.equal(screen.getByRole("button", { name: "查看详情" }).getAttribute("aria-expanded"), "true");
 	});
 
+	it("recovers the same warning build after a new authoritative refresh confirms details are available", async () => {
+		let calls = 0;
+		const { rerender } = render(<GraphWarningsBanner
+			warningState={warningState}
+			authorityRefreshToken={1}
+			loadPage={async () => {
+				calls++;
+				if (calls === 1) {
+					return {
+						details_status: "unavailable",
+						summary,
+						details_unavailable_reason: "details_sha256_mismatch",
+					};
+				}
+				return page("warning-recovered", "broken_wikilink", undefined, "wiki/synthesis/recovered.md", null);
+			}}
+		/>);
+		await click(screen.getByRole("button", { name: "查看详情" }));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /详情暂不可用/));
+
+		rerender(<GraphWarningsBanner
+			warningState={warningState}
+			authorityRefreshToken={2}
+			loadPage={async () => {
+				calls++;
+				return page("warning-recovered", "broken_wikilink", undefined, "wiki/synthesis/recovered.md", null);
+			}}
+		/>);
+		await click(screen.getByRole("button", { name: "查看详情" }));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /wiki\/synthesis\/recovered\.md/));
+		assert.doesNotMatch(document.body.textContent ?? "", /详情暂不可用/);
+	});
+
 	it("shows every defensive input warning with its type and explanation but no write action", () => {
 		const defensiveGroups: GraphWarningGroupContract[] = [{
 			...engineGroup,
@@ -251,11 +284,37 @@ describe("GraphWarningsBanner", () => {
 		/>);
 
 		const explanations = screen.getByRole("note", { name: "输入检查说明" });
-		assert.match(explanations.textContent ?? "", /节点 ID 重复.*节点 ID opaque-node-id 在输入中出现两次/);
-		assert.match(explanations.textContent ?? "", /关系 ID 重复.*关系 ID opaque-edge-id 在输入中重复/);
+		assert.match(explanations.textContent ?? "", /节点 ID 重复.*输入中有多个节点使用同一标识/);
+		assert.match(explanations.textContent ?? "", /关系 ID 重复.*输入中有多个关系使用同一标识/);
+		assert.equal(explanations.textContent?.includes("opaque-node-id"), false);
+		assert.equal(explanations.textContent?.includes("opaque-edge-id"), false);
 		assert.equal(explanations.querySelectorAll("li").length, 2);
 		assert.equal(screen.queryByRole("button", { name: /解决|改名/ }), null);
 		assert.equal(resolveCalls, 0);
+	});
+
+	it("uses fixed warning explanations instead of rendering untrusted messages", async () => {
+		const malicious = "/Users/private · C:\\Users\\private · wiki\\private.md · portable-key:nfc|casefold";
+		const maliciousEngineGroup: GraphWarningGroupContract = {
+			...engineGroup,
+			message: malicious,
+		};
+		const maliciousPage = page("warning-malicious", "ambiguous_wikilink", "candidate-safe", "wiki/synthesis/safe-source.md", null);
+		maliciousPage.groups[0]!.message = malicious;
+		render(<GraphWarningsBanner
+			warningState={{ ...warningState, engine_groups: [maliciousEngineGroup] }}
+			loadPage={async () => maliciousPage}
+		/>);
+
+		await click(screen.getByRole("button", { name: "查看详情" }));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /wiki\/synthesis\/safe-source\.md/));
+		const visible = document.body.textContent ?? "";
+		for (const secret of ["/Users/private", "C:\\Users\\private", "wiki\\private.md", "portable-key:nfc|casefold"]) {
+			assert.equal(visible.includes(secret), false, secret);
+		}
+		assert.match(visible, /输入中有多个节点使用同一标识/);
+		assert.match(visible, /这个链接可能指向多个页面/);
+		assert.match(visible, /wiki\/entities\/candidate-safe\.md/);
 	});
 
 	it("shows migration notices without leaking paths and dismisses them independently", async () => {

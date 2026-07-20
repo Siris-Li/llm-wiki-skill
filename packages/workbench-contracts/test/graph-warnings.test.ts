@@ -93,6 +93,61 @@ test("warning schemas accept every public warning code and preserve snake-case f
 	assert.equal(GraphWarningCodeSchema.safeParse("unknown_warning").success, false);
 });
 
+test("complete warning bundles reconcile every group and summary count with their full details", () => {
+	const bundle = {
+		version: 1 as const,
+		build_id: buildId,
+		summary,
+		candidate_sets: [candidateSet],
+		groups,
+	};
+	const cases = [
+		{
+			name: "group occurrence count",
+			mutate(value: any) {
+				value.groups[0].occurrence_count = 2;
+				value.summary.total_occurrences = 10;
+				value.summary.error_occurrences = 7;
+				value.summary.by_code.duplicate_node_id = 2;
+			},
+		},
+		{
+			name: "summary group count",
+			mutate(value: any) {
+				value.summary.total_groups = 10;
+			},
+		},
+		{
+			name: "summary occurrence total",
+			mutate(value: any) {
+				value.summary.total_occurrences = 10;
+				value.summary.error_occurrences = 7;
+				value.summary.by_code.duplicate_node_id = 2;
+			},
+		},
+		{
+			name: "summary severity totals",
+			mutate(value: any) {
+				value.summary.error_occurrences = 5;
+				value.summary.warning_occurrences = 4;
+			},
+		},
+		{
+			name: "summary code totals",
+			mutate(value: any) {
+				value.summary.by_code.duplicate_node_id = 0;
+				value.summary.by_code.duplicate_edge_id = 2;
+			},
+		},
+	];
+
+	for (const testCase of cases) {
+		const invalid = structuredClone(bundle);
+		testCase.mutate(invalid);
+		assert.equal(GraphWarningBundleSchema.safeParse(invalid).success, false, testCase.name);
+	}
+});
+
 test("warning paths are strict POSIX knowledge-base-relative paths", () => {
 	assert.equal(GraphWarningSummarySchema.safeParse(summary).success, true);
 	assert.equal(GraphWarningSummarySchema.safeParse({ ...summary, details_ref: "generated/custom/graph-warnings.json" }).success, true);

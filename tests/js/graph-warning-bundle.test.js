@@ -183,8 +183,8 @@ describe("graph warning artifact assembly", () => {
     rejects({ detailsRef: "wiki/warnings.json" }, /details_ref/i);
   });
 
-  it("allows positive non-link warning counts without link positions", () => {
-    const pair = assembleGraphArtifactPair({
+  it("rejects incomplete occurrence lists for every warning code", () => {
+    assert.throws(() => assembleGraphArtifactPair({
       graphData: graphFixture(),
       groups: [{
         warning_id: "duplicate-node-a",
@@ -196,8 +196,7 @@ describe("graph warning artifact assembly", () => {
         occurrences: []
       }],
       candidateSets: []
-    });
-    assert.equal(pair.warningBundle.summary.total_occurrences, 2);
+    }), /occurrence_count/i);
   });
 });
 

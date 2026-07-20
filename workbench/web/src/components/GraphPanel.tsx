@@ -141,6 +141,7 @@ export function GraphPanel({
 	const lastSelectionCommandRef = useRef<GraphSelectionCommand | undefined>(selectionCommand);
 	const [data, setData] = useState<GraphData | null>(null);
 	const [warningState, setWarningState] = useState<GraphWarningStateContract | null>(null);
+	const warningAuthorityRefreshTokenRef = useRef(0);
 	const [migrationWarnings, setMigrationWarnings] = useState<GraphMigrationWarningContract[]>([]);
 	const [edgeStyle, setEdgeStyle] = useState<GraphEdgeStyleOptions>(() => readGraphEdgeStylePreference());
 	const [communityEdgeStyle, setCommunityEdgeStyle] = useState<GraphEdgeStyleOptions>({ ...DEFAULT_GRAPH_EDGE_STYLE });
@@ -342,6 +343,7 @@ export function GraphPanel({
 		nextWarningState: GraphWarningStateContract,
 	): void => {
 		applyLayoutPins({ ...savedPins, ...layoutPinsRef.current });
+		warningAuthorityRefreshTokenRef.current += 1;
 		setData(nextData);
 		setWarningState(nextWarningState);
 		setDataKnowledgeBasePath(kbPath);
@@ -1011,6 +1013,7 @@ export function GraphPanel({
 					<GraphWarningsBanner
 						key={currentKnowledgeBasePath ?? "no-kb"}
 						warningState={warningState}
+						authorityRefreshToken={warningAuthorityRefreshTokenRef.current}
 						migrationWarnings={migrationWarnings}
 						loadPage={loadWarningPage}
 						onDismissMigrationWarnings={() => setMigrationWarnings([])}
