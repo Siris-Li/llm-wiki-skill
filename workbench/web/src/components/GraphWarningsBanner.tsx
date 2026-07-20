@@ -36,6 +36,14 @@ interface Props {
 
 export function GraphWarningsBanner({
 	warningState,
+	...props
+}: Props) {
+	const detailsGeneration = `${warningState.summary?.build_id ?? "legacy"}:${warningState.details_status}`;
+	return <GraphWarningsBannerContent key={detailsGeneration} warningState={warningState} {...props} />;
+}
+
+function GraphWarningsBannerContent({
+	warningState,
 	migrationWarnings = [],
 	loadPage,
 	onDismissMigrationWarnings,
@@ -109,6 +117,12 @@ export function GraphWarningsBanner({
 		0,
 	);
 	const candidateSetById = new Map(candidateSets.map((candidateSet) => [candidateSet.candidate_set_id, candidateSet]));
+	const firstWarningIdByCandidateSet = new Map<string, string>();
+	for (const group of groups) {
+		if (group.candidate_set_id && !firstWarningIdByCandidateSet.has(group.candidate_set_id)) {
+			firstWarningIdByCandidateSet.set(group.candidate_set_id, group.warning_id);
+		}
+	}
 
 	return (
 		<section className="graph-warnings-banner" role="region" aria-label="图谱告警" data-expanded={expanded ? "true" : "false"}>
@@ -193,6 +207,9 @@ export function GraphWarningsBanner({
 						const canResolve = Boolean(
 							onResolveWarning && candidateSet && isEditableResolution(group, candidateSet),
 						);
+						const showCandidateSet = Boolean(
+							candidateSet && firstWarningIdByCandidateSet.get(candidateSet.candidate_set_id) === group.warning_id,
+						);
 						return (
 							<article className="graph-warning-group" key={group.warning_id}>
 								<header>
@@ -200,7 +217,7 @@ export function GraphWarningsBanner({
 									<span>{group.severity === "error" ? "错误" : "提醒"}</span>
 								</header>
 								<p>{group.message}</p>
-								{candidateSet && (
+								{showCandidateSet && candidateSet && (
 									<ul className="graph-warning-candidates">
 										{candidateSet.candidates.map((candidate) => <li key={candidate}>{candidate}</li>)}
 									</ul>

@@ -55,8 +55,8 @@ describe("GraphWarningsBanner", () => {
 	it("shows all warning meanings and loads every page only on demand", async () => {
 		const calls: Array<string | undefined> = [];
 		const pages = [
-			page("warning-first", "ambiguous_wikilink", "candidate-first", "wiki/synthesis/first.md", "cursor-2"),
-			page("warning-middle", "portable_path_collision", "candidate-middle", "wiki/synthesis/middle.md", "cursor-3"),
+			page("warning-first", "ambiguous_wikilink", "candidate-shared", "wiki/synthesis/first.md", "cursor-2"),
+			page("warning-middle", "portable_path_collision", "candidate-shared", "wiki/synthesis/middle.md", "cursor-3"),
 			page("warning-last", "broken_wikilink", undefined, "wiki/synthesis/last.md", null),
 		];
 		render(
@@ -81,7 +81,7 @@ describe("GraphWarningsBanner", () => {
 		await waitFor(() => assert.deepEqual(calls, [undefined]));
 		assert.equal(details.getAttribute("aria-expanded"), "true");
 		assert.match(document.body.textContent ?? "", /wiki\/synthesis\/first\.md.*第 1 行.*第 2 列/);
-		assert.equal(document.body.textContent?.match(/wiki\/entities\/candidate-first\.md/g)?.length, 1);
+		assert.equal(document.body.textContent?.match(/wiki\/entities\/candidate-shared\.md/g)?.length, 1);
 
 		await click(screen.getByRole("button", { name: "加载更多" }));
 		await waitFor(() => assert.deepEqual(calls, [undefined, "cursor-2"]));
@@ -89,6 +89,7 @@ describe("GraphWarningsBanner", () => {
 		await waitFor(() => assert.deepEqual(calls, [undefined, "cursor-2", "cursor-3"]));
 		assert.equal(screen.queryByRole("button", { name: "加载更多" }), null);
 		assert.match(document.body.textContent ?? "", /wiki\/synthesis\/last\.md/);
+		assert.equal(document.body.textContent?.match(/wiki\/entities\/candidate-shared\.md/g)?.length, 1);
 	});
 
 	it("keeps summary counts when details are unavailable", () => {
@@ -101,6 +102,27 @@ describe("GraphWarningsBanner", () => {
 		assert.match(document.body.textContent ?? "", /6 个错误.*3 个提醒/);
 		assert.match(document.body.textContent ?? "", /详情暂不可用.*已安排重新构建/);
 		assert.equal(screen.queryByRole("button", { name: "查看详情" }), null);
+	});
+
+	it("drops loaded detail pages when their build becomes unavailable", async () => {
+		const { rerender } = render(<GraphWarningsBanner
+			warningState={warningState}
+			loadPage={async () => page("warning-old", "broken_wikilink", undefined, "wiki/synthesis/old.md", null)}
+		/>);
+		await click(screen.getByRole("button", { name: "查看详情" }));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /wiki\/synthesis\/old\.md/));
+
+		rerender(<GraphWarningsBanner
+			warningState={{
+				...warningState,
+				details_status: "unavailable",
+				details_unavailable_reason: "details_sha256_mismatch",
+			}}
+			loadPage={async () => assert.fail("unavailable details must not load")}
+		/>);
+
+		assert.doesNotMatch(document.body.textContent ?? "", /wiki\/synthesis\/old\.md/);
+		assert.match(document.body.textContent ?? "", /详情暂不可用/);
 	});
 
 	it("shows migration notices without leaking paths and dismisses them independently", async () => {

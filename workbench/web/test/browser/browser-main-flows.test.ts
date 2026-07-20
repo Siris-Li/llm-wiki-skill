@@ -334,6 +334,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await page.getByRole("tab", { name: "对话" }).click();
 		await page.getByRole("tab", { name: "图谱" }).click();
 		await page.getByText("详情暂不可用，已安排重新构建。摘要和图谱仍可阅读。", { exact: true }).waitFor();
+		assert.equal(await warningBanner.getByText("wiki/synthesis/final-browser-warning.md", { exact: true }).count(), 0);
 		await page.locator("[data-graph-status='ready']").waitFor();
 		assert.equal(await page.getByText("图谱暂时不可用", { exact: true }).count(), 0);
 		await page.locator(".sigma-global-node-hit-target").first().waitFor({ timeout: START_TIMEOUT_MS });
