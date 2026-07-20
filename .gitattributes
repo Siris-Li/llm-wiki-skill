@@ -1,0 +1,3 @@
+/deps/unicode/*.txt text eol=lf
+/deps/LICENSE-unicode.txt text eol=lf
+/tests/fixtures/unicode/*.txt text eol=lf

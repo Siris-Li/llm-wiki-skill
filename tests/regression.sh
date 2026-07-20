@@ -1744,6 +1744,11 @@ bash "$REPO_ROOT/tests/adapter-state.sh" || fail "adapter-state.sh 测试失败"
 # ─── JS 单测 ──────────────────────────────────────────────────────
 node --test "$REPO_ROOT/tests/js/source-signal-eligibility.test.js" || fail "source-signal-eligibility unit tests failed"
 node --test "$REPO_ROOT/tests/js/source-signal-coverage.test.js" || fail "source-signal-coverage integration tests failed"
+node --test "$REPO_ROOT/tests/js/unicode-normalization.test.js" || fail "unicode-normalization unit tests failed"
+node --test "$REPO_ROOT/tests/js/unicode-case-folding.test.js" || fail "unicode-case-folding unit tests failed"
+node --test "$REPO_ROOT/tests/js/wiki-file-discovery.test.js" || fail "wiki-file-discovery unit tests failed"
+node --test "$REPO_ROOT/tests/js/wikilink-parser.test.js" || fail "wikilink-parser unit tests failed"
+node --test "$REPO_ROOT/tests/js/wiki-link-index.test.js" || fail "wiki-link-index unit tests failed"
 
 # ─── Lint 回归 ────────────────────────────────────────────────────
 bash "$REPO_ROOT/tests/lint-output.regression-1.sh" || fail "lint output regression failed"

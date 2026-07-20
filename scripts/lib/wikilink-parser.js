@@ -1,0 +1,195 @@
+#!/usr/bin/env node
+"use strict";
+
+const crypto = require("node:crypto");
+const path = require("node:path");
+
+function sha256(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function countCodePoints(value) {
+  return Array.from(value).length;
+}
+
+function extractLineAnnotations(lineText) {
+  const confidenceMatch = lineText.match(/<!--\s*confidence:\s*([A-Z]+)\s*-->/);
+  const relationTypeMatch = lineText.match(/<!--\s*relation(?:_type)?:\s*([^>]+?)\s*-->/);
+
+  return {
+    confidence: confidenceMatch ? confidenceMatch[1] : null,
+    relation_type: relationTypeMatch ? relationTypeMatch[1].trim() : null
+  };
+}
+
+function parseOccurrence(rawLink, sourcePath, fileSha256, line, column, startByte, annotations) {
+  let innerStart = 0;
+  let innerEnd = rawLink.length;
+  let embedded = false;
+  let pending = false;
+
+  if (rawLink.startsWith("[待创建: [[")) {
+    innerStart = "[待创建: [[".length;
+    innerEnd = rawLink.length - "]]]".length;
+    pending = true;
+  } else if (rawLink.startsWith("[To create: [[")) {
+    innerStart = "[To create: [[".length;
+    innerEnd = rawLink.length - "]]]".length;
+    pending = true;
+  } else if (rawLink.startsWith("![[")) {
+    innerStart = "![[".length;
+    innerEnd = rawLink.length - "]]".length;
+    embedded = true;
+  } else {
+    innerStart = "[[".length;
+    innerEnd = rawLink.length - "]]".length;
+  }
+
+  const inner = rawLink.slice(innerStart, innerEnd);
+  const pipeIndex = inner.indexOf("|");
+  const targetAndAnchorRaw = pipeIndex >= 0 ? inner.slice(0, pipeIndex) : inner;
+  const displayRaw = pipeIndex >= 0 ? inner.slice(pipeIndex + 1) : null;
+  const anchorIndex = targetAndAnchorRaw.indexOf("#");
+  const targetRaw = anchorIndex >= 0 ? targetAndAnchorRaw.slice(0, anchorIndex) : targetAndAnchorRaw;
+  const anchor = anchorIndex >= 0 ? targetAndAnchorRaw.slice(anchorIndex + 1).trim() : null;
+  const display = displayRaw === null ? null : displayRaw.trim();
+
+  const leadingWhitespace = (targetRaw.match(/^\s*/) || [""])[0].length;
+  const trailingWhitespace = (targetRaw.match(/\s*$/) || [""])[0].length;
+  const targetStartInRaw = innerStart + leadingWhitespace;
+  const targetEndInRaw = innerStart + targetRaw.length - trailingWhitespace;
+  const pageTarget = targetRaw.trim();
+  const extension = path.posix.extname(pageTarget);
+
+  let linkKind = "page_wikilink";
+  if (pageTarget === "" && anchor) {
+    linkKind = "same_page_anchor";
+  } else if (extension && extension.toLowerCase() !== ".md") {
+    linkKind = "attachment_wikilink";
+  }
+
+  return {
+    occurrence_id: `${sourcePath}\0${fileSha256}\0${startByte}\0${startByte + Buffer.byteLength(rawLink, "utf8")}\0${rawLink}`,
+    source_path: sourcePath,
+    file_sha256: fileSha256,
+    raw_link: rawLink,
+    line,
+    column,
+    start_byte: startByte,
+    end_byte: startByte + Buffer.byteLength(rawLink, "utf8"),
+    link_kind: linkKind,
+    embedded,
+    pending,
+    page_target: pageTarget,
+    anchor,
+    display,
+    confidence: annotations.confidence,
+    relation_type: annotations.relation_type,
+    target_start_in_raw: targetStartInRaw,
+    target_end_in_raw: targetEndInRaw
+  };
+}
+
+function parseWikilinks(buffer, sourcePath) {
+  const text = buffer.toString("utf8");
+  const fileSha256 = sha256(buffer);
+  const occurrences = [];
+
+  let fence = null;
+  let lineNumber = 1;
+  let lineStartIndex = 0;
+
+  while (lineStartIndex <= text.length) {
+    const nextNewlineIndex = text.indexOf("\n", lineStartIndex);
+    const lineEndIndex = nextNewlineIndex === -1 ? text.length : nextNewlineIndex;
+    const lineText = text.slice(lineStartIndex, lineEndIndex);
+    const annotations = extractLineAnnotations(lineText);
+    const fenceMatch = lineText.match(/^[ \t]*(`{3,}|~{3,})/);
+
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      const length = fenceMatch[1].length;
+      if (!fence) {
+        fence = { marker, length };
+      } else if (fence.marker === marker && length >= fence.length) {
+        fence = null;
+      }
+    } else if (!fence) {
+      let inlineDelimiter = 0;
+      let column = 1;
+
+      for (let index = 0; index < lineText.length;) {
+        if (lineText[index] === "`") {
+          let runLength = 1;
+          while (lineText[index + runLength] === "`") {
+            runLength += 1;
+          }
+          if (inlineDelimiter === 0) {
+            inlineDelimiter = runLength;
+          } else if (runLength >= inlineDelimiter) {
+            inlineDelimiter = 0;
+          }
+          index += runLength;
+          column += runLength;
+          continue;
+        }
+
+        if (inlineDelimiter > 0) {
+          const symbol = String.fromCodePoint(lineText.codePointAt(index));
+          index += symbol.length;
+          column += 1;
+          continue;
+        }
+
+        let rawLink = null;
+        let endIndex = null;
+
+        if (lineText.startsWith("[待创建: [[", index) || lineText.startsWith("[To create: [[", index)) {
+          const wrapperPrefix = lineText.startsWith("[待创建: [[", index) ? "[待创建: [[" : "[To create: [[";
+          const closeInner = lineText.indexOf("]]]", index + wrapperPrefix.length);
+          if (closeInner >= 0) {
+            rawLink = lineText.slice(index, closeInner + 3);
+            endIndex = closeInner + 3;
+          }
+        } else if (lineText.startsWith("![[", index) || lineText.startsWith("[[", index)) {
+          const closeInner = lineText.indexOf("]]", index + 2);
+          if (closeInner >= 0) {
+            rawLink = lineText.slice(index, closeInner + 2);
+            endIndex = closeInner + 2;
+          }
+        }
+
+        if (rawLink && endIndex !== null) {
+          const startByte = Buffer.byteLength(text.slice(0, lineStartIndex + index), "utf8");
+          occurrences.push(parseOccurrence(rawLink, sourcePath, fileSha256, lineNumber, column, startByte, annotations));
+          index = endIndex;
+          column += countCodePoints(rawLink);
+          continue;
+        }
+
+        const symbol = String.fromCodePoint(lineText.codePointAt(index));
+        index += symbol.length;
+        column += 1;
+      }
+    }
+
+    if (nextNewlineIndex === -1) {
+      break;
+    }
+
+    lineStartIndex = nextNewlineIndex + 1;
+    lineNumber += 1;
+  }
+
+  return {
+    source_path: sourcePath,
+    file_sha256: fileSha256,
+    occurrences
+  };
+}
+
+function renderWikilinkReplacement(occurrence, replacementTarget) {
+  return `${occurrence.raw_link.slice(0, occurrence.target_start_in_raw)}${replacementTarget}${occurrence.raw_link.slice(occurrence.target_end_in_raw)}`;
+}
+
+module.exports = { parseWikilinks, renderWikilinkReplacement };
