@@ -20,6 +20,7 @@ export * from "./knowledge-bases.js";
 export * from "./conversations.js";
 export * from "./pages.js";
 export * from "./graph.js";
+export * from "./graph-warnings.js";
 export * from "./artifacts.js";
 export * from "./sse.js";
 export * from "./prompt-events.js";

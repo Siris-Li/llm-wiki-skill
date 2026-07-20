@@ -4,6 +4,10 @@ import {
 	StreamSseEventIdentitySchema,
 	WORKBENCH_SSE_SCHEMA_VERSION,
 } from "./sse.js";
+import {
+	GraphWarningDetailsStatusSchema,
+	GraphWarningSummarySchema,
+} from "./graph-warnings.js";
 
 export const GRAPH_SSE_SCHEMA_VERSION = WORKBENCH_SSE_SCHEMA_VERSION;
 /** EventSource uses one known channel so unknown data.type values remain observable. */
@@ -109,6 +113,8 @@ export const GraphUpdatedEventSchema = GraphEventIdentitySchema.extend({
 	diff: GraphDiffSchema.nullable(),
 	rebuiltAt: z.string().datetime(),
 	stats: GraphStatsSchema,
+	warning_summary: GraphWarningSummarySchema.nullable(),
+	warning_details_status: GraphWarningDetailsStatusSchema,
 }).strict();
 
 export const GraphErrorEventSchema = GraphEventIdentitySchema.extend({

@@ -90,7 +90,7 @@ describe("TopBar", () => {
 				model={null}
 				theme="light"
 				chatStatus={{ status: "streaming", summary: "正在接收回复" }}
-				graphStatus={{ status: "ready", summary: "42 节点 · 80 关联", animation: "queued" }}
+				graphStatus={{ status: "ready", summary: "42 节点 · 80 关联", animation: "queued", warningCount: 0 }}
 				onSearch={noop}
 				onNewConversation={noop}
 				onToggleTheme={noop}
@@ -101,6 +101,23 @@ describe("TopBar", () => {
 		const status = screen.getByLabelText("运行状态");
 		assert.match(status.textContent ?? "", /对话回复中/);
 		assert.match(status.textContent ?? "", /图谱待更新/);
+	});
+
+	it("labels a readable graph with warnings without using the failure state", () => {
+		renderTopBar(
+			<TopBar
+				knowledgeBase={{ path: "/kb", name: "示例知识库", origin: "default", valid: true }}
+				model={null}
+				theme="dark"
+				graphStatus={{ status: "ready", summary: "1 节点 · 0 关联 · 3 告警", animation: "idle", warningCount: 3 }}
+				onSearch={noop}
+				onNewConversation={noop}
+				onToggleTheme={noop}
+				onOpenAppearance={noop}
+			/>,
+		);
+		assert.match(screen.getByLabelText("运行状态").textContent ?? "", /图谱可读·有告警/);
+		assert.doesNotMatch(screen.getByLabelText("运行状态").textContent ?? "", /图谱出错/);
 	});
 
 	it("loads and saves the main model role through the shared config API", async () => {

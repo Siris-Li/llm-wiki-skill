@@ -179,6 +179,70 @@ describe("GraphPanel Paper shell", () => {
 		});
 	});
 
+	it("keeps a warning graph ready, mounted, paged, and reported to the top bar", async () => {
+		const warningState = availableWarningState();
+		mockGraphFetch({ warningState });
+		const statuses: unknown[] = [];
+		render(
+			<GraphPanel
+				currentKnowledgeBaseName="AI 学习库"
+				currentKnowledgeBasePath="/kb"
+				theme="dark"
+				onStatusChange={(status) => statuses.push(status)}
+			/>,
+		);
+
+		await waitFor(() => assert.notEqual(screen.queryByRole("region", { name: "图谱告警" }), null));
+		assert.ok(document.querySelector(".graph-host"));
+		assert.equal(screen.queryByTestId("graph-state"), null);
+		assert.equal(document.querySelector(".graph-screen")?.getAttribute("data-graph-status"), "ready");
+		assert.deepEqual(statuses.at(-1), {
+			status: "ready",
+			summary: "1 节点 · 0 关联 · 1 告警",
+			animation: "idle",
+			warningCount: 1,
+		});
+		assert.equal(screen.queryByText("解决此告警"), null);
+		await click(screen.getByRole("button", { name: "查看详情" }));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /wiki\/synthesis\/paper\.md/));
+	});
+
+	it("retains migration warnings through a warning-aware refresh until dismissal", async () => {
+		mockGraphFetch({ warningState: availableWarningState() });
+		const diff = {
+			...graphDiff("wiki/new.md", 2),
+			migrationWarnings: [{
+				code: "identity_alignment_ambiguous" as const,
+				source_path: "wiki/entities/foo.md",
+				previous_ids: ["foo"],
+				next_ids: ["wiki/entities/foo.md"],
+			}],
+		};
+		const { rerender } = render(
+			<GraphPanel
+				currentKnowledgeBaseName="AI 学习库"
+				currentKnowledgeBasePath="/kb"
+				theme="light"
+			/>,
+		);
+		await waitFor(() => assert.match(document.body.textContent ?? "", /1 节点 · 0 关联/));
+
+		rerender(
+			<GraphPanel
+				currentKnowledgeBaseName="AI 学习库"
+				currentKnowledgeBasePath="/kb"
+				theme="light"
+				pendingDiff={diff}
+				refreshToken={1}
+			/>,
+		);
+		await waitFor(() => assert.match(document.body.textContent ?? "", /首次刷新有 1 项迁移提示/));
+		assert.ok(document.querySelector(".graph-host"));
+		await click(screen.getByRole("button", { name: "关闭迁移提示" }));
+		assert.doesNotMatch(document.body.textContent ?? "", /首次刷新有 1 项迁移提示/);
+		assert.match(document.body.textContent ?? "", /图谱可读，但有内容需要留意/);
+	});
+
 	it("shows the existing error state and clears host state when first graph creation fails", async () => {
 		mockGraphFetch();
 		const dataChanges: unknown[] = [];
@@ -628,7 +692,7 @@ function cssBlock(css: string, selector: string): string {
 	return end === -1 ? css.slice(start) : css.slice(start, end);
 }
 
-function mockGraphFetch(options: { needsBuild?: boolean } = {}) {
+function mockGraphFetch(options: { needsBuild?: boolean; warningState?: ReturnType<typeof availableWarningState> } = {}) {
 	globalThis.fetch = (async (input) => {
 		const url = String(input);
 		if (url.startsWith("/api/graph/layout")) {
@@ -637,7 +701,38 @@ function mockGraphFetch(options: { needsBuild?: boolean } = {}) {
 				data: { version: 2, pins: {}, updatedAt: "2026-06-20T00:00:00.000Z" },
 			});
 		}
-			if (url.startsWith("/api/graph?")) {
+		if (url.startsWith("/api/graph/warnings")) {
+			return jsonResponse({
+				ok: true,
+				data: {
+					details_status: "available",
+					build_id: warningSummary().build_id,
+					summary: warningSummary(),
+					groups: [{
+						warning_id: "broken-paper",
+						code: "broken_wikilink",
+						severity: "error",
+						message: "Missing paper link",
+						occurrence_count: 1,
+						occurrences: [{
+							occurrence_id: "paper-occurrence",
+							source_path: "wiki/synthesis/paper.md",
+							line: 1,
+							column: 2,
+							start_byte: 0,
+							end_byte: 7,
+							raw_link: "[[missing]]",
+							file_sha256: "a".repeat(64),
+							link_kind: "page_wikilink",
+							read_only: false,
+						}],
+					}],
+					candidate_sets: [],
+					next_cursor: null,
+				},
+			});
+		}
+		if (url.startsWith("/api/graph?")) {
 				if (options.needsBuild) {
 					return jsonResponse({
 						ok: true,
@@ -672,6 +767,7 @@ function mockGraphFetch(options: { needsBuild?: boolean } = {}) {
 						edges: [],
 						communities: [],
 					},
+					warning_state: options.warningState ?? legacyWarningState(),
 				},
 			});
 			}
@@ -701,6 +797,38 @@ function readyGraphResult(nodeIds = ["wiki/fictional.md"]) {
 			})),
 			edges: [],
 		},
+		warning_state: legacyWarningState(),
+	};
+}
+
+function warningSummary() {
+	return {
+		build_id: "b".repeat(64),
+		total_groups: 1,
+		total_occurrences: 1,
+		error_occurrences: 1,
+		warning_occurrences: 0,
+		by_code: { broken_wikilink: 1 },
+		details_ref: "wiki/graph-warnings.json",
+		details_sha256: "d".repeat(64),
+	};
+}
+
+function availableWarningState() {
+	return {
+		summary: warningSummary(),
+		details_status: "available" as const,
+		details_unavailable_reason: null,
+		engine_groups: [],
+	};
+}
+
+function legacyWarningState() {
+	return {
+		summary: null,
+		details_status: "unavailable" as const,
+		details_unavailable_reason: "legacy_without_summary" as const,
+		engine_groups: [],
 	};
 }
 

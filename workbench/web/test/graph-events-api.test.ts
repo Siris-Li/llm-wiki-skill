@@ -400,7 +400,17 @@ function event(
 	extra: Record<string, unknown>,
 	streamId = "stream-1",
 ): GraphSseEvent {
-	return { schemaVersion: 1, streamId, seq, type, ...extra } as GraphSseEvent;
+	return {
+		schemaVersion: 1,
+		streamId,
+		seq,
+		type,
+		...(type === "graph_updated" ? {
+			warning_summary: null,
+			warning_details_status: "unavailable",
+		} : {}),
+		...extra,
+	} as GraphSseEvent;
 }
 
 function isRecoverableGraphError(error: unknown): boolean {

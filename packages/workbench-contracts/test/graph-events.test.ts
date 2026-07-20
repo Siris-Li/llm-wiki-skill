@@ -13,6 +13,17 @@ const identity = {
 	streamId: "graph-stream-1",
 } as const;
 
+const warningSummary = {
+	build_id: "b".repeat(64),
+	total_groups: 0,
+	total_occurrences: 0,
+	error_occurrences: 0,
+	warning_occurrences: 0,
+	by_code: {},
+	details_ref: "wiki/graph-warnings.json",
+	details_sha256: "d".repeat(64),
+} as const;
+
 test("graph SSE schema validates ready, update, and recoverable graph error events", () => {
 	const events = [
 		{
@@ -51,6 +62,8 @@ test("graph SSE schema validates ready, update, and recoverable graph error even
 			},
 			rebuiltAt: "2026-07-11T12:01:00.000Z",
 			stats: { nodeCount: 2, edgeCount: 1 },
+			warning_summary: warningSummary,
+			warning_details_status: "available",
 		},
 		{
 			...identity,
@@ -91,6 +104,8 @@ test("graph update accepts migration warnings and normalizes legacy diffs", () =
 		},
 		rebuiltAt: "2026-07-11T12:01:00.000Z",
 		stats: { nodeCount: 1, edgeCount: 0 },
+		warning_summary: warningSummary,
+		warning_details_status: "available",
 	} as const;
 	assert.deepEqual(GraphSseEventSchema.parse(current), current);
 
@@ -98,6 +113,26 @@ test("graph update accepts migration warnings and normalizes legacy diffs", () =
 	delete legacy.diff.migrationWarnings;
 	const parsed = GraphSseEventSchema.parse(legacy);
 	assert.deepEqual(parsed.diff?.migrationWarnings, []);
+});
+
+test("graph update requires warning summary and detail status", () => {
+	const valid = {
+		...identity,
+		seq: 2,
+		type: "graph_updated",
+		kbPath: "/fake/kb",
+		diff: null,
+		rebuiltAt: "2026-07-11T12:01:00.000Z",
+		stats: { nodeCount: 1, edgeCount: 0 },
+		warning_summary: null,
+		warning_details_status: "unavailable",
+	} as const;
+	assert.equal(GraphSseEventSchema.safeParse(valid).success, true);
+	for (const field of ["warning_summary", "warning_details_status"] as const) {
+		const invalid = { ...valid } as Record<string, unknown>;
+		delete invalid[field];
+		assert.equal(GraphSseEventSchema.safeParse(invalid).success, false, field);
+	}
 });
 
 test("graph SSE schema rejects drift in version, stream identity, sequence, and type", () => {

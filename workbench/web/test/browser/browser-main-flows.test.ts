@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +8,15 @@ import test from "node:test";
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type { GraphReadData } from "@llm-wiki/workbench-contracts";
+
+const require = createRequire(import.meta.url);
+const { assembleGraphArtifactPair } = require("../../../../scripts/lib/graph-warning-bundle.js") as {
+	assembleGraphArtifactPair(input: {
+		graphData: Record<string, unknown>;
+		groups: unknown[];
+		candidateSets: unknown[];
+	}): { graphData: unknown; warningBundle: unknown };
+};
 
 import {
 	OPERATION_TIMEOUT_MS,
@@ -283,6 +293,17 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await page.getByRole("tab", { name: "图谱" }).click();
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 		await page.getByText("1 节点 · 0 关联", { exact: true }).waitFor();
+		await page.getByText("图谱可读·有告警", { exact: true }).waitFor();
+		const warningBanner = page.getByRole("region", { name: "图谱告警" });
+		await warningBanner.waitFor();
+		await page.locator(".sigma-global-node-hit-target").first().waitFor({ timeout: START_TIMEOUT_MS });
+		assert.ok(await page.locator(".graph-host > *").count(), "warning graph must keep rendered graph pixels");
+		await warningBanner.getByRole("button", { name: "查看详情" }).click();
+		await warningBanner.getByText("wiki/synthesis/browser-warning-source.md", { exact: true }).first().waitFor();
+		await warningBanner.getByRole("button", { name: "加载更多" }).click();
+		await warningBanner.getByText("wiki/synthesis/final-browser-warning.md", { exact: true }).waitFor();
+		assert.equal((await warningBanner.textContent())?.includes(home), false, "warning UI must show only relative paths");
+		assert.equal(await warningBanner.getByText("解决此告警", { exact: true }).count(), 0);
 		await page.evaluate(() => {
 			const receipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
 			const source = new EventSource("/api/events");
@@ -296,6 +317,38 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		const busyResponses = await page.evaluate((kbPath) => Promise.all([0, 1].map(() => fetch(`/api/graph/rebuild?kb=${encodeURIComponent(kbPath)}`, { method: "POST" }).then(async (response) => ({ status: response.status, body: await response.json() })))), kbA);
 		assert.equal(busyResponses.every((response) => response.status === 200), true);
 		assert.equal(busyResponses.some((response) => response.body.data.status === "queued"), true);
+		await waitForGraphEvent(page, graphEventReceipts, (event) => event.type === "graph_updated" && event.kbPath === kbA);
+		await warningBanner.getByText("wiki/synthesis/final-browser-warning.md", { exact: true }).waitFor();
+		const warningPath = join(kbA, "wiki", "graph-warnings.json");
+		const warningBytes = await readFile(warningPath, "utf8");
+		const tamperedWarnings = JSON.parse(warningBytes) as { groups: Array<{ message: string }> };
+		tamperedWarnings.groups[0]!.message = "tampered /Users/private detail";
+		await writeFile(warningPath, JSON.stringify(tamperedWarnings));
+		await refreshGraphEventReceipts(page, graphEventReceipts);
+		const tamperBaseline = graphEventReceipts.length;
+		await page.getByRole("tab", { name: "对话" }).click();
+		await page.getByRole("tab", { name: "图谱" }).click();
+		await page.getByText("详情暂不可用，已安排重新构建。摘要和图谱仍可阅读。", { exact: true }).waitFor();
+		await page.locator("[data-graph-status='ready']").waitFor();
+		assert.equal(await page.getByText("图谱暂时不可用", { exact: true }).count(), 0);
+		await page.locator(".sigma-global-node-hit-target").first().waitFor({ timeout: START_TIMEOUT_MS });
+		assert.ok(await page.locator(".graph-host > *").count(), "tampered sidecar must not remove graph pixels");
+		assert.equal((await page.locator("body").textContent())?.includes("/Users/private"), false);
+		await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
+			index >= tamperBaseline && event.type === "graph_updated" && event.kbPath === kbA
+		));
+		await rm(join(kbA, "wiki", "entities", "foo.md"), { force: true });
+		await rm(join(kbA, "wiki", "topics", "foo.md"), { force: true });
+		await rm(join(kbA, "wiki", "synthesis", "browser-warning-source.md"), { force: true });
+		await refreshGraphEventReceipts(page, graphEventReceipts);
+		const cleanupBaseline = graphEventReceipts.length;
+		const cleanupResponsePromise = waitForGraphRebuildResponse(page, kbA);
+		await page.getByRole("button", { name: "重构" }).click();
+		assert.equal(["started", "queued"].includes((await cleanupResponsePromise).status), true);
+		await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
+			index >= cleanupBaseline && event.type === "graph_updated" && event.kbPath === kbA
+		));
+		await page.getByText("1 节点 · 0 关联", { exact: true }).waitFor();
 		await assertBrowserJson(page, `/api/graph?kb=${encodeURIComponent(join(home, "missing-kb"))}`, 404, /知识库/);
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 		await page.goto("about:blank");
@@ -622,14 +675,72 @@ async function restartBackend(running: RunningProcess, home: string, port: numbe
 
 async function createKnowledgeBase(path: string, title: string, sharedText: string): Promise<void> {
 	await createBaseKnowledgeBase(path, title, sharedText);
+	if (title === "Atlas Notes") {
+		await mkdir(join(path, "wiki", "topics"), { recursive: true });
+		await mkdir(join(path, "wiki", "synthesis"), { recursive: true });
+		await writeFile(join(path, "wiki", "entities", "foo.md"), "# Entity Foo\n");
+		await writeFile(join(path, "wiki", "topics", "foo.md"), "# Topic Foo\n");
+		await writeFile(
+			join(path, "wiki", "synthesis", "browser-warning-source.md"),
+			`# Browser warnings\n\n[[foo]]\n${Array.from({ length: 24 }, (_, index) => `[[missing-${index + 1}]]`).join("\n")}\n[待创建: [[future-browser-page]]]\n[[final-missing-browser-page]]\n`,
+		);
+	}
 	const harborNode = title === "Harbor Notes"
-		? [{ id: "harbor-extra", label: "Harbor extra", type: "entity", community: null, content: "Harbor-only second node", source_path: join(path, "wiki/entities/shared.md") }]
+		? [{ id: "harbor-extra", label: "Harbor extra", type: "entity", community: null, content: "Harbor-only second node", source_path: "wiki/entities/harbor-extra.md" }]
 		: [];
-	await writeFile(join(path, "wiki/graph-data.json"), `${JSON.stringify({
+	const graphData = {
 		meta: { build_date: "2026-07-13T00:00:00Z", wiki_title: title, total_nodes: 1 + harborNode.length, total_edges: 0, initial_view: ["shared", ...harborNode.map((node) => node.id)], degraded: false },
-		nodes: [{ id: "shared", label: `${title} shared`, type: "entity", community: null, content: sharedText, source_path: join(path, "wiki/entities/shared.md") }, ...harborNode],
+		nodes: [{ id: "shared", label: `${title} shared`, type: "entity", community: null, content: sharedText, source_path: "wiki/entities/shared.md" }, ...harborNode],
 		edges: [],
-	}, null, 2)}\n`);
+	};
+	const warnings = title === "Atlas Notes" ? browserWarningFixture() : { groups: [], candidateSets: [] };
+	const pair = assembleGraphArtifactPair({
+		graphData,
+		groups: warnings.groups,
+		candidateSets: warnings.candidateSets,
+	});
+	await writeFile(join(path, "wiki/graph-data.json"), `${JSON.stringify(pair.graphData, null, 2)}\n`);
+	await writeFile(join(path, "wiki/graph-warnings.json"), `${JSON.stringify(pair.warningBundle, null, 2)}\n`);
+}
+
+function browserWarningFixture() {
+	const candidateSets = [{
+		candidate_set_id: "browser-foo-candidates",
+		candidate_count: 2,
+		candidates: ["wiki/entities/foo.md", "wiki/topics/foo.md"],
+	}];
+	const groups = Array.from({ length: 27 }, (_, index) => {
+		const ambiguous = index === 0;
+		const pending = index === 25;
+		const sourcePath = index === 26
+			? "wiki/synthesis/final-browser-warning.md"
+			: "wiki/synthesis/browser-warning-source.md";
+		const rawLink = ambiguous
+			? "[[foo]]"
+			: pending ? "[[future-browser-page]]" : `[[missing-${index}]]`;
+		return {
+			warning_id: `browser-warning-${String(index).padStart(2, "0")}`,
+			code: ambiguous ? "ambiguous_wikilink" : pending ? "pending_wikilink" : "broken_wikilink",
+			severity: pending ? "warning" : "error",
+			message: ambiguous ? "同名页面需要明确路径" : pending ? "页面标记为待创建" : "链接目标不存在",
+			target_key: ambiguous ? "foo" : pending ? "future-browser-page" : `missing-${index}`,
+			...(ambiguous ? { candidate_set_id: "browser-foo-candidates" } : {}),
+			occurrence_count: 1,
+			occurrences: [{
+				occurrence_id: `browser-occurrence-${String(index).padStart(2, "0")}`,
+				source_path: sourcePath,
+				line: index + 3,
+				column: 1,
+				start_byte: index * 32,
+				end_byte: index * 32 + Buffer.byteLength(rawLink),
+				raw_link: rawLink,
+				file_sha256: createHash("sha256").update(`browser-source-${index}`).digest("hex"),
+				link_kind: "page_wikilink",
+				read_only: false,
+			}],
+		};
+	});
+	return { groups, candidateSets };
 }
 
 async function createArtifacts(appDir: string, conversationId: string, kbPath: string): Promise<void> {

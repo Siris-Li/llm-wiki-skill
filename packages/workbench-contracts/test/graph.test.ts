@@ -10,6 +10,13 @@ import {
 	isMigratedJsonPath,
 } from "../src/index.js";
 
+const warningState = {
+	summary: null,
+	details_status: "unavailable" as const,
+	details_unavailable_reason: "legacy_without_summary" as const,
+	engine_groups: [],
+};
+
 const graphData = {
 	meta: {
 		build_date: "2026-07-10T00:00:00.000Z",
@@ -42,11 +49,13 @@ test("graph read 与 layout data schema 接受当前图谱主路径结构", () =
 			state: { status: "ready", rebuiltAt: null },
 			needsBuild: false,
 			data: graphData,
+			warning_state: warningState,
 		}),
 		{
 			state: { status: "ready", rebuiltAt: null },
 			needsBuild: false,
 			data: graphData,
+			warning_state: warningState,
 		},
 	);
 	assert.deepEqual(
@@ -73,6 +82,14 @@ test("graph read 与 layout data schema 接受当前图谱主路径结构", () =
 		},
 	);
 	assert.deepEqual(GraphLayoutDataSchema.parse(layout), layout);
+	assert.equal(
+		GraphReadDataSchema.safeParse({
+			state: { status: "ready", rebuiltAt: null },
+			needsBuild: false,
+			data: graphData,
+		}).success,
+		false,
+	);
 	assert.equal(
 		GraphReadDataSchema.safeParse({
 			needsBuild: false,

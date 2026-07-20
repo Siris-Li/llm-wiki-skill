@@ -1352,6 +1352,229 @@
     gap: 10px;
   }
 
+  .graph-shell:has(.graph-warnings-banner) {
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .graph-warnings-banner {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    max-height: min(38vh, 360px);
+    min-width: 0;
+    overflow: auto;
+    border: 1px solid color-mix(in srgb, var(--app-warn) 42%, var(--app-border));
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--app-warn) 8%, var(--app-surface)), color-mix(in srgb, var(--app-bg) 74%, var(--app-surface))),
+      var(--paper-grain);
+    background-size: auto, 180px 180px;
+    color: var(--app-fg);
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--app-fg) 7%, transparent);
+  }
+
+  .graph-warnings-summary {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .graph-warnings-summary > svg {
+    width: 18px;
+    height: 18px;
+    color: var(--app-warn);
+  }
+
+  .graph-warnings-summary-copy {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .graph-warnings-summary-copy strong {
+    font-size: 12px;
+  }
+
+  .graph-warnings-summary-copy span {
+    color: var(--app-muted);
+    font-size: 11px;
+  }
+
+  .graph-warnings-toggle,
+  .graph-warning-more,
+  .graph-warning-resolve,
+  .graph-warning-error button {
+    display: inline-flex;
+    min-height: 32px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid color-mix(in srgb, var(--app-warn) 40%, var(--app-border));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--app-warn) 10%, var(--app-surface));
+    color: var(--app-fg);
+    font-size: 11px;
+    font-weight: 750;
+    cursor: pointer;
+  }
+
+  .graph-warnings-toggle svg,
+  .graph-warning-error svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .graph-warnings-banner[data-expanded="true"] .graph-warnings-toggle svg {
+    transform: rotate(180deg);
+  }
+
+  .graph-warning-code-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 12px 10px;
+  }
+
+  .graph-warning-code-list span {
+    padding: 4px 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--app-surface) 76%, transparent);
+    color: var(--app-muted);
+    font-size: 10px;
+  }
+
+  .graph-warning-unavailable,
+  .graph-warning-error,
+  .graph-migration-warnings {
+    margin: 0 12px 10px;
+    padding: 9px 10px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--app-surface) 78%, transparent);
+    color: var(--app-muted);
+    font-size: 11px;
+  }
+
+  .graph-migration-warnings > div,
+  .graph-warning-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .graph-migration-warnings button {
+    display: inline-grid;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--app-muted);
+    cursor: pointer;
+  }
+
+  .graph-migration-warnings button svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .graph-migration-warnings ul,
+  .graph-warning-candidates,
+  .graph-warning-occurrences {
+    margin: 7px 0 0;
+    padding-left: 18px;
+  }
+
+  .graph-warning-live:empty {
+    display: none;
+  }
+
+  .graph-warning-live {
+    padding: 0 12px 10px;
+    color: var(--app-muted);
+    font-size: 11px;
+  }
+
+  .graph-warning-details {
+    display: grid;
+    gap: 8px;
+    padding: 0 12px 12px;
+  }
+
+  .graph-warning-group {
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--app-surface) 76%, transparent);
+  }
+
+  .graph-warning-group header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11px;
+  }
+
+  .graph-warning-group p,
+  .graph-warning-group li {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .graph-warning-group p {
+    margin: 6px 0;
+    color: var(--app-muted);
+    font-size: 11px;
+  }
+
+  .graph-warning-occurrences li {
+    display: grid;
+    gap: 2px;
+    margin-top: 5px;
+  }
+
+  .graph-warning-occurrences code {
+    color: var(--app-fg);
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+
+  .graph-warning-occurrences span,
+  .graph-warning-candidates {
+    color: var(--app-muted);
+    font-size: 10px;
+  }
+
+  @media (max-width: 420px) {
+    .graph-warnings-summary {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .graph-warnings-toggle {
+      grid-column: 1 / -1;
+      width: 100%;
+    }
+
+    .graph-warning-code-list {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .graph-warnings-banner *,
+    .graph-warnings-toggle svg {
+      scroll-behavior: auto;
+      transition: none !important;
+    }
+  }
+
   .graph-shell-toolbar {
     position: relative;
     z-index: 1;

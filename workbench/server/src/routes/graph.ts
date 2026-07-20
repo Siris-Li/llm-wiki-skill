@@ -5,9 +5,13 @@ import {
 	GraphLayoutWriteBodySchema,
 	GraphReadDataSchema,
 	GraphRebuildDataSchema,
+	GraphWarningPageDataSchema,
+	GraphWarningPageQuerySchema,
 	type GraphLayoutData,
 	type GraphReadData,
 	type GraphRebuildData,
+	type GraphWarningPageContract,
+	type GraphWarningPageQueryContract,
 } from "@llm-wiki/workbench-contracts";
 
 import { getActive } from "../agent.js";
@@ -18,10 +22,12 @@ import {
 import {
 	HttpContractError,
 	parseValidatedBody,
+	parseValidatedInput,
 } from "../http/request.js";
 import { jsonOk } from "../http/response.js";
 import {
 	readGraphSnapshot,
+	readGraphWarnings,
 	readGraphLayout,
 	triggerGraphRebuild,
 	writeGraphLayout,
@@ -33,6 +39,10 @@ export interface GraphRouteService {
 	assertRegisteredKnowledgeBase: (kbPath: string) => Promise<string>;
 	triggerGraphRebuild: (kbPath: string) => GraphRebuildData;
 	readGraphData: (kbPath: string) => Promise<GraphReadData>;
+	readGraphWarnings: (
+		kbPath: string,
+		query: GraphWarningPageQueryContract,
+	) => Promise<GraphWarningPageContract>;
 	readGraphLayout: (kbPath: string) => Promise<GraphLayoutData>;
 	writeGraphLayout: (
 		kbPath: string,
@@ -49,6 +59,9 @@ export const defaultGraphRouteService: GraphRouteService = {
 	},
 	readGraphData: async (kbPath) => {
 		return GraphReadDataSchema.parse(await readGraphSnapshot(kbPath));
+	},
+	readGraphWarnings: async (kbPath, query) => {
+		return GraphWarningPageDataSchema.parse(await readGraphWarnings(kbPath, query));
 	},
 	readGraphLayout: async (kbPath) => {
 		const result = await readGraphLayout(kbPath);
@@ -69,6 +82,22 @@ export function createGraphRoutes(service: GraphRouteService): Hono {
 			return jsonOk(
 				c,
 				GraphReadDataSchema.parse(await service.readGraphData(kbPath)),
+			);
+		} catch (err) {
+			throw mapGraphError(err);
+		}
+	});
+
+	router.get("/graph/warnings", async (c) => {
+		const kbPath = await resolveGraphKnowledgeBase(c.req.query("kb"), service);
+		const query = parseValidatedInput(GraphWarningPageQuerySchema, {
+			...(c.req.query("cursor") ? { cursor: c.req.query("cursor") } : {}),
+			...(c.req.query("limit") ? { limit: c.req.query("limit") } : {}),
+		});
+		try {
+			return jsonOk(
+				c,
+				GraphWarningPageDataSchema.parse(await service.readGraphWarnings(kbPath, query)),
 			);
 		} catch (err) {
 			throw mapGraphError(err);

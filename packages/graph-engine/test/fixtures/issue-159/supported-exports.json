@@ -3,8 +3,12 @@
     "GraphData",
     "GraphDiff",
     "GraphLayoutFile",
+    "GraphMigrationWarning",
+    "GraphWarningBundle",
+    "alignGraphIdentityBySourcePath",
     "diffGraphData",
-    "normalizeGraphLayoutFile"
+    "normalizeGraphLayoutFile",
+    "projectGraphInput"
   ],
   "workbenchWeb": [
     "GraphCommunitySummaryPayload",

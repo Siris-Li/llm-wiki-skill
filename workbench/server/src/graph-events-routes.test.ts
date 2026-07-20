@@ -131,6 +131,8 @@ function graphUpdated(): GraphEvent {
 		diff: null,
 		rebuiltAt: "2026-07-11T12:02:00.000Z",
 		stats: { nodeCount: 2, edgeCount: 1 },
+		warning_summary: null,
+		warning_details_status: "unavailable",
 	};
 }
 
