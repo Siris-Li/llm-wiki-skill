@@ -15,4 +15,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-      - run: node --test tests/js/unicode-normalization.test.js tests/js/unicode-case-folding.test.js tests/js/wiki-file-discovery.test.js tests/js/wikilink-parser.test.js tests/js/wiki-link-index.test.js
+      - run: node --test tests/js/unicode-normalization.test.js tests/js/unicode-case-folding.test.js tests/js/wiki-file-discovery.test.js tests/js/wikilink-parser.test.js tests/js/wiki-link-index.test.js tests/js/wiki-link-cli.test.js

@@ -115,6 +115,26 @@ describe("buildWikiTargetIndex and scanKnowledgeBaseLinks", () => {
     );
     assert.equal(index.portablePaths.get(portablePathKey("wiki/topics/foo.md")).length, 2);
   });
+
+  it("groups equivalent normalized missing targets under one stable warning", () => {
+    const tempRoot = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "llm-wiki-groups-"));
+    try {
+      fs.mkdirSync(path.join(tempRoot, "wiki", "topics"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempRoot, "wiki", "topics", "source.md"),
+        "[[missing]] and [[./missing]]\n",
+        "utf8"
+      );
+
+      const scan = scanKnowledgeBaseLinks(tempRoot, "lint");
+      const brokenGroups = scan.groups.filter((group) => group.code === "broken_wikilink");
+      assert.equal(brokenGroups.length, 1);
+      assert.equal(brokenGroups[0].target_key, "missing");
+      assert.equal(brokenGroups[0].occurrence_count, 2);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("validatePortableMarkdownFilename", () => {
@@ -146,5 +166,11 @@ describe("validatePortableMarkdownFilename", () => {
     assert.equal(validatePortableMarkdownFilename("wiki/topics/foo.md", "中文 页面.md", inventory).ok, true);
     assert.equal(validatePortableMarkdownFilename("wiki/topics/foo.md", "with space.md", inventory).ok, true);
     assert.equal(validatePortableMarkdownFilename("wiki/topics/foo.md", "FOO.md", inventory).requires_transit, true);
+    assert.equal(validatePortableMarkdownFilename("wiki/topics/foo.md", "bad\u007fname", inventory).ok, false);
+    assert.equal(validatePortableMarkdownFilename("wiki/topics/foo.md", "bad\u0085name", inventory).ok, false);
+    assert.equal(
+      validatePortableMarkdownFilename("wiki/topics/foo.md", "Bar.MD", inventory).normalized_name,
+      "Bar.MD"
+    );
   });
 });

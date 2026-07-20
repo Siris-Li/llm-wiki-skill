@@ -43,6 +43,7 @@
   ],
   "targets": [
     ".wiki-schema.md",
+    "expected.json",
     "index.md",
     "log.md",
     "purpose.md",

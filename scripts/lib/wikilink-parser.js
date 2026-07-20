@@ -22,6 +22,16 @@ function extractLineAnnotations(lineText) {
   };
 }
 
+function parseFenceCandidate(lineText) {
+  const match = lineText.match(/^( {0,3})(`{3,}|~{3,})(.*)$/);
+  if (!match) return null;
+  return {
+    marker: match[2][0],
+    length: match[2].length,
+    rest: match[3]
+  };
+}
+
 function parseOccurrence(rawLink, sourcePath, fileSha256, line, column, startByte, annotations) {
   let innerStart = 0;
   let innerEnd = rawLink.length;
@@ -96,26 +106,41 @@ function parseWikilinks(buffer, sourcePath) {
   const occurrences = [];
 
   let fence = null;
+  let inlineDelimiter = 0;
   let lineNumber = 1;
   let lineStartIndex = 0;
+  let positionBytesAdvanced = 0;
 
   while (lineStartIndex <= text.length) {
     const nextNewlineIndex = text.indexOf("\n", lineStartIndex);
     const lineEndIndex = nextNewlineIndex === -1 ? text.length : nextNewlineIndex;
     const lineText = text.slice(lineStartIndex, lineEndIndex);
     const annotations = extractLineAnnotations(lineText);
-    const fenceMatch = lineText.match(/^[ \t]*(`{3,}|~{3,})/);
+    const fenceCandidate = parseFenceCandidate(lineText);
+    let handledAsFence = false;
 
-    if (fenceMatch) {
-      const marker = fenceMatch[1][0];
-      const length = fenceMatch[1].length;
-      if (!fence) {
-        fence = { marker, length };
-      } else if (fence.marker === marker && length >= fence.length) {
+    if (fence) {
+      handledAsFence = true;
+      if (
+        fenceCandidate
+        && fence.marker === fenceCandidate.marker
+        && fenceCandidate.length >= fence.length
+        && /^[ \t]*$/.test(fenceCandidate.rest)
+      ) {
         fence = null;
       }
-    } else if (!fence) {
-      let inlineDelimiter = 0;
+    } else if (
+      inlineDelimiter === 0
+      && fenceCandidate
+      && !(fenceCandidate.marker === "`" && fenceCandidate.rest.includes("`"))
+    ) {
+      fence = { marker: fenceCandidate.marker, length: fenceCandidate.length };
+      handledAsFence = true;
+    }
+
+    if (handledAsFence) {
+      positionBytesAdvanced += Buffer.byteLength(lineText, "utf8");
+    } else {
       let column = 1;
 
       for (let index = 0; index < lineText.length;) {
@@ -126,18 +151,21 @@ function parseWikilinks(buffer, sourcePath) {
           }
           if (inlineDelimiter === 0) {
             inlineDelimiter = runLength;
-          } else if (runLength >= inlineDelimiter) {
+          } else if (runLength === inlineDelimiter) {
             inlineDelimiter = 0;
           }
           index += runLength;
           column += runLength;
+          positionBytesAdvanced += runLength;
           continue;
         }
 
         if (inlineDelimiter > 0) {
           const symbol = String.fromCodePoint(lineText.codePointAt(index));
+          const symbolBytes = Buffer.byteLength(symbol, "utf8");
           index += symbol.length;
           column += 1;
+          positionBytesAdvanced += symbolBytes;
           continue;
         }
 
@@ -160,16 +188,20 @@ function parseWikilinks(buffer, sourcePath) {
         }
 
         if (rawLink && endIndex !== null) {
-          const startByte = Buffer.byteLength(text.slice(0, lineStartIndex + index), "utf8");
+          const startByte = positionBytesAdvanced;
+          const rawLinkBytes = Buffer.byteLength(rawLink, "utf8");
           occurrences.push(parseOccurrence(rawLink, sourcePath, fileSha256, lineNumber, column, startByte, annotations));
           index = endIndex;
           column += countCodePoints(rawLink);
+          positionBytesAdvanced += rawLinkBytes;
           continue;
         }
 
         const symbol = String.fromCodePoint(lineText.codePointAt(index));
+        const symbolBytes = Buffer.byteLength(symbol, "utf8");
         index += symbol.length;
         column += 1;
+        positionBytesAdvanced += symbolBytes;
       }
     }
 
@@ -178,13 +210,18 @@ function parseWikilinks(buffer, sourcePath) {
     }
 
     lineStartIndex = nextNewlineIndex + 1;
+    positionBytesAdvanced += 1;
     lineNumber += 1;
   }
 
   return {
     source_path: sourcePath,
     file_sha256: fileSha256,
-    occurrences
+    occurrences,
+    metrics: {
+      utf8_bytes_scanned: buffer.length,
+      position_bytes_advanced: positionBytesAdvanced
+    }
   };
 }
 

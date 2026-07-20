@@ -117,7 +117,7 @@ function resolveWikilink(occurrence, sourcePath, index) {
       creates_edge: false,
       warning_code: occurrence.pending ? "pending_wikilink" : (occurrence.link_kind === "attachment_wikilink" ? null : "broken_wikilink"),
       candidate_paths: [],
-      target_key: rawTarget
+      target_key: targetKey
     };
   }
 
@@ -128,7 +128,7 @@ function resolveWikilink(occurrence, sourcePath, index) {
       creates_edge: false,
       warning_code: "ambiguous_wikilink",
       candidate_paths: candidates.map((item) => item.path).sort(),
-      target_key: rawTarget
+      target_key: targetKey
     };
   }
 
@@ -146,7 +146,7 @@ function resolveWikilink(occurrence, sourcePath, index) {
     creates_edge: createsEdge,
     warning_code: warningCode,
     candidate_paths: [],
-    target_key: rawTarget
+    target_key: targetKey
   };
 }
 
@@ -221,7 +221,12 @@ function scanKnowledgeBaseLinks(kbRoot, policy) {
   const edges = [];
   const stalePendingWrappers = [];
   const edgeKeys = new Set();
-  const metrics = { files_read: 0, files_parsed: 0 };
+  const metrics = {
+    files_read: 0,
+    files_parsed: 0,
+    utf8_bytes_scanned: 0,
+    position_bytes_advanced: 0
+  };
 
   for (const collision of index.portableCollisions) {
     candidateSetMap.set(collision.candidate_set_id, {
@@ -247,6 +252,8 @@ function scanKnowledgeBaseLinks(kbRoot, policy) {
     metrics.files_parsed += 1;
 
     const parsed = parseWikilinks(buffer, source.path);
+    metrics.utf8_bytes_scanned += parsed.metrics.utf8_bytes_scanned;
+    metrics.position_bytes_advanced += parsed.metrics.position_bytes_advanced;
     for (const occurrence of parsed.occurrences) {
       const resolution = resolveWikilink(occurrence, source.path, index);
       const occurrenceRecord = {
@@ -335,14 +342,14 @@ function validatePortableMarkdownFilename(sourcePath, newName, inventoryOrTarget
     : inventoryOrTargets.targets;
   const rawName = String(newName || "");
   const trimmed = rawName.trim();
-  let normalizedName = rawName.endsWith(".md") ? rawName : `${rawName}.md`;
+  let normalizedName = /\.md$/i.test(rawName) ? rawName : `${rawName}.md`;
   normalizedName = normalizeRelativePosixPath(normalizedName);
   const stem = normalizedName.slice(0, -3);
 
   if (!trimmed || trimmed === "." || trimmed === "..") {
     return { ok: false, reason: "empty_name" };
   }
-  if (/[\u0000-\u001f<>:"/\\|?*]/.test(normalizedName)) {
+  if (/[\u0000-\u001f\u007f-\u009f<>:"/\\|?*]/.test(normalizedName)) {
     return { ok: false, reason: "illegal_character" };
   }
   if (/[ .]$/.test(rawName)) {

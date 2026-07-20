@@ -113,6 +113,8 @@ function buildRenameScanReport(kbRoot, sourcePath, newName) {
       }));
       ambiguous.push({
         source_path: occurrence.source_path,
+        classification: occurrence.read_only ? "read_only" : "editable",
+        read_only: occurrence.read_only,
         file_sha256: occurrence.file_sha256,
         start_byte: occurrence.start_byte,
         end_byte: occurrence.end_byte,
@@ -135,6 +137,47 @@ function buildRenameScanReport(kbRoot, sourcePath, newName) {
   };
 }
 
+function assertExactFlags(flags, allowedFlags) {
+  const seen = new Set();
+  for (const flag of flags) {
+    if (!allowedFlags.has(flag)) {
+      throw new Error(`Unknown argument: ${flag}`);
+    }
+    if (seen.has(flag)) {
+      throw new Error(`Duplicate argument: ${flag}`);
+    }
+    seen.add(flag);
+  }
+  return seen;
+}
+
+function parseArguments(command, rest) {
+  if (command === "graph") {
+    if (rest.length < 2 || rest.length > 3 || rest[0].startsWith("--") || rest[1].startsWith("--")) {
+      throw new Error("graph requires <kb-root> <output-dir> [--test-mode]");
+    }
+    const flags = assertExactFlags(rest.slice(2), new Set(["--test-mode"]));
+    return { kbRoot: rest[0], outputDir: rest[1], testMode: flags.has("--test-mode") };
+  }
+
+  if (command === "check") {
+    if (rest.length < 1 || rest[0].startsWith("--")) {
+      throw new Error("check requires <kb-root> [--strict] [--json]");
+    }
+    const flags = assertExactFlags(rest.slice(1), new Set(["--strict", "--json"]));
+    return { kbRoot: rest[0], strict: flags.has("--strict"), json: flags.has("--json") };
+  }
+
+  if (command === "rename-scan") {
+    if (rest.length !== 3 || rest.some((value) => value.startsWith("--"))) {
+      throw new Error("rename-scan requires <kb-root> <source-path> <new-name>");
+    }
+    return { kbRoot: rest[0], sourcePath: rest[1], newName: rest[2] };
+  }
+
+  throw new Error(`Unknown command: ${command}`);
+}
+
 function main(argv) {
   const [command, ...rest] = argv;
 
@@ -144,41 +187,25 @@ function main(argv) {
   }
 
   try {
+    const args = parseArguments(command, rest);
     if (command === "graph") {
-      const [kbRoot, outputDir] = rest;
-      if (!kbRoot || !outputDir) {
-        throw new Error("graph requires <kb-root> and <output-dir>");
-      }
-
-      const report = buildCheckReport(kbRoot, "graph");
-      process.stdout.write(`${JSON.stringify({ output_dir: outputDir, report }, null, 2)}\n`);
+      const report = buildCheckReport(args.kbRoot, "graph");
+      process.stdout.write(`${JSON.stringify({ output_dir: args.outputDir, report }, null, 2)}\n`);
       return 0;
     }
 
     if (command === "check") {
-      const [kbRoot, ...flags] = rest;
-      if (!kbRoot) {
-        throw new Error("check requires <kb-root>");
-      }
-      const strict = flags.includes("--strict");
-      const report = buildCheckReport(kbRoot, "lint");
+      const report = buildCheckReport(args.kbRoot, "lint");
 
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-      return strict && hasStrictErrors(report) ? 2 : 0;
+      return args.strict && hasStrictErrors(report) ? 2 : 0;
     }
 
     if (command === "rename-scan") {
-      const [kbRoot, sourcePath, newName] = rest;
-      if (!kbRoot || !sourcePath || !newName) {
-        throw new Error("rename-scan requires <kb-root> <source-path> <new-name>");
-      }
-
-      const report = buildRenameScanReport(kbRoot, sourcePath, newName);
+      const report = buildRenameScanReport(args.kbRoot, args.sourcePath, args.newName);
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
       return 0;
     }
-
-    throw new Error(`Unknown command: ${command}`);
   } catch (error) {
     console.error(error.message);
     return 1;

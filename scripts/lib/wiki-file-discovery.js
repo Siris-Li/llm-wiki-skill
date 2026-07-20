@@ -15,7 +15,6 @@ const GRAPH_PAGE_TYPES = Object.freeze({
 });
 
 const ROOT_EDITABLE_MARKDOWN = new Set(["index.md", "log.md", "purpose.md"]);
-const ROOT_READ_ONLY_MARKDOWN = new Set([".wiki-schema.md"]);
 const EXCLUDED_DIRECTORY_NAMES = new Set([".obsidian", ".git", ".wiki-tmp", "node_modules"]);
 const EXCLUDED_BASENAMES = new Set(["graph-data.json", "graph-warnings.json"]);
 
@@ -76,8 +75,7 @@ function isMarkdown(relativePath) {
 }
 
 function isAttachment(relativePath) {
-  if (isMarkdown(relativePath)) return false;
-  return relativePath.startsWith("raw/") || relativePath.startsWith("wiki/");
+  return !isMarkdown(relativePath);
 }
 
 function graphTypeFor(relativePath) {
@@ -98,7 +96,7 @@ function isRenameEditableSource(relativePath) {
 }
 
 function isRenameReadOnlySource(relativePath) {
-  return ROOT_READ_ONLY_MARKDOWN.has(relativePath) || (relativePath.startsWith("raw/") && isMarkdown(relativePath));
+  return isMarkdown(relativePath) && !isRenameEditableSource(relativePath);
 }
 
 function fileSetSignature(items) {
@@ -119,7 +117,11 @@ function walkKnowledgeBase(rootRealPath, directoryAbsolutePath, results) {
     const topLevelName = relativePath.split("/")[0];
 
     if (entry.isDirectory()) {
-      if (EXCLUDED_DIRECTORY_NAMES.has(entry.name) || EXCLUDED_DIRECTORY_NAMES.has(topLevelName)) {
+      if (
+        entry.name.startsWith(".")
+        || EXCLUDED_DIRECTORY_NAMES.has(entry.name)
+        || EXCLUDED_DIRECTORY_NAMES.has(topLevelName)
+      ) {
         continue;
       }
       if (entry.isSymbolicLink && entry.isSymbolicLink()) {
@@ -144,6 +146,9 @@ function walkKnowledgeBase(rootRealPath, directoryAbsolutePath, results) {
     }
 
     const normalizedPath = normalizeRelativePosixPath(relativePath);
+    if (entry.name.startsWith(".") && normalizedPath !== ".wiki-schema.md") {
+      continue;
+    }
     if (isGeneratedArtifact(normalizedPath) || isRenameStagingFile(normalizedPath)) {
       continue;
     }

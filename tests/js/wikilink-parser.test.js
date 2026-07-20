@@ -79,6 +79,41 @@ describe("parseWikilinks", () => {
     assert.equal(plainFooLinks.length, 1);
   });
 
+  it("requires valid fence closers and equal-length inline code delimiters", () => {
+    const source = Buffer.from([
+      "```js",
+      "[[hidden-in-fence]]",
+      "``` trailing prose is not a closer",
+      "[[still-hidden-in-fence]]",
+      "```",
+      "[[visible-after-fence]]",
+      "`` code ``` [[still-inline-code]] `` [[visible-after-inline]]",
+      "``",
+      "[[hidden-in-multiline-inline]]",
+      "``",
+      "[[visible-after-multiline-inline]]",
+      ""
+    ].join("\n"), "utf8");
+
+    const parsed = parseWikilinks(source, "wiki/topics/code-boundaries.md");
+    assert.deepEqual(parsed.occurrences.map((item) => item.raw_link), [
+      "[[visible-after-fence]]",
+      "[[visible-after-inline]]",
+      "[[visible-after-multiline-inline]]"
+    ]);
+  });
+
+  it("reports linear UTF-8 position progress for a representative link-heavy file", () => {
+    const source = Buffer.from("中文🙂 [[target]] tail\n".repeat(2000), "utf8");
+    const parsed = parseWikilinks(source, "wiki/topics/performance.md");
+
+    assert.equal(parsed.occurrences.length, 2000);
+    assert.equal(parsed.metrics.utf8_bytes_scanned, source.length);
+    assert.equal(parsed.metrics.position_bytes_advanced, source.length);
+    const last = parsed.occurrences.at(-1);
+    assert.equal(source.subarray(last.start_byte, last.end_byte).toString("utf8"), "[[target]]");
+  });
+
   it("tracks distinct byte ranges for two links on one line", () => {
     const parsed = parseWikilinks(SOURCE_BUFFER, SOURCE_PATH);
     const lineMatches = parsed.occurrences.filter(

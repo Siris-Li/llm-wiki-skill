@@ -46,6 +46,36 @@ describe("discoverKnowledgeBaseFiles", () => {
     assert.equal(inventory.targets.some((item) => item.path === "raw/assets/Figure.png"), true);
   });
 
+  it("scans every non-excluded Markdown file for rename impact and indexes attachments anywhere", () => {
+    const tempRoot = copyFixture();
+    try {
+      cloneFixture(tempRoot);
+      fs.mkdirSync(path.join(tempRoot, "notes", "nested"), { recursive: true });
+      fs.mkdirSync(path.join(tempRoot, "assets"), { recursive: true });
+      fs.mkdirSync(path.join(tempRoot, ".private"), { recursive: true });
+      fs.writeFileSync(path.join(tempRoot, "other.md"), "[[foo]]\n", "utf8");
+      fs.writeFileSync(path.join(tempRoot, "notes", "nested", "read-only.md"), "[[foo]]\n", "utf8");
+      fs.writeFileSync(path.join(tempRoot, "wiki", "notes", "editable.md"), "[[foo]]\n", "utf8");
+      fs.writeFileSync(path.join(tempRoot, "assets", "diagram.svg"), "<svg/>\n", "utf8");
+      fs.writeFileSync(path.join(tempRoot, ".private", "hidden.md"), "[[foo]]\n", "utf8");
+      fs.writeFileSync(path.join(tempRoot, ".hidden-attachment.png"), "hidden\n", "utf8");
+
+      const inventory = discoverKnowledgeBaseFiles(tempRoot);
+      const editable = inventoryPaths(inventory.renameEditableSources);
+      const readOnly = inventoryPaths(inventory.renameReadOnlySources);
+      const targets = inventoryPaths(inventory.targets);
+
+      assert.equal(editable.includes("wiki/notes/editable.md"), true);
+      assert.equal(readOnly.includes("other.md"), true);
+      assert.equal(readOnly.includes("notes/nested/read-only.md"), true);
+      assert.equal(targets.includes("assets/diagram.svg"), true);
+      assert.equal(targets.includes(".private/hidden.md"), false);
+      assert.equal(targets.includes(".hidden-attachment.png"), false);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("rejects symlink escapes instead of indexing them", () => {
     const tempRoot = copyFixture();
     try {

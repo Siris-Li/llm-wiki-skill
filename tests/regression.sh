@@ -1749,6 +1749,7 @@ node --test "$REPO_ROOT/tests/js/unicode-case-folding.test.js" || fail "unicode-
 node --test "$REPO_ROOT/tests/js/wiki-file-discovery.test.js" || fail "wiki-file-discovery unit tests failed"
 node --test "$REPO_ROOT/tests/js/wikilink-parser.test.js" || fail "wikilink-parser unit tests failed"
 node --test "$REPO_ROOT/tests/js/wiki-link-index.test.js" || fail "wiki-link-index unit tests failed"
+node --test "$REPO_ROOT/tests/js/wiki-link-cli.test.js" || fail "wiki-link-cli process tests failed"
 
 # ─── Lint 回归 ────────────────────────────────────────────────────
 bash "$REPO_ROOT/tests/lint-output.regression-1.sh" || fail "lint output regression failed"
