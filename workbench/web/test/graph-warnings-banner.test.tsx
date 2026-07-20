@@ -7,6 +7,7 @@ import type {
 	GraphWarningCandidateSetContract,
 	GraphWarningGroupContract,
 	GraphWarningPageContract,
+	GraphWarningSummaryContract,
 	GraphWarningStateContract,
 } from "@llm-wiki/workbench-contracts";
 
@@ -71,7 +72,7 @@ describe("GraphWarningsBanner", () => {
 
 		assert.match(screen.getByRole("region", { name: "图谱告警" }).textContent ?? "", /6 个错误.*3 个提醒/);
 		for (const label of ["节点 ID 重复", "关系 ID 重复", "社区 ID 重复", "自动 ID 冲突", "链接目标有歧义", "链接目标不存在", "链接目标待创建", "链接写法不规范", "路径在其他系统可能冲突"]) {
-			assert.notEqual(screen.queryByText(label), null, label);
+			assert.ok(screen.queryAllByText(label).length > 0, label);
 		}
 		assert.deepEqual(calls, []);
 
@@ -123,6 +124,138 @@ describe("GraphWarningsBanner", () => {
 
 		assert.doesNotMatch(document.body.textContent ?? "", /wiki\/synthesis\/old\.md/);
 		assert.match(document.body.textContent ?? "", /详情暂不可用/);
+	});
+
+	it("does not show a first page that arrives after the warning build changes", async () => {
+		const oldRequest = deferred<GraphWarningPageContract>();
+		const nextSummary = {
+			...summary,
+			build_id: "c".repeat(64),
+			details_sha256: "e".repeat(64),
+		};
+		const { rerender } = render(<GraphWarningsBanner
+			warningState={warningState}
+			loadPage={() => oldRequest.promise}
+		/>);
+		await click(screen.getByRole("button", { name: "查看详情" }));
+
+		rerender(<GraphWarningsBanner
+			warningState={{ ...warningState, summary: nextSummary }}
+			loadPage={async () => pageForSummary(nextSummary, "warning-new", "broken_wikilink", "wiki/synthesis/new.md", null)}
+		/>);
+		oldRequest.resolve(page("warning-old", "broken_wikilink", undefined, "wiki/synthesis/old.md", null));
+		await waitFor(() => assert.equal(screen.getByRole("button", { name: "查看详情" }).getAttribute("aria-expanded"), "false"));
+
+		assert.doesNotMatch(document.body.textContent ?? "", /wiki\/synthesis\/old\.md/);
+	});
+
+	it("clears loaded details when state becomes unavailable during load-more and ignores its late response", async () => {
+		const nextRequest = deferred<GraphWarningPageContract>();
+		let calls = 0;
+		const { rerender } = render(<GraphWarningsBanner
+			warningState={warningState}
+			loadPage={async () => {
+				calls++;
+				if (calls === 1) return page("warning-first", "broken_wikilink", undefined, "wiki/synthesis/first.md", "cursor-2");
+				return nextRequest.promise;
+			}}
+		/>);
+		await click(screen.getByRole("button", { name: "查看详情" }));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /wiki\/synthesis\/first\.md/));
+		await click(screen.getByRole("button", { name: "加载更多" }));
+
+		rerender(<GraphWarningsBanner
+			warningState={{
+				...warningState,
+				details_status: "unavailable",
+				details_unavailable_reason: "details_sha256_mismatch",
+			}}
+			loadPage={async () => assert.fail("unavailable details must not load")}
+		/>);
+		assert.doesNotMatch(document.body.textContent ?? "", /wiki\/synthesis\/first\.md/);
+		nextRequest.resolve(page("warning-late", "broken_wikilink", undefined, "wiki/synthesis/late.md", null));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /详情暂不可用/));
+
+		assert.doesNotMatch(document.body.textContent ?? "", /wiki\/synthesis\/(first|late)\.md/);
+	});
+
+	it("clears loaded details when load-more returns an unavailable page", async () => {
+		let calls = 0;
+		render(<GraphWarningsBanner
+			warningState={warningState}
+			loadPage={async () => {
+				calls++;
+				if (calls === 1) return page("warning-first", "broken_wikilink", undefined, "wiki/synthesis/first.md", "cursor-2");
+				return {
+					details_status: "unavailable",
+					summary,
+					details_unavailable_reason: "details_sha256_mismatch",
+				};
+			}}
+		/>);
+		await click(screen.getByRole("button", { name: "查看详情" }));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /wiki\/synthesis\/first\.md/));
+		await click(screen.getByRole("button", { name: "加载更多" }));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /详情暂不可用/));
+
+		assert.doesNotMatch(document.body.textContent ?? "", /wiki\/synthesis\/first\.md/);
+	});
+
+	it("rejects a page not bound to the current build and details digest", async () => {
+		const mismatchedSummary = { ...summary, details_sha256: "e".repeat(64) };
+		render(<GraphWarningsBanner
+			warningState={warningState}
+			loadPage={async () => pageForSummary(mismatchedSummary, "warning-tampered", "broken_wikilink", "wiki/synthesis/tampered.md", null)}
+		/>);
+		await click(screen.getByRole("button", { name: "查看详情" }));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /详情暂不可用/));
+
+		assert.doesNotMatch(document.body.textContent ?? "", /wiki\/synthesis\/tampered\.md/);
+	});
+
+	it("keeps loaded details through an ordinary same-build refresh", async () => {
+		const { rerender } = render(<GraphWarningsBanner
+			warningState={warningState}
+			loadPage={async () => page("warning-read", "broken_wikilink", undefined, "wiki/synthesis/read.md", null)}
+		/>);
+		await click(screen.getByRole("button", { name: "查看详情" }));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /wiki\/synthesis\/read\.md/));
+
+		rerender(<GraphWarningsBanner
+			warningState={{ ...warningState, engine_groups: [...warningState.engine_groups] }}
+			loadPage={async () => assert.fail("same-build refresh must preserve the loaded page")}
+		/>);
+
+		assert.match(document.body.textContent ?? "", /wiki\/synthesis\/read\.md/);
+		assert.equal(screen.getByRole("button", { name: "查看详情" }).getAttribute("aria-expanded"), "true");
+	});
+
+	it("shows every defensive input warning with its type and explanation but no write action", () => {
+		const defensiveGroups: GraphWarningGroupContract[] = [{
+			...engineGroup,
+			message: "节点 ID opaque-node-id 在输入中出现两次，请检查来源。",
+		}, {
+			warning_id: "engine-edge-duplicate",
+			code: "duplicate_edge_id",
+			severity: "error",
+			message: "关系 ID opaque-edge-id 在输入中重复；这里只说明问题，不会改写知识库。",
+			id: "opaque-edge-id",
+			occurrence_count: 0,
+			occurrences: [],
+		}];
+		let resolveCalls = 0;
+		render(<GraphWarningsBanner
+			warningState={{ ...warningState, engine_groups: defensiveGroups }}
+			loadPage={async () => assert.fail("input warnings are available without loading persisted details")}
+			onResolveWarning={() => resolveCalls++}
+		/>);
+
+		const explanations = screen.getByRole("note", { name: "输入检查说明" });
+		assert.match(explanations.textContent ?? "", /节点 ID 重复.*节点 ID opaque-node-id 在输入中出现两次/);
+		assert.match(explanations.textContent ?? "", /关系 ID 重复.*关系 ID opaque-edge-id 在输入中重复/);
+		assert.equal(explanations.querySelectorAll("li").length, 2);
+		assert.equal(screen.queryByRole("button", { name: /解决|改名/ }), null);
+		assert.equal(resolveCalls, 0);
 	});
 
 	it("shows migration notices without leaking paths and dismisses them independently", async () => {
@@ -199,6 +332,17 @@ function page(
 	sourcePath: string,
 	nextCursor: string | null,
 ): Extract<GraphWarningPageContract, { details_status: "available" }> {
+	return pageForSummary(summary, warningId, code, sourcePath, nextCursor, candidateSetId);
+}
+
+function pageForSummary(
+	pageSummary: GraphWarningSummaryContract,
+	warningId: string,
+	code: GraphWarningGroupContract["code"],
+	sourcePath: string,
+	nextCursor: string | null,
+	candidateSetId?: string,
+): Extract<GraphWarningPageContract, { details_status: "available" }> {
 	const candidateSets = candidateSetId ? [{
 		candidate_set_id: candidateSetId,
 		candidate_count: 2,
@@ -206,8 +350,8 @@ function page(
 	}] : [];
 	return {
 		details_status: "available",
-		build_id: summary.build_id,
-		summary,
+		build_id: pageSummary.build_id,
+		summary: pageSummary,
 		groups: [{
 			warning_id: warningId,
 			code,
@@ -231,4 +375,12 @@ function page(
 		candidate_sets: candidateSets,
 		next_cursor: nextCursor,
 	};
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((next) => {
+		resolve = next;
+	});
+	return { promise, resolve };
 }

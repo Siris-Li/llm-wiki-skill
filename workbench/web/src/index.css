@@ -1445,6 +1445,43 @@
     font-size: 10px;
   }
 
+  .graph-warning-input-explanations {
+    min-width: 0;
+    margin: 0 12px 10px;
+    padding: 9px 10px;
+    border: 1px solid color-mix(in srgb, var(--app-warn) 22%, var(--app-border));
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--app-surface) 78%, transparent);
+    color: var(--app-muted);
+    font-size: 11px;
+  }
+
+  .graph-warning-input-explanations > strong {
+    color: var(--app-fg);
+  }
+
+  .graph-warning-input-explanations ul {
+    display: grid;
+    min-width: 0;
+    gap: 7px;
+    margin: 7px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .graph-warning-input-explanations li {
+    min-width: 0;
+    padding: 7px 8px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--app-bg) 48%, transparent);
+  }
+
+  .graph-warning-input-explanations p {
+    margin: 3px 0 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
   .graph-warning-unavailable,
   .graph-warning-error,
   .graph-migration-warnings {
@@ -1564,6 +1601,10 @@
     .graph-warning-code-list {
       display: grid;
       grid-template-columns: 1fr;
+    }
+
+    .graph-warning-input-explanations {
+      margin-inline: 8px;
     }
   }
 

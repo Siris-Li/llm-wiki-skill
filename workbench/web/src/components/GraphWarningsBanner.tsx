@@ -38,7 +38,11 @@ export function GraphWarningsBanner({
 	warningState,
 	...props
 }: Props) {
-	const detailsGeneration = `${warningState.summary?.build_id ?? "legacy"}:${warningState.details_status}`;
+	const detailsGeneration = [
+		warningState.summary?.build_id ?? "legacy",
+		warningState.summary?.details_sha256 ?? "no-details",
+		warningState.details_status,
+	].join(":");
 	return <GraphWarningsBannerContent key={detailsGeneration} warningState={warningState} {...props} />;
 }
 
@@ -59,6 +63,7 @@ function GraphWarningsBannerContent({
 	const [dismissedMigrationKey, setDismissedMigrationKey] = useState<string | null>(null);
 	const migrationKey = JSON.stringify(migrationWarnings);
 	const warningBuildId = warningState.summary?.build_id;
+	const warningDetailsSha256 = warningState.summary?.details_sha256;
 	const detailsUnavailable = warningState.details_status === "unavailable"
 		|| (unavailableBuildId !== null && warningBuildId === unavailableBuildId);
 	const migrationVisible = migrationWarnings.length > 0 && dismissedMigrationKey !== migrationKey;
@@ -88,14 +93,27 @@ function GraphWarningsBannerContent({
 		setNextCursor(page.next_cursor);
 	}, []);
 
+	const clearDetailsAsUnavailable = useCallback(() => {
+		setGroups([]);
+		setCandidateSets([]);
+		setUnavailableBuildId(warningBuildId ?? null);
+		setNextCursor(null);
+	}, [warningBuildId]);
+
 	const requestPage = useCallback(async (cursor?: string) => {
 		setLoading(true);
 		setError(null);
 		try {
 			const page = GraphWarningPageDataSchema.parse(await loadPage(cursor, 25));
 			if (page.details_status === "unavailable") {
-				setUnavailableBuildId(warningBuildId ?? null);
-				setNextCursor(null);
+				clearDetailsAsUnavailable();
+				return;
+			}
+			if (
+				page.build_id !== warningBuildId
+				|| page.summary.details_sha256 !== warningDetailsSha256
+			) {
+				clearDetailsAsUnavailable();
 				return;
 			}
 			appendPage(page);
@@ -104,7 +122,7 @@ function GraphWarningsBannerContent({
 		} finally {
 			setLoading(false);
 		}
-	}, [appendPage, loadPage, warningBuildId]);
+	}, [appendPage, clearDetailsAsUnavailable, loadPage, warningBuildId, warningDetailsSha256]);
 
 	const showDetails = useCallback(() => {
 		setExpanded(true);
@@ -153,6 +171,20 @@ function GraphWarningsBannerContent({
 					<span key={code}><b>{WARNING_LABELS[code]}</b> {count}</span>
 				))}
 			</div>
+
+			{warningState.engine_groups.length > 0 && (
+				<div className="graph-warning-input-explanations" role="note" aria-label="输入检查说明">
+					<strong>输入检查说明</strong>
+					<ul>
+						{warningState.engine_groups.map((group) => (
+							<li key={group.warning_id}>
+								<b>{WARNING_LABELS[group.code]}</b>
+								<p>{group.message}</p>
+							</li>
+						))}
+					</ul>
+				</div>
+			)}
 
 			{detailsUnavailable && (
 				<div className="graph-warning-unavailable" role="note">

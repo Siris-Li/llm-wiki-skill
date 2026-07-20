@@ -291,7 +291,7 @@ test("graph warning data failures remain success responses while invalid request
 	assert.equal(res.status, 200);
 	assert.deepEqual(await json(res), { ok: true, data: unavailable });
 
-	for (const query of ["limit=0", "limit=101", "limit=1.5", "limit=oops"]) {
+	for (const query of ["cursor=", "limit=", "limit=0", "limit=101", "limit=1.5", "limit=oops"]) {
 		res = await app.request(`/api/graph/warnings?${query}`);
 		assert.equal(res.status, 400, query);
 		assert.equal((await json(res)).code, "INVALID_REQUEST", query);

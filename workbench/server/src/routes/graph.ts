@@ -90,9 +90,11 @@ export function createGraphRoutes(service: GraphRouteService): Hono {
 
 	router.get("/graph/warnings", async (c) => {
 		const kbPath = await resolveGraphKnowledgeBase(c.req.query("kb"), service);
+		const cursor = c.req.query("cursor");
+		const limit = c.req.query("limit");
 		const query = parseValidatedInput(GraphWarningPageQuerySchema, {
-			...(c.req.query("cursor") ? { cursor: c.req.query("cursor") } : {}),
-			...(c.req.query("limit") ? { limit: c.req.query("limit") } : {}),
+			...(cursor !== undefined ? { cursor } : {}),
+			...(limit !== undefined ? { limit } : {}),
 		});
 		try {
 			return jsonOk(

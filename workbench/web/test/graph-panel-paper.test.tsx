@@ -685,6 +685,8 @@ describe("GraphPanel Paper shell", () => {
 		assert.doesNotMatch(css, /render-styles|sigma-node|sigma-edge/);
 		assert.match(css, /\.graph-warnings-banner\s*\{[\s\S]*max-height:\s*min\(38vh, 360px\)[\s\S]*var\(--app-warn\)[\s\S]*var\(--app-surface\)/);
 		assert.match(css, /\.graph-warning-group p,\s*\n\s*\.graph-warning-group li\s*\{[\s\S]*overflow-wrap:\s*anywhere/);
+		assert.match(css, /\.graph-warning-input-explanations\s*\{[\s\S]*var\(--app-surface\)/);
+		assert.match(css, /\.graph-warning-input-explanations p\s*\{[\s\S]*overflow-wrap:\s*anywhere/);
 		assert.match(css, /@media \(max-width: 420px\)\s*\{[\s\S]*\.graph-warning-code-list\s*\{[\s\S]*grid-template-columns:\s*1fr/);
 		assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*\.graph-warnings-banner \*[\s\S]*transition:\s*none !important/);
 	});
