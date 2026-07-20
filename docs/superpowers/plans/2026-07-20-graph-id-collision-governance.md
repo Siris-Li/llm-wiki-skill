@@ -1,6 +1,6 @@
 # Graph Path Identity, Warnings, and Safe Rename Implementation Plan
 
-> **For agentic workers:** REQUIRED SKILL CHAIN: execute one numbered task at a time with `/implement`. Every `/implement` run must use `/tdd` at the task's pre-agreed public seams, commit the verified task, and then run `/code-review <TASK_BASE>` against the V3 spec before the next task starts. Checkbox (`- [ ]`) items are the execution ledger.
+> **For agentic workers:** REQUIRED SKILL CHAIN: execute one numbered task at a time with `/implement`. Every `/implement` run must use `/tdd` at the task's pre-agreed public seams, commit the verified task, and then run `/code-review <TASK_BASE>` against the V3 spec before the next task starts. This tracked plan is the immutable checklist; mirror live completion in the agent task tracker and do not tick or otherwise edit this file during implementation.
 
 **Goal:** Make graph page identity collision-safe, resolve wikilinks without guessing, surface complete warnings in both hosts, preserve graph continuity during the path-ID migration, and provide a crash-recoverable optional rename flow.
 
@@ -17,6 +17,7 @@
 - Graph nodes come only from the six formal directories: `entities`, `topics`, `sources`, `comparisons`, `synthesis`, and `queries`.
 - Graph build, lint, and rename use the three distinct discovery/write policies from spec section 5.1. `raw/` and `.wiki-schema.md` are never rewritten; `.obsidian/`, `.git/`, `.wiki-tmp/`, `node_modules/`, generated graph JSON, and generated HTML are excluded as specified.
 - Persist actual POSIX knowledge-base-relative paths. Never persist portable comparison keys or user-home absolute paths.
+- `warning_summary.details_ref` always names the actual paired warning file as a validated POSIX knowledge-base-relative path. The normal value is `wiki/graph-warnings.json`; a custom graph output must remain inside the knowledge base, retain the basename `graph-data.json`, and use its own directory plus sibling `graph-warnings.json`.
 - `details_sha256` is the SHA-256 of the canonical UTF-8 JSON projection `{ version, build_id, candidate_sets, groups }`; it never hashes `summary.details_sha256` itself. The graph summary and sidecar summary must carry the same value.
 - Portable comparison is exactly `NFC(Default_Case_Fold_Unicode_17_0(NFC(path)))`, using vendored Unicode 17.0 NFC data plus status C/F case-fold rows and excluding status T rows. Do not call runtime `String.normalize` or casing APIs.
 - A graph build returns `0` when a valid degraded graph is produced and `1` only for tool/system failures. Lint/check returns `0` for a completed report and `1` for tool failure. Strict lint/check returns `2` when the completed warning bundle contains an `error` and `1` for tool failure.
@@ -25,10 +26,11 @@
 - Workbench and offline HTML use one graph engine and one warning meaning. Offline HTML never exposes a write action.
 - Rename is same-directory filename change only. It is not a generic Markdown editor and does not move pages across directories.
 - Rename state is limited to `prepared`, `applying`, `committed`, `rolled_back`, and `conflicted`. Unknown journal states stop recovery with a visible error.
-- One knowledge base can have only one non-terminal rename operation. Repeating the same `operation_id` returns its current state without repeating writes.
+- One knowledge base can have only one non-terminal or committed-but-graph-unpublished rename operation. A graph-only pending operation keeps pages readable but blocks another rename until publication succeeds. Rename previews carry a server-issued `expires_at` bound into `preview_digest`. If the same `operation_id`/immutable inputs already have a journal or receipt, idempotent read wins at any age and returns it without writing. Only a record-missing apply that could create a new operation checks the 30-day expiry and returns `preview_stale:preview_expired` without creating a journal.
 - Listener suspension coalesces rebuild events only. It is never described or implemented as a filesystem lock.
 - Each TDD test observes behavior through the named public seam. Mock only process/browser/time boundaries; use real temporary knowledge bases and real filesystem writes for parser, builder, and rename tests.
 - Do not touch the user's untracked questionnaire or the two conflict-copy specs whose names end in ` 2.md` and ` 3.md`.
+- This implementation plan is already tracked by Git even though the plans directory is ignored for new files. Keep it unchanged during implementation; use the active task tracker for progress so every numbered task can still begin from a clean worktree.
 
 ---
 
@@ -45,23 +47,26 @@ The plan is complete only when all of the following are true:
 - Every production acceptance row in spec section 9.2 has an automated or browser verification named in this plan.
 - Engine input arrays contain unique node, edge, and community IDs; generated IDs avoid all explicit IDs; input and engine warnings appear in one model.
 - Real graph construction handles all link forms and discovery boundaries in the checked-in fixture without changing any Markdown hash.
-- `graph-data.json` and `wiki/graph-warnings.json` cannot be mixed across builds because `build_id` and SHA-256 are verified.
+- Every normal or custom `graph-data.json`/sibling `graph-warnings.json` pair cannot be mixed across builds because its path relationship, `build_id`, and SHA-256 are verified.
 - Workbench displays readable `ready + warnings` graph state, supports complete warning pagination, and reserves the failure screen for system failures.
 - Offline HTML shows the same counts and a bounded warning detail payload, with a hard compressed 2 MiB limit and explicit truncation notice.
 - Legacy basename IDs align to path IDs for nodes, directed semantic edges, communities, and existing path-keyed pins without false growth animation.
 - Rename preview, apply, idempotency, case/Unicode equivalent rename, fixed-position migration, crash recovery, external edit preservation, single rebuild, and rebuild retry all pass real filesystem tests.
 - The real browser covers warning details, rename confirmation, external-change invalidation, recovery entry, and the final readable graph.
-- The fixed Unicode 17 NFC conformance and portable-path Node tests pass on macOS, Windows, and Linux CI before D12 is marked production-complete.
+- The fixed Unicode 17 NFC conformance and portable-path Node tests pass on macOS, Windows, and Linux CI before the Stage 2 path-identity release is marked production-complete.
+- The real equivalent-name transit rename test passes on macOS, Windows, and Linux CI before the optional Stage 3 rename release is marked production-complete.
 - `bash tests/regression.sh`, `npm run quality-and-tests`, the relevant browser flows, installer dry runs, privacy scan, Markdown link check, and `git diff --check` all pass.
 
 ## Execution Protocol: `/implement` → `/tdd` → `/code-review`
 
-For each numbered task:
+For each numbered task, first mirror its steps into the active agent task tracker. The checkboxes below enumerate requirements only; never edit them while executing the task.
 
-1. Start from a clean worktree and capture the fixed point:
+1. Start from a tracked-clean worktree and capture the fixed point. The three protected user-owned files may remain untracked, but no staged or unstaged tracked change may cross into a task:
 
    ```bash
    git status --short
+   git diff --exit-code
+   git diff --cached --exit-code
    git update-ref refs/llm-wiki/task-base HEAD
    TASK_BASE=$(git rev-parse HEAD)
    ```
@@ -95,29 +100,31 @@ Run:
 git branch --show-current
 git status --short
 git diff --check
+git diff --cached --check
 ```
 
 Expected:
 
 - The branch is a feature branch, never `main`.
-- The V3 spec, validation report, reusable validation program, path-identity engine test, and `.gitignore` change are the only intended current changes.
+- Commit `850184e1` contains the reviewed V3 baseline, validation report, reusable validation program, path-identity engine test, and `.gitignore` change; current HEAD also contains the later plan-review corrections to this spec and plan.
 - `to-questionnaire-graph-id-wikilink.md` and the two conflict-copy specs remain untracked and untouched.
-- `git diff --check` exits `0`.
+- Both whitespace checks exit `0`; any displayed untracked entry is one of the three protected user-owned files.
 
-- [ ] **Step 2: Commit the reviewed design baseline before production code starts**
+- [ ] **Step 2: Confirm the reviewed design baseline and follow-up plan corrections before production code starts**
 
-Stage only the intended design artifacts:
+The reviewed design baseline already exists. Verify it instead of attempting an empty second commit:
 
 ```bash
-git add .gitignore \
+git merge-base --is-ancestor 850184e1 HEAD
+git show --stat --oneline --summary 850184e1
+git log --oneline 850184e1..HEAD -- \
   docs/superpowers/specs/2026-07-19-graph-id-collision-governance-design.md \
-  docs/graph/2026-07-19-path-identity-feasibility-validation.md \
-  docs/graph/validation/path-identity-feasibility.mts \
-  packages/graph-engine/test/path-identity-compatibility.test.ts
-git commit -m "docs: finalize graph path identity design"
+  docs/superpowers/plans/2026-07-20-graph-id-collision-governance.md
+git diff --exit-code
+git diff --cached --exit-code
 ```
 
-Expected: one clean design commit. Do not add the ignored implementation plan itself.
+Expected: all commands exit `0`; `850184e1` is the existing `docs: finalize graph path identity design` baseline; the later log contains the reviewed corrections that close the plan findings; and no tracked file is staged or unstaged. The tracked implementation plan is a read-only reference during production work; do not create another baseline commit or edit the plan as an execution ledger.
 
 - [ ] **Step 3: Re-run the retained direction proof**
 
@@ -170,9 +177,9 @@ Expected: the direction program prints `markdownWrites: 0`, both production-veri
 - Modify `packages/workbench-contracts/src/graph.ts`, `graph-events.ts`, `endpoints.ts`, and `index.ts` — wire warnings, diff migration warnings, and new routes.
 - Create `workbench/server/src/repo-root.ts` — shared repository-root lookup used by graph rebuild and rename scan.
 - Create `workbench/server/src/graph-warnings.ts` — sidecar verification and cursor pagination.
-- Create `workbench/server/src/graph-rename-files.ts` — realpath-safe path resolution, atomic file replacement, equivalent-name transit rename, and layout-key migration.
-- Create `workbench/server/src/graph-rename-journal.ts` — durable operation state, backups, conflict copies, and lock file.
-- Create `workbench/server/src/graph-renames.ts` — preview/apply/recovery orchestration and graph watcher handoff.
+- Create `workbench/server/src/graph-rename-files.ts` — realpath-safe path resolution, atomic file replacement, equivalent-name transit rename, and layout-key migration; add a real-transit portability test to the three-platform matrix.
+- Create `workbench/server/src/graph-rename-journal.ts` — durable operation state, backups, conflict copies, lock file, immediate ordinary-terminal compaction, and explicit 30-day retention for user-resolved conflict evidence.
+- Create `workbench/server/src/graph-renames.ts` — preview/apply/recovery orchestration, exact conflict-set acknowledgement, persistent graph-publication recovery, and graph watcher handoff.
 - Create `workbench/server/src/routes/graph-renames.ts` — trusted local HTTP endpoints for the rename workflow.
 - Modify `workbench/server/src/graph.ts`, `routes/graph.ts`, `app.ts`, and `startup.ts` — warning state, pagination, migration diff, route assembly, and startup recovery scan.
 
@@ -193,8 +200,8 @@ Expected: the direction program prints `markdownWrites: 0`, both production-veri
 - Create focused root Node tests under `tests/js/` for Unicode, discovery, parsing, resolution, warning bundling, and strict exit behavior.
 - Create engine tests for normalization and path-ID migration.
 - Create workbench contract, server, DOM, and browser tests for warnings and rename recovery.
-- Create `.github/workflows/path-portability.yml` — the same pure Node portability suite on Ubuntu, macOS, and Windows.
-- Modify `tests/regression.sh` and `workbench/scripts/run-quality-and-tests.mjs` so the new permanent tests are part of normal gates.
+- Create `.github/workflows/path-portability.yml` — the fixed-Unicode/path suite on Ubuntu, macOS, and Windows; Task 5 later extends the same matrix with the production real-transit rename test.
+- Modify `tests/regression.sh`, `workbench/scripts/run-quality-and-tests.mjs`, and `workbench/scripts/run-browser-main-flows-ci.mjs` so every new permanent non-browser/browser test is part of a pull-request-triggered required gate.
 
 ---
 
@@ -668,6 +675,7 @@ Under `tests/fixtures/graph-path-identity-wiki/`, create:
 
 - Eight formal graph pages across the six formal directories, including three formal `foo.md` pages and one occupied `foo-2.md`.
 - `wiki/notes/side.md`, `wiki/overview.md`, `raw/notes/foo.md`, `raw/assets/Figure.png`, `index.md`, `log.md`, `purpose.md`, and `.wiki-schema.md`.
+- Normal and custom generated artifacts named `graph-data.json`, `graph-warnings.json`, and `knowledge-graph.html` that must never enter any source or target view. The discovery test creates representative `.obsidian/`, nested `.git/`, `.wiki-tmp/`, and `node_modules/` entries dynamically in its temporary fixture copy so ignored paths do not have to be checked in.
 - A links page containing unique, ambiguous, path, alias, heading, block, same-page, self, existing attachment, pending, broken, non-graph Markdown, fenced-code, inline-code, Chinese, emoji, and two-links-on-one-line cases.
 - One page with frontmatter `aliases` that deliberately resembles a link target, plus an existing target still wrapped in `[待创建: ...]`, so tests prove frontmatter aliases are ignored and stale pending wrappers resolve normally while lint asks for cleanup.
 
@@ -686,7 +694,7 @@ assert.deepEqual(inventory.renameReadOnlySources, EXPECTED.renameReadOnlySources
 assert.equal(inventory.targets.some((item) => item.path === "raw/assets/Figure.png"), true);
 ```
 
-Also add a temporary symlink escaping the fixture root and assert it is rejected rather than indexed.
+Also add a temporary symlink escaping the fixture root and assert it is rejected rather than indexed. Assert every normal/custom generated graph artifact and every hidden/third-party fixture is absent from all five arrays; modify only those excluded files and assert `fileSetSha256` stays unchanged, so a graph rebuild cannot invalidate a rename preview or become an attachment target.
 
 Run:
 
@@ -722,7 +730,7 @@ module.exports = {
 };
 ```
 
-Walk once with `readdirSync(..., { withFileTypes: true })`, sort by POSIX relative path, never follow symbolic links (inside or outside the KB), reject any resolved entry outside the knowledge-base realpath, classify formal graph types by the first directory below `wiki/`, and derive each policy array from the same inventory. Exclude operation staging files whose basename starts `.llm-wiki-rename-` as generated temporary data. Hash the sorted `path + kind + size + mtimeNs` inventory for preview invalidation.
+Walk once with `readdirSync(..., { withFileTypes: true })`, sort by POSIX relative path, never follow symbolic links (inside or outside the KB), reject any resolved entry outside the knowledge-base realpath, classify formal graph types by the first directory below `wiki/`, and derive each policy array from the same inventory. Exclude the spec section 5.1 hidden/third-party/temp directories, every `graph-data.json` / `graph-warnings.json` / generated `knowledge-graph*.html` regardless of its internal directory, and operation staging files whose basename starts `.llm-wiki-rename-`. Hash only the remaining sorted `path + kind + size + mtimeNs` inventory for preview invalidation.
 
 - [ ] **Step 7: Write failing byte-accurate parser tests**
 
@@ -854,7 +862,7 @@ jobs:
       - run: node --test tests/js/unicode-normalization.test.js tests/js/unicode-case-folding.test.js tests/js/wiki-file-discovery.test.js tests/js/wikilink-parser.test.js tests/js/wiki-link-index.test.js
 ```
 
-The workflow runs no Bash so Windows validates the exact same path rules.
+At Task 2 this workflow runs no Bash, so Windows validates the exact same path rules. This is the Stage 2 portability gate only; Task 5 must extend the same matrix with dependency installation and the real transit-rename/crash-recovery test before Stage 3 can complete.
 
 - [ ] **Step 13: Run all shared-resolver tests and prove read-only behavior**
 
@@ -918,13 +926,18 @@ Run `/code-review <TASK_BASE>` against the V3 spec and clear both review axes.
 - Modify: `tests/lint-output.regression-1.sh`
 - Modify: `tests/expected/graph-data-sample.json`
 - Modify: `tests/expected/graph-data-empty.json`
+- Modify: `workbench/scripts/run-quality-and-tests.mjs`
+- Modify: `workbench/scripts/run-quality-and-tests.test.mjs`
+- Modify: `workbench/scripts/run-browser-main-flows-ci.mjs`
+- Modify: `workbench/scripts/run-browser-main-flows-ci.test.mjs`
+- Modify: `.github/workflows/quality-and-tests.yml` and `.github/workflows/browser-main-flows.yml` only to raise measured named timeouts if the added required commands exceed existing budgets.
 - Modify: `SKILL.md:634-680, 929-1035`
 
 **Pre-agreed TDD seams:** `assembleGraphArtifactPair`, `commitGraphArtifactPair`, `verifyGraphArtifactPair`, `prepareOfflineWarningPayload`, the three shell process exit contracts, and the generated offline HTML opened through Playwright.
 
 **Interfaces:**
 - Consumes: the Task 2 graph scan result, the existing `graph-analysis.js` output, warning groups/candidate sets, and canonical output paths.
-- Produces: path-ID `graph-data.json`, `wiki/graph-warnings.json`, a verified warning summary, unchanged Markdown, CLI reports, and a read-only offline warning panel.
+- Produces: path-ID `graph-data.json`, its uniquely paired `graph-warnings.json`, a verified relative `details_ref`, unchanged Markdown, CLI reports, and a read-only offline warning panel.
 
 - [ ] **Step 1: Add failing warning-bundle tests for stable IDs, compact candidates, and the detached detail digest**
 
@@ -952,6 +965,7 @@ describe("graph warning artifact assembly", () => {
       pair.graphData.meta.warning_summary.details_sha256,
       pair.warningBundle.summary.details_sha256,
     );
+    assert.equal(pair.graphData.meta.warning_summary.details_ref, "wiki/graph-warnings.json");
     assert.equal(
       sha256(canonicalWarningDetailBytes(pair.warningBundle)),
       pair.warningBundle.summary.details_sha256,
@@ -964,7 +978,7 @@ describe("graph warning artifact assembly", () => {
 });
 ```
 
-The fixture helpers contain independent literal IDs/counts. Add a second test assembling the same logical data in reverse order and assert byte-identical output. Add a third test that rejects duplicate `warning_id`, duplicate `candidate_set_id`, a missing candidate-set reference, a wikilink group's wrong occurrence count, or an absolute `source_path`. Non-link engine/path-collision groups may legitimately carry a positive count with no link-position objects.
+The fixture helpers contain independent literal IDs/counts. Add a second test assembling the same logical data in reverse order and assert byte-identical output. Add a third test that rejects duplicate `warning_id`, duplicate `candidate_set_id`, a missing candidate-set reference, a wikilink group's wrong occurrence count, an absolute `source_path`, or an absolute/escaping/wrong-basename `details_ref`. Pair-level tests also reject non-sibling graph/warning destinations. Non-link engine/path-collision groups may legitimately carry a positive count with no link-position objects.
 
 Run:
 
@@ -979,18 +993,18 @@ Expected: FAIL because the bundle module does not exist.
 Create `graph-warning-bundle.js` with these exports:
 
 ```js
-const WARNING_DETAILS_REF = "wiki/graph-warnings.json";
+const DEFAULT_WARNING_DETAILS_REF = "wiki/graph-warnings.json";
 const OFFLINE_WARNING_LIMIT_BYTES = 2 * 1024 * 1024;
 
 function canonicalWarningDetailBytes(bundle) {}
-function assembleGraphArtifactPair({ graphData, groups, candidateSets }) {}
+function assembleGraphArtifactPair({ graphData, groups, candidateSets, detailsRef = DEFAULT_WARNING_DETAILS_REF }) {}
 async function commitGraphArtifactPair({ kbRoot, graphPath, warningPath, pair, hooks = {} }) {}
-async function verifyGraphArtifactPair({ graphPath, warningPath }) {}
+async function verifyGraphArtifactPair({ kbRoot, graphPath, warningPath }) {}
 function prepareOfflineWarningPayload({ summary, bundle, maxCompressedBytes = OFFLINE_WARNING_LIMIT_BYTES }) {}
 
 module.exports = {
+  DEFAULT_WARNING_DETAILS_REF,
   OFFLINE_WARNING_LIMIT_BYTES,
-  WARNING_DETAILS_REF,
   assembleGraphArtifactPair,
   canonicalWarningDetailBytes,
   commitGraphArtifactPair,
@@ -1001,7 +1015,7 @@ module.exports = {
 
 `verifyGraphArtifactPair` returns `{ status:"available", graphData, warningBundle }` or `{ status:"unavailable", reason, summary }`; an unavailable result never carries sidecar groups/candidates.
 
-Canonicalize object keys, warning groups, occurrences, candidate sets, candidates, and `by_code`. Compute `build_id` from canonical `{ graph_without_warning_summary, warning_details:{ candidate_sets, groups } }`; the build-ID input excludes both `build_id` and summaries, so it is not self-referential. Then compute `details_sha256` from canonical `{ version, build_id, candidate_sets, groups }` bytes, exactly matching the clarified V3 contract. Copy the resulting summary into both artifacts. Reject non-relative paths and inconsistent counts before any output write.
+Canonicalize object keys, warning groups, occurrences, candidate sets, candidates, and `by_code`. Compute `build_id` from canonical `{ graph_without_warning_summary, warning_details:{ candidate_sets, groups } }`; the build-ID input excludes both `build_id` and summaries, so it is not self-referential. Then compute `details_sha256` from canonical `{ version, build_id, candidate_sets, groups }` bytes, exactly matching the clarified V3 contract. Copy the resulting summary, including the caller-supplied validated `detailsRef`, into both artifacts. Assembly rejects absolute/escaping/wrong-basename references, non-relative content paths, and inconsistent counts. Commit and verification additionally reject a graph basename other than `graph-data.json`, a warning basename other than `graph-warnings.json`, non-sibling final destinations, or a `details_ref` that does not resolve from `kbRoot` to that final sibling before any output write.
 
 - [ ] **Step 3: Add failing paired-commit crash tests**
 
@@ -1009,7 +1023,7 @@ In `graph-warning-bundle.test.js`, write generation A into a temporary `wiki/` d
 
 ```js
 await commitGraphArtifactPair({ kbRoot, graphPath, warningPath, pair: pairA });
-assert.equal((await verifyGraphArtifactPair({ graphPath, warningPath })).status, "available");
+assert.equal((await verifyGraphArtifactPair({ kbRoot, graphPath, warningPath })).status, "available");
 
 await assert.rejects(
   commitGraphArtifactPair({
@@ -1022,7 +1036,7 @@ await assert.rejects(
   /simulated crash/,
 );
 
-const mixed = await verifyGraphArtifactPair({ graphPath, warningPath });
+const mixed = await verifyGraphArtifactPair({ kbRoot, graphPath, warningPath });
 assert.deepEqual(mixed, {
   status: "unavailable",
   reason: "build_id_mismatch",
@@ -1030,12 +1044,12 @@ assert.deepEqual(mixed, {
 });
 
 await commitGraphArtifactPair({ kbRoot, graphPath, warningPath, pair: pairB });
-const retried = await verifyGraphArtifactPair({ graphPath, warningPath });
+const retried = await verifyGraphArtifactPair({ kbRoot, graphPath, warningPath });
 assert.equal(retried.status, "available");
 assert.equal(retried.warningBundle.build_id, pairB.warningBundle.build_id);
 ```
 
-Also tamper with a candidate path while keeping `build_id` unchanged and expect `details_sha256_mismatch`; tamper with a graph node while copying the old summary and expect the recalculated content-derived build ID to fail. A missing or malformed sidecar must preserve the graph summary and return `missing` or `invalid`, never details from another generation. Inject a different destination device and assert commit fails before replacement. With an injected clock, assert retry leaves the fresh failed-attempt directory for inspection but prunes an operation-owned directory older than 24 hours.
+Also tamper with a candidate path while keeping `build_id` unchanged and expect `details_sha256_mismatch`; tamper with a graph node while copying the old summary and expect the recalculated content-derived build ID to fail. A missing or malformed sidecar must preserve the graph summary and return `missing` or `invalid`, never details from another generation. Build two custom graph outputs in separate knowledge-base subdirectories and assert each summary resolves to its own sibling warning file without touching the normal `wiki/graph-warnings.json`; rebuild one custom destination with a new generation and prove the same pair updates atomically. Reject a knowledge-base-external output, wrong graph/warning basename, non-sibling pair, or mismatched reference. Inject a different destination device and assert commit fails before replacement. With an injected clock, assert retry leaves the fresh failed-attempt directory for inspection but prunes an operation-owned directory older than 24 hours.
 
 Run the focused test and confirm these assertions fail before implementing commit/verify.
 
@@ -1043,14 +1057,14 @@ Run the focused test and confirm these assertions fail before implementing commi
 
 `commitGraphArtifactPair` must:
 
-1. Realpath-check `kbRoot`, validate both requested output parents, require graph/warning destinations and `<kbRoot>/.wiki-tmp` to report the same filesystem device, and create an exclusive `<kbRoot>/.wiki-tmp/graph-build/<build_id>-<random_uuid>/`, so a crashed attempt cannot block retrying identical content. Custom graph output remains supported only when it can preserve this atomicity guarantee.
-2. Write exact UTF-8 bytes for both artifacts, `fsync` both files, parse them again, and run `verifyGraphArtifactPair` against the temporary pair.
+1. Realpath-check `kbRoot`, validate both requested output parents, require graph/warning destinations to remain inside the knowledge base, require basenames `graph-data.json` and `graph-warnings.json` in the same real directory, require both destinations to report the same filesystem device as `<kbRoot>/.wiki-tmp`, and create an exclusive `<kbRoot>/.wiki-tmp/graph-build/<build_id>-<random_uuid>/`, so a crashed attempt cannot block retrying identical content. Custom output remains supported only inside the knowledge base; each configured destination uses its own directory and `details_ref` equals that sidecar's POSIX knowledge-base-relative path. Rebuilding the same destination replaces its prior pair normally.
+2. Write exact UTF-8 bytes for both artifacts, `fsync` both files, parse them again, and pass those bytes through the same internal canonical verifier used by `verifyGraphArtifactPair`, while validating `details_ref` against the final graph/warning destinations. Do not compare the final reference to the temporary `.wiki-tmp` filenames.
 3. Rename the warning sidecar into place first.
 4. Run the optional test hook.
 5. Rename `graph-data.json` last as the commit point and `fsync` the containing directories where supported.
 6. Remove its own temporary build directory after success, then prune only operation-owned directories under `.wiki-tmp/graph-build/` whose mtime is older than 24 hours; inject the clock in tests. Never prune the current directory or touch Markdown.
 
-`verifyGraphArtifactPair` reads graph bytes first, validates the summary, reads the sidecar named by the fixed `details_ref`, and accepts details only when the sidecar `build_id`, both summaries, recalculated canonical details digest, and recalculated content-derived `build_id` all agree.
+`verifyGraphArtifactPair` reads the final graph bytes first, validates the summary and final sibling-path contract, resolves `details_ref` against the real knowledge-base root, requires that result to equal the supplied final warning path without symlink escape, and accepts details only when the sidecar `build_id`, both summaries, recalculated canonical details digest, and recalculated content-derived `build_id` all agree. Commit-time temporary-byte verification and final-file verification must share one internal validation function so these rules cannot drift.
 
 - [ ] **Step 5: Write the failing production-builder regression**
 
@@ -1089,7 +1103,7 @@ scan-metrics.json
 
 Refactor `build-graph-data.sh` to call the CLI exactly once, passing `--test-mode` whenever `LLM_WIKI_TEST_MODE=1`, feed its node/edge JSON into the existing analysis helper, and rewrite every returned node reference through the path IDs already supplied. Update `graph-analysis.js` to consume the preloaded content/frontmatter signals; retain its legacy file-path fallback only for direct historical helper fixtures, and make the production builder test fail if that fallback reads a Markdown file. Remove the old `find`/basename/AWK wikilink scan. The empty-graph branch must still assemble and commit an empty valid warning sidecar. Keep `jq`/Node dependency failures at exit `1`; a missing `wiki/` is now a tool/input failure at exit `1`, not the retired exit `2`.
 
-After analysis, invoke a `commit-pair` subcommand added to `wiki-link-cli.js`; that subcommand calls `assembleGraphArtifactPair` and `commitGraphArtifactPair`. For a custom graph output path, put `graph-warnings.json` beside that output; the normal path remains `<kb>/wiki/graph-warnings.json` and `details_ref` remains `wiki/graph-warnings.json`.
+After analysis, invoke a `commit-pair` subcommand added to `wiki-link-cli.js`; that subcommand calls `assembleGraphArtifactPair` and `commitGraphArtifactPair`. The normal pair remains `<kb>/wiki/graph-data.json` plus `<kb>/wiki/graph-warnings.json` with `details_ref: "wiki/graph-warnings.json"`. For a custom graph output, require a real knowledge-base-internal directory containing `graph-data.json`, put `graph-warnings.json` beside it, and set `details_ref` to that exact sidecar's POSIX knowledge-base-relative path. Reject external output paths, escaping refs, wrong basenames, or non-sibling destinations. A repeated build to the same destination atomically replaces that pair; two distinct custom destinations must use distinct directories. Update `build-graph-data.sh` usage/error text and `SKILL.md` wherever custom output is documented so callers see the paired-directory constraint. Update legacy custom-output regressions to copy the fixture into a temporary knowledge base, rebuild one custom pair, build a second pair in another directory, and assert all paired paths explicitly.
 
 Update every existing builder expectation deliberately: sample/empty golden JSON gains deterministic test-mode build/warning metadata and path IDs; confidence/relation tests select path endpoints while preserving their original semantics; source-path tests expect `id === source_path`; failure tests cover a missing resolver/bundle helper without replacing the old committed graph. Do not rewrite offline-host fixtures that represent old self-contained graph data—the engine compatibility contract keeps those readable.
 
@@ -1174,7 +1188,7 @@ Assert deterministic output after reversed input. If the first 20-per-group/set 
 
 - [ ] **Step 11: Implement verified warning embedding in the offline HTML**
 
-`prepareOfflineWarningPayload` returns `{ payload, compressedBytes }`, where `compressedBytes` is measured from `payload` and is not embedded back into it. Add a `warning-embed <graph-path> <warning-path> <output-path>` CLI command that verifies the pair and writes only this compact payload:
+`prepareOfflineWarningPayload` returns `{ payload, compressedBytes }`, where `compressedBytes` is measured from `payload` and is not embedded back into it. Add a `warning-embed <kb-root> <graph-path> <warning-path> <output-path>` CLI command that passes the real knowledge-base root into pair verification and writes only this compact payload:
 
 ```json
 {
@@ -1227,9 +1241,11 @@ Update `SKILL.md` lint and graph workflows to state plainly:
 
 Do not describe the optional workbench rename flow as available until Task 6.
 
-- [ ] **Step 14: Run the complete root/graph/offline gate, commit, and review**
+- [ ] **Step 14: Register every permanent test in a required CI gate, run, commit, and review**
 
-Register both new Node tests and the three regression wrappers in `tests/regression.sh`, then run:
+Register both new Node tests and the three regression wrappers in `tests/regression.sh`. Add a named `graph-path-identity-root` step to `workbench/scripts/run-quality-and-tests.mjs` that directly runs the five Task 2 Node tests, the two Task 3 Node tests, `graph-path-identity-build.regression-1.sh`, and `graph-warning-exit-codes.regression-1.sh`; its runner test must assert the exact files are present so a later refactor cannot silently drop them. Extend the `browser-tests` stage in `run-browser-main-flows-ci.mjs` to run `tests/graph-offline-warnings.regression-1.sh` after Chromium verification, and make its test prove a failure from either browser command fails the stage. Measure the complete quality and browser stages on the finished Task 3 tree; if either exceeds its existing command/total/workflow timeout, raise only the named budgets to the measured upper bound plus the existing cleanup allowance and add timeout-contract assertions. This gives every new permanent test a pull-request-triggered plan-required check without making the non-browser quality job install Chromium or allowing a timeout to masquerade as missing coverage.
+
+Then run:
 
 ```bash
 npm run build -w @llm-wiki/graph-engine
@@ -1240,12 +1256,14 @@ bash tests/graph-path-identity-build.regression-1.sh
 bash tests/graph-warning-exit-codes.regression-1.sh
 bash tests/graph-offline-warnings.regression-1.sh
 bash tests/regression.sh
+npm run quality-and-tests
+npm run test:browser:main-flows -w @llm-wiki-agent/web
 ```
 
 Expected: every command exits `0`; the intentional strict-data cases are asserted inside their wrapper; no Markdown hash changes.
 
 ```bash
-git add scripts tests SKILL.md
+git add scripts tests SKILL.md workbench/scripts/run-quality-and-tests.mjs workbench/scripts/run-quality-and-tests.test.mjs workbench/scripts/run-browser-main-flows-ci.mjs workbench/scripts/run-browser-main-flows-ci.test.mjs .github/workflows/quality-and-tests.yml .github/workflows/browser-main-flows.yml
 git commit -m "feat: emit graph path warnings in both hosts [task 3]"
 ```
 
@@ -1281,6 +1299,7 @@ Run `/code-review <TASK_BASE>` against the V3 spec and clear both review axes be
 - Modify: `workbench/web/src/App.tsx`
 - Modify: `workbench/web/src/index.css`
 - Modify: `workbench/web/test/browser/browser-main-flows.test.ts`
+- Core-only release checkpoint, only when Tasks 5-6 are deliberately deferred: create `docs/graph/2026-07-20-path-identity-production-acceptance.md`; modify `CHANGELOG.md`, `README.md`, `README.en.md`, `workbench/PRODUCT.md`, `workbench/CONTEXT.md`, `packages/graph-engine/CONTEXT.md`, and the V3 spec acceptance status.
 
 **Pre-agreed TDD seams:** the exported Zod schemas, `readGraphWarningContext`, `paginateGraphWarningContext`, `migrateGraphLayoutPinsForIdentity`, `GET /api/graph`, `GET /api/graph/warnings`, `getGraphWarnings`, and `GraphWarningsBanner` DOM behavior.
 
@@ -1325,7 +1344,7 @@ type GraphWarningPageContract =
     };
 ```
 
-Assert the schemas reject absolute paths, `..` escapes, zero-based line/column values, reversed byte ranges, an unknown warning code, a nonliteral `details_ref`, and an unavailable state without a reason. Assert the page schema accepts only candidate sets referenced by its groups. Add a round-trip test for all snake-case fields.
+Assert the schemas accept the normal `wiki/graph-warnings.json` reference and a valid custom POSIX knowledge-base-relative path ending in `graph-warnings.json`, but reject absolute, backslash, empty, `.`/`..`-segment, escaping, or wrong-basename `details_ref` values. Pair-aware server tests own the same-directory check. Also reject absolute content paths, zero-based line/column values, reversed byte ranges, an unknown warning code, and an unavailable state without a reason. Assert the page schema accepts only candidate sets referenced by its groups. Add a round-trip test for all snake-case fields.
 
 Run:
 
@@ -1363,6 +1382,7 @@ Create `workbench/server/src/graph-warnings.test.ts`. Generate pairs with the Ta
 ```ts
 const context = await readGraphWarningContext({
   kbPath,
+  graphPath,
   graphData,
   scheduleRebuild,
 });
@@ -1378,7 +1398,7 @@ assert.deepEqual(
 
 Assert each page includes exactly the candidate sets referenced on that page, occurrences never repeat across pages, and the cursor decodes to version/build/index only after validation. Reuse a cursor after replacing the artifact pair and expect a successful unavailable response with reason `stale_cursor`, never groups from both builds.
 
-Add separate cases for missing, malformed, wrong-build, digest-tampered, and symlink-escaped sidecars. Each returns the graph summary, `details_status: "unavailable"`, the exact reason, and schedules one rebuild at most for the same `kbPath + build_id + reason`, even after repeated graph/API reads; no outside-file bytes enter the response.
+Add separate cases for missing, malformed, wrong-build, digest-tampered, absolute/escaping/wrong-basename/mismatched `details_ref`, non-sibling graph/sidecar paths, and symlink-escaped sidecars. Each returns the graph summary, `details_status: "unavailable"`, the exact reason, and schedules one rebuild at most for the same `kbPath + build_id + reason`, even after repeated graph/API reads; no outside-file bytes enter the response.
 
 Expected before implementation: module-not-found failure.
 
@@ -1394,6 +1414,7 @@ export interface GraphWarningContext {
 
 export async function readGraphWarningContext(input: {
   kbPath: string;
+  graphPath: string;
   graphData: GraphData;
   scheduleRebuild: (kbPath: string) => unknown;
 }): Promise<GraphWarningContext>;
@@ -1404,7 +1425,7 @@ export function paginateGraphWarningContext(
 ): GraphWarningPageContract;
 ```
 
-Read the exact summary from graph metadata, resolve only the fixed `wiki/graph-warnings.json` path, require a regular non-symlink file whose realpath remains under the KB realpath, recalculate both the canonical detail digest and content-derived build ID exactly as Task 3, and parse with shared contracts. Cross-verify the server implementation with an artifact pair assembled by the root CommonJS module so the two hosts cannot drift. Do not return full bundle details from `GET /api/graph`. Encode cursors as base64url JSON `{ version:1, build_id, offset }`; reject malformed/out-of-range cursors as `INVALID_REQUEST`, but turn a valid cursor for a previous build into `stale_cursor` data state.
+Read the exact summary from graph metadata, validate its POSIX knowledge-base-relative `details_ref`, and validate `graphPath` as a knowledge-base-internal regular non-symlink `graph-data.json`. Resolve `details_ref` against the registered KB realpath, require a regular non-symlink sibling named `graph-warnings.json`, and require both realpaths to remain under that KB. For the normal `wiki/graph-data.json`, the builder emits `wiki/graph-warnings.json`; tests also pass a valid custom internal graph path and sibling so the server proves it follows the verified reference without weakening the pair rule. Recalculate both the canonical detail digest and content-derived build ID exactly as Task 3, require the sidecar summary reference to match, and parse with shared contracts. Cross-verify the server implementation with an artifact pair assembled by the root CommonJS module so the two hosts cannot drift. Do not return full bundle details from `GET /api/graph`. Encode cursors as base64url JSON `{ version:1, build_id, offset }`; reject malformed/out-of-range cursors as `INVALID_REQUEST`, but turn a valid cursor for a previous build into `stale_cursor` data state.
 
 After pair verification, call `projectGraphInput(graphData, bundle?.groups ?? [])` so one model contains persisted input and defensive engine warnings. Put only warning IDs not already present in the persisted bundle into `warning_state.engine_groups`; do not write them back into either derived file. The banner combines persisted summary/pages with those extra groups without double counting or weakening pair verification.
 
@@ -1420,7 +1441,7 @@ Add `GET /api/graph/warnings?limit=1&cursor=...` route tests for two pages, acti
 
 Extend `GraphRouteService` with `readGraphWarnings(kbPath, query)`. The default service rereads `graph-data.json`, creates one warning context, and paginates it. Add the route beside the existing graph GET.
 
-Update `readGraphSnapshot` so a valid graph always carries `warning_state`. Add `wiki/graph-warnings.json` to `shouldIgnoreGraphWatchPath`; replacing either generated graph artifact must not recursively schedule another build. A sidecar mismatch schedules through the existing rebuild queue, which coalesces duplicate requests.
+Update `readGraphSnapshot` so a valid graph always carries `warning_state` and passes the actual `graphPath` into `readGraphWarningContext`. Make `shouldIgnoreGraphWatchPath` ignore generated `graph-data.json` and `graph-warnings.json` basenames in any knowledge-base-internal output directory, with tests for both the normal and a custom pair; replacing either artifact must not recursively schedule another build. A sidecar mismatch schedules through the existing rebuild queue, which coalesces duplicate requests.
 
 - [ ] **Step 7: Add failing first-refresh pin and event migration tests**
 
@@ -1516,7 +1537,25 @@ git add packages/workbench-contracts workbench/server/src workbench/web
 git commit -m "feat: surface graph warnings in the workbench [task 4]"
 ```
 
-Run `/code-review <TASK_BASE>` against the V3 spec and clear both review axes. At this point Tasks 1-4 are independently releasable even if Tasks 5-6 are deferred.
+Run `/code-review <TASK_BASE>` against the V3 spec and clear both review axes. This proves the local core implementation, but does not by itself make Tasks 1-4 releasable: no stage is production-complete until its release-facing documentation and required pull-request checks are also complete.
+
+- [ ] **Step 13: Either continue the full plan or close the complete core-only release gate**
+
+Choose exactly one branch after the Task 4 review:
+
+1. **Continue directly to Tasks 5-6 (default for this full plan).** Record Tasks 1-4 as “core implementation locally verified, not released” in the active task tracker, leave this tracked plan unchanged, and continue to Task 5. Task 6 owns the single final version/docs/push/check sequence for the combined release.
+2. **Deliberately defer Tasks 5-6 and release only the core.** Before any push, complete every item below; do not use the sentence “Tasks 1-4 are independently releasable” as a substitute for these gates.
+
+For the core-only release:
+
+1. Create `docs/graph/2026-07-20-path-identity-production-acceptance.md` with the tested implementation head, exact commands and local results for every Stage 1/2 acceptance row. Mark every row named Stage 3—preview invalidation, workbench rename, equivalent-rename portability, and active rename—explicitly “not part of this core release,” not silently complete.
+2. Read the newest CHANGELOG version and increment its patch component once. Add only the path-identity/warnings behavior to `CHANGELOG.md`, both README feature lists/version badges, `workbench/PRODUCT.md`, `workbench/CONTEXT.md`, and `packages/graph-engine/CONTEXT.md`. Do not claim rename/recovery exists.
+3. Commit those release documents separately, rerun `bash tests/regression.sh`, `npm run quality-and-tests`, the browser main flows, and `git diff --check`; use Task 6 Step 12's exact privacy and changed-Markdown link commands rather than inventing a shorter core-only variant.
+4. Push the branch and create a draft PR. Require `quality-and-tests`, `browser-main-flows`, and `path-portability` to pass; the portability workflow must be green on Ubuntu, macOS, and Windows for the Stage 2 Unicode/path suite.
+5. Add the three-platform run URL/result and tested head to the acceptance report, update only the Stage 1/2 V3 acceptance status, commit, push, wait for checks again, and rerun `/code-review` against the same Task 4 fixed point.
+6. Mark the core-only PR ready only after every applicable row and required check is green. Then stop this plan; Tasks 5-6 require a later branch and a new release entry.
+
+Only after the core-only path completes all six items are Tasks 1-4 independently releasable. Merely reaching the Task 4 code commit is not a release gate.
 
 ### Task 5: Implement a Realpath-Safe, Idempotent, Crash-Recoverable Rename Backend
 
@@ -1530,6 +1569,7 @@ Run `/code-review <TASK_BASE>` against the V3 spec and clear both review axes. A
 - Create: `workbench/server/src/repo-root.test.ts`
 - Create: `workbench/server/src/graph-rename-files.ts`
 - Create: `workbench/server/src/graph-rename-files.test.ts`
+- Create: `workbench/server/src/graph-rename-portability.test.ts`
 - Create: `workbench/server/src/graph-rename-journal.ts`
 - Create: `workbench/server/src/graph-rename-journal.test.ts`
 - Create: `workbench/server/src/graph-renames.ts`
@@ -1548,12 +1588,13 @@ Run `/code-review <TASK_BASE>` against the V3 spec and clear both review axes. A
 - Modify: `workbench/server/test/runtime-app.test.ts`
 - Modify: `workbench/server/src/startup.ts`
 - Modify: `workbench/server/test/startup-isolation.test.ts`
+- Modify: `.github/workflows/path-portability.yml`
 
 **Pre-agreed TDD seams:** all rename Zod schemas, `resolveKnowledgeBaseRenamePath`, `applyByteRangeReplacements`, `GraphRenameJournalStore`, `previewGraphRename`, `applyGraphRename`, `recoverGraphRenameOperations`, and the four HTTP endpoints below.
 
 **Interfaces:**
 - Consumes: a registered knowledge-base realpath, Task 2 `rename-scan` JSON, user ambiguity choices, current layout pins, exact source bytes, and persistent journal state.
-- Produces: a no-write preview, one idempotent operation, staged/verified Markdown changes, same-directory rename, migrated layout key, terminal/recoverable journal state, and one coalesced graph rebuild request.
+- Produces: a no-write preview, one idempotent operation, staged/verified Markdown changes, same-directory rename, migrated layout key, recoverable journal state, a persistent graph-publication result, one coalesced graph rebuild request, and either an immediately byte-free ordinary receipt or a resolved-conflict receipt whose unrecoverable evidence has an explicit 30-day expiry.
 
 - [ ] **Step 1: Freeze the four endpoint and operation contracts with failing tests**
 
@@ -1573,6 +1614,7 @@ The preview body is `{ kbPath?: string, source_path: string, new_name: string }`
 ```ts
 interface GraphRenamePreviewData {
   operation_id: string;
+  expires_at: string;
   preview_digest: string;
   source_path: string;
   target_path: string;
@@ -1603,6 +1645,7 @@ The apply body is:
 {
   kbPath?: string;
   operation_id: string;
+  expires_at: string;
   source_path: string;
   new_name: string;
   preview_digest: string;
@@ -1623,14 +1666,30 @@ interface GraphRenameOperationData {
   state: "prepared" | "applying" | "committed" | "rolled_back" | "conflicted";
   source_path: string;
   target_path: string;
-  graph_rebuild: "not_started" | "started" | "queued" | "failed";
+  graph_rebuild: "not_started" | "started" | "queued" | "failed" | "succeeded";
   conflicts: GraphRenameConflict[];
+  retained_evidence: Array<{ relative_path: string; sha256: string; expires_at: string }>;
 }
+
+type GraphRenameConflict = (
+  | { source_path: string; current_state: "present"; current_sha256: string }
+  | { source_path: string; current_state: "missing" }
+) & {
+  preserved_variants: Array<{
+    kind: "current" | "original" | "intended";
+    relative_path: string;
+    sha256: string;
+  }>;
+};
+
+type GraphRenameObservedConflict =
+  | { source_path: string; current_state: "present"; current_sha256: string }
+  | { source_path: string; current_state: "missing" };
 ```
 
-Recovery GET performs no recovery write and returns `{ status:"clear" }`, `{ status:"required", operation }`, or `{ status:"blocked", reason:"unknown_state" | "invalid_journal", operation_id:string | null }`. Startup/selection owns automatic safe recovery. Recovery POST accepts `{ kbPath?, operation_id, action:"finish_commit" | "finish_rollback", observed_conflicts:[{ source_path, current_sha256 }] }` and returns a terminal operation.
+Recovery GET performs no recovery write and returns `{ status:"clear" }`, `{ status:"required", operation }` for content recovery, `{ status:"rebuild_required", operation }` for a committed operation whose graph is not yet published, or `{ status:"blocked", reason:"unknown_state" | "invalid_journal" | "unsafe_current_type", operation_id:string | null }`. Every union member also carries `retained_evidence_receipts: Array<{ operation_id, retained_evidence }>` for all user-resolved conflicts whose 30-day evidence has not expired; this list may contain multiple operations, survives restart, and never changes the primary recovery status or blocks a new rename. Startup/selection owns automatic safe recovery. Recovery POST accepts `{ kbPath?, operation_id, action:"finish_commit" | "finish_rollback", observed_conflicts: GraphRenameObservedConflict[] }`; `observed_conflicts` is the complete set the user saw, not a partial acknowledgement, and a write succeeds only when it exactly equals the server's freshly recomputed present/missing set.
 
-Tests reject a non-UUID operation ID, absolute/escaping paths, target names with separators, duplicate resolution IDs, resolutions not offered by preview, `confirmed:false`, unknown journal states, and conflict paths outside the knowledge base.
+Tests reject a non-UUID operation ID, malformed/future-tampered `expires_at`, a record-missing apply more than 30 days after its digest-bound expiry, absolute/escaping paths, target names with separators, duplicate resolution IDs, resolutions not offered by preview, `confirmed:false`, unknown journal states, conflict/evidence paths outside the knowledge base, malformed evidence expiry, duplicate observed conflicts, and recovery requests with any missing, extra, present↔missing, or changed conflict entry. Every response conflict uses the exact `present`/`missing` discriminant above; a `present` entry without a digest or a `missing` entry with one is invalid, and the client derives `observed_conflicts` only from those fields rather than evidence metadata. Replacing a conflicted path with a symlink/directory/non-regular type returns blocked with zero writes. Inject an external present↔missing/content change after set equality but before the first and a later recovery commit; both cases must stop without overwriting the new state, safely reverse only this recovery attempt's known writes, and return the refreshed set. An expired record-missing apply returns `preview_stale` with reason `preview_expired` and creates no lock/journal; the same expired request with an existing matching full journal or compact receipt returns that record byte-for-byte with zero writes. Ordinary operations carry an empty `retained_evidence`; a resolved conflict returns only non-reconstructable unchosen evidence with one common 30-day expiry. Recovery GET tests create two resolved-conflict receipts and prove both appear in `retained_evidence_receipts` across a fresh service instance, while expired/byte-free receipts do not.
 
 - [ ] **Step 2: Implement schemas and route registry entries**
 
@@ -1645,9 +1704,10 @@ GraphRenameRecoveryQuerySchema
 GraphRenameRecoveryDataSchema
 GraphRenameRecoveryBodySchema
 GraphRenameOperationDataSchema
+GraphRenameConflictSchema
 ```
 
-Use the portable filename validator again in the service; the body schema only rejects structurally unsafe input. The response schemas enforce relative POSIX paths and the five journal states. Do not add a sixth convenience state for stale previews or recovery errors; those are response outcomes, not persisted operation states.
+Use the portable filename validator again in the service; the body schema only rejects structurally unsafe input. The response schemas enforce relative POSIX paths, the five journal states, the separate five-value graph-publication status, and the four recovery outcomes. Do not add a sixth journal state for stale previews, rebuild status, or recovery errors; those remain separate fields/outcomes.
 
 - [ ] **Step 3: Extract repository-root discovery and prove it survives build output paths**
 
@@ -1674,7 +1734,7 @@ Create `graph-rename-files.test.ts` with real temporary files. Assert `resolveKn
 Add a layout case where `pins[target_path]` already exists and assert preview rejects the rename instead of overwriting or merging the target pin.
 If `.wiki-graph-layout.json` exists but is malformed, unreadable, or a symlink, preview must fail safely and leave it byte-identical; only a missing layout is treated as an empty layout.
 
-For `applyByteRangeReplacements`, use one Buffer containing Chinese, emoji, two identical links on one line, an inline-code copy, and a fenced-code copy. Apply only parser-issued ranges from highest byte offset to lowest. Assert exact expected bytes, preserved newline style/BOM/mode, and no code-example change. Change the file hash or one raw slice and assert the entire operation fails before producing staged bytes.
+For `applyByteRangeReplacements`, use one Buffer containing Chinese, emoji, two identical links on one line, an inline-code copy, and a fenced-code copy. Apply only parser-issued ranges from highest byte offset to lowest. Every replacement target must be the canonical full path `wiki/.../page.md`; assert exact expected bytes, preserved newline style/BOM/mode, and no code-example change. Change the file hash or one raw slice and assert the entire operation fails before producing staged bytes.
 
 Run and confirm module-not-found failure.
 
@@ -1717,7 +1777,11 @@ Create `graph-rename-journal.test.ts`. Use `.wiki-tmp/rename-ops/active.lock` an
 - the lock records operation ID/digest, owner PID, random server-instance ID, and creation time immediately; a minimal `prepared` manifest exists before any stage file, and backups, intended staged bytes, layout before/after bytes, completed-step order, old/transit/new paths, and original/intended hashes are durable before `applying`;
 - terminal operations release only a lock whose contents match their own ID; and
 - a lock with no manifest is released only when an injected liveness probe confirms its owner PID is dead; live/unknown owners remain BUSY/blocked; and
-- malformed/unknown manifests return a blocked recovery record and are never guessed or deleted.
+- malformed/unknown manifests return a blocked recovery record and are never guessed or deleted;
+- an operation that never observed unknown external bytes atomically replaces the full manifest with a compact receipt after exact rollback verification, or after commit plus `graph_rebuild:"succeeded"`; the receipt contains operation ID, immutable request digest, terminal state, final hashes, and timestamps but no original/intended/staged Markdown or layout bytes;
+- a user-resolved formerly `conflicted` operation removes ordinary stage/backup copies but retains each unchosen variant that cannot be reconstructed from the final KB under `evidence/`, records its relative path/hash plus `evidence_expires_at` exactly 30 days after resolution, and exposes that date/path in the recovery result;
+- compaction/pruning removes only paths recorded as owned by that operation, never current knowledge files, and a retry with the same ID/digest still returns the receipt without writing; and
+- with an injected clock, unresolved conflicts and fresh resolved evidence remain byte-identical, resolved evidence is deleted only at `evidence_expires_at`, and the now byte-free receipt is pruned only after both its 30-day terminal retention and any evidence retention have elapsed; because the digest-bound preview has already expired, replay after pruning returns `preview_expired` before journal creation.
 
 - [ ] **Step 7: Implement the journal store**
 
@@ -1726,45 +1790,47 @@ Create `graph-rename-journal.ts` exposing:
 ```ts
 export class GraphRenameJournalStore {
   acquire(input: AcquireRenameOperation): Promise<GraphRenameJournal>;
-  read(operationId: string): Promise<GraphRenameJournal | null>;
+  read(operationId: string): Promise<GraphRenameJournal | GraphRenameReceipt | null>;
   writePrepared(input: PreparedRenameJournal): Promise<void>;
   transition(operationId: string, state: RenameJournalState, patch: JournalPatch): Promise<void>;
-  listIncomplete(): Promise<Array<GraphRenameJournal | BlockedRenameJournal>>;
+  listForStartup(): Promise<Array<GraphRenameJournal | GraphRenameReceipt | BlockedRenameJournal>>;
   preserveConflictVariant(input: PreserveConflictInput): Promise<string>;
+  compactTerminal(input: { operationId: string; resolvedConflictEvidence?: PreservedEvidence[]; now: Date }): Promise<GraphRenameReceipt>;
+  pruneExpiredOperationData(input: { now: Date; receiptRetentionMs: number; evidenceRetentionMs: number }): Promise<string[]>;
   release(operationId: string): Promise<void>;
 }
 ```
 
-The manifest stores only KB-relative paths. Journal and backup directories use mode `0700`; files use `0600`. `preserveConflictVariant` writes current/original/intended variants under the operation directory and returns relative evidence paths. Never remove a conflicted operation automatically.
+The manifest stores only KB-relative paths. Journal and backup directories use mode `0700`; files use `0600`. `preserveConflictVariant` writes current/original/intended variants under the operation directory and returns relative evidence paths. Never remove a conflicted/nonterminal operation or a committed operation whose graph publication is not confirmed. An ordinary verified rollback or successful graph publication compacts immediately to a byte-free receipt. For a user-resolved conflict, compact only ordinary stage/backup copies; retain non-reconstructable unchosen evidence for exactly 30 days, return its deletion date and relative paths to the UI, then remove it via the injected-clock pruning pass. Retain the resulting byte-free receipt only until the later of terminal+30 days and `evidence_expires_at`, and prune opportunistically on startup and lock acquisition.
 
 - [ ] **Step 8: Add failing no-write preview tests through the real root CLI**
 
 In `graph-renames.test.ts`, copy the representative fixture and call `previewGraphRename` with the real `wiki-link-cli.js rename-scan` process. Hash all files first. Assert the preview:
 
 - proposes only a same-directory `.md` target;
-- includes deterministic explicit-path and pre-rename-unique-bare updates;
+- includes deterministic updates for explicit-path and pre-rename-unique-bare occurrences, all rendered to canonical full target paths;
 - updates an explicit self-link's page target while leaving `[[#heading]]` / `[[#^block]]` same-page anchors byte-identical;
 - asks for every editable ambiguous bare occurrence whose candidate set includes the source;
-- offers each candidate's exact replacement raw link while preserving embed, heading, block, alias, and pending wrappers;
+- offers each candidate's exact canonical full-path replacement raw link while preserving embed, heading, block, alias, and pending wrappers;
 - lists `raw/` and `.wiki-schema.md` hits as read-only and never includes them under editable files;
 - reports the fixed-position key migration;
 - rejects preview when the target layout key is already occupied, while preserving an already path-keyed unrelated pin byte-for-byte;
 - contains `file_set_sha256`, every source hash/range/raw slice, one operation ID, and one canonical `preview_digest`; and
 - leaves every knowledge-base file hash unchanged.
 
-For a chosen target, use the shortest bare target only when a post-rename resolver pass proves it uniquely resolves to that file; otherwise emit the explicit KB-relative path without `.md`. Never guess an ambiguous target.
+For every deterministic or user-chosen target, emit the complete POSIX knowledge-base-relative path including `.md`, for example `[[wiki/topics/page.md]]`. Preserve embed prefix, alias, heading/block anchor, pending wrapper, and surrounding bytes through `renderWikilinkReplacement`, but never emit a bare target or omit `.md`. This keeps a rewritten link unambiguous if another same-named page appears later.
 
 - [ ] **Step 9: Implement preview orchestration with one parser invocation**
 
 Create `graph-renames.ts` and invoke the root command with `spawn(process.execPath, [cliPath, "rename-scan", kbPath, sourcePath, newName], { shell:false })`. Consume stdout chunks without `execFile`'s fixed `maxBuffer`, enforce process exit/signal handling, then parse its one JSON document with shared contracts. `rename-scan` performs one inventory/target-index/source scan and emits all deterministic replacement alternatives; the server must not parse Markdown or reconstruct wikilink syntax again.
 
-`previewGraphRename` validates registration and realpaths before invoking the CLI, reads the layout once, computes the complete canonical preview digest, and returns without creating a journal, lock, stage file, backup, or Markdown write.
+`previewGraphRename` validates registration and realpaths before invoking the CLI, reads the layout once, adds an injected-clock `expires_at` exactly 30 days in the future, includes it in the complete canonical preview digest, and returns without creating a journal, lock, stage file, backup, or Markdown write. Apply verifies the unchanged digest-bound expiry before acquiring the KB lock.
 
 - [ ] **Step 10: Add failing apply, invalidation, idempotency, and rollback tests**
 
 Exercise `applyGraphRename` on real files and assert:
 
-1. A valid apply with every ambiguity resolved changes only previewed editable Markdown, migrates the layout key, renames the source last, leaves read-only files and `graph-data.json` byte-identical, and requests one rebuild.
+1. A valid apply with every ambiguity resolved changes only previewed editable Markdown, writes every changed link as the canonical full path with `.md`, migrates the layout key, renames the source last, leaves read-only files and `graph-data.json` byte-identical, and requests one rebuild.
 2. Adding/removing a file, changing any scanned file, changing a raw read-only file, changing layout pins, or changing one exact raw slice after preview returns `preview_stale` with zero writes/journal creation.
 3. An Obsidian-style automatic link rewrite after preview invalidates the whole preview; no partial update proceeds.
 4. Two concurrent identical applies return the same terminal operation and produce one set of writes and one rebuild; a later retry returns the journal state without writing again.
@@ -1773,28 +1839,34 @@ Exercise `applyGraphRename` on real files and assert:
 7. An external edit to a file already written by the operation preserves that edit, original backup, and intended version, then enters `conflicted`.
 8. Case-only and NFC↔NFD equivalent renames use the recorded transit path and finish correctly on the current platform.
 9. A synchronously failing rebuild trigger returns `committed + graph_rebuild:"failed"`; committed Markdown is not rolled back.
+10. Restarting from `committed + graph_rebuild:"failed"` leaves Markdown untouched, detects that the published graph still has the old path, and requests exactly one rebuild; a successful event records `succeeded`, while another failure remains visible and retryable.
+11. After the injected clock passes `expires_at`, a replay returns an existing matching receipt byte-for-byte if it is still retained; after that receipt is pruned, the same replay returns `preview_stale:preview_expired` with zero lock, journal, content, layout, or rebuild writes.
+12. While one committed operation remains graph-unpublished, another preview may remain read-only but every new apply returns `BUSY` with `rebuild_required`; after verified graph success/compaction, a fresh rename can proceed.
 
 Inject hooks only at file-commit/rebuild process boundaries. All content operations use real filesystem bytes.
+
+Create `graph-rename-portability.test.ts` around the production rename/journal code. On a real temporary filesystem it must execute both a case-only and an NFC↔NFD rename, record old → transit → target, then spawn `graph-rename-crash-child.ts` to exit between the two renames and recover in a fresh process. Assert exactly one final target, no old/transit duplicate, unchanged unrelated bytes, and an idempotent second recovery. Extend `path-portability.yml` with `npm ci` and this exact test after the Task 2 pure-Node suite so Ubuntu, macOS, and Windows test the real transit operation rather than only `requires_transit` classification.
 
 - [ ] **Step 11: Implement apply as validate-all, stage-all, then commit**
 
 `applyGraphRename` must follow this exact order:
 
-1. If the operation journal exists, verify the same immutable inputs and return/await it.
-2. Acquire the KB lock.
-3. Rerun the full rename scan and layout read; compare `file_set_sha256`, all file hashes/ranges/raw slices, target occupancy, layout digest, ambiguity offerings, and `preview_digest`.
-4. If anything differs, release the lock and return `preview_stale` before journal/staging.
-5. Require one allowed resolution for every editable ambiguous occurrence and reject extras.
-6. Create the operation directory, minimal `prepared` manifest, and original backups immediately after the lock; no stage or final write may precede this durable record.
-7. Build every final Buffer with descending exact ranges; stage/read-back all editable Markdown plus layout, then atomically update the `prepared` manifest with every intended hash/stage path.
-8. Suspend the graph watcher only to coalesce events, transition to `applying`, and commit each staged file while recording each completed step.
-9. Commit the layout, then rename the source Markdown last; use transit when required.
-10. Recheck the final complete state, transition to `committed`, release the lock, resume the watcher with one trigger, and return its started/queued status.
-11. On an in-process error, compare current/original/intended hashes and rollback safe steps in reverse. Never overwrite an unknown external version; preserve all three variants and mark `conflicted` instead.
+1. If the operation journal/receipt exists, verify the same immutable inputs and return/await it regardless of `expires_at`; this branch is read-only and cannot repeat writes.
+2. Only when no record exists, verify the digest-bound `expires_at` against the injected clock; an expired request returns `preview_stale:preview_expired` before acquiring a lock.
+3. Acquire the KB lock.
+4. Rerun the full rename scan and layout read; compare `operation_id`, `expires_at`, `file_set_sha256`, all file hashes/ranges/raw slices, target occupancy, layout digest, ambiguity offerings, and `preview_digest`.
+5. If anything differs, release the lock and return `preview_stale` before journal/staging.
+6. Require one allowed resolution for every editable ambiguous occurrence and reject extras.
+7. Create the operation directory, minimal `prepared` manifest, and original backups immediately after the lock; no stage or final write may precede this durable record.
+8. Build every final Buffer with descending exact ranges; stage/read-back all editable Markdown plus layout, then atomically update the `prepared` manifest with every intended hash/stage path.
+9. Suspend the graph watcher only to coalesce events, transition to `applying`, and commit each staged file while recording each completed step.
+10. Commit the layout, then rename the source Markdown last; use transit when required.
+11. Recheck the final complete state, transition to `committed` with persisted expected graph paths and `graph_rebuild:"not_started"`, release the lock, resume the watcher with one trigger, persist its started/queued/failed result, and return that result.
+12. On an in-process error, compare current/original/intended hashes and rollback safe steps in reverse. Never overwrite an unknown external version; preserve all three variants and mark `conflicted` instead.
 
 If the process dies after acquiring the lock but before the minimal manifest rename, recovery may release that orphan lock only after the recorded owner PID is confirmed dead; if liveness is unknown or that PID is alive, return blocked/BUSY rather than guessing. This is safe because the implementation invariant forbids all stage/final writes before the manifest. A crash during staging leaves a `prepared` manifest; recovery removes only recorded operation-owned stage files and restores no user file because none was committed.
 
-Extend `resumeGraphWatcher` with `{ trigger?: boolean, discardPending?: boolean }` and a returned build status. A successful commit consumes all suspended watcher noise and calls the rebuild queue exactly once. A complete rollback discards pending rename/rollback events. This listener mechanism is never used as the operation lock.
+Extend `resumeGraphWatcher` with `{ trigger?: boolean, discardPending?: boolean }` and a returned build status. A successful commit consumes all suspended watcher noise and calls the rebuild queue exactly once. A complete rollback discards pending rename/rollback events. When the matching `graph_updated` event arrives, reread the published graph and require the target path to exist in node identity/source-path fields and the old path to be absent from those same fields before persisting `graph_rebuild:"succeeded"` and compacting the terminal journal. Ordinary operations become byte-free immediately; formerly conflicted operations keep only their explicitly listed unchosen evidence until `evidence_expires_at`. A `graph_error`, process exit, or mismatched graph persists `failed`/pending state and keeps the full recoverable record. This listener mechanism is never used as the operation lock.
 
 - [ ] **Step 12: Prove recovery across an actual process exit**
 
@@ -1806,28 +1878,32 @@ Create `graph-rename-crash-child.ts`. It starts a real apply with a test hook th
 4. recover an all-intended final state as `committed`, or a mixed known state by safe rollback to `rolled_back`;
 5. modify one already-written file before restart and assert `conflicted` plus preserved current/original/intended copies; and
 6. crash once between old-name → transit-name and transit-name → equivalent new-name, then recover without losing or duplicating the source; and
-7. rerun recovery to prove idempotency and no second write/rebuild.
+7. rerun recovery to prove idempotency and no second write/rebuild; and
+8. verify an ordinary rolled-back operation compacts immediately, an ordinary committed operation does not compact before graph success and then becomes byte-free, an unresolved conflict is never pruned, and a user-resolved conflict keeps only unchosen evidence with a 30-day expiry before becoming byte-free.
 
 Do not simulate this acceptance only by throwing in the same process.
 
 - [ ] **Step 13: Implement startup/selection recovery and explicit conflict resolution**
 
-`recoverGraphRenameOperations(kbPath)` scans nonterminal journals before the graph watcher starts:
+`recoverGraphRenameOperations(kbPath)` scans every record returned by `listForStartup()` before the graph watcher starts, including nonterminal/conflicted journals and committed records whose graph publication is not `succeeded`:
 
 - `prepared` with no writes becomes `rolled_back`;
 - `applying` with all original bytes becomes `rolled_back`;
 - `applying` with a complete verified intended state becomes `committed`;
 - a mixed state containing only known original/intended bytes safely rolls back in reverse;
 - any unknown current bytes become `conflicted` with three preserved variants; and
-- invalid/unknown state returns `blocked` and prevents a new rename.
+- invalid/unknown state returns `blocked` and prevents a new rename;
+- `committed` with graph node identity already containing the target path and not the old path becomes `graph_rebuild:"succeeded"` without another rebuild, then applies the ordinary/resolved-conflict compaction policy; and
+- `committed` with a missing/stale/unreadable graph returns `needsRebuild` without changing knowledge files, even when the prior process already recorded `failed`, `started`, or `queued`; and
+- a terminal receipt, with or without still-live resolved-conflict evidence, causes no content recovery/rebuild and is considered only by the evidence/receipt pruning pass.
 
-Recovery POST rechecks every `observed_conflict.current_sha256`; if one changed, return the refreshed required state without writing. `finish_commit` preserves current external variants, then writes the fully staged intended state. `finish_rollback` preserves current variants, then restores all original state. Only after exact final verification may it transition to the requested terminal state and trigger one rebuild when the chosen final state differs from the currently published graph.
+Recovery POST acquires the same KB lock, recomputes the authoritative current conflicts from disk, canonicalizes them by `(source_path, current_state, current_sha256?)`, and requires exact set equality with `observed_conflicts`. Input order alone is irrelevant after canonicalization; any missing, extra, duplicate, present↔missing, or digest-changed entry returns the refreshed `required` state with zero writes. A symlink, directory, or other non-regular current resource returns `blocked:unsafe_current_type`. `finish_commit` preserves every present external variant, records missing variants explicitly, then stages the complete intended state. `finish_rollback` preserves every present current variant, records missing variants explicitly, then stages all original state. Both actions reread and compare every present/missing state immediately before its replacement; a late external change stops subsequent writes, safely reverses only known writes from this recovery attempt, preserves unknown bytes, and returns the refreshed state. Only after exact final verification may the operation transition to the requested terminal state and trigger one rebuild when the chosen final state differs from the currently published graph.
 
-Call recovery after `bootstrapFromConfig()` and before `watchKnowledgeBaseGraph()` for the bootstrapped active KB. Recovery returns `needsRebuild`; start the watcher first, then trigger exactly one rebuild when a crashed operation is confirmed committed, never while the watcher is absent. Add the same ordered scan → watcher start → optional single trigger sequence to knowledge-base selection. The application still starts when recovery is blocked so Task 6 can display the error, but new rename apply calls for that KB return the existing `BUSY` code with a recovery-required message; recovery GET carries the precise safe state.
+Call recovery after `bootstrapFromConfig()` and before `watchKnowledgeBaseGraph()` for the bootstrapped active KB. Recovery returns `needsRebuild`; start the watcher first, then trigger exactly one rebuild for the sole committed-but-unpublished operation, never while the watcher is absent. Persist the new started/queued/failed status before serving recovery GET. Add the same ordered scan → watcher start → optional single trigger sequence to knowledge-base selection. The application still starts when content recovery is blocked so Task 6 can display the error, but new rename apply calls for that KB return the existing `BUSY` code with a recovery-required message. A graph-only pending operation returns `rebuild_required`, does not block reading or a rebuild retry, but does block a new rename so a KB can never accumulate multiple unpublished operations. After scanning, prune resolved-conflict evidence only after its recorded expiry, then prune a byte-free receipt only after all retention deadlines; never prune a full unresolved journal.
 
 - [ ] **Step 14: Assemble routes and test the trusted-local boundary**
 
-Create `routes/graph-renames.ts` with dependency injection and `resolveKnowledgeBaseContext` on all four routes. Route tests cover active-KB fallback, explicit registered KB, body/query disagreement, unregistered KB, cross-site/capability middleware through `createApp`, invalid JSON, stale preview as a successful business outcome, busy operations, and redacted internal errors.
+Create `routes/graph-renames.ts` with dependency injection and `resolveKnowledgeBaseContext` on all four routes. Route tests cover active-KB fallback, explicit registered KB, body/query disagreement, unregistered KB, cross-site/capability middleware through `createApp`, invalid JSON, stale preview as a successful business outcome, nonterminal/content-recovery/rebuild-required BUSY operations, and redacted internal errors.
 
 Add `GraphRenameRouteService` to `WorkbenchAppDeps`, `createApp`, and `createRuntimeApplication`. Production uses the default service; tests can inject only process/file/rebuild boundary hooks. Confirm `app.test.ts` observes all four endpoints and the endpoint registry has no missing route.
 
@@ -1841,6 +1917,7 @@ npm run build -w @llm-wiki/workbench-contracts
 node --import tsx --test \
   workbench/server/src/repo-root.test.ts \
   workbench/server/src/graph-rename-files.test.ts \
+  workbench/server/src/graph-rename-portability.test.ts \
   workbench/server/src/graph-rename-journal.test.ts \
   workbench/server/src/graph-renames.test.ts \
   workbench/server/src/graph-renames-crash.test.ts \
@@ -1852,10 +1929,10 @@ node --import tsx --test workbench/server/test/runtime-app.test.ts
 npm run typecheck -w @llm-wiki-agent/server
 ```
 
-Expected: all commands exit `0`; crash child exits are asserted by the parent; every successful/rolled-back/conflicted case preserves all required bytes and issues no duplicate rebuild.
+Expected: all commands exit `0`; crash child exits are asserted by the parent; every successful/rolled-back/conflicted/rebuild-pending case preserves all required bytes, no request can acknowledge a partial conflict set, ordinary terminal compaction leaves no copied content, resolved-conflict evidence obeys its visible 30-day deadline, and no path issues a duplicate rebuild.
 
 ```bash
-git add packages/workbench-contracts workbench/server
+git add packages/workbench-contracts workbench/server .github/workflows/path-portability.yml
 git commit -m "feat: add recoverable graph page rename backend [task 5]"
 ```
 
@@ -1892,8 +1969,8 @@ Run `/code-review <TASK_BASE>` against the V3 spec and clear both review axes be
 **Pre-agreed TDD seams:** the typed rename API client, `GraphRenameDialog` DOM state machine, warning/page entry callbacks, App recovery-on-KB-selection behavior, and real browser flows using the production frontend/backend with test-only injected boundary hooks.
 
 **Interfaces:**
-- Consumes: Task 5 preview/apply/recovery responses, warning candidate sets, a selected graph page, graph SSE success/failure, and the active KB lifecycle.
-- Produces: explicit preview/confirmation, ambiguity choices, stale-preview handling, conflict recovery, rebuild retry, visible graph refresh, and checked release evidence.
+- Consumes: Task 5 preview/apply/recovery responses, warning candidate sets, a selected graph page, persistent graph-publication status, graph SSE success/failure, and the active KB lifecycle.
+- Produces: explicit preview/confirmation, ambiguity choices, stale-preview handling, full-set conflict recovery, rebuild retry that survives restart, visible graph refresh, and checked release evidence.
 
 - [ ] **Step 1: Add failing typed API-client tests**
 
@@ -1906,7 +1983,7 @@ getGraphRenameRecovery(kbPath)
 resolveGraphRenameRecovery(kbPath, request)
 ```
 
-Test successful preview, `preview_stale`, committed, conflicted, clear/required/blocked recovery, invalid server envelopes, and capability-token propagation through the shared `request()` client. No client method accepts absolute paths or an arbitrary list of replacement bytes.
+Test successful preview, `preview_stale`, committed, conflicted, all five graph-rebuild values, clear/required/rebuild-required/blocked recovery, zero/one/multiple retained-evidence receipts on every recovery outcome, invalid server envelopes, and capability-token propagation through the shared `request()` client. No client method accepts absolute paths or an arbitrary list of replacement bytes.
 
 - [ ] **Step 2: Add failing dialog state-machine DOM tests**
 
@@ -1919,9 +1996,9 @@ Create `graph-rename-dialog.test.tsx`. Use contract-valid fixtures and fake only
 5. Apply remains disabled until all ambiguity choices and the explicit confirmation checkbox are complete.
 6. Two immediate click events result in one API apply call using the same `operation_id`.
 7. `preview_stale` shows “预览已失效”, performs no optimistic success, and offers a fresh preview.
-8. Committed result shows “页面已安全改名”; a graph rebuild failure shows “内容已保存，图谱尚未更新” plus retry.
-9. Conflicted recovery lists relative paths and preserved variants, requires choosing “完成提交” or “恢复原状”, then sends observed current hashes.
-10. A changed conflict hash refreshes recovery rather than overwriting.
+8. Committed result shows “页面已安全改名”; a graph rebuild failure or `rebuild_required` startup result shows “内容已保存，图谱尚未更新” plus retry and never offers content rollback.
+9. Conflicted recovery lists every relative path and preserved variant, visibly distinguishes an existing current file from an externally deleted one, requires choosing “完成提交” or “恢复原状”, then sends the complete observed present/missing set. After resolution it shows each retained unchosen evidence path and its exact automatic-deletion date.
+10. A changed, present↔missing, extra, or duplicate conflict entry refreshes recovery rather than overwriting; the UI replaces its entire displayed set from that response. An unsafe current type shows blocked state and no resolution button.
 11. Blocked unknown/invalid journal state shows a non-destructive error and no apply action.
 12. Cancel/Escape/backdrop close works for ordinary preview without calling apply or changing fixture hashes, but applying/required recovery cannot be dismissed until the backend reaches a safe state.
 
@@ -1934,7 +2011,7 @@ Create `graph-renames.ts` as thin contract-validated calls. Create `GraphRenameD
 ```text
 choose-source → edit-name → loading-preview → review-preview
 review-preview → applying → committed | stale | conflicted
-recovery-loading → recovery-required | recovery-blocked → terminal
+recovery-loading → recovery-required | rebuild-required | recovery-blocked → terminal
 ```
 
 Keep the server preview as the only source of editable bytes/candidates. Store only the selected candidate paths by occurrence ID. Set an in-flight ref synchronously before awaiting apply so double-clicks cannot race React rendering. Never claim rollback/commit success until the returned operation is terminal.
@@ -1955,21 +2032,22 @@ In a DOM test around `App` or its extracted recovery hook, assert each active-KB
 
 - `clear` does nothing;
 - `required` opens the non-dismissible recovery dialog;
+- `rebuild_required` keeps the readable graph mounted with a persistent stale-graph notice and retry action, disables new rename entry until graph publication succeeds, but never exposes finish-commit/finish-rollback;
 - `blocked` opens the blocked explanation and keeps rename entry disabled;
 - rapidly switching KBs ignores the previous request's late response; and
 - completing recovery rechecks the current KB and reenables entries only on `clear`/terminal state.
 
-Also run the check on initial startup restoration, not only manual selection.
+For every primary status, render all unexpired `retained_evidence_receipts` in a separate dismissible notice showing operation ID, relative evidence paths, hashes, and automatic-deletion dates. The notice does not block a new rename, but dismissing it only hides the current UI instance; switching back/restarting reloads it until server expiry. Also run the check on initial startup restoration, not only manual selection.
 
 - [ ] **Step 6: Implement App ownership and graph rebuild retry**
 
-`App` owns one dialog descriptor containing the KB path, optional source path, optional warning/candidate set, and optional recovery record. Cancel/ignore async responses with a monotonically increasing request ID on KB change.
+`App` owns one dialog descriptor containing the KB path, optional source path, optional warning/candidate set, and optional recovery record, plus a separate list of retained-evidence receipts for the active KB. Cancel/ignore async responses with a monotonically increasing request ID on KB change.
 
-When apply reports `graph_rebuild:"failed"`, or the matching post-commit SSE event becomes `graph_error`, keep the successful content state and show a retry button that calls the existing `rebuildGraph(kbPath)`. A retry updates only the derived graph; it never reapplies the rename. On `graph_updated`, show the readable graph, clear the rebuild warning, and retain the operation's completed message.
+When apply reports `graph_rebuild:"failed"`, matching post-commit SSE becomes `graph_error`, or startup/selection returns `rebuild_required`, keep the successful content state and show a retry button that calls the existing `rebuildGraph(kbPath)`. A retry updates only the derived graph; it never reapplies the rename. Keep the notice across component remounts and application restarts by rereading recovery state; clear it only after the server reports `graph_rebuild:"succeeded"`/`clear` following a verified `graph_updated`. Retain the operation's completed message and never offer content rollback for a graph-only failure.
 
 - [ ] **Step 7: Extend Paper DOM and visual checks before browser automation**
 
-Add light/dark, 320 px, long Chinese/Unicode filename, many occurrences, read-only alert, stale preview, conflict, blocked recovery, and rebuild-failed fixtures to component tests. Assert no horizontal page overflow, the primary action remains visible, candidate rows wrap, and danger text is not the only signal.
+Add light/dark, 320 px, long Chinese/Unicode filename, many occurrences, read-only alert, stale preview, conflict, blocked recovery, rebuild-failed, and restart-restored `rebuild_required` fixtures to component tests. Assert no horizontal page overflow, the primary action remains visible, candidate rows wrap, and danger text is not the only signal.
 
 Run:
 
@@ -2008,22 +2086,22 @@ The harness gains helpers to create the full warning/rename KB fixture, wait for
 Extend `browser-main-flows.test.ts` with these ordered journeys against a copied temporary KB:
 
 1. **Warning to preview:** open graph, expand paged ambiguity details, click “解决”, choose the source page, enter a new name, and verify editable/read-only/ambiguous preview rows.
-2. **Apply and idempotency:** choose each ambiguity, confirm, dispatch two immediate clicks, observe one journal/rename/rebuild, then read the renamed page and inspect exact filesystem hashes.
+2. **Apply and idempotency:** choose each ambiguity, confirm, dispatch two immediate clicks, observe one journal/rename/rebuild, then read the renamed page, assert every changed wikilink uses a complete `wiki/.../page.md` target, and inspect exact filesystem hashes.
 3. **Preview invalidation:** preview another rename, edit one referenced Markdown file from the parent test, apply, see stale notice, and prove no previewed write occurred.
 4. **Equivalent rename:** perform a case-only or NFC↔NFD filename change, prove the transit name disappears and the final page/link/layout pin work.
 5. **Crash and startup recovery:** enable crash-after-write, apply, assert the backend exits, externally edit the written file, restart the backend, reload/select the KB, and see the recovery dialog before any new rename action.
-6. **Conflict preservation:** choose finish rollback (and a separate fixture for finish commit), assert current/original/intended evidence copies exist, no silent content loss occurred, and the operation reaches the requested terminal state.
-7. **Rebuild failure/retry:** fail the one post-commit rebuild, confirm the renamed Markdown remains correct while the dialog says the graph is stale, remove the flag, retry, and wait for the new path node in the readable graph.
+6. **Conflict preservation and full acknowledgement:** after the dialog loads conflicts, create one more external conflict and delete another current conflict file, then submit the old displayed set; assert the server refreshes the complete present/missing set with zero writes. Then choose finish rollback (and a separate fixture for finish commit), assert current/original/intended evidence copies or explicit missing records exist until resolution, no silent content loss occurred, and the operation reaches the requested terminal state. Verify ordinary backups/stages are removed while each unchosen non-reconstructable variant remains at the displayed relative path with the displayed 30-day deletion date. Restart the backend and prove the retained-evidence notice returns without blocking a fresh rename; Task 5's injected-clock journal test owns the just-before/at-expiry deletion proof.
+7. **Rebuild failure across restart:** fail the one post-commit rebuild, confirm the renamed Markdown remains correct while the dialog says the graph is stale, restart the backend before clicking retry, and assert the stale notice returns from persisted `rebuild_required` state. Remove the failure flag, retry, wait for the new path node in the readable graph, assert recovery becomes clear/`succeeded`, and verify only a byte-free terminal receipt remains.
 
 For every journey assert browser requests stay localhost-only, rendered text contains no absolute KB/home path, and cleanup terminates browser/Vite/server even after the intentional server crash. Measure the expanded suite and raise the named test timeout plus `run-browser-main-flows.mjs` command/total budgets only to that upper bound with the existing cleanup allowance; keep per-operation waits bounded and do not replace deterministic waits with sleeps.
 
 - [ ] **Step 10: Update product language and release-facing docs after behavior is green**
 
-Create `docs/graph/2026-07-20-path-identity-production-acceptance.md` with the tested implementation commit/range, each V3 section 9.2 row, its exact automated/browser command, local pass evidence, a temporarily pending three-platform row, and any intentionally deferred item. Do not try to make the report contain its own future commit hash. Do not mark D12 complete until Ubuntu, macOS, and Windows jobs are green.
+Create `docs/graph/2026-07-20-path-identity-production-acceptance.md` with the tested implementation commit/range, each V3 section 9.2 row, its exact automated/browser command, local pass evidence, two temporarily pending three-platform rows (Stage 2 path portability and Stage 3 equivalent-rename portability), and any intentionally deferred item. Do not try to make the report contain its own future commit hash. Do not mark either portability row complete until its exact Ubuntu, macOS, and Windows jobs are green.
 
 Update:
 
-- `workbench/PRODUCT.md` with readable warning state, derived sidecar, safe same-directory rename, and recovery boundary;
+- `workbench/PRODUCT.md` with readable warning state, derived sidecar, safe same-directory rename, full-set conflict acknowledgement, persistent rebuild-required state, immediate ordinary cleanup, and visible 30-day retention for resolved-conflict evidence;
 - `workbench/CONTEXT.md` with user-facing terms “图谱告警” and “安全改名/恢复”; and
 - `packages/graph-engine/CONTEXT.md` with path identity and warning meaning shared by both hosts.
 
@@ -2044,7 +2122,7 @@ git add \
 git commit -m "docs: record graph identity production acceptance [task 6]"
 ```
 
-Stage only these intended files. Never add the ignored plan, questionnaire, or conflict-copy specs.
+Stage only these intended files. The implementation plan is tracked but must remain unchanged during implementation; never stage an execution-time edit to it, the questionnaire, or the conflict-copy specs.
 
 - [ ] **Step 12: Run the final local acceptance matrix**
 
@@ -2056,6 +2134,7 @@ bash tests/regression.sh
 npm run quality-and-tests
 npm run test:browser:main-flows -w @llm-wiki-agent/web
 bash tests/graph-offline-warnings.regression-1.sh
+node --import tsx --test workbench/server/src/graph-rename-portability.test.ts
 npm run visual:paper -w @llm-wiki-agent/web
 codex_install_plan=$(mktemp)
 claude_install_plan=$(mktemp)
@@ -2078,15 +2157,11 @@ grep -r '本机用户路径\|真实姓名\|私有素材路径' \
   > /tmp/llm-wiki-privacy-candidates.txt || true
 grep -r '本机用户路径\|真实姓名\|私有素材路径' scripts/ templates/ tests/ SKILL.md \
   >> /tmp/llm-wiki-privacy-candidates.txt || true
+npm run check:privacy
 
 if git diff --unified=0 "$TASK_BASE"..HEAD -- \
   README.md README.en.md docs/ workbench/ packages/graph-engine/CONTEXT.md \
   | grep -F "$HOME"; then
-  exit 1
-fi
-if git diff --unified=0 "$TASK_BASE"..HEAD -- \
-  README.md README.en.md docs/ workbench/ packages/graph-engine/CONTEXT.md \
-  | rg -n -P '^\+.*(?:/Users/[^/<\s]+|/home/[^/<\s]+|[A-Za-z]:\\Users\\[^\\\s]+)' ; then
   exit 1
 fi
 ```
@@ -2143,9 +2218,9 @@ gh pr create --draft \
 gh pr checks --watch
 ```
 
-Require `.github/workflows/path-portability.yml` to be green on Ubuntu, macOS, and Windows. If any platform differs, return to the relevant `/implement` task with a failing portability test; do not waive D12.
+Require `.github/workflows/path-portability.yml` to be green on Ubuntu, macOS, and Windows. Each matrix job must show both the Task 2 fixed-Unicode/path suite and Task 5 `graph-rename-portability.test.ts`; a green classification-only suite is insufficient. If any platform differs, return to the relevant `/implement` task with a failing portability or real-transit test; do not waive either portability acceptance row.
 
-After the three jobs are green, add their run URL/result and tested implementation head to the production acceptance report, change the V3 spec section 9.2 heading/status to link that evidence, and only then mark D12/production acceptance complete:
+After the three jobs are green, add each job's Stage 2 and Stage 3 result plus the tested implementation head to the production acceptance report, change the V3 spec section 9.2 heading/status to link that evidence, and only then mark both portability rows and full production acceptance complete:
 
 ```bash
 git add \
@@ -2176,13 +2251,13 @@ This table is a required execution checklist, not background prose. A task revie
 | §5.2 Build graph | Tasks 2-3 resolver/builder/pair commit; Task 1 engine boundary; Task 4 readable consumers. |
 | §5.3 Active rename | Task 5 backend data flow/journal/recovery and Task 6 confirmation/recovery/retry UI. |
 | §6.1 Shared parser/index | Task 2 byte scanner/index/resolver and Task 5 real `rename-scan` process, with no server re-parser. |
-| §6.2 Portable filename | Task 2 Unicode/validator on three platforms and Task 5 realpath/transit rename tests. |
+| §6.2 Portable filename | Task 2 Unicode/validator on three platforms and Task 5 production transit rename/crash-recovery test on the same three-platform matrix. |
 | §6.3 Generator | Task 3 path-ID builder, all reference migration, paired artifact commit, and Markdown hash proof. |
 | §6.4 Engine | Task 1 shared normalization, opaque IDs, unique collections, and old-data compatibility. |
 | §6.5 Workbench | Task 4 ready warnings/pagination/security/pins; Tasks 5-6 operation lock, recovery, and deliberate resolve entry. |
 | §6.6 Offline/CLI/CI | Tasks 2-3 exit contracts, strict gate, offline detail budget, and no write action; Task 6 final CI evidence. |
 | §7 Warning contract | Task 1 warning model, Task 2 stable IDs, Task 3 canonical compact artifacts and 2 MiB reducer, Task 4 Zod/API pagination. |
-| §8 Error/recovery boundary | Task 3 degraded-build/system-failure split; Task 4 readable mismatch; Task 5 every rename invalidation/rollback/conflict/crash state; Task 6 browser proof. |
+| §8 Error/recovery boundary | Task 3 degraded-build/system-failure split; Task 4 readable mismatch; Task 5 every rename invalidation/rollback/conflict/crash state, exact conflict-set equality, persistent rebuild publication, ordinary compaction, and bounded resolved-conflict evidence; Task 6 browser proof across restart. |
 | §9 Feasibility/acceptance | Preflight preserves §9.1 as direction evidence; the row-by-row matrix below and Task 6 production report own §9.2. |
 | §10 Phases | Tasks 1, 2-4, and 5-6 are the engine, path/warning, and optional rename stages respectively; every stage has its own commit/review gate. |
 | §11 Migration/compatibility | Tasks 1 and 4 cover legacy graph IDs, semantic edges, communities, pins, SSE; Task 3 keeps both hosts and old valid input readable. |
@@ -2192,17 +2267,20 @@ This table is a required execution checklist, not background prose. A task revie
 
 | §9.2 row | Task(s) | Required evidence named in this plan |
 |---|---|---|
-| 文件发现 | 2, 5 | `wiki-file-discovery.test.js` exact arrays/symlink rejection; rename preview editable/read-only fixture. |
-| 生成与解析 | 2, 3 | `wikilink-parser.test.js`, `wiki-link-index.test.js`, `graph-path-identity-build.regression-1.sh`. |
-| 精确位置 | 2, 5 | UTF-8 round-trip parser fixture; `graph-rename-files.test.ts`; stale hash/slice and Obsidian invalidation tests. |
-| 引擎兜底 | 1 | `graph-input-normalization.test.ts`, raw/projection parity, generated-ID and merged-warning assertions. |
-| 告警存储 | 3, 4 | `graph-warning-bundle.test.js` crash/tamper/compact tests; `graph-warnings.test.ts`; route cursor pages. |
-| 工作台 | 4, 6 | banner DOM/API tests and real browser warning, resolve, recovery, and readable graph journeys. |
-| 离线 HTML | 3 | below/above-budget unit cases plus `graph-offline-warnings.mjs` on the generated `file://` page. |
-| 首次迁移 | 1, 4 | `diff-path-identity-migration.test.ts` and watcher/layout pin migration tests, including reorder and ambiguity. |
-| CLI / CI | 2, 3, 6 | `graph-warning-exit-codes.regression-1.sh`, Markdown hash proof, registered regression gate, final checks. |
-| 可移植性 | 2, 5, 6 | Full Unicode 17 NFC conformance, case-fold/validator/transit literals in `path-portability.yml` on Ubuntu/macOS/Windows; equivalent real rename tests. |
-| 性能 | 2, 3 | real scan metrics and `wiki-link-performance.test.js` linear-size bound plus offline threshold cases. |
-| 主动改名 | 5, 6 | real-filesystem apply/rollback/conflict tests, actual child-process crash, route tests, and seven ordered browser journeys. |
+| 文件发现（阶段二） | 2 | `wiki-file-discovery.test.js` proves all three policy arrays, symlink rejection, generated-artifact/hidden-directory exclusion, and an unchanged file-set digest when only excluded files change; Task 5 later consumes the already-accepted rename view. |
+| 生成与解析（阶段二） | 2, 3 | `wikilink-parser.test.js`, `wiki-link-index.test.js`, `graph-path-identity-build.regression-1.sh`. |
+| 精确位置（阶段二） | 2 | UTF-8 round-trip parser fixture covers Chinese, emoji, repeated text, and code exclusions. |
+| 预览失效（阶段三） | 5, 6 | `graph-rename-files.test.ts`, full digest/hash/slice/layout invalidation, Obsidian change, and browser stale-preview journey. |
+| 引擎兜底（阶段一） | 1 | `graph-input-normalization.test.ts`, raw/projection parity, generated-ID and merged-warning assertions. |
+| 告警存储（阶段二） | 3, 4 | `graph-warning-bundle.test.js` crash/tamper/compact tests; `graph-warnings.test.ts`; route cursor pages. |
+| 工作台告警（阶段二） | 4 | banner DOM/API tests and real-browser readable graph plus complete paginated warning journey. |
+| 工作台改名（阶段三） | 5, 6 | resolve/recovery/rebuild-required contracts, retained-evidence notice, and real-browser rename/restart journeys. |
+| 离线 HTML（阶段二） | 3 | below/above-budget unit cases plus `graph-offline-warnings.mjs` on the generated `file://` page. |
+| 首次迁移（阶段二） | 1, 4 | `diff-path-identity-migration.test.ts` and watcher/layout pin migration tests, including reorder and ambiguity. |
+| CLI / CI（阶段二） | 2, 3, 4/6 | `graph-warning-exit-codes.regression-1.sh`, Markdown hash proof, registered quality/browser gates, and the applicable core/full final checks. |
+| 路径可移植性（阶段二） | 2, 4/6 | Full Unicode 17 NFC conformance and case-fold/validator tests in `path-portability.yml` on Ubuntu/macOS/Windows; Task 4 core-only gate or Task 6 full gate records the run. |
+| 等价改名可移植性（阶段三） | 5, 6 | `graph-rename-portability.test.ts` executes real old→transit→target and crash recovery in the same Ubuntu/macOS/Windows matrix. |
+| 性能（阶段二） | 2, 3 | real scan metrics and `wiki-link-performance.test.js` linear-size bound plus offline threshold cases. |
+| 主动改名（阶段三） | 5, 6 | real-filesystem apply/rollback/conflict tests, exact full-set acknowledgement, ordinary immediate cleanup, resolved-conflict evidence expiry, actual child-process crash, rebuild-failure restart, route tests, and seven ordered browser journeys. |
 
 Every row must appear with a passing command and evidence link in `docs/graph/2026-07-20-path-identity-production-acceptance.md`. “Covered by another row” is not an acceptable final status.
