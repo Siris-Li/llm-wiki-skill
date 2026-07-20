@@ -43,6 +43,7 @@ deps/baoyu-url-to-markdown/scripts/bun.lock
 /workbench/docs/**/*.png
 /workbench/docs/**/*-artifacts/
 /docs/plans/
+/docs/superpowers/plans/
 
 # 旧 Skill 时代的研究与记录（本地留存，不进版本库）
 /docs/solutions/
