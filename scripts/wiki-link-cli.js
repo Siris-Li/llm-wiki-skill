@@ -10,6 +10,7 @@ const {
   serializeJsonForHtmlScript,
   verifyGraphArtifactPair
 } = require("./lib/graph-warning-bundle");
+const { normalizeRelativePosixPath } = require("./lib/wiki-file-discovery");
 const { scanKnowledgeBaseLinks, validatePortableMarkdownFilename } = require("./lib/wiki-link-index");
 const { renderWikilinkReplacement } = require("./lib/wikilink-parser");
 
@@ -135,7 +136,7 @@ async function writeWarningEmbed(args) {
     scriptBytes = prepared.scriptBytes;
   } else {
     payload = {
-      summary: verified.summary || {},
+      summary: sanitizeUnavailableSummary(verified.summary),
       details_status: "unavailable",
       details_unavailable_reason: verified.reason,
       warning_details_truncated: false,
@@ -145,6 +146,36 @@ async function writeWarningEmbed(args) {
     scriptBytes = serializeJsonForHtmlScript(payload);
   }
   fs.writeFileSync(args.outputPath, scriptBytes);
+}
+
+function sanitizeUnavailableSummary(summary) {
+  if (!summary || typeof summary !== "object") return {};
+  const safe = {};
+  for (const key of ["build_id", "details_sha256"]) {
+    if (typeof summary[key] === "string" && /^[a-f0-9]{64}$/.test(summary[key])) {
+      safe[key] = summary[key];
+    }
+  }
+  for (const key of ["total_groups", "total_occurrences", "error_occurrences", "warning_occurrences"]) {
+    if (Number.isSafeInteger(summary[key]) && summary[key] >= 0) safe[key] = summary[key];
+  }
+  if (summary.by_code && typeof summary.by_code === "object" && !Array.isArray(summary.by_code)) {
+    safe.by_code = Object.fromEntries(
+      Object.entries(summary.by_code)
+        .filter(([, count]) => Number.isSafeInteger(count) && count >= 0),
+    );
+  }
+  if (typeof summary.details_ref === "string") {
+    try {
+      const normalized = normalizeRelativePosixPath(summary.details_ref);
+      if (normalized === summary.details_ref && path.posix.basename(normalized) === "graph-warnings.json") {
+        safe.details_ref = normalized;
+      }
+    } catch (_) {
+      // Never copy an invalid or machine-local path into an offline artifact.
+    }
+  }
+  return safe;
 }
 
 function basenameWithoutMarkdown(relativePath) {

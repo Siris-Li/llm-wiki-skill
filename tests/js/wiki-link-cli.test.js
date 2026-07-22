@@ -42,6 +42,46 @@ describe("wiki-link-cli process contract", () => {
     assert.equal(runCli(["check", missingRoot, "--json"]).status, 1);
   });
 
+  it("does not embed an absolute details path when warning verification fails", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "llm-wiki-warning-embed-"));
+    try {
+      fs.mkdirSync(path.join(tempRoot, "wiki"), { recursive: true });
+      const graphPath = path.join(tempRoot, "wiki", "graph-data.json");
+      const outputPath = path.join(tempRoot, "warning-data.json");
+      const absoluteDetailsPath = "/Users/private/secret/graph-warnings.json";
+      fs.writeFileSync(graphPath, JSON.stringify({
+        meta: {
+          warning_summary: {
+            build_id: "a".repeat(64),
+            total_groups: 0,
+            total_occurrences: 0,
+            error_occurrences: 0,
+            warning_occurrences: 0,
+            by_code: {},
+            details_ref: absoluteDetailsPath,
+            details_sha256: "b".repeat(64)
+          }
+        },
+        nodes: [],
+        edges: []
+      }), "utf8");
+
+      const result = runCli([
+        "warning-embed",
+        tempRoot,
+        graphPath,
+        path.join(tempRoot, "wiki", "graph-warnings.json"),
+        outputPath
+      ]);
+      assert.equal(result.status, 0, result.stderr);
+      const output = fs.readFileSync(outputPath, "utf8");
+      assert.equal(output.includes(absoluteDetailsPath), false);
+      assert.equal(Object.hasOwn(JSON.parse(output).summary, "details_ref"), false);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps editable and read-only ambiguity classifications in rename output", () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "llm-wiki-cli-"));
     try {
