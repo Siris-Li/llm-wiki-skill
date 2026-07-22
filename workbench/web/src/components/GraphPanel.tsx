@@ -672,6 +672,11 @@ export function GraphPanel({
 			await playDiff(decision.diff);
 		} else if (decision.snapshot.pending) {
 			setAnimationState("queued");
+		} else if (!decision.snapshot.isAnimating) {
+			// A refresh can carry migration warnings without any visual graph change.
+			// The queue intentionally drops that no-op diff, so do not leave the
+			// warning-aware graph stuck in the "waiting to play" state.
+			setAnimationState("idle");
 		}
 	}, [playDiff, status]);
 

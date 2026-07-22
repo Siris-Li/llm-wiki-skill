@@ -211,13 +211,19 @@ describe("GraphPanel Paper shell", () => {
 	it("retains migration warnings through a warning-aware refresh until dismissal", async () => {
 		mockGraphFetch({ warningState: availableWarningState() });
 		const diff = {
-			...graphDiff("wiki/new.md", 2),
+			addedNodes: [],
+			removedNodes: [],
+			recoloredNodes: [],
+			addedEdges: [],
+			removedEdges: [],
+			newCommunities: [],
 			migrationWarnings: [{
 				code: "identity_alignment_ambiguous" as const,
 				source_path: "wiki/entities/foo.md",
 				previous_ids: ["foo"],
 				next_ids: ["wiki/entities/foo.md"],
 			}],
+			stats: { nodeCount: 1, edgeCount: 0, communityCount: 0 },
 		};
 		const { rerender } = render(
 			<GraphPanel
@@ -238,6 +244,10 @@ describe("GraphPanel Paper shell", () => {
 			/>,
 		);
 		await waitFor(() => assert.match(document.body.textContent ?? "", /首次刷新有 1 项迁移提示/));
+		await waitFor(() => {
+			assert.equal(document.querySelector(".graph-screen")?.getAttribute("data-graph-animation"), "idle");
+			assert.equal(screen.queryByText("图谱更新待播放"), null);
+		});
 		assert.ok(document.querySelector(".graph-host"));
 
 		rerender(
