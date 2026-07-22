@@ -334,10 +334,10 @@
     "total_edges": 13,
     "total_nodes": 8,
     "warning_summary": {
-      "build_id": "a3e57ccc8bb66b2808679a93f6d5d144ee0d8a3f476cdd7e32d4fc0de18fa442",
+      "build_id": "d4a490952ebdd65c5316110e3e0ad41d430e25bca64ea4a02bd6ebe7eada0097",
       "by_code": {},
       "details_ref": "wiki/graph-warnings.json",
-      "details_sha256": "2f2510705643c51543b02718b159d9af693f49cb795b91095f8ee25988d68207",
+      "details_sha256": "81f21a1f9b7d6300313faef1869d93afe8db56b3447c36b275cc5012f3a756ce",
       "error_occurrences": 0,
       "total_groups": 0,
       "total_occurrences": 0,
