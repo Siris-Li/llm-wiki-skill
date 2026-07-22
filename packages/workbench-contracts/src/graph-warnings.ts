@@ -71,6 +71,10 @@ export const GraphWarningCandidateSetSchema = z
 	});
 export type GraphWarningCandidateSetContract = z.infer<typeof GraphWarningCandidateSetSchema>;
 
+const PublicWarningIdSchema = z.string().regex(/^warning-[a-f0-9]{16}$/);
+const PublicCandidateSetIdSchema = z.string().regex(/^candidate-set-[a-f0-9]{16}$/);
+const PublicOccurrenceIdSchema = z.string().regex(/^occurrence-[a-f0-9]{16}$/);
+
 export const GraphWarningOccurrenceSchema = z
 	.object({
 		occurrence_id: z.string().min(1),
@@ -108,13 +112,55 @@ export const GraphWarningGroupSchema = z
 	});
 export type GraphWarningGroupContract = z.infer<typeof GraphWarningGroupSchema>;
 
+export const GraphWarningPublicCandidateSetSchema = z
+	.object({
+		candidate_set_id: PublicCandidateSetIdSchema,
+		candidate_count: z.number().int().nonnegative(),
+		candidates: z.array(KnowledgeBaseRelativePathSchema),
+	})
+	.strict()
+	.refine((value) => value.candidate_count === value.candidates.length, {
+		message: "candidate_count must match candidates",
+	})
+	.refine((value) => new Set(value.candidates).size === value.candidates.length, {
+		message: "candidate paths must be unique",
+	});
+export type GraphWarningPublicCandidateSetContract = z.infer<typeof GraphWarningPublicCandidateSetSchema>;
+
+export const GraphWarningPublicOccurrenceSchema = z
+	.object({
+		occurrence_id: PublicOccurrenceIdSchema,
+		source_path: KnowledgeBaseRelativePathSchema,
+		line: z.number().int().positive(),
+		column: z.number().int().positive(),
+		link_kind: z.enum(["page_wikilink", "same_page_anchor", "attachment_wikilink"]),
+		read_only: z.boolean(),
+	})
+	.strict();
+export type GraphWarningPublicOccurrenceContract = z.infer<typeof GraphWarningPublicOccurrenceSchema>;
+
+export const GraphWarningPublicGroupSchema = z
+	.object({
+		warning_id: PublicWarningIdSchema,
+		code: GraphWarningCodeSchema,
+		severity: GraphWarningSeveritySchema,
+		candidate_set_id: PublicCandidateSetIdSchema.optional(),
+		occurrence_count: z.number().int().nonnegative(),
+		occurrences: z.array(GraphWarningPublicOccurrenceSchema),
+	})
+	.strict()
+	.refine((value) => value.occurrence_count >= value.occurrences.length, {
+		message: "occurrence_count cannot be smaller than occurrences",
+	});
+export type GraphWarningPublicGroupContract = z.infer<typeof GraphWarningPublicGroupSchema>;
+
 function hasUniqueIds<T>(items: T[], id: (item: T) => string): boolean {
 	return new Set(items.map(id)).size === items.length;
 }
 
 function referencedCandidateSetsMatch(
-	groups: GraphWarningGroupContract[],
-	candidateSets: GraphWarningCandidateSetContract[],
+	groups: Array<{ candidate_set_id?: string }>,
+	candidateSets: Array<{ candidate_set_id: string }>,
 ): boolean {
 	const referenced = new Set(groups.flatMap((group) => group.candidate_set_id ? [group.candidate_set_id] : []));
 	const supplied = new Set(candidateSets.map((candidateSet) => candidateSet.candidate_set_id));
@@ -163,6 +209,12 @@ export const GraphWarningBundleSchema = z
 	.refine((value) => value.groups.every((group) => group.occurrence_count === group.occurrences.length), {
 		message: "complete bundle occurrence counts must match occurrences",
 	})
+	.refine((value) => hasUniqueIds(
+		value.groups.flatMap((group) => group.occurrences),
+		(occurrence) => occurrence.occurrence_id,
+	), {
+		message: "occurrence IDs must be unique across the complete bundle",
+	})
 	.refine((value) => fullBundleCountsMatch(value.summary, value.groups), {
 		message: "complete bundle summary counts must match groups",
 	})
@@ -186,7 +238,7 @@ const GraphWarningAvailableStateSchema = z
 		summary: GraphWarningSummarySchema,
 		details_status: z.literal("available"),
 		details_unavailable_reason: z.null(),
-		engine_groups: z.array(GraphWarningGroupSchema),
+		engine_groups: z.array(GraphWarningPublicGroupSchema),
 	})
 	.strict();
 
@@ -195,7 +247,7 @@ const GraphWarningUnavailableStateSchema = z
 		summary: GraphWarningSummarySchema.nullable(),
 		details_status: z.literal("unavailable"),
 		details_unavailable_reason: GraphWarningDetailsUnavailableReasonSchema,
-		engine_groups: z.array(GraphWarningGroupSchema),
+		engine_groups: z.array(GraphWarningPublicGroupSchema),
 	})
 	.strict();
 
@@ -218,8 +270,8 @@ const GraphWarningAvailablePageSchema = z
 		details_status: z.literal("available"),
 		build_id: Sha256Schema,
 		summary: GraphWarningSummarySchema,
-		groups: z.array(GraphWarningGroupSchema),
-		candidate_sets: z.array(GraphWarningCandidateSetSchema),
+		groups: z.array(GraphWarningPublicGroupSchema),
+		candidate_sets: z.array(GraphWarningPublicCandidateSetSchema),
 		next_cursor: z.string().min(1).nullable(),
 	})
 	.strict()

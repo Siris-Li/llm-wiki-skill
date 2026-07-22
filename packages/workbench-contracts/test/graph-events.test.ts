@@ -36,7 +36,6 @@ test("graph SSE schema validates ready, update, and recoverable graph error even
 			...identity,
 			seq: 2,
 			type: "graph_updated",
-			kbPath: "/fake/kb",
 			diff: {
 				addedNodes: ["new-node"],
 				removedNodes: [],
@@ -48,14 +47,9 @@ test("graph SSE schema validates ready, update, and recoverable graph error even
 					{
 						code: "identity_alignment_ambiguous",
 						source_path: "notes/ambiguous.md",
-						previous_ids: ["old-a", "old-b"],
-						next_ids: ["new-a", "new-b"],
 					},
 					{
 						code: "legacy_semantic_edge_duplicate",
-						semantic_key: '["a","b","依赖"]',
-						previous_edge_ids: ["old-edge"],
-						next_edge_ids: ["new-edge"],
 					},
 				],
 				stats: { nodeCount: 2, edgeCount: 1, communityCount: 2 },
@@ -69,7 +63,6 @@ test("graph SSE schema validates ready, update, and recoverable graph error even
 			...identity,
 			seq: 3,
 			type: "graph_error",
-			kbPath: "/fake/kb",
 			message: "图谱重建失败",
 			rebuiltAt: "2026-07-11T12:02:00.000Z",
 		},
@@ -86,7 +79,6 @@ test("graph update accepts migration warnings and normalizes legacy diffs", () =
 		...identity,
 		seq: 2,
 		type: "graph_updated",
-		kbPath: "/fake/kb",
 		diff: {
 			addedNodes: [],
 			removedNodes: [],
@@ -97,8 +89,6 @@ test("graph update accepts migration warnings and normalizes legacy diffs", () =
 			migrationWarnings: [{
 				code: "identity_alignment_ambiguous",
 				source_path: null,
-				previous_ids: ["old"],
-				next_ids: [],
 			}],
 			stats: { nodeCount: 1, edgeCount: 0, communityCount: 1 },
 		},
@@ -121,7 +111,6 @@ test("graph migration warnings reject absolute or escaping source paths", () => 
 			...identity,
 			seq: 2,
 			type: "graph_updated",
-			kbPath: "/fake/kb",
 			diff: {
 				addedNodes: [],
 				removedNodes: [],
@@ -129,12 +118,7 @@ test("graph migration warnings reject absolute or escaping source paths", () => 
 				addedEdges: [],
 				removedEdges: [],
 				newCommunities: [],
-				migrationWarnings: [{
-					code: "identity_alignment_ambiguous",
-					source_path,
-					previous_ids: ["old"],
-					next_ids: ["next"],
-				}],
+				migrationWarnings: [{ code: "identity_alignment_ambiguous", source_path }],
 				stats: { nodeCount: 1, edgeCount: 0, communityCount: 1 },
 			},
 			rebuiltAt: "2026-07-11T12:01:00.000Z",
@@ -146,12 +130,49 @@ test("graph migration warnings reject absolute or escaping source paths", () => 
 	}
 });
 
+test("graph migration warnings reject internal comparison values and arbitrary legacy identifiers", () => {
+	const base = {
+		...identity,
+		seq: 2,
+		type: "graph_updated",
+		diff: {
+			addedNodes: [],
+			removedNodes: [],
+			recoloredNodes: [],
+			addedEdges: [],
+			removedEdges: [],
+			newCommunities: [],
+			migrationWarnings: [],
+			stats: { nodeCount: 1, edgeCount: 0, communityCount: 1 },
+		},
+		rebuiltAt: "2026-07-11T12:01:00.000Z",
+		stats: { nodeCount: 1, edgeCount: 0 },
+		warning_summary: warningSummary,
+		warning_details_status: "available",
+	} as const;
+	for (const warning of [{
+		code: "identity_alignment_ambiguous",
+		source_path: "wiki/safe.md",
+		previous_ids: ["/Users/private", "C:\\private"],
+		next_ids: ["portable-key:nfc|casefold", "arbitrary raw text"],
+	}, {
+		code: "legacy_semantic_edge_duplicate",
+		semantic_key: "portable-key:nfc|casefold",
+		previous_edge_ids: ["/Users/private"],
+		next_edge_ids: ["C:\\private", "arbitrary raw text"],
+	}]) {
+		assert.equal(GraphSseEventSchema.safeParse({
+			...base,
+			diff: { ...base.diff, migrationWarnings: [warning] },
+		}).success, false, warning.code);
+	}
+});
+
 test("graph update requires warning summary and detail status", () => {
 	const valid = {
 		...identity,
 		seq: 2,
 		type: "graph_updated",
-		kbPath: "/fake/kb",
 		diff: null,
 		rebuiltAt: "2026-07-11T12:01:00.000Z",
 		stats: { nodeCount: 1, edgeCount: 0 },

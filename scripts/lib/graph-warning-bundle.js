@@ -95,6 +95,7 @@ function normalizeCandidateSets(candidateSets) {
 function normalizeGroups(groups, candidateSetIds) {
   if (!Array.isArray(groups)) throw new Error("groups must be an array");
   const seen = new Set();
+  const seenOccurrences = new Set();
   return groups.map((group) => {
     if (!group || typeof group !== "object" || !group.warning_id) {
       throw new Error("warning_id is required");
@@ -109,6 +110,12 @@ function normalizeGroups(groups, candidateSetIds) {
     }
     const occurrences = (group.occurrences || []).map(normalizeOccurrence)
       .sort((left, right) => compareText(left.occurrence_id, right.occurrence_id));
+    for (const occurrence of occurrences) {
+      if (seenOccurrences.has(occurrence.occurrence_id)) {
+        throw new Error(`duplicate occurrence_id: ${occurrence.occurrence_id}`);
+      }
+      seenOccurrences.add(occurrence.occurrence_id);
+    }
     if (group.occurrence_count !== occurrences.length) {
       throw new Error(`occurrence_count does not match occurrences for ${group.warning_id}`);
     }
@@ -129,6 +136,12 @@ function sortGraphCollections(graphData) {
   if (graph.learning && Array.isArray(graph.learning.communities)) {
     graph.learning.communities.sort((left, right) => compareText(left.id, right.id));
   }
+  return canonicalize(graph);
+}
+
+function graphBuildIdentityProjection(graphData) {
+  const graph = sortGraphCollections(graphData);
+  if (graph.meta && typeof graph.meta === "object") delete graph.meta.build_date;
   return canonicalize(graph);
 }
 
@@ -180,8 +193,8 @@ function assembleGraphArtifactPair({
   const candidate_sets = normalizeCandidateSets(candidateSets);
   const normalizedGroups = normalizeGroups(groups, new Set(candidate_sets.map((item) => item.candidate_set_id)));
   const graphWithoutSummary = sortGraphCollections(graphData);
-  const build_id = sha256(canonicalBytes({
-    graph_without_warning_summary: graphWithoutSummary,
+	const build_id = sha256(canonicalBytes({
+	graph_without_warning_summary: graphBuildIdentityProjection(graphWithoutSummary),
     warning_details: { candidate_sets, groups: normalizedGroups }
   }));
   const detailProjection = {
@@ -222,7 +235,7 @@ function graphWithoutWarningSummary(graphData) {
 
 function recalculateBuildId(graphData, warningBundle) {
   return sha256(canonicalBytes({
-    graph_without_warning_summary: graphWithoutWarningSummary(graphData),
+    graph_without_warning_summary: graphBuildIdentityProjection(graphData),
     warning_details: {
       candidate_sets: warningBundle.candidate_sets,
       groups: warningBundle.groups

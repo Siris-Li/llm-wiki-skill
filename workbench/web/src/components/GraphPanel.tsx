@@ -17,8 +17,8 @@ import {
 } from "@llm-wiki/graph-engine";
 import type {
 	GraphMigrationWarningContract,
-	GraphWarningCandidateSetContract,
-	GraphWarningGroupContract,
+	GraphWarningPublicCandidateSetContract,
+	GraphWarningPublicGroupContract,
 	GraphWarningStateContract,
 } from "@llm-wiki/workbench-contracts";
 
@@ -61,8 +61,8 @@ interface Props {
 	engineFactory?: typeof createGraphEngine;
 	onDiffConsumed?: () => void;
 	onResolveWarning?: (
-		group: GraphWarningGroupContract,
-		candidateSet: GraphWarningCandidateSetContract,
+		group: GraphWarningPublicGroupContract,
+		candidateSet: GraphWarningPublicCandidateSetContract,
 	) => void;
 	// #122：右侧节点详情抽屉是否全屏。社区阅读普通单击节点打开抽屉时，宽屏并排布局下
 	// 镜头让位到剩余画布；窄屏覆盖/全屏由策略判定为不让位。
@@ -829,7 +829,9 @@ export function GraphPanel({
 
 	useEffect(() => {
 		if (!pendingDiff) return;
-		setMigrationWarnings(pendingDiff.migrationWarnings ?? []);
+		if ((pendingDiff.migrationWarnings?.length ?? 0) > 0) {
+			setMigrationWarnings(pendingDiff.migrationWarnings ?? []);
+		}
 		const token = ++animationTokenRef.current;
 		lastRefreshTokenRef.current = refreshToken;
 		setAnimationState("queued");
@@ -850,7 +852,6 @@ export function GraphPanel({
 		if (pendingDiff) return;
 		if (lastRefreshTokenRef.current === refreshToken) return;
 		lastRefreshTokenRef.current = refreshToken;
-		setMigrationWarnings([]);
 		return runWhenDragIdle(() => {
 			void loadGraph();
 		});

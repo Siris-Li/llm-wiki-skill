@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -11,9 +12,10 @@ import {
 	GraphWarningGroupSchema,
 	GraphWarningPageDataSchema,
 	GraphWarningSummarySchema,
-	type GraphWarningCodeContract,
 	type GraphWarningGroupContract,
 	type GraphWarningPageContract,
+	type GraphWarningPublicCandidateSetContract,
+	type GraphWarningPublicGroupContract,
 	type GraphWarningStateContract,
 	type GraphWarningSummaryContract,
 } from "@llm-wiki/workbench-contracts";
@@ -42,19 +44,7 @@ type WarningUnavailableReason = Exclude<
 	null
 >;
 
-const scheduledRebuilds = new Set<string>();
-
-const SAFE_WARNING_MESSAGES: Record<GraphWarningCodeContract, string> = {
-	duplicate_node_id: "输入中有多个节点使用同一标识，图谱只保留首个有效节点。",
-	duplicate_edge_id: "输入中有多个关系使用同一标识，图谱只保留首个有效关系。",
-	duplicate_community_id: "输入中有多个社区使用同一标识，图谱只保留首个有效社区。",
-	generated_id_collision: "自动生成的标识发生冲突，系统已改用另一个稳定标识。",
-	ambiguous_wikilink: "这个链接可能指向多个页面，因此没有自动建立关系。",
-	broken_wikilink: "这个链接找不到对应页面，因此没有建立关系。",
-	pending_wikilink: "这个链接指向尚未创建的页面，页面创建后可重新构建图谱。",
-	noncanonical_wikilink: "这个链接可以找到页面，但写法与实际路径不一致。",
-	portable_path_collision: "这些路径在其他操作系统上可能被视为同一路径。",
-};
+const scheduledRebuilds = new Map<string, symbol>();
 
 export async function readGraphWarningContext(input: {
 	kbPath: string;
@@ -97,6 +87,7 @@ export async function readGraphWarningContext(input: {
 
 	const bundle = parsedBundle.data as GraphWarningBundle;
 	const engineGroups = defensiveEngineGroups(input.graphData, bundle);
+	clearScheduledRebuilds(input.kbPath);
 	return {
 		publicState: {
 			summary,
@@ -135,13 +126,14 @@ export function paginateGraphWarningContext(
 		throw invalidCursor();
 	}
 	const end = Math.min(offset + query.limit, context.bundle.groups.length);
-	const groups = context.bundle.groups.slice(offset, end).map(publicWarningGroup);
+	const internalGroups = context.bundle.groups.slice(offset, end);
+	const groups = internalGroups.map(publicWarningGroup);
 	const referencedCandidateSetIds = new Set(
-		groups.flatMap((group) => group.candidate_set_id ? [group.candidate_set_id] : []),
+		internalGroups.flatMap((group) => group.candidate_set_id ? [group.candidate_set_id] : []),
 	);
 	const candidateSets = context.bundle.candidate_sets.filter((candidateSet) => (
 		referencedCandidateSetIds.has(candidateSet.candidate_set_id)
-	));
+	)).map(publicCandidateSet);
 	const nextCursor = end < context.bundle.groups.length
 		? encodeCursor({ version: 1, build_id: context.bundle.build_id, offset: end })
 		: null;
@@ -185,13 +177,28 @@ function scheduleRebuildOnce(
 ): void {
 	const key = `${input.kbPath}\0${buildId}\0${reason}`;
 	if (scheduledRebuilds.has(key)) return;
-	scheduledRebuilds.add(key);
+	const token = Symbol(key);
+	scheduledRebuilds.set(key, token);
+	const release = () => {
+		if (scheduledRebuilds.get(key) === token) scheduledRebuilds.delete(key);
+	};
 	try {
 		const scheduled = input.scheduleRebuild(input.kbPath);
-		if (scheduled instanceof Promise) void scheduled.catch(() => {});
+		if (isPromiseLike(scheduled)) void Promise.resolve(scheduled).catch(release);
 	} catch {
-		// The readable graph state is independent from rebuild scheduling failures.
+		release();
 	}
+}
+
+function clearScheduledRebuilds(kbPath: string): void {
+	const prefix = `${kbPath}\0`;
+	for (const key of scheduledRebuilds.keys()) {
+		if (key.startsWith(prefix)) scheduledRebuilds.delete(key);
+	}
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+	return Boolean(value && typeof (value as { then?: unknown }).then === "function");
 }
 
 function rawBuildId(graphData: GraphData): string {
@@ -207,11 +214,37 @@ function defensiveEngineGroups(graphData: GraphData, bundle: GraphWarningBundle 
 		.map((group) => publicWarningGroup(GraphWarningGroupSchema.parse(group)));
 }
 
-function publicWarningGroup(group: GraphWarningGroupContract): GraphWarningGroupContract {
+function publicWarningGroup(group: GraphWarningGroupContract): GraphWarningPublicGroupContract {
 	return {
-		...group,
-		message: SAFE_WARNING_MESSAGES[group.code],
+		warning_id: publicOpaqueId("warning", group.warning_id),
+		code: group.code,
+		severity: group.severity,
+		...(group.candidate_set_id
+			? { candidate_set_id: publicOpaqueId("candidate-set", group.candidate_set_id) }
+			: {}),
+		occurrence_count: group.occurrence_count,
+		occurrences: group.occurrences.map((occurrence) => ({
+			occurrence_id: publicOpaqueId("occurrence", occurrence.occurrence_id),
+			source_path: occurrence.source_path,
+			line: occurrence.line,
+			column: occurrence.column,
+			link_kind: occurrence.link_kind,
+			read_only: occurrence.read_only,
+		})),
 	};
+}
+
+function publicCandidateSet(candidateSet: GraphWarningBundle["candidate_sets"][number]): GraphWarningPublicCandidateSetContract {
+	return {
+		candidate_set_id: publicOpaqueId("candidate-set", candidateSet.candidate_set_id),
+		candidate_count: candidateSet.candidate_count,
+		candidates: candidateSet.candidates,
+	};
+}
+
+function publicOpaqueId(prefix: "warning" | "candidate-set" | "occurrence", internalValue: string): string {
+	const digest = createHash("sha256").update(`${prefix}\0${internalValue}`, "utf8").digest("hex").slice(0, 16);
+	return `${prefix}-${digest}`;
 }
 
 function mapVerificationReason(reason: string): WarningUnavailableReason {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -50,10 +51,9 @@ test("verified warning pairs paginate groups without repeating occurrences or ca
 		} while (cursor);
 
 		assert.deepEqual(pages.map((page) => page.groups.length), [2, 2, 1]);
-		assert.deepEqual(
-			pages.flatMap((page) => page.groups.map((group) => group.warning_id)),
-			["warning-0", "warning-1", "warning-2", "warning-3", "warning-4"],
-		);
+		const publicWarningIds = pages.flatMap((page) => page.groups.map((group) => group.warning_id));
+		assert.equal(new Set(publicWarningIds).size, 5);
+		assert.equal(publicWarningIds.every((id) => /^warning-[a-f0-9]{16}$/.test(id)), true);
 		assert.equal(new Set(pages.flatMap((page) => page.groups.flatMap((group) => group.occurrences.map((item) => item.occurrence_id)))).size, 5);
 		for (const page of pages) {
 			const referenced = page.groups.flatMap((group) => group.candidate_set_id ? [group.candidate_set_id] : []);
@@ -261,25 +261,131 @@ test("complete sidecar count mismatches stay readable but never return incomplet
 	}
 });
 
+test("a checksum-valid sidecar with a cross-group duplicate occurrence stays unreadable and rebuilds once", async () => {
+	const kbPath = await tempKb();
+	try {
+		const pair = resealCrossGroupDuplicateOccurrence(makePair(2));
+		const graphPath = await writePair(kbPath, pair);
+		const scheduled: string[] = [];
+		const read = () => readGraphWarningContext({
+			kbPath,
+			graphPath,
+			graphData: pair.graphData,
+			scheduleRebuild: (value) => scheduled.push(value),
+		});
+		const context = await read();
+		await read();
+
+		assert.equal(context.publicState.details_status, "unavailable");
+		assert.equal(context.publicState.details_unavailable_reason, "invalid");
+		assert.equal(context.bundle, null);
+		assert.deepEqual(scheduled, [kbPath]);
+
+		const app = createWarningContextApp(kbPath, pair.graphData, context);
+		const graphResponse = await app.request("/api/graph");
+		assert.equal(graphResponse.status, 200);
+		const graphPayload = await graphResponse.json() as any;
+		assert.equal(graphPayload.data.state.status, "ready");
+		assert.equal(graphPayload.data.warning_state.details_status, "unavailable");
+		const warningResponse = await app.request("/api/graph/warnings?limit=1");
+		assert.equal(warningResponse.status, 200);
+		const warningPayload = await warningResponse.json() as any;
+		assert.equal(warningPayload.data.details_status, "unavailable");
+		assert.equal("groups" in warningPayload.data, false);
+	} finally {
+		await rm(kbPath, { recursive: true, force: true });
+	}
+});
+
+test("rebuild dedupe clears after authoritative recovery so the same build can heal twice", async () => {
+	const kbPath = await tempKb();
+	try {
+		const pair = makePair(1);
+		const graphPath = await writePair(kbPath, pair);
+		const warningPath = path.join(kbPath, "wiki", "graph-warnings.json");
+		const validWarningBytes = await readFile(warningPath);
+		let scheduled = 0;
+		const read = () => readGraphWarningContext({
+			kbPath,
+			graphPath,
+			graphData: pair.graphData,
+			scheduleRebuild: () => { scheduled += 1; },
+		});
+
+		await writeFile(warningPath, "{damaged", "utf8");
+		await read();
+		await read();
+		assert.equal(scheduled, 1);
+
+		await writeFile(warningPath, validWarningBytes);
+		assert.equal((await read()).publicState.details_status, "available");
+
+		await writeFile(warningPath, "{damaged-again", "utf8");
+		await read();
+		await read();
+		assert.equal(scheduled, 2);
+	} finally {
+		await rm(kbPath, { recursive: true, force: true });
+	}
+});
+
+test("a rejected rebuild schedule is released so a later graph read retries", async () => {
+	const kbPath = await tempKb();
+	try {
+		const pair = makePair(1);
+		const graphPath = await writePair(kbPath, pair);
+		await writeFile(path.join(kbPath, "wiki", "graph-warnings.json"), "{damaged", "utf8");
+		let attempts = 0;
+		const read = () => readGraphWarningContext({
+			kbPath,
+			graphPath,
+			graphData: pair.graphData,
+			scheduleRebuild: async () => {
+				attempts += 1;
+				throw new Error("queue unavailable");
+			},
+		});
+
+		await read();
+		await new Promise((resolve) => setImmediate(resolve));
+		await read();
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(attempts, 2);
+	} finally {
+		await rm(kbPath, { recursive: true, force: true });
+	}
+});
+
 test("warning API replaces untrusted sidecar messages while keeping safe relative paths readable", async () => {
 	const kbPath = await tempKb();
 	try {
-		const malicious = "/Users/private · C:\\Users\\private · wiki\\private.md · portable-key:nfc|casefold";
+		const malicious = "/Users/private · C:\\Users\\private · wiki\\private.md · portable-key:nfc|casefold · arbitrary raw text";
 		const pair = makePair(1, "wiki/graph-warnings.json", () => malicious);
+		pair.warningBundle.groups[0].warning_id = malicious;
+		pair.warningBundle.groups[0].id = malicious;
+		pair.warningBundle.groups[0].target_key = malicious;
+		pair.warningBundle.groups[0].occurrences[0].occurrence_id = malicious;
+		pair.warningBundle.groups[0].occurrences[0].raw_link = malicious;
+		pair.warningBundle.candidate_sets[0].candidate_set_id = malicious;
+		pair.warningBundle.groups[0].candidate_set_id = malicious;
+		const resealed = resealPair(pair);
 		const graphPath = await writePair(kbPath, pair);
 		const context = await readGraphWarningContext({
 			kbPath,
 			graphPath,
-			graphData: pair.graphData,
+			graphData: resealed.graphData,
 			scheduleRebuild: () => assert.fail("valid pair must not rebuild"),
 		});
 		assert.equal(context.publicState.details_status, "available");
-		const app = createWarningContextApp(kbPath, pair.graphData, context);
+		const app = createWarningContextApp(kbPath, resealed.graphData, context);
 		const response = await app.request("/api/graph/warnings");
 		assert.equal(response.status, 200);
 		const body = await response.text();
-		for (const secret of ["/Users/private", "C:\\Users\\private", "wiki\\private.md", "portable-key:nfc|casefold"]) {
+		for (const secret of ["/Users/private", "C:\\Users\\private", "wiki\\private.md", "portable-key:nfc|casefold", "arbitrary raw text"]) {
 			assert.equal(body.includes(secret), false, secret);
+		}
+		for (const internalField of ["message", "target_key", "raw_link", "file_sha256", "start_byte", "end_byte"]) {
+			assert.equal(body.includes(`\"${internalField}\"`), false, internalField);
 		}
 		assert.match(body, /wiki\/synthesis\/source-0\.md/);
 		assert.match(body, /wiki\/entities\/foo-0\.md/);
@@ -370,6 +476,52 @@ function makeIncompleteOccurrencePair(): ReturnType<typeof makePair> {
 		summary.by_code.duplicate_node_id = 2;
 	});
 	return pair;
+}
+
+function resealCrossGroupDuplicateOccurrence(pair: ReturnType<typeof makePair>): ReturnType<typeof makePair> {
+	pair.warningBundle.groups[1].occurrences[0].occurrence_id = pair.warningBundle.groups[0].occurrences[0].occurrence_id;
+	return resealPair(pair);
+}
+
+function resealPair(pair: ReturnType<typeof makePair>): ReturnType<typeof makePair> {
+	const graphWithoutSummary = structuredClone(pair.graphData) as Record<string, any>;
+	delete graphWithoutSummary.meta.warning_summary;
+	delete graphWithoutSummary.meta.build_date;
+	const buildId = digest(canonicalBytes({
+		graph_without_warning_summary: graphWithoutSummary,
+		warning_details: {
+			candidate_sets: pair.warningBundle.candidate_sets,
+			groups: pair.warningBundle.groups,
+		},
+	}));
+	pair.warningBundle.build_id = buildId;
+	pair.warningBundle.summary.build_id = buildId;
+	pair.graphData.meta.warning_summary!.build_id = buildId;
+	const detailsSha256 = digest(canonicalBytes({
+		version: 1,
+		build_id: buildId,
+		candidate_sets: pair.warningBundle.candidate_sets,
+		groups: pair.warningBundle.groups,
+	}));
+	pair.warningBundle.summary.details_sha256 = detailsSha256;
+	pair.graphData.meta.warning_summary!.details_sha256 = detailsSha256;
+	return pair;
+}
+
+function canonicalBytes(value: unknown): Buffer {
+	return Buffer.from(JSON.stringify(canonicalize(value)), "utf8");
+}
+
+function canonicalize(value: any): any {
+	if (Array.isArray(value)) return value.map(canonicalize);
+	if (!value || typeof value !== "object") return value;
+	return Object.fromEntries(Object.keys(value).sort().flatMap((key) => (
+		value[key] === undefined ? [] : [[key, canonicalize(value[key])]]
+	)));
+}
+
+function digest(bytes: Buffer): string {
+	return createHash("sha256").update(bytes).digest("hex");
 }
 
 function mutateSummaryCounts(

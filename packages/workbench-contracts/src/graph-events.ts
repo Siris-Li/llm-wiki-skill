@@ -24,14 +24,9 @@ export type GraphMigrationWarningContract =
 	| {
 			code: "identity_alignment_ambiguous";
 			source_path: string | null;
-			previous_ids: string[];
-			next_ids: string[];
 	  }
 	| {
 			code: "legacy_semantic_edge_duplicate";
-			semantic_key: string;
-			previous_edge_ids: string[];
-			next_edge_ids: string[];
 	  };
 
 export interface GraphDiffContract {
@@ -54,36 +49,36 @@ const GraphMigrationWarningSchema = z.discriminatedUnion("code", [
 		.object({
 			code: z.literal("identity_alignment_ambiguous"),
 			source_path: KnowledgeBaseRelativePathSchema.nullable(),
-			previous_ids: z.array(z.string()),
-			next_ids: z.array(z.string()),
 		})
 		.strict(),
 	z
 		.object({
 			code: z.literal("legacy_semantic_edge_duplicate"),
-			semantic_key: z.string(),
-			previous_edge_ids: z.array(z.string()),
-			next_edge_ids: z.array(z.string()),
 		})
 		.strict(),
 ]);
 
+const GraphEventIdentifierSchema = z.string().refine((value) => (
+	KnowledgeBaseRelativePathSchema.safeParse(value).success
+	|| /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)
+), { message: "must be a safe graph identifier" });
+
 export const GraphDiffSchema = z
 	.object({
-		addedNodes: z.array(z.string()),
-		removedNodes: z.array(z.string()),
+		addedNodes: z.array(GraphEventIdentifierSchema),
+		removedNodes: z.array(GraphEventIdentifierSchema),
 		recoloredNodes: z.array(
 			z
 				.object({
-					id: z.string(),
-					from: z.string(),
-					to: z.string(),
+				id: GraphEventIdentifierSchema,
+				from: GraphEventIdentifierSchema,
+				to: GraphEventIdentifierSchema,
 				})
 				.strict(),
 		),
-		addedEdges: z.array(z.string()),
-		removedEdges: z.array(z.string()),
-		newCommunities: z.array(z.string()),
+		addedEdges: z.array(GraphEventIdentifierSchema),
+		removedEdges: z.array(GraphEventIdentifierSchema),
+		newCommunities: z.array(GraphEventIdentifierSchema),
 		migrationWarnings: z.array(GraphMigrationWarningSchema).default([]),
 		stats: z
 			.object({
@@ -110,7 +105,6 @@ export const GraphStreamReadyEventSchema = GraphEventIdentitySchema.extend({
 
 export const GraphUpdatedEventSchema = GraphEventIdentitySchema.extend({
 	type: z.literal("graph_updated"),
-	kbPath: z.string().min(1),
 	diff: GraphDiffSchema.nullable(),
 	rebuiltAt: z.string().datetime(),
 	stats: GraphStatsSchema,
@@ -120,8 +114,7 @@ export const GraphUpdatedEventSchema = GraphEventIdentitySchema.extend({
 
 export const GraphErrorEventSchema = GraphEventIdentitySchema.extend({
 	type: z.literal("graph_error"),
-	kbPath: z.string().min(1),
-	message: z.string().min(1),
+	message: z.literal("图谱重建失败"),
 	rebuiltAt: z.string().datetime(),
 }).strict();
 

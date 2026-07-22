@@ -239,6 +239,17 @@ describe("GraphPanel Paper shell", () => {
 		);
 		await waitFor(() => assert.match(document.body.textContent ?? "", /首次刷新有 1 项迁移提示/));
 		assert.ok(document.querySelector(".graph-host"));
+
+		rerender(
+			<GraphPanel
+				currentKnowledgeBaseName="AI 学习库"
+				currentKnowledgeBasePath="/kb"
+				theme="light"
+				pendingDiff={{ ...graphDiff("wiki/ordinary.md", 2), migrationWarnings: [] }}
+				refreshToken={2}
+			/>,
+		);
+		await waitFor(() => assert.match(document.body.textContent ?? "", /首次刷新有 1 项迁移提示/));
 		await click(screen.getByRole("button", { name: "关闭迁移提示" }));
 		assert.doesNotMatch(document.body.textContent ?? "", /首次刷新有 1 项迁移提示/);
 		assert.match(document.body.textContent ?? "", /图谱可读，但有内容需要留意/);
@@ -716,20 +727,15 @@ function mockGraphFetch(options: { needsBuild?: boolean; warningState?: ReturnTy
 					build_id: warningSummary().build_id,
 					summary: warningSummary(),
 					groups: [{
-						warning_id: "broken-paper",
+						warning_id: "warning-1111111111111111",
 						code: "broken_wikilink",
 						severity: "error",
-						message: "Missing paper link",
 						occurrence_count: 1,
 						occurrences: [{
-							occurrence_id: "paper-occurrence",
+							occurrence_id: "occurrence-2222222222222222",
 							source_path: "wiki/synthesis/paper.md",
 							line: 1,
 							column: 2,
-							start_byte: 0,
-							end_byte: 7,
-							raw_link: "[[missing]]",
-							file_sha256: "a".repeat(64),
 							link_kind: "page_wikilink",
 							read_only: false,
 						}],

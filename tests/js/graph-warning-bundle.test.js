@@ -171,6 +171,13 @@ describe("graph warning artifact assembly", () => {
     }), pattern);
 
     rejects({ groups: [validGroups[0], { ...validGroups[1], warning_id: validGroups[0].warning_id }] }, /duplicate warning_id/i);
+		rejects({ groups: [validGroups[0], {
+			...validGroups[1],
+			occurrences: [{
+				...validGroups[1].occurrences[0],
+				occurrence_id: validGroups[0].occurrences[0].occurrence_id
+			}, ...validGroups[1].occurrences.slice(1)]
+		}] }, /duplicate occurrence_id/i);
     rejects({ candidateSets: [validSets[0], { ...validSets[0] }] }, /duplicate candidate_set_id/i);
     rejects({ groups: [{ ...validGroups[0], candidate_set_id: "missing-set" }] }, /candidate set/i);
     rejects({ groups: [{ ...validGroups[0], occurrence_count: 99 }] }, /occurrence_count/i);
@@ -198,6 +205,25 @@ describe("graph warning artifact assembly", () => {
       candidateSets: []
     }), /occurrence_count/i);
   });
+
+	it("derives the same build and detail identities when only build_date changes", () => {
+		const first = assembleGraphArtifactPair({
+			graphData: graphFixture(),
+			groups: warningGroupsFixture(),
+			candidateSets: candidateSetsFixture()
+		});
+		const laterGraph = graphFixture();
+		laterGraph.meta.build_date = "2026-07-21T12:34:56Z";
+		const second = assembleGraphArtifactPair({
+			graphData: laterGraph,
+			groups: warningGroupsFixture(),
+			candidateSets: candidateSetsFixture()
+		});
+
+		assert.equal(second.warningBundle.build_id, first.warningBundle.build_id);
+		assert.equal(second.warningBundle.summary.details_sha256, first.warningBundle.summary.details_sha256);
+		assert.notEqual(second.graphData.meta.build_date, first.graphData.meta.build_date);
+	});
 });
 
 async function withKnowledgeBase(run) {

@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 import React from "react";
 
 import type {
 	GraphMigrationWarningContract,
-	GraphWarningCandidateSetContract,
-	GraphWarningGroupContract,
+	GraphWarningCodeContract,
 	GraphWarningPageContract,
+	GraphWarningPublicGroupContract,
 	GraphWarningSummaryContract,
 	GraphWarningStateContract,
 } from "@llm-wiki/workbench-contracts";
@@ -35,12 +36,10 @@ const summary = {
 	details_sha256: "d".repeat(64),
 } as const;
 
-const engineGroup: GraphWarningGroupContract = {
-	warning_id: "engine-duplicate",
+const engineGroup: GraphWarningPublicGroupContract = {
+	warning_id: opaqueId("warning", "engine-duplicate"),
 	code: "duplicate_node_id",
 	severity: "error",
-	message: "duplicate input",
-	id: "opaque-node-id",
 	occurrence_count: 0,
 	occurrences: [],
 };
@@ -264,18 +263,15 @@ describe("GraphWarningsBanner", () => {
 	});
 
 	it("shows every defensive input warning with its type and explanation but no write action", () => {
-		const defensiveGroups: GraphWarningGroupContract[] = [{
+		const defensiveGroups = [{
 			...engineGroup,
-			message: "节点 ID opaque-node-id 在输入中出现两次，请检查来源。",
 		}, {
-			warning_id: "engine-edge-duplicate",
+			warning_id: opaqueId("warning", "engine-edge-duplicate"),
 			code: "duplicate_edge_id",
 			severity: "error",
-			message: "关系 ID opaque-edge-id 在输入中重复；这里只说明问题，不会改写知识库。",
-			id: "opaque-edge-id",
 			occurrence_count: 0,
 			occurrences: [],
-		}];
+		}] as GraphWarningPublicGroupContract[];
 		let resolveCalls = 0;
 		render(<GraphWarningsBanner
 			warningState={{ ...warningState, engine_groups: defensiveGroups }}
@@ -295,30 +291,30 @@ describe("GraphWarningsBanner", () => {
 
 	it("uses fixed warning explanations instead of rendering untrusted messages", async () => {
 		const malicious = "/Users/private · C:\\Users\\private · wiki\\private.md · portable-key:nfc|casefold";
-		const maliciousEngineGroup: GraphWarningGroupContract = {
+		const maliciousEngineGroup = {
 			...engineGroup,
 			message: malicious,
-		};
+		} as GraphWarningPublicGroupContract;
 		const maliciousPage = page("warning-malicious", "ambiguous_wikilink", "candidate-safe", "wiki/synthesis/safe-source.md", null);
-		maliciousPage.groups[0]!.message = malicious;
+		Object.assign(maliciousPage.groups[0]!, { message: malicious, target_key: malicious });
+		Object.assign(maliciousPage.groups[0]!.occurrences[0]!, { raw_link: malicious, file_sha256: "a".repeat(64) });
 		render(<GraphWarningsBanner
 			warningState={{ ...warningState, engine_groups: [maliciousEngineGroup] }}
 			loadPage={async () => maliciousPage}
 		/>);
 
 		await click(screen.getByRole("button", { name: "查看详情" }));
-		await waitFor(() => assert.match(document.body.textContent ?? "", /wiki\/synthesis\/safe-source\.md/));
+		await waitFor(() => assert.match(document.body.textContent ?? "", /详情加载失败/));
 		const visible = document.body.textContent ?? "";
 		for (const secret of ["/Users/private", "C:\\Users\\private", "wiki\\private.md", "portable-key:nfc|casefold"]) {
 			assert.equal(visible.includes(secret), false, secret);
 		}
 		assert.match(visible, /输入中有多个节点使用同一标识/);
-		assert.match(visible, /这个链接可能指向多个页面/);
-		assert.match(visible, /wiki\/entities\/candidate-safe\.md/);
+		assert.doesNotMatch(visible, /safe-source|candidate-safe/);
 	});
 
 	it("shows migration notices without leaking paths and dismisses them independently", async () => {
-		const migrationWarnings: GraphMigrationWarningContract[] = [{
+		const migrationWarnings = [{
 			code: "identity_alignment_ambiguous",
 			source_path: "/Users/private/wiki/foo.md",
 			previous_ids: ["old"],
@@ -328,7 +324,7 @@ describe("GraphWarningsBanner", () => {
 			semantic_key: '["opaque-a","opaque-b","依赖"]',
 			previous_edge_ids: ["old-edge"],
 			next_edge_ids: ["next-edge"],
-		}];
+		}] as unknown as GraphMigrationWarningContract[];
 		let dismissed = 0;
 		render(<GraphWarningsBanner
 			warningState={warningState}
@@ -346,12 +342,7 @@ describe("GraphWarningsBanner", () => {
 	});
 
 	it("only offers resolution for editable formal candidates when a callback exists", async () => {
-		const candidateSet: GraphWarningCandidateSetContract = {
-			candidate_set_id: "candidate-first",
-			candidate_count: 2,
-			candidates: ["wiki/entities/candidate-first.md", "wiki/topics/candidate-first.md"],
-		};
-		const sourcePage = page("warning-first", "ambiguous_wikilink", candidateSet.candidate_set_id, "wiki/synthesis/first.md", null);
+		const sourcePage = page("warning-first", "ambiguous_wikilink", "candidate-first", "wiki/synthesis/first.md", null);
 		const calls: unknown[] = [];
 		render(<GraphWarningsBanner
 			warningState={warningState}
@@ -386,7 +377,7 @@ describe("GraphWarningsBanner", () => {
 
 function page(
 	warningId: string,
-	code: GraphWarningGroupContract["code"],
+	code: GraphWarningCodeContract,
 	candidateSetId: string | undefined,
 	sourcePath: string,
 	nextCursor: string | null,
@@ -397,13 +388,14 @@ function page(
 function pageForSummary(
 	pageSummary: GraphWarningSummaryContract,
 	warningId: string,
-	code: GraphWarningGroupContract["code"],
+	code: GraphWarningCodeContract,
 	sourcePath: string,
 	nextCursor: string | null,
 	candidateSetId?: string,
 ): Extract<GraphWarningPageContract, { details_status: "available" }> {
-	const candidateSets = candidateSetId ? [{
-		candidate_set_id: candidateSetId,
+	const publicCandidateSetId = candidateSetId ? opaqueId("candidate-set", candidateSetId) : undefined;
+	const candidateSets = candidateSetId && publicCandidateSetId ? [{
+		candidate_set_id: publicCandidateSetId,
 		candidate_count: 2,
 		candidates: [`wiki/entities/${candidateSetId}.md`, `wiki/topics/${candidateSetId}.md`],
 	}] : [];
@@ -412,21 +404,16 @@ function pageForSummary(
 		build_id: pageSummary.build_id,
 		summary: pageSummary,
 		groups: [{
-			warning_id: warningId,
+			warning_id: opaqueId("warning", warningId),
 			code,
 			severity: "error",
-			message: warningId,
-			...(candidateSetId ? { candidate_set_id: candidateSetId } : {}),
+			...(publicCandidateSetId ? { candidate_set_id: publicCandidateSetId } : {}),
 			occurrence_count: 1,
 			occurrences: [{
-				occurrence_id: `${warningId}-occurrence`,
+				occurrence_id: opaqueId("occurrence", `${warningId}-occurrence`),
 				source_path: sourcePath,
 				line: 1,
 				column: 2,
-				start_byte: 0,
-				end_byte: 7,
-				raw_link: "[[target]]",
-				file_sha256: "a".repeat(64),
 				link_kind: "page_wikilink",
 				read_only: false,
 			}],
@@ -434,6 +421,10 @@ function pageForSummary(
 		candidate_sets: candidateSets,
 		next_cursor: nextCursor,
 	};
+}
+
+function opaqueId(prefix: "warning" | "candidate-set" | "occurrence", value: string): string {
+	return `${prefix}-${createHash("sha256").update(`${prefix}\0${value}`).digest("hex").slice(0, 16)}`;
 }
 
 function deferred<T>() {

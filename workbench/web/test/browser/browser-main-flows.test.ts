@@ -157,7 +157,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		const apiRequests = new Set<string>();
 		let browserGraphReadCount = 0;
 		let graphEventsSeen = false;
-		const graphEventReceipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
+		const graphEventReceipts: Array<{ type: string; seq: number; [key: string]: unknown }> = [];
 		page.on("request", (request) => {
 			const url = new URL(request.url());
 			if (url.pathname.startsWith("/api/")) apiRequests.add(url.pathname);
@@ -316,21 +316,89 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		assert.match(warningApiText, /wiki\/entities\/foo\.md/);
 		assert.equal((await warningBanner.textContent())?.includes(home), false, "warning UI must show only relative paths");
 		assert.equal(await warningBanner.getByText("解决此告警", { exact: true }).count(), 0);
-		await page.evaluate(() => {
-			const receipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
-			const source = new EventSource("/api/events");
+		await page.evaluate((selectedKb) => {
+			const receipts: Array<{ type: string; seq: number; [key: string]: unknown }> = [];
+			const source = new EventSource(`/api/events?kb=${encodeURIComponent(selectedKb)}`);
 			source.onmessage = (message) => receipts.push(JSON.parse(message.data));
 			Object.assign(window, { __graphEventReceipts: receipts });
-		});
+		}, kbA);
 		await waitForGraphEvent(page, graphEventReceipts, (event) => event.type === "graph_stream_ready");
+		await refreshGraphEventReceipts(page, graphEventReceipts);
+		const initialRebuildBaseline = graphEventReceipts.length;
 		const firstResponsePromise = waitForGraphRebuildResponse(page, kbA);
 		await page.getByRole("button", { name: "重构" }).click();
 		assert.equal((await firstResponsePromise).status, "started");
 		const busyResponses = await page.evaluate((kbPath) => Promise.all([0, 1].map(() => fetch(`/api/graph/rebuild?kb=${encodeURIComponent(kbPath)}`, { method: "POST" }).then(async (response) => ({ status: response.status, body: await response.json() })))), kbA);
 		assert.equal(busyResponses.every((response) => response.status === 200), true);
 		assert.equal(busyResponses.some((response) => response.body.data.status === "queued"), true);
-		await waitForGraphEvent(page, graphEventReceipts, (event) => event.type === "graph_updated" && event.kbPath === kbA);
-		await warningBanner.getByText("wiki/synthesis/final-browser-warning.md", { exact: true }).waitFor();
+		await waitUntil(async () => {
+			await refreshGraphEventReceipts(page!, graphEventReceipts);
+			return graphEventReceipts.slice(initialRebuildBaseline).filter((event) => event.type === "graph_updated").length >= 2;
+		}, OPERATION_TIMEOUT_MS, "queued graph rebuild did not finish");
+		await assertBrowserJson(
+			page,
+			`/api/graph?kb=${encodeURIComponent(kbA)}`,
+			200,
+			/"status":"ready"/,
+		);
+		const graphDataPath = join(kbA, "wiki", "graph-data.json");
+		const graphDataBeforeMigration = JSON.parse(await readFile(graphDataPath, "utf8")) as {
+			meta: Record<string, unknown>;
+			nodes: Array<Record<string, unknown>>;
+		};
+		const migrationBaseNode = graphDataBeforeMigration.nodes[0]!;
+		await writeFile(graphDataPath, JSON.stringify({
+			...graphDataBeforeMigration,
+			meta: {
+				...graphDataBeforeMigration.meta,
+				total_nodes: graphDataBeforeMigration.nodes.length + 1,
+				initial_view: [...(Array.isArray(graphDataBeforeMigration.meta.initial_view) ? graphDataBeforeMigration.meta.initial_view : []), "legacy-duplicate"],
+			},
+			nodes: [
+				...graphDataBeforeMigration.nodes,
+				{ ...migrationBaseNode, id: "legacy-duplicate" },
+			],
+		}, null, 2));
+		await writeFile(join(kbA, ".wiki-graph-layout.json"), JSON.stringify({
+			version: 2,
+			pins: { "legacy-duplicate": { x: 10, y: 20, coordinateSpace: "world" } },
+			updatedAt: "before-migration",
+		}, null, 2));
+		await refreshGraphEventReceipts(page, graphEventReceipts);
+		const migrationBaseline = graphEventReceipts.length;
+		const migrationResponsePromise = waitForGraphRebuildResponse(page, kbA);
+		await page.getByRole("button", { name: "重构" }).click();
+		const migrationResponse = await migrationResponsePromise;
+		assert.equal(migrationResponse.status, "started", JSON.stringify({
+			busyStatuses: busyResponses.map((response) => response.body.data.status),
+			completedUpdates: graphEventReceipts.slice(initialRebuildBaseline).filter((event) => event.type === "graph_updated").length,
+		}));
+		await waitForGraphEvent(page, graphEventReceipts, (event, index) => index >= migrationBaseline && event.type === "graph_updated");
+		assert.equal(graphEventReceipts.slice(migrationBaseline).some((event) => (
+			Array.isArray((event.diff as { migrationWarnings?: unknown[] } | null)?.migrationWarnings)
+			&& ((event.diff as { migrationWarnings: unknown[] }).migrationWarnings.length > 0)
+		)), true, "migration rebuild event must contain a warning projection");
+		await warningBanner.getByText("首次刷新有 1 项迁移提示", { exact: true }).waitFor();
+		const migrationEventText = JSON.stringify(graphEventReceipts.slice(migrationBaseline));
+		for (const secret of ["legacy-duplicate", "/Users/private", "C:\\private", "portable-key:nfc|casefold", "previous_ids", "next_ids"]) {
+			assert.equal(migrationEventText.includes(secret), false, `migration event leaked ${secret}`);
+		}
+		const ordinaryBaseline = graphEventReceipts.length;
+		const ordinaryResponsePromise = waitForGraphRebuildResponse(page, kbA);
+		await page.getByRole("button", { name: "重构" }).click();
+		assert.equal(["started", "queued"].includes((await ordinaryResponsePromise).status), true);
+		await waitForGraphEvent(page, graphEventReceipts, (event, index) => index >= ordinaryBaseline && event.type === "graph_updated");
+		await warningBanner.getByText("首次刷新有 1 项迁移提示", { exact: true }).waitFor();
+		await warningBanner.getByRole("button", { name: "关闭迁移提示" }).click();
+		assert.equal(await warningBanner.getByText("首次刷新有 1 项迁移提示", { exact: true }).count(), 0);
+
+		const warningIdentityBeforeTamper = await page.evaluate(async (selectedKb) => {
+			const response = await fetch(`/api/graph/warnings?kb=${encodeURIComponent(selectedKb)}&limit=1`);
+			const body = await response.json() as { data: { summary: { build_id: string; details_sha256: string } } };
+			return { build_id: body.data.summary.build_id, details_sha256: body.data.summary.details_sha256 };
+		}, kbA);
+		await warningBanner.getByRole("button", { name: "查看详情" }).click();
+		await warningBanner.getByText("wiki/synthesis/browser-warning-source.md", { exact: true }).first().waitFor();
 		const warningPath = join(kbA, "wiki", "graph-warnings.json");
 		const warningBytes = await readFile(warningPath, "utf8");
 		const tamperedWarnings = JSON.parse(warningBytes) as { groups: Array<{ message: string }> };
@@ -341,15 +409,19 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await page.getByRole("tab", { name: "对话" }).click();
 		await page.getByRole("tab", { name: "图谱" }).click();
 		await page.getByText("详情暂不可用，已安排重新构建。摘要和图谱仍可阅读。", { exact: true }).waitFor();
-		assert.equal(await warningBanner.getByText("wiki/synthesis/final-browser-warning.md", { exact: true }).count(), 0);
+		assert.equal(await warningBanner.getByText("wiki/synthesis/browser-warning-source.md", { exact: true }).count(), 0);
 		await page.locator("[data-graph-status='ready']").waitFor();
+		const warningIdentityAfterTamper = await page.evaluate(async (selectedKb) => {
+			const response = await fetch(`/api/graph/warnings?kb=${encodeURIComponent(selectedKb)}&limit=1`);
+			const body = await response.json() as { data: { summary: { build_id: string; details_sha256: string } } };
+			return { build_id: body.data.summary.build_id, details_sha256: body.data.summary.details_sha256 };
+		}, kbA);
+		assert.deepEqual(warningIdentityAfterTamper, warningIdentityBeforeTamper);
 		assert.equal(await page.getByText("图谱暂时不可用", { exact: true }).count(), 0);
 		await page.locator(".sigma-global-node-hit-target").first().waitFor({ timeout: START_TIMEOUT_MS });
 		assert.ok(await page.locator(".graph-host > *").count(), "tampered sidecar must not remove graph pixels");
 		assert.equal((await page.locator("body").textContent())?.includes("/Users/private"), false);
-		await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
-			index >= tamperBaseline && event.type === "graph_updated" && event.kbPath === kbA
-		));
+		await waitForGraphEvent(page, graphEventReceipts, (event, index) => index >= tamperBaseline && event.type === "graph_updated");
 		await warningBanner.getByRole("button", { name: "查看详情" }).waitFor();
 		await warningBanner.getByRole("button", { name: "查看详情" }).click();
 		await warningBanner.getByText("wiki/synthesis/browser-warning-source.md", { exact: true }).first().waitFor();
@@ -364,9 +436,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		const cleanupResponsePromise = waitForGraphRebuildResponse(page, kbA);
 		await page.getByRole("button", { name: "重构" }).click();
 		assert.equal(["started", "queued"].includes((await cleanupResponsePromise).status), true);
-		await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
-			index >= cleanupBaseline && event.type === "graph_updated" && event.kbPath === kbA
-		));
+		await waitForGraphEvent(page, graphEventReceipts, (event, index) => index >= cleanupBaseline && event.type === "graph_updated");
 		await page.getByText("1 节点 · 0 关联", { exact: true }).waitFor();
 		await assertBrowserJson(page, `/api/graph?kb=${encodeURIComponent(join(home, "missing-kb"))}`, 404, /知识库/);
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
@@ -377,14 +447,13 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		await page.getByLabel("当前知识库").getByText("atlas-notes").waitFor({ timeout: START_TIMEOUT_MS });
 		await page.getByRole("tab", { name: "图谱" }).click();
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
-		await page.evaluate(() => {
-			const receipts: Array<{ type: string; kbPath?: string; seq: number }> = [];
-			const source = new EventSource("/api/events");
+		await page.evaluate((selectedKb) => {
+			const receipts: Array<{ type: string; seq: number; [key: string]: unknown }> = [];
+			const source = new EventSource(`/api/events?kb=${encodeURIComponent(selectedKb)}`);
 			source.onmessage = (message) => receipts.push(JSON.parse(message.data));
 			Object.assign(window, { __graphEventReceipts: receipts });
-		});
+		}, kbA);
 		await waitForGraphEvent(page, graphEventReceipts, (event) => event.type === "graph_stream_ready");
-		const graphDataPath = join(kbA, "wiki", "graph-data.json");
 		const graphData = await readFile(graphDataPath, "utf8");
 		await rm(graphDataPath, { force: true });
 		await mkdir(graphDataPath);
@@ -394,9 +463,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 			const failureResponsePromise = waitForGraphRebuildResponse(page, kbA);
 			await page.getByRole("button", { name: "重构" }).click();
 			assert.equal((await failureResponsePromise).status, "started");
-			await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
-				index >= failureBaseline && event.type === "graph_error" && event.kbPath === kbA
-			));
+			await waitForGraphEvent(page, graphEventReceipts, (event, index) => index >= failureBaseline && event.type === "graph_error");
 			await page.locator("[data-graph-status='error']").waitFor({ timeout: START_TIMEOUT_MS });
 		} finally {
 			await rm(graphDataPath, { recursive: true, force: true });
@@ -407,9 +474,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		const recoveryResponsePromise = waitForGraphRebuildResponse(page, kbA);
 		await page.getByRole("button", { name: "重构" }).click();
 		assert.equal((await recoveryResponsePromise).status, "started");
-		await waitForGraphEvent(page, graphEventReceipts, (event, index) => (
-			index >= recoveryBaseline && event.type === "graph_updated" && event.kbPath === kbA
-		));
+		await waitForGraphEvent(page, graphEventReceipts, (event, index) => index >= recoveryBaseline && event.type === "graph_updated");
 		await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
 
 		// Graph reconnect: terminal events missed while offline are reconciled from GET /api/graph.
@@ -797,17 +862,17 @@ async function waitForGraphRebuildResponse(page: Page, kbPath: string): Promise<
 
 async function refreshGraphEventReceipts(
 	page: Page,
-	receipts: Array<{ type: string; kbPath?: string; seq: number }>,
+	receipts: Array<{ type: string; seq: number; [key: string]: unknown }>,
 ): Promise<void> {
 	receipts.splice(0, receipts.length, ...await page.evaluate(() => (
-		(window as typeof window & { __graphEventReceipts?: Array<{ type: string; kbPath?: string; seq: number }> }).__graphEventReceipts ?? []
+		(window as typeof window & { __graphEventReceipts?: Array<{ type: string; seq: number; [key: string]: unknown }> }).__graphEventReceipts ?? []
 	)));
 }
 
 async function waitForGraphEvent(
 	page: Page,
-	receipts: Array<{ type: string; kbPath?: string; seq: number }>,
-	predicate: (event: { type: string; kbPath?: string; seq: number }, index: number) => boolean,
+	receipts: Array<{ type: string; seq: number; [key: string]: unknown }>,
+	predicate: (event: { type: string; seq: number; [key: string]: unknown }, index: number) => boolean,
 ): Promise<void> {
 	await waitUntil(async () => {
 		await refreshGraphEventReceipts(page, receipts);

@@ -36,7 +36,7 @@ import {
 	listConversations,
 	selectConversation,
 } from "@/lib/api/conversations";
-import { subscribeGraphEvents } from "@/lib/api/events";
+import { subscribeGraphEvents, toEngineGraphDiff } from "@/lib/api/events";
 import {
 	getGraphData,
 	type GraphAuthoritySnapshot,
@@ -275,6 +275,7 @@ function App() {
 		let authorityReadId = 0;
 		let cancelled = false;
 		const close = subscribeGraphEvents({
+			kbPath,
 			onReady(_ready, context) {
 				if (!context.reconnected) return;
 				const readId = ++authorityReadId;
@@ -300,19 +301,18 @@ function App() {
 					});
 			},
 			onEvent(event) {
-				if (event.kbPath !== kbPath) return;
 				authorityReadId += 1;
 				setGraphAuthoritySnapshot(null);
 				if (event.type === "graph_updated") {
 					setSidebarError(null);
 					setGraphBuildError(null);
 					setGraphRefreshToken((token) => token + 1);
-					setPendingGraphDiff(event.diff);
+					setPendingGraphDiff(toEngineGraphDiff(event.diff));
 					if (mainViewRef.current !== "graph" && event.diff) setGraphHasPendingUpdate(true);
 					return;
 				}
 				setSidebarError(event.message);
-				setGraphBuildError(event);
+				setGraphBuildError({ ...event, kbPath });
 			},
 			onProtocolError(error) {
 				authorityReadId += 1;

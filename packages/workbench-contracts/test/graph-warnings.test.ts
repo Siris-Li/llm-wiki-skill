@@ -146,6 +146,14 @@ test("complete warning bundles reconcile every group and summary count with thei
 		testCase.mutate(invalid);
 		assert.equal(GraphWarningBundleSchema.safeParse(invalid).success, false, testCase.name);
 	}
+
+	const repeatedOccurrence = structuredClone(bundle);
+	repeatedOccurrence.groups[1].occurrences[0].occurrence_id = repeatedOccurrence.groups[0].occurrences[0].occurrence_id;
+	assert.equal(
+		GraphWarningBundleSchema.safeParse(repeatedOccurrence).success,
+		false,
+		"occurrence IDs must be unique across the complete bundle",
+	);
 });
 
 test("warning paths are strict POSIX knowledge-base-relative paths", () => {
@@ -220,17 +228,66 @@ test("warning page query coerces bounded integer limits and keeps an opaque curs
 });
 
 test("available warning pages carry only candidate sets referenced by their groups", () => {
+	const publicCandidateSet = {
+		...candidateSet,
+		candidate_set_id: "candidate-set-1111111111111111",
+	};
+	const publicGroup = {
+		warning_id: "warning-2222222222222222",
+		code: "ambiguous_wikilink" as const,
+		severity: "error" as const,
+		candidate_set_id: publicCandidateSet.candidate_set_id,
+		occurrence_count: 1,
+		occurrences: [{
+			occurrence_id: "occurrence-3333333333333333",
+			source_path: occurrence.source_path,
+			line: occurrence.line,
+			column: occurrence.column,
+			link_kind: occurrence.link_kind,
+			read_only: occurrence.read_only,
+		}],
+	};
 	const page = {
 		details_status: "available",
 		build_id: buildId,
 		summary,
-		groups: [groups[4]],
-		candidate_sets: [candidateSet],
+		groups: [publicGroup],
+		candidate_sets: [publicCandidateSet],
 		next_cursor: "next-page",
 	} as const;
 	assert.deepEqual(GraphWarningPageDataSchema.parse(page), page);
 	assert.equal(GraphWarningPageDataSchema.safeParse({ ...page, candidate_sets: [] }).success, false);
-	assert.equal(GraphWarningPageDataSchema.safeParse({ ...page, groups: [groups[5]] }).success, false);
+	assert.equal(GraphWarningPageDataSchema.safeParse({ ...page, groups: [{ ...publicGroup, candidate_set_id: undefined }] }).success, false);
+	for (const leakedField of [
+		{ message: "/Users/private arbitrary raw text" },
+		{ id: "C:\\private" },
+		{ target_key: "portable-key:nfc|casefold" },
+	]) {
+		assert.equal(GraphWarningPageDataSchema.safeParse({
+			...page,
+			groups: [{ ...publicGroup, ...leakedField }],
+		}).success, false, Object.keys(leakedField)[0]);
+	}
+	for (const leakedField of [
+		{ raw_link: "[[/Users/private]]" },
+		{ file_sha256: "a".repeat(64) },
+		{ start_byte: 1 },
+		{ end_byte: 2 },
+	]) {
+		assert.equal(GraphWarningPageDataSchema.safeParse({
+			...page,
+			groups: [{
+				...publicGroup,
+				occurrences: [{ ...publicGroup.occurrences[0], ...leakedField }],
+			}],
+		}).success, false, Object.keys(leakedField)[0]);
+	}
+	for (const unsafeId of ["/Users/private", "C:\\private", "portable-key:nfc|casefold", "arbitrary raw text"]) {
+		assert.equal(GraphWarningPageDataSchema.safeParse({
+			...page,
+			groups: [{ ...publicGroup, warning_id: unsafeId }],
+		}).success, false, unsafeId);
+	}
 	assert.deepEqual(GraphWarningPageDataSchema.parse({
 		details_status: "unavailable",
 		summary: null,

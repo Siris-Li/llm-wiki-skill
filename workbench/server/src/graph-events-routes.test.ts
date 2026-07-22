@@ -20,7 +20,7 @@ function createFakeService() {
 	const service: GraphEventsRouteService = {
 		createStreamId: () => `stream-${++nextStream}`,
 		connectedAt: () => "2026-07-11T12:00:00.000Z",
-		subscribe(next) {
+		subscribe(_kbPath, next) {
 			calls.subscribed += 1;
 			listener = next;
 			return () => {
@@ -41,7 +41,7 @@ function createFakeService() {
 test("graph stream starts with ready and keeps graph_error non-terminal", async () => {
 	const fake = createFakeService();
 	const controller = new AbortController();
-	const res = await createApp({ graphEventsService: fake.service }).request("/api/events", undefined, {
+	const res = await createApp({ graphEventsService: fake.service }).request("/api/events?kb=%2Ffake%2Fkb", undefined, {
 		signal: controller.signal,
 	});
 	assert.equal(res.headers.get("content-type")?.includes("text/event-stream"), true);
@@ -77,7 +77,7 @@ test("a reconnect receives a new streamId and restarts seq at one", async () => 
 	const app = createApp({ graphEventsService: fake.service });
 	for (const expected of ["stream-1", "stream-2"]) {
 		const controller = new AbortController();
-		const res = await app.request("/api/events", undefined, { signal: controller.signal });
+		const res = await app.request("/api/events?kb=%2Ffake%2Fkb", undefined, { signal: controller.signal });
 		const reader = res.body!.getReader();
 		const [frame] = await readFrames(reader, 1);
 		const ready = parse(frame!);
@@ -92,6 +92,52 @@ test("a reconnect receives a new streamId and restarts seq at one", async () => 
 	assert.equal(fake.calls.unsubscribed, 2);
 });
 
+test("the graph stream projects migration warnings without internal comparison values", async () => {
+	const fake = createFakeService();
+	const controller = new AbortController();
+	const res = await createApp({ graphEventsService: fake.service }).request("/api/events?kb=%2Ffake%2Fkb", undefined, {
+		signal: controller.signal,
+	});
+	const reader = res.body!.getReader();
+	await readFrames(reader, 1);
+	fake.emit({
+		...graphUpdated(),
+		diff: {
+			addedNodes: ["wiki/safe.md", "legacy-duplicate"],
+			removedNodes: ["legacy-duplicate"],
+			recoloredNodes: [],
+			addedEdges: [],
+			removedEdges: [],
+			newCommunities: [],
+			migrationWarnings: [{
+				code: "identity_alignment_ambiguous",
+				source_path: "wiki/safe.md",
+				previous_ids: ["/Users/private", "C:\\private", "legacy-duplicate"],
+				next_ids: ["portable-key:nfc|casefold", "arbitrary raw text"],
+			}, {
+				code: "legacy_semantic_edge_duplicate",
+				semantic_key: "portable-key:nfc|casefold",
+				previous_edge_ids: ["/Users/private"],
+				next_edge_ids: ["C:\\private", "arbitrary raw text"],
+			}],
+			stats: { nodeCount: 2, edgeCount: 1, communityCount: 1 },
+		},
+	} as GraphEvent);
+	const [frame] = await readFrames(reader, 1);
+	for (const secret of ["/Users/private", "C:\\private", "portable-key:nfc|casefold", "arbitrary raw text", "legacy-duplicate", "semantic_key", "previous_ids", "next_ids", "previous_edge_ids", "next_edge_ids"]) {
+		assert.equal(frame!.data.includes(secret), false, secret);
+	}
+	const event = parse(frame!);
+	assert.deepEqual(event.type === "graph_updated" ? event.diff?.addedNodes : null, ["wiki/safe.md"]);
+	assert.deepEqual(event.type === "graph_updated" ? event.diff?.removedNodes : null, []);
+	assert.deepEqual(event.type === "graph_updated" ? event.diff?.migrationWarnings : null, [
+		{ code: "identity_alignment_ambiguous", source_path: "wiki/safe.md" },
+		{ code: "legacy_semantic_edge_duplicate" },
+	]);
+	controller.abort();
+	await reader.cancel().catch(() => {});
+});
+
 test("an abort before the ready frame finishes still completes the server stream", async () => {
 	const fake = createFakeService();
 	const originalClose = SSEStreamingApi.prototype.close;
@@ -101,7 +147,7 @@ test("an abort before the ready frame finishes still completes the server stream
 		return originalClose.call(this);
 	};
 	try {
-		const res = await createApp({ graphEventsService: fake.service }).request("/api/events");
+		const res = await createApp({ graphEventsService: fake.service }).request("/api/events?kb=%2Ffake%2Fkb");
 		await res.body!.cancel();
 		await waitFor(() => closeCalls === 1);
 		assert.equal(fake.calls.unsubscribed, 1);

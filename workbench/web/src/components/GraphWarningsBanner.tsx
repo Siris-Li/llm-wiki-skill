@@ -4,10 +4,10 @@ import { useCallback, useMemo, useState } from "react";
 import {
 	GraphWarningPageDataSchema,
 	type GraphMigrationWarningContract,
-	type GraphWarningCandidateSetContract,
 	type GraphWarningCodeContract,
-	type GraphWarningGroupContract,
 	type GraphWarningPageContract,
+	type GraphWarningPublicCandidateSetContract,
+	type GraphWarningPublicGroupContract,
 	type GraphWarningStateContract,
 } from "@llm-wiki/workbench-contracts";
 
@@ -42,8 +42,8 @@ interface Props {
 	loadPage: (cursor?: string, limit?: number) => Promise<GraphWarningPageContract>;
 	onDismissMigrationWarnings?: () => void;
 	onResolveWarning?: (
-		group: GraphWarningGroupContract,
-		candidateSet: GraphWarningCandidateSetContract,
+		group: GraphWarningPublicGroupContract,
+		candidateSet: GraphWarningPublicCandidateSetContract,
 	) => void;
 }
 
@@ -68,8 +68,8 @@ function GraphWarningsBannerContent({
 	onResolveWarning,
 }: Props) {
 	const [expanded, setExpanded] = useState(false);
-	const [groups, setGroups] = useState<GraphWarningGroupContract[]>([]);
-	const [candidateSets, setCandidateSets] = useState<GraphWarningCandidateSetContract[]>([]);
+	const [groups, setGroups] = useState<GraphWarningPublicGroupContract[]>([]);
+	const [candidateSets, setCandidateSets] = useState<GraphWarningPublicCandidateSetContract[]>([]);
 	const [nextCursor, setNextCursor] = useState<string | null | undefined>(undefined);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -304,8 +304,8 @@ function GraphWarningsBannerContent({
 }
 
 function isEditableResolution(
-	group: GraphWarningGroupContract,
-	candidateSet: GraphWarningCandidateSetContract,
+	group: GraphWarningPublicGroupContract,
+	candidateSet: GraphWarningPublicCandidateSetContract,
 ): boolean {
 	if (group.code !== "ambiguous_wikilink" && group.code !== "portable_path_collision") return false;
 	if (candidateSet.candidates.length === 0) return false;
