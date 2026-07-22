@@ -11,7 +11,8 @@ This is the core-only release for Tasks 1–4. Tasks 5–6 are deliberately defe
 
 - Code/test implementation head: `343952e3f611850699a0529415a3e4cd98727a63` (`fix: release graph rebuild dedupe on failure [task 4]`).
 - Regression fixture baseline refresh: `7dd71f45` (`test: refresh graph warning identity fixtures [task 4]`).
-- The local matrix below ran at the current branch tip `7dd71f45`, which contains the implementation head and the fixture refresh.
+- Paper graph fixture warning-state refresh: `e7b5c93c` (`test: keep Paper graph fixture warning-aware [task 4]`).
+- The local matrix below ran at the current branch tip `e7b5c93c`, which contains the implementation head and both fixture refreshes.
 - No Markdown source was modified by the graph build or read-only checks.
 
 ## Local acceptance matrix
@@ -23,7 +24,7 @@ This is the core-only release for Tasks 1–4. Tasks 5–6 are deliberately defe
 | `npm run test:browser:main-flows -w @llm-wiki-agent/web` | PASS — seven browser main flows passed; graph-host error recovery and offline-host browser acceptance also passed. |
 | `bash tests/graph-offline-warnings.regression-1.sh` | PASS — available, mismatched, missing-sidecar, legacy, and large read-only warning HTML cases passed in Chromium. |
 | `node --import tsx --test workbench/server/src/graph-rename-portability.test.ts` | NOT APPLICABLE — the file does not exist. Stage 3 equivalent-name rename portability is deferred and is not claimed as passed. |
-| `npm run visual:paper -w @llm-wiki-agent/web` | CONCERN — two clean retries generated the initial Paper screenshots, then both timed out waiting for `.graph-screen[data-graph-status="ready"]`; no visual pass is claimed for this local rerun. |
+| `npm run visual:paper -w @llm-wiki-agent/web` | PASS — the warning-aware graph fixture reached the ready state and all Paper screenshots were generated successfully. |
 | `bash install.sh --dry-run --platform codex` | PASS — the dry-run included the managed `deps` directory. |
 | `bash install.sh --dry-run --platform claude` | PASS — the dry-run included the managed `deps` directory and the Claude companion entry. |
 | Four Unicode dependency checks | PASS — `CaseFolding-17.0.0.txt`, `UnicodeData-17.0.0.txt`, `DerivedNormalizationProps-17.0.0.txt`, and `LICENSE-unicode.txt` are present. |
