@@ -698,6 +698,12 @@ async function fulfillMockApi(route: Route, url: URL, method: string, apiReads: 
 				state: { status: "ready", rebuiltAt: null },
 				needsBuild: false,
 				data: visualGraphData(),
+				warning_state: {
+					summary: null,
+					details_status: "unavailable",
+					details_unavailable_reason: "legacy_without_summary",
+					engine_groups: [],
+				},
 			},
 		});
 		return;
