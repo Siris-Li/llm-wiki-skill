@@ -15,14 +15,14 @@ This is the core-only release for Tasks 1–4. Tasks 5–6 are deliberately defe
 - Offline warning path-redaction fix: `c189c4c5` (`fix: redact unsafe offline warning summary paths`).
 - Warning-only refresh fix: `33adcdf2` (`fix: clear animation state for warning-only refreshes`). This keeps a graph readable instead of leaving it in “update waiting to play” when a refresh adds migration notices but no visual graph change.
 - The local matrix below ran at the current implementation tip `33adcdf2`, which contains the implementation head, fixture refreshes, review fixes, and the warning-only refresh fix.
-- Pull-request CI previously ran successfully at `cfd80a9a` on PR #306; the new head is queued for the same required checks after this fix.
+- Pull-request CI ran successfully at `6af14d42` on PR #306 after the warning-only refresh fix.
 - No Markdown source was modified by the graph build or read-only checks.
 
 ## Pull-request CI evidence
 
-- `quality-and-tests`: PASS — [GitHub job](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29898465573/job/88853652828).
-- `browser-main-flows`: PASS — [GitHub job](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29898465535/job/88853652602).
-- `path-portability`: PASS on [Ubuntu](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29898465519/job/88853652532), [macOS](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29898465519/job/88853652562), and [Windows](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29898465519/job/88853652579).
+- `quality-and-tests`: PASS — [GitHub job](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29901657053/job/88863541061).
+- `browser-main-flows`: PASS — [GitHub job](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29901657031/job/88863541158).
+- `path-portability`: PASS on [Ubuntu](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29901657099/job/88863541189), [macOS](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29901657099/job/88863541187), and [Windows](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29901657099/job/88863541181).
 
 ## Local acceptance matrix
 
