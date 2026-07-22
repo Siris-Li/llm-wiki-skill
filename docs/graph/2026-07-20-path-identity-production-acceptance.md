@@ -14,7 +14,14 @@ This is the core-only release for Tasks 1–4. Tasks 5–6 are deliberately defe
 - Paper graph fixture warning-state refresh: `e7b5c93c` (`test: keep Paper graph fixture warning-aware [task 4]`).
 - Offline warning path-redaction fix: `c189c4c5` (`fix: redact unsafe offline warning summary paths`).
 - The local matrix below ran at the current branch tip `c4255607`, which contains the implementation head, both fixture refreshes, and the review fix.
+- Pull-request CI ran successfully at `cfd80a9a` on PR #306.
 - No Markdown source was modified by the graph build or read-only checks.
+
+## Pull-request CI evidence
+
+- `quality-and-tests`: PASS — [GitHub job](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29898465573/job/88853652828).
+- `browser-main-flows`: PASS — [GitHub job](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29898465535/job/88853652602).
+- `path-portability`: PASS on [Ubuntu](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29898465519/job/88853652532), [macOS](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29898465519/job/88853652562), and [Windows](https://github.com/sdyckjq-lab/llm-wiki-skill/actions/runs/29898465519/job/88853652579).
 
 ## Local acceptance matrix
 
@@ -36,7 +43,7 @@ This is the core-only release for Tasks 1–4. Tasks 5–6 are deliberately defe
 
 ## V3 §9.2 production acceptance rows
 
-The rows below follow the V3 design document in order. A Stage 2 row is not marked complete until the required pull-request CI evidence exists. The local macOS results for fixed Unicode behavior are useful evidence, but they do not replace the Ubuntu/macOS/Windows matrix.
+The rows below follow the V3 design document in order. The required pull-request CI evidence now exists for every Stage 2 row in this core release.
 
 | Stage | Acceptance row | Actual command/evidence | Local result and status |
 |---|---|---|---|
@@ -51,7 +58,7 @@ The rows below follow the V3 design document in order. A Stage 2 row is not mark
 | Stage 2 | 离线 HTML | `bash tests/regression.sh`; `bash tests/graph-offline-warnings.regression-1.sh` | PASS locally in Chromium. Offline output keeps warning summaries and bounded read-only details, handles unavailable sidecars, and never exposes absolute machine paths or write actions. |
 | Stage 2 | 首次迁移 | `npm run quality-and-tests`; `npm run test:browser:main-flows -w @llm-wiki-agent/web` | PASS locally. Refresh comparison aligns nodes, directed edges, communities, and existing pins by page path so an identity migration does not appear as false growth or loss. |
 | Stage 2 | CLI / CI | `bash tests/regression.sh`; `npm run quality-and-tests` | PASS locally. Build and ordinary checks remain read-only; strict warning exit behavior is covered, with degraded graph generation kept separate from system failure. |
-| Stage 2 | 路径可移植性 | `npm run quality-and-tests` (local fixed-Unicode suite); `.github/workflows/path-portability.yml` (required PR matrix) | Local macOS fixed Unicode 17 NFC/case-fold tests PASS. Ubuntu, macOS, and Windows path-portability CI is **待 PR 后完成**; this row is not marked production-complete here. |
+| Stage 2 | 路径可移植性 | `npm run quality-and-tests` (local fixed-Unicode suite); `.github/workflows/path-portability.yml` (required PR matrix) | PASS. Local fixed Unicode 17 NFC/case-fold tests and the required Ubuntu, macOS, and Windows PR jobs all passed. |
 | Stage 3 | 等价改名可移植性 | `node --import tsx --test workbench/server/src/graph-rename-portability.test.ts` | NOT PART OF THIS CORE RELEASE. The test file is absent; no transit rename or crash-recovery result is claimed. |
 | Stage 2 | 性能 | `npm run quality-and-tests` | PASS locally. The shared scan test verifies one inventory, one target index, one source parse, and warning storage bounded by occurrences plus distinct candidate members. |
 | Stage 3 | 主动改名 | Planned Task 5–6 end-to-end tests | NOT PART OF THIS CORE RELEASE. Rename, external-edit conflict handling, evidence retention, startup recovery, and rebuild retry remain follow-up work. |
@@ -60,4 +67,4 @@ The rows below follow the V3 design document in order. A Stage 2 row is not mark
 
 This release publishes only the safe core: path-based page identity, warning summaries and details, a readable `ready + warnings` graph, relative-path-only warning data, first-refresh continuity for nodes/edges/communities/pins, and read-only warning inspection. Tasks 5–6 must open separate pull requests for rename preview, invalidation, equivalent-name portability, active rename, and recovery.
 
-The only open core-release evidence item is the three-platform Stage 2 path-portability CI matrix. The local fixed-Unicode suite passes, but the release does not call the Stage 2 portability row complete until Ubuntu, macOS, and Windows PR jobs are green.
+All core-release evidence items are complete: local checks passed, the PR quality and browser jobs passed, and the Ubuntu, macOS, and Windows path-portability jobs are green.
