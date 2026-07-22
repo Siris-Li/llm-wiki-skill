@@ -12,7 +12,8 @@ This is the core-only release for Tasks 1–4. Tasks 5–6 are deliberately defe
 - Code/test implementation head: `343952e3f611850699a0529415a3e4cd98727a63` (`fix: release graph rebuild dedupe on failure [task 4]`).
 - Regression fixture baseline refresh: `7dd71f45` (`test: refresh graph warning identity fixtures [task 4]`).
 - Paper graph fixture warning-state refresh: `e7b5c93c` (`test: keep Paper graph fixture warning-aware [task 4]`).
-- The local matrix below ran at the current branch tip `e7b5c93c`, which contains the implementation head and both fixture refreshes.
+- Offline warning path-redaction fix: `c189c4c5` (`fix: redact unsafe offline warning summary paths`).
+- The local matrix below ran at the current branch tip `c4255607`, which contains the implementation head, both fixture refreshes, and the review fix.
 - No Markdown source was modified by the graph build or read-only checks.
 
 ## Local acceptance matrix
@@ -23,6 +24,7 @@ This is the core-only release for Tasks 1–4. Tasks 5–6 are deliberately defe
 | `npm run quality-and-tests` | PASS — repository privacy, builds, boundaries, 809 graph-engine tests, 43 graph-path tests, contracts, server checks, web tests, type checks, and lint all passed; the command ended with `all checks passed`. |
 | `npm run test:browser:main-flows -w @llm-wiki-agent/web` | PASS — seven browser main flows passed; graph-host error recovery and offline-host browser acceptance also passed. |
 | `bash tests/graph-offline-warnings.regression-1.sh` | PASS — available, mismatched, missing-sidecar, legacy, and large read-only warning HTML cases passed in Chromium. |
+| `node --test tests/js/wiki-link-cli.test.js` | PASS — invalid warning summaries cannot copy an absolute machine path into the offline payload. |
 | `node --import tsx --test workbench/server/src/graph-rename-portability.test.ts` | NOT APPLICABLE — the file does not exist. Stage 3 equivalent-name rename portability is deferred and is not claimed as passed. |
 | `npm run visual:paper -w @llm-wiki-agent/web` | PASS — the warning-aware graph fixture reached the ready state and all Paper screenshots were generated successfully. |
 | `bash install.sh --dry-run --platform codex` | PASS — the dry-run included the managed `deps` directory. |
