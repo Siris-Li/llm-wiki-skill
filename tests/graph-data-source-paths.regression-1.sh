@@ -31,11 +31,11 @@ EOF
         bash "$SCRIPT" "$tmp_dir" "$tmp_dir/wiki/graph-data.json" > /dev/null 2>&1 \
         || fail "build-graph-data.sh should succeed on synthesis session fixture"
 
-    source_path="$(jq -r '.nodes[] | select(.id == "A") | .source_path // ""' "$tmp_dir/wiki/graph-data.json")"
+    source_path="$(jq -r '.nodes[] | select(.id == "wiki/synthesis/sessions/A.md") | .source_path // ""' "$tmp_dir/wiki/graph-data.json")"
     [ "$source_path" = "wiki/synthesis/sessions/A.md" ] \
         || fail "Expected source_path to be wiki/synthesis/sessions/A.md, got: $source_path"
 
-    private_path="$(jq -r '.nodes[] | select(.id == "A") | ._file_path // ""' "$tmp_dir/wiki/graph-data.json")"
+    private_path="$(jq -r '.nodes[] | select(.id == "wiki/synthesis/sessions/A.md") | ._file_path // ""' "$tmp_dir/wiki/graph-data.json")"
     [ -z "$private_path" ] || fail "Graph data should not expose helper-only _file_path, got: $private_path"
 
     rm -rf "$tmp_dir"

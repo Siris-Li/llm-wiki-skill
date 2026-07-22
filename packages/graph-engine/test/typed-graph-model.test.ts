@@ -20,7 +20,7 @@ describe("typed graph model", () => {
     assert.deepEqual(Object.keys(model.searchIndex), ["2"]);
   });
 
-  it("normalizes malformed model input without changing collision and index semantics", () => {
+  it("normalizes malformed model input with collision-safe generated ids and first-wins duplicates", () => {
     const model = buildAtlasModel({
       meta: { wiki_title: "Compatibility" },
       nodes: [
@@ -45,28 +45,32 @@ describe("typed graph model", () => {
       }
     });
 
-    assert.deepEqual(model.nodes.map((node) => node.id), ["node-0", "node-0", "node-0", "Infinity"]);
-    assert.equal(model.byId["node-0"]?.label, "last collision");
-    assert.deepEqual(model.edges.map((edge) => edge.id), ["edge-0", "edge-0", "duplicate", "duplicate"]);
+    assert.deepEqual(model.nodes.map((node) => node.id), ["node-1", "node-0", "Infinity"]);
+    assert.equal(model.byId["node-0"]?.label, "first collision");
+    assert.deepEqual(model.edges.map((edge) => edge.id), ["edge-1", "edge-0", "duplicate"]);
     assert.deepEqual(model.edges.map((edge) => [edge.source, edge.target]), [
       ["node-0", "Infinity"],
       ["Infinity", "node-0"],
-      ["node-0", "Infinity"],
-      ["Infinity", "node-0"]
+      ["node-0", "Infinity"]
     ]);
-    assert.deepEqual(model.nodes.map((node) => node.degree), [0, 0, 4, 4]);
+    assert.deepEqual(model.nodes.map((node) => node.degree), [0, 3, 3]);
     assert.deepEqual(model.communities.map((community) => community.label), [
-      "first community",
-      "last community",
-      "c2",
-      "未分组"
+      "未分组",
+      "first community"
     ]);
-    assert.equal(model.communityById.c1?.label, "last community");
-    assert.equal(model.starts[0]?.node.label, "last collision");
+    assert.equal(model.communityById.c1?.label, "first community");
+    assert.equal(model.starts[0]?.node.label, "first collision");
     assert.equal(model.byId.Infinity?.type, "entity");
     assert.equal(model.byId.Infinity?.confidence, "EXTRACTED");
     assert.equal(model.edges[2]?.confidence, "EXTRACTED");
-    assert.equal(model.edges[3]?.relation_type, "future-relation");
+    assert.equal(model.edges[2]?.relation_type, "依赖");
+    assert.deepEqual(model.warnings.map((warning) => warning.code), [
+      "generated_id_collision",
+      "duplicate_node_id",
+      "generated_id_collision",
+      "duplicate_edge_id",
+      "duplicate_community_id"
+    ]);
   });
 
   it("is total for undefined and non-finite direct inputs", () => {

@@ -68,8 +68,8 @@ EOF
         || fail "build-graph-data.sh should succeed on fixture"
 
     local a_to_b_type b_to_a_type
-    a_to_b_type=$(jq -r '.edges[] | select(.from == "A" and .to == "B") | .type' "$tmp_dir/graph-data.json")
-    b_to_a_type=$(jq -r '.edges[] | select(.from == "B" and .to == "A") | .type' "$tmp_dir/graph-data.json")
+    a_to_b_type=$(jq -r '.edges[] | select(.from == "wiki/entities/A.md" and .to == "wiki/entities/B.md") | .type' "$tmp_dir/graph-data.json")
+    b_to_a_type=$(jq -r '.edges[] | select(.from == "wiki/entities/B.md" and .to == "wiki/entities/A.md") | .type' "$tmp_dir/graph-data.json")
 
     [ "$a_to_b_type" = "INFERRED" ] \
         || fail "A→B should be INFERRED after merging (default + explicit INFERRED on same page), got: $a_to_b_type"
@@ -123,7 +123,7 @@ EOF
         || fail "build-graph-data.sh should succeed on fixture"
 
     local x_to_y_type
-    x_to_y_type=$(jq -r '.edges[] | select(.from == "X" and .to == "Y") | .type' "$tmp_dir/graph-data.json")
+    x_to_y_type=$(jq -r '.edges[] | select(.from == "wiki/entities/X.md" and .to == "wiki/entities/Y.md") | .type' "$tmp_dir/graph-data.json")
 
     [ "$x_to_y_type" = "AMBIGUOUS" ] \
         || fail "X→Y should be AMBIGUOUS (default + default + AMBIGUOUS merge), got: $x_to_y_type"
@@ -172,7 +172,7 @@ EOF
         || fail "build-graph-data.sh should succeed on fixture"
 
     local p_to_q_type
-    p_to_q_type=$(jq -r '.edges[] | select(.from == "P" and .to == "Q") | .type' "$tmp_dir/graph-data.json")
+    p_to_q_type=$(jq -r '.edges[] | select(.from == "wiki/entities/P.md" and .to == "wiki/entities/Q.md") | .type' "$tmp_dir/graph-data.json")
 
     [ "$p_to_q_type" = "EXTRACTED" ] \
         || fail "P→Q should default to EXTRACTED when no annotation exists, got: $p_to_q_type"
@@ -225,7 +225,7 @@ EOF
         || fail "build-graph-data.sh should succeed on fixture"
 
     local m_to_n_type
-    m_to_n_type=$(jq -r '.edges[] | select(.from == "M" and .to == "N") | .type' "$tmp_dir/graph-data.json")
+    m_to_n_type=$(jq -r '.edges[] | select(.from == "wiki/entities/M.md" and .to == "wiki/entities/N.md") | .type' "$tmp_dir/graph-data.json")
 
     [ "$m_to_n_type" = "INFERRED" ] \
         || fail "M→N should keep first explicit INFERRED, got: $m_to_n_type"
@@ -279,9 +279,9 @@ EOF
         || fail "build-graph-data.sh should succeed on relation contract fixture"
 
     local a_to_b_type a_to_b_confidence a_to_b_relation
-    a_to_b_type=$(jq -r '.edges[] | select(.from == "A" and .to == "B") | .type' "$tmp_dir/graph-data.json")
-    a_to_b_confidence=$(jq -r '.edges[] | select(.from == "A" and .to == "B") | .confidence' "$tmp_dir/graph-data.json")
-    a_to_b_relation=$(jq -r '.edges[] | select(.from == "A" and .to == "B") | .relation_type' "$tmp_dir/graph-data.json")
+    a_to_b_type=$(jq -r '.edges[] | select(.from == "wiki/entities/A.md" and .to == "wiki/entities/B.md") | .type' "$tmp_dir/graph-data.json")
+    a_to_b_confidence=$(jq -r '.edges[] | select(.from == "wiki/entities/A.md" and .to == "wiki/entities/B.md") | .confidence' "$tmp_dir/graph-data.json")
+    a_to_b_relation=$(jq -r '.edges[] | select(.from == "wiki/entities/A.md" and .to == "wiki/entities/B.md") | .relation_type' "$tmp_dir/graph-data.json")
 
     [ "$a_to_b_type" = "INFERRED" ] \
         || fail "A→B legacy type should remain INFERRED for compatibility, got: $a_to_b_type"
@@ -291,8 +291,8 @@ EOF
         || fail "A→B relation_type should be 实现, got: $a_to_b_relation"
 
     local a_to_c_confidence a_to_c_relation
-    a_to_c_confidence=$(jq -r '.edges[] | select(.from == "A" and .to == "C") | .confidence' "$tmp_dir/graph-data.json")
-    a_to_c_relation=$(jq -r '.edges[] | select(.from == "A" and .to == "C") | .relation_type' "$tmp_dir/graph-data.json")
+    a_to_c_confidence=$(jq -r '.edges[] | select(.from == "wiki/entities/A.md" and .to == "wiki/entities/C.md") | .confidence' "$tmp_dir/graph-data.json")
+    a_to_c_relation=$(jq -r '.edges[] | select(.from == "wiki/entities/A.md" and .to == "wiki/entities/C.md") | .relation_type' "$tmp_dir/graph-data.json")
 
     [ "$a_to_c_confidence" = "EXTRACTED" ] \
         || fail "A→C confidence should default to EXTRACTED, got: $a_to_c_confidence"

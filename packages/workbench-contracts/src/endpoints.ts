@@ -242,6 +242,13 @@ export const ENDPOINT_REGISTRY = freezeEndpointEntries([
 		description: "读图谱",
 	},
 	{
+		method: "GET",
+		path: "/api/graph/warnings",
+		kind: "migrated-json",
+		safety: "read-only",
+		description: "分页读取图谱告警详情",
+	},
+	{
 		method: "POST",
 		path: "/api/graph/rebuild",
 		kind: "migrated-json",

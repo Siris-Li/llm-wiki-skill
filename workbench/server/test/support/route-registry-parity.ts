@@ -69,6 +69,7 @@ export const RUNTIME_ENDPOINT_DECLARATIONS = [
 	{ method: "POST", path: "/api/knowledge-base", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "DELETE", path: "/api/knowledge-base", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "GET", path: "/api/graph", kind: "migrated-json", safety: "read-only", source: "createApp" },
+	{ method: "GET", path: "/api/graph/warnings", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "POST", path: "/api/graph/rebuild", kind: "migrated-json", safety: "state-changing", source: "createApp" },
 	{ method: "GET", path: "/api/graph/layout", kind: "migrated-json", safety: "read-only", source: "createApp" },
 	{ method: "PUT", path: "/api/graph/layout", kind: "migrated-json", safety: "state-changing", source: "createApp" },

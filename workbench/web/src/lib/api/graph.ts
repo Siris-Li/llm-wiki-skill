@@ -2,7 +2,10 @@ import {
 	GraphLayoutDataSchema,
 	GraphReadDataSchema,
 	GraphRebuildDataSchema,
+	GraphWarningPageDataSchema,
 	type GraphAuthorityState,
+	type GraphWarningPageContract,
+	type GraphWarningStateContract,
 } from "@llm-wiki/workbench-contracts";
 import type { GraphData, GraphLayoutFile, PinMap } from "@llm-wiki/graph-engine";
 
@@ -18,6 +21,7 @@ export type GraphApiResult =
 			state: Extract<GraphAuthorityState, { status: "ready" }>;
 			needsBuild: false;
 			data: GraphData;
+			warning_state: GraphWarningStateContract;
 	  };
 
 export type GraphBuildError = Pick<
@@ -45,6 +49,17 @@ export async function rebuildGraph(
 		query: { kb: kbPath },
 	});
 	return data.status;
+}
+
+export async function getGraphWarnings(
+	kbPath: string,
+	cursor?: string,
+	limit?: number,
+): Promise<GraphWarningPageContract> {
+	return request({ method: "GET", path: "/api/graph/warnings" }, {
+		responseSchema: GraphWarningPageDataSchema,
+		query: { kb: kbPath, cursor, limit },
+	});
 }
 
 export async function getGraphLayout(

@@ -15,10 +15,17 @@ import {
 	type Selection,
 	type ThemeId,
 } from "@llm-wiki/graph-engine";
+import type {
+	GraphMigrationWarningContract,
+	GraphWarningPublicCandidateSetContract,
+	GraphWarningPublicGroupContract,
+	GraphWarningStateContract,
+} from "@llm-wiki/workbench-contracts";
 
 import {
 	getGraphData,
 	getGraphLayout,
+	getGraphWarnings,
 	putGraphLayout,
 	rebuildGraph,
 	type GraphAuthoritySnapshot,
@@ -32,6 +39,7 @@ import {
 } from "../lib/graph-node-drawer-accommodation";
 import { cn } from "../lib/utils";
 import { DEFAULT_GRAPH_STATUS, type GraphStatusKind, type GraphStatusSnapshot } from "../lib/view-status";
+import { GraphWarningsBanner } from "./GraphWarningsBanner";
 
 interface Props {
 	currentKnowledgeBaseName: string | null;
@@ -52,6 +60,10 @@ interface Props {
 	authoritativeSnapshot?: GraphAuthoritySnapshot | null;
 	engineFactory?: typeof createGraphEngine;
 	onDiffConsumed?: () => void;
+	onResolveWarning?: (
+		group: GraphWarningPublicGroupContract,
+		candidateSet: GraphWarningPublicCandidateSetContract,
+	) => void;
 	// #122：右侧节点详情抽屉是否全屏。社区阅读普通单击节点打开抽屉时，宽屏并排布局下
 	// 镜头让位到剩余画布；窄屏覆盖/全屏由策略判定为不让位。
 	drawerFullscreen?: boolean;
@@ -97,6 +109,7 @@ export function GraphPanel({
 	authoritativeSnapshot = null,
 	engineFactory = createGraphEngine,
 	onDiffConsumed,
+	onResolveWarning,
 	drawerFullscreen = false,
 }: Props) {
 	const hostRef = useRef<HTMLDivElement | null>(null);
@@ -127,6 +140,9 @@ export function GraphPanel({
 	const authoritativeSnapshotRef = useRef(authoritativeSnapshot);
 	const lastSelectionCommandRef = useRef<GraphSelectionCommand | undefined>(selectionCommand);
 	const [data, setData] = useState<GraphData | null>(null);
+	const [warningState, setWarningState] = useState<GraphWarningStateContract | null>(null);
+	const warningAuthorityRefreshTokenRef = useRef(0);
+	const [migrationWarnings, setMigrationWarnings] = useState<GraphMigrationWarningContract[]>([]);
 	const [edgeStyle, setEdgeStyle] = useState<GraphEdgeStyleOptions>(() => readGraphEdgeStylePreference());
 	const [communityEdgeStyle, setCommunityEdgeStyle] = useState<GraphEdgeStyleOptions>({ ...DEFAULT_GRAPH_EDGE_STYLE });
 	const [communityFocusId, setCommunityFocusId] = useState<string | null>(null);
@@ -164,6 +180,8 @@ export function GraphPanel({
 		setCommunityFocusId(null);
 		setCommunityEdgeStyle({ ...DEFAULT_GRAPH_EDGE_STYLE });
 		setData(null);
+		setWarningState(null);
+		setMigrationWarnings([]);
 		setDataKnowledgeBasePath(currentKnowledgeBasePath);
 	}, [currentKnowledgeBasePath]);
 
@@ -263,12 +281,14 @@ export function GraphPanel({
 	}, [authoritativeSnapshot]);
 
 	useLayoutEffect(() => {
+		const warningCount = graphWarningCount(warningState) + migrationWarnings.length;
 		onStatusChange?.({
 			status,
-			summary: graphStatusSummary(status, Boolean(currentKnowledgeBasePath), buildState, error, data, animationState),
+			summary: graphStatusSummary(status, Boolean(currentKnowledgeBasePath), buildState, error, data, animationState, warningCount),
 			animation: animationState,
+			warningCount,
 		});
-	}, [animationState, buildState, currentKnowledgeBasePath, data, error, onStatusChange, status]);
+	}, [animationState, buildState, currentKnowledgeBasePath, data, error, migrationWarnings.length, onStatusChange, status, warningState]);
 
 	useLayoutEffect(() => {
 		onViewResetRef.current = onViewReset;
@@ -300,6 +320,8 @@ export function GraphPanel({
 		clearGraphEngineInstance();
 		clearCommunityEdgeScope();
 		setData(null);
+		setWarningState(null);
+		setMigrationWarnings([]);
 		setDataKnowledgeBasePath(kbPath);
 		onGraphDataChangeRef.current?.(null);
 		onGraphVisibilityChangeRef.current?.(null);
@@ -314,9 +336,16 @@ export function GraphPanel({
 		setStatus("error");
 	}, [applyLayoutPins, clearCommunityEdgeScope, clearGraphEngineInstance]);
 
-	const applyReadyGraph = useCallback((kbPath: string, nextData: GraphData, savedPins: PinMap): void => {
+	const applyReadyGraph = useCallback((
+		kbPath: string,
+		nextData: GraphData,
+		savedPins: PinMap,
+		nextWarningState: GraphWarningStateContract,
+	): void => {
 		applyLayoutPins({ ...savedPins, ...layoutPinsRef.current });
+		warningAuthorityRefreshTokenRef.current += 1;
 		setData(nextData);
+		setWarningState(nextWarningState);
 		setDataKnowledgeBasePath(kbPath);
 		onGraphDataChangeRef.current?.(nextData);
 		setBuildState("none");
@@ -325,6 +354,7 @@ export function GraphPanel({
 
 	const startGraphRebuild = useCallback(async (kbPath: string, requestId: number): Promise<boolean> => {
 		setData(null);
+		setWarningState(null);
 		setDataKnowledgeBasePath(kbPath);
 		onGraphDataChangeRef.current?.(null);
 		onGraphVisibilityChangeRef.current?.(null);
@@ -445,6 +475,8 @@ export function GraphPanel({
 		const kbPath = currentKnowledgeBasePath;
 		if (!kbPath) {
 			setData(null);
+			setWarningState(null);
+			setMigrationWarnings([]);
 			setDataKnowledgeBasePath(null);
 			onGraphDataChangeRef.current?.(null);
 			onGraphVisibilityChangeRef.current?.(null);
@@ -468,7 +500,7 @@ export function GraphPanel({
 				applyLayoutPins({ ...layout.pins, ...layoutPinsRef.current });
 				return await startGraphRebuild(kbPath, requestId);
 			}
-			applyReadyGraph(kbPath, result.data, layout.pins);
+			applyReadyGraph(kbPath, result.data, layout.pins, result.warning_state);
 			return true;
 		} catch (err) {
 			if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return false;
@@ -486,6 +518,7 @@ export function GraphPanel({
 			return;
 		}
 		resetForAuthoritySnapshot();
+		setMigrationWarnings([]);
 		if (!("needsBuild" in result)) return;
 		setError(null);
 		if (result.needsBuild === true) {
@@ -501,7 +534,7 @@ export function GraphPanel({
 		void getGraphLayout(kbPath)
 			.then((layout) => {
 				if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return;
-				applyReadyGraph(kbPath, graphData, layout.pins);
+				applyReadyGraph(kbPath, graphData, layout.pins, result.warning_state);
 			})
 			.catch((error) => {
 				if (loadRequestRef.current !== requestId || activeKbPathRef.current !== kbPath) return;
@@ -639,6 +672,11 @@ export function GraphPanel({
 			await playDiff(decision.diff);
 		} else if (decision.snapshot.pending) {
 			setAnimationState("queued");
+		} else if (!decision.snapshot.isAnimating) {
+			// A refresh can carry migration warnings without any visual graph change.
+			// The queue intentionally drops that no-op diff, so do not leave the
+			// warning-aware graph stuck in the "waiting to play" state.
+			setAnimationState("idle");
 		}
 	}, [playDiff, status]);
 
@@ -796,6 +834,9 @@ export function GraphPanel({
 
 	useEffect(() => {
 		if (!pendingDiff) return;
+		if ((pendingDiff.migrationWarnings?.length ?? 0) > 0) {
+			setMigrationWarnings(pendingDiff.migrationWarnings ?? []);
+		}
 		const token = ++animationTokenRef.current;
 		lastRefreshTokenRef.current = refreshToken;
 		setAnimationState("queued");
@@ -840,6 +881,20 @@ export function GraphPanel({
 			durationMs: mode === "motion" ? 650 : undefined,
 		});
 	}, [data, status]);
+
+	const loadWarningPage = useCallback((cursor?: string, limit?: number) => {
+		const kbPath = activeKbPathRef.current;
+		if (!kbPath) return Promise.reject(new Error("当前没有选择知识库"));
+		return getGraphWarnings(kbPath, cursor, limit);
+	}, []);
+
+	const showWarnings = Boolean(
+		warningState && (
+			(warningState.summary?.total_occurrences ?? 0) > 0
+			|| warningState.engine_groups.length > 0
+			|| migrationWarnings.length > 0
+		),
+	);
 
 	return (
 		<div className="graph-screen" data-graph-status={status} data-graph-theme={graphTheme} data-graph-animation={animationState}>
@@ -960,6 +1015,18 @@ export function GraphPanel({
 					</div>
 				</header>
 
+				{showWarnings && warningState && (
+					<GraphWarningsBanner
+						key={currentKnowledgeBasePath ?? "no-kb"}
+						warningState={warningState}
+						authorityRefreshToken={warningAuthorityRefreshTokenRef.current}
+						migrationWarnings={migrationWarnings}
+						loadPage={loadWarningPage}
+						onDismissMigrationWarnings={() => setMigrationWarnings([])}
+						onResolveWarning={onResolveWarning}
+					/>
+				)}
+
 				<div className="graph-stage">
 					<div ref={hostRef} className={cn("graph-host", !data && "graph-host-empty")} />
 					{status !== "ready" && (
@@ -1027,7 +1094,10 @@ function graphTestEngineFactory(engineFactory: typeof createGraphEngine): typeof
 		};
 	}
 	if (mode === "shared-update-failure") {
+		let initialData: unknown = null;
 		return (container, options) => {
+			if (initialData && options.data !== initialData) throw new Error("共享图谱更新失败");
+			initialData = options.data;
 			const engine = createGraphEngine(container, options);
 			return {
 				...engine,
@@ -1081,13 +1151,22 @@ function graphStatusSummary(
 	error: string | null,
 	data: GraphData | null,
 	animationState: GraphStatusSnapshot["animation"],
+	warningCount: number,
 ): string {
 	if (status === "ready" && data) {
 		if (animationState === "playing") return "图谱更新动画播放中";
 		if (animationState === "queued") return "图谱更新等待播放";
-		return `${data.nodes.length} 节点 · ${data.edges.length} 关联`;
+		return `${data.nodes.length} 节点 · ${data.edges.length} 关联${warningCount > 0 ? ` · ${warningCount} 告警` : ""}`;
 	}
 	return statusCopy(status, hasKnowledgeBase, buildState, error);
+}
+
+function graphWarningCount(state: GraphWarningStateContract | null): number {
+	if (!state) return 0;
+	return (state.summary?.total_occurrences ?? 0) + state.engine_groups.reduce(
+		(total, group) => total + Math.max(1, group.occurrence_count),
+		0,
+	);
 }
 
 function sampleDiffForGraphTest(data: GraphData): GraphDiff {
@@ -1101,6 +1180,7 @@ function sampleDiffForGraphTest(data: GraphData): GraphDiff {
 		addedEdges: edge ? [edge.id] : [],
 		removedEdges: [],
 		newCommunities: community ? [community] : [],
+		migrationWarnings: [],
 		stats: {
 			nodeCount: data.nodes.length,
 			edgeCount: data.edges.length,

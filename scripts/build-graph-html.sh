@@ -8,7 +8,7 @@
 #
 # 行为：
 #   1. 读取 packages/graph-engine/dist/engine.iife.js
-#   2. 内嵌 graph-data.json 与可选 .wiki-graph-layout.json 钉位
+#   2. 验证并内嵌配对告警、graph-data.json 与可选 .wiki-graph-layout.json 钉位
 #   3. 注入离线启动脚本：创建 graph engine，持久化钉位到 localStorage
 #   4. 生成单文件 knowledge-graph.html
 #
@@ -48,7 +48,14 @@ ensure_file() {
 }
 
 json_for_script() {
-  perl -pe 's|</script>|<\\/script>|gi' "$1"
+  node - "$1" <<'NODE'
+const fs = require("node:fs");
+const text = fs.readFileSync(process.argv[2], "utf8");
+const escaped = text.replace(/[<>&\u2028\u2029]/g, (character) => (
+  `\\u${character.codePointAt(0).toString(16).padStart(4, "0")}`
+));
+process.stdout.write(escaped);
+NODE
 }
 
 script_for_inline() {
@@ -93,11 +100,13 @@ command -v jq >/dev/null 2>&1 || {
 
 SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DATA="$WIKI_ROOT/wiki/graph-data.json"
+WARNINGS="$WIKI_ROOT/wiki/graph-warnings.json"
 LAYOUT="$WIKI_ROOT/.wiki-graph-layout.json"
 ENGINE="$SKILL_DIR/packages/graph-engine/dist/engine.iife.js"
 MARKED="$SKILL_DIR/deps/marked.min.js"
 PURIFY="$SKILL_DIR/deps/purify.min.js"
 OUTPUT="$WIKI_ROOT/wiki/knowledge-graph.html"
+WARNING_CLI="$SCRIPT_DIR/wiki-link-cli.js"
 
 [ -f "$DATA" ] || {
   echo "ERROR: 未找到 $DATA" >&2
@@ -107,6 +116,7 @@ OUTPUT="$WIKI_ROOT/wiki/knowledge-graph.html"
 ensure_file "$ENGINE" "graph-engine IIFE 产物"
 ensure_file "$MARKED" "marked vendor"
 ensure_file "$PURIFY" "purify vendor"
+ensure_file "$WARNING_CLI" "warning verifier"
 
 WIKI_TITLE=$(jq -r '.meta.wiki_title // "知识库"' "$DATA")
 NODE_COUNT=$(jq -r '.meta.total_nodes // 0' "$DATA")
@@ -132,7 +142,12 @@ output_dir="$(dirname "$OUTPUT")"
 mkdir -p "$output_dir"
 output_tmp="$OUTPUT.partial"
 output_next="$OUTPUT.next"
+warning_data_tmp="$(mktemp -t llm-wiki-warning.XXXXXX)"
+trap 'rm -f "$warning_data_tmp" "$output_tmp" "$output_next"' EXIT
 rm -f "$output_tmp" "$output_next"
+
+node "$WARNING_CLI" warning-embed "$WIKI_ROOT" "$DATA" "$WARNINGS" "$warning_data_tmp" \
+  || die "告警详情验证失败，无法生成安全的离线载荷"
 
 cat > "$output_tmp" <<HTML_HEAD
 <!doctype html>
@@ -161,7 +176,7 @@ cat > "$output_tmp" <<HTML_HEAD
     }
     .offline-shell {
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-rows: auto auto minmax(0, 1fr);
       min-height: 100vh;
     }
     .offline-header {
@@ -246,6 +261,7 @@ cat > "$output_tmp" <<HTML_HEAD
     .offline-main {
       position: relative;
       z-index: 1;
+      grid-row: 3;
       min-height: 0;
       padding: 0;
     }
@@ -267,6 +283,26 @@ cat > "$output_tmp" <<HTML_HEAD
     .offline-storage-warning {
       margin: 12px 18px 0;
     }
+    .offline-warning-banner {
+      position: relative;
+      z-index: 15;
+      margin: 10px 18px 0;
+      padding: 12px 14px;
+      border: 1px solid rgba(168, 63, 53, .3);
+      border-radius: 10px;
+      background: rgba(255, 249, 237, .94);
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .offline-warning-banner[hidden] { display: none; }
+    .offline-warning-summary { font-weight: 650; }
+    .offline-warning-notice { margin-top: 6px; color: #7b2b24; }
+    .offline-warning-details { margin-top: 8px; }
+    .offline-warning-details > summary { cursor: pointer; color: var(--accent); }
+    .offline-warning-group { margin: 10px 0 0 14px; }
+    .offline-warning-group h3 { margin: 0; font-size: 13px; }
+    .offline-warning-group ul { margin: 4px 0 0; padding-left: 20px; }
     @media (max-width: 720px) {
       .offline-header { align-items: flex-start; flex-direction: column; }
       .offline-toolbar-host { width: 100%; flex-basis: auto; }
@@ -292,6 +328,15 @@ cat > "$output_tmp" <<HTML_HEAD
         <button class="offline-theme-toggle" type="button" data-testid="offline-theme-toggle" aria-label="切换墨夜主题">墨夜</button>
       </div>
     </header>
+    <section class="offline-warning-banner" data-testid="offline-warning-banner" aria-label="图谱告警" hidden>
+      <div class="offline-warning-summary" data-testid="offline-warning-summary"></div>
+      <div class="offline-warning-notice" data-testid="offline-warning-unavailable" hidden></div>
+      <div class="offline-warning-notice" data-testid="offline-warning-truncated" hidden></div>
+      <details class="offline-warning-details" data-testid="offline-warning-details">
+        <summary>查看告警详情</summary>
+        <div data-testid="offline-warning-groups"></div>
+      </details>
+    </section>
     <main class="offline-main">
       <div id="graph-root" data-testid="offline-graph-root"></div>
     </main>
@@ -301,8 +346,13 @@ HTML_HEAD
 json_for_script "$DATA" >> "$output_tmp"
 cat >> "$output_tmp" <<'HTML_MID'
   </script>
-  <script id="graph-layout" type="application/json">
+  <script id="graph-warning-data" type="application/json">
 HTML_MID
+cat "$warning_data_tmp" >> "$output_tmp"
+cat >> "$output_tmp" <<'HTML_WARNING_END'
+  </script>
+  <script id="graph-layout" type="application/json">
+HTML_WARNING_END
 printf '%s\n' "$layout_json" | perl -pe 's|</script>|<\/script>|gi' >> "$output_tmp"
 cat >> "$output_tmp" <<'HTML_ENGINE'
   </script>
@@ -320,6 +370,7 @@ cat >> "$output_tmp" <<'HTML_BOOT'
       var root = document.getElementById("graph-root");
       var toolbarHost = document.querySelector("[data-testid='offline-toolbar-host']");
       var dataEl = document.getElementById("graph-data");
+      var warningDataEl = document.getElementById("graph-warning-data");
       var layoutEl = document.getElementById("graph-layout");
       var storageAvailable = true;
       function showError(message) {
@@ -350,6 +401,103 @@ cat >> "$output_tmp" <<'HTML_BOOT'
       function parseJson(el, fallback) {
         try { return el && el.textContent ? JSON.parse(el.textContent) : fallback; }
         catch (err) { return fallback; }
+      }
+      function safeRelativePath(value) {
+        var text = String(value == null ? "" : value);
+        if (!text || text.charAt(0) === "/" || text.indexOf("\\") >= 0 || text === ".." || text.indexOf("../") === 0 || text.indexOf("/../") >= 0) {
+          return "（路径不可用）";
+        }
+        return text;
+      }
+      function appendTextList(parent, values) {
+        if (!values.length) return;
+        var list = document.createElement("ul");
+        for (var i = 0; i < values.length; i++) {
+          var item = document.createElement("li");
+          item.textContent = values[i];
+          list.appendChild(item);
+        }
+        parent.appendChild(list);
+      }
+      function renderWarnings(payload, modelWarnings) {
+        var banner = document.querySelector("[data-testid='offline-warning-banner']");
+        var summaryBox = document.querySelector("[data-testid='offline-warning-summary']");
+        var unavailable = document.querySelector("[data-testid='offline-warning-unavailable']");
+        var truncated = document.querySelector("[data-testid='offline-warning-truncated']");
+        var details = document.querySelector("[data-testid='offline-warning-details']");
+        var groupsBox = document.querySelector("[data-testid='offline-warning-groups']");
+        if (!banner || !summaryBox || !payload) return;
+        var summary = payload.summary || {};
+        var warningById = {};
+        for (var warningIndex = 0; warningIndex < (modelWarnings || []).length; warningIndex++) {
+          var warning = modelWarnings[warningIndex];
+          if (warning && warning.warning_id && !warningById[warning.warning_id]) warningById[warning.warning_id] = warning;
+        }
+        var warnings = Object.keys(warningById).sort().map(function (warningId) { return warningById[warningId]; });
+        var hasWarningSummary = typeof summary.total_groups === "number"
+          || typeof summary.total_occurrences === "number";
+        if (!hasWarningSummary && warnings.length === 0) return;
+        if (!hasWarningSummary) {
+          summary = { total_groups: warnings.length, total_occurrences: 0, error_occurrences: 0, warning_occurrences: 0, by_code: {} };
+          for (var summaryIndex = 0; summaryIndex < warnings.length; summaryIndex++) {
+            var summaryWarning = warnings[summaryIndex];
+            var count = Number(summaryWarning.occurrence_count || 0);
+            summary.total_occurrences += count;
+            if (summaryWarning.severity === "error") summary.error_occurrences += count;
+            else summary.warning_occurrences += count;
+            summary.by_code[summaryWarning.code] = (summary.by_code[summaryWarning.code] || 0) + count;
+          }
+        }
+        var codes = Object.keys(summary.by_code || {}).sort().map(function (code) {
+          return code + ": " + summary.by_code[code];
+        });
+        summaryBox.textContent = "图谱告警 " + (summary.total_groups || 0) + " 组 · "
+          + (summary.total_occurrences || 0) + " 处 · 错误 " + (summary.error_occurrences || 0)
+          + " · 提示 " + (summary.warning_occurrences || 0)
+          + (codes.length ? " · " + codes.join(" · ") : "");
+        banner.hidden = false;
+
+        if (payload.details_status !== "available") {
+          if (unavailable) {
+            unavailable.hidden = false;
+            unavailable.textContent = "告警详情暂不可用，请重新构建图谱";
+          }
+        }
+        if (payload.warning_details_truncated && truncated) {
+          truncated.hidden = false;
+          truncated.textContent = "详情过大，已精简；运行 check 查看完整报告"
+            + "（省略 " + (payload.omitted_group_count || 0) + " 组、"
+            + (payload.omitted_candidate_set_count || 0) + " 个候选集合）";
+        }
+
+        var bundle = payload.bundle || { candidate_sets: [], groups: [] };
+        var candidateSets = {};
+        for (var setIndex = 0; setIndex < (bundle.candidate_sets || []).length; setIndex++) {
+          var candidateSet = bundle.candidate_sets[setIndex];
+          candidateSets[candidateSet.candidate_set_id] = candidateSet;
+        }
+        if (groupsBox) groupsBox.innerHTML = "";
+        for (var groupIndex = 0; groupsBox && groupIndex < warnings.length; groupIndex++) {
+          var group = warnings[groupIndex];
+          var groupBox = document.createElement("section");
+          groupBox.className = "offline-warning-group";
+          groupBox.setAttribute("data-warning-id", group.warning_id);
+          var title = document.createElement("h3");
+          title.textContent = group.code + " · " + group.occurrence_count + " 处";
+          groupBox.appendChild(title);
+          if (group.message) {
+            var message = document.createElement("div");
+            message.textContent = group.message;
+            groupBox.appendChild(message);
+          }
+          var set = candidateSets[group.candidate_set_id];
+          appendTextList(groupBox, set ? (set.candidates || []).map(safeRelativePath) : []);
+          appendTextList(groupBox, (group.occurrences || []).map(function (occurrence) {
+            return safeRelativePath(occurrence.source_path) + ":" + occurrence.line + ":" + occurrence.column + " " + occurrence.raw_link;
+          }));
+          groupsBox.appendChild(groupBox);
+        }
+        if (details) details.hidden = warnings.length === 0;
       }
       function normalizeStorageSegment(value) {
         return String(value == null ? "" : value).trim().toLowerCase()
@@ -394,7 +542,7 @@ cat >> "$output_tmp" <<'HTML_BOOT'
       function normalizeStoredPins(rawPins) {
         return window.LlmWikiGraphEngine.normalizeGraphPinMap(rawPins);
       }
-      if (!root || !dataEl || !window.LlmWikiGraphEngine || !window.LlmWikiGraphEngine.createGraphEngine) {
+      if (!root || !dataEl || !window.LlmWikiGraphEngine || !window.LlmWikiGraphEngine.createGraphEngine || !window.LlmWikiGraphEngine.projectGraphInput) {
         showError("图谱引擎加载失败。请确认 HTML 文件完整生成。");
         return;
       }
@@ -403,6 +551,13 @@ cat >> "$output_tmp" <<'HTML_BOOT'
         showError("图谱数据格式不完整。请重新运行 build-graph-data.sh 与 build-graph-html.sh。");
         return;
       }
+      var warningPayload = parseJson(warningDataEl, { details_status: "unavailable", summary: {} });
+      var inputWarningGroups = warningPayload.details_status === "available" && warningPayload.bundle
+        ? (warningPayload.bundle.groups || [])
+        : [];
+      var projection = window.LlmWikiGraphEngine.projectGraphInput(graphData, inputWarningGroups);
+      graphData = projection.data;
+      renderWarnings(warningPayload, projection.warnings || []);
       var bakedLayout = parseJson(layoutEl, { pins: {} });
       var key = storageNamespace(graphData.meta || {}, window.location && window.location.pathname) + ":graph-pins";
       var themeKey = storageNamespace(graphData.meta || {}, window.location && window.location.pathname) + ":graph-theme";

@@ -31,7 +31,8 @@ test_graph_html_has_stable_mobile_shell_dimensions() {
     html="$tmp_dir/wiki/knowledge-graph.html"
 
     assert_file_contains "$html" ".offline-shell"
-    assert_file_contains "$html" "grid-template-rows: auto minmax(0, 1fr);"
+    assert_file_contains "$html" "grid-template-rows: auto auto minmax(0, 1fr);"
+    assert_file_contains "$html" "grid-row: 3;"
     assert_file_contains "$html" "#graph-root"
     assert_file_contains "$html" "height: 100%;"
     assert_file_contains "$html" "min-height: 560px;"

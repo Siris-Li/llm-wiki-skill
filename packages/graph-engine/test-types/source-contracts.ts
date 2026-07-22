@@ -4,8 +4,11 @@ import {
   buildRenderableGraph,
   buildAtlasModel,
   buildRegularSearchIndex,
+  alignGraphIdentityBySourcePath,
   createGraphOfflineCapabilities,
   deriveAtlasLayout,
+  diffGraphData,
+  normalizeGraphInputCollections,
   normalizeGraphPinMap,
   projectGraphInput,
   resolveAtlasSearchMatches,
@@ -18,6 +21,8 @@ import {
   type GraphData,
   type GraphEngine,
   type GraphInputProjection,
+  type GraphMigrationWarning,
+  type GraphWarningGroup,
   type AtlasCommunity,
   type AtlasEdge,
   type AtlasInsights,
@@ -53,8 +58,13 @@ const graph: GraphData = {
   ]
 };
 const unknownGraph: unknown = graph;
-const inputProjection: GraphInputProjection = projectGraphInput(unknownGraph);
-const typedModel: AtlasModel = buildAtlasModel(inputProjection.data);
+const inputWarnings: GraphWarningGroup[] = [];
+const normalized = normalizeGraphInputCollections(unknownGraph, inputWarnings);
+const inputProjection: GraphInputProjection = projectGraphInput(unknownGraph, inputWarnings);
+const typedModel: AtlasModel = buildAtlasModel(inputProjection.data, inputWarnings);
+const identityAlignment = alignGraphIdentityBySourcePath(graph, graph);
+const graphDiff = diffGraphData(graph, graph);
+const migrationWarning: GraphMigrationWarning | undefined = graphDiff.migrationWarnings[0];
 const typedLayout: AtlasLayout = deriveAtlasLayout(typedModel);
 const typedNode: AtlasNode | undefined = typedModel.byId.a;
 const typedEdge: AtlasEdge | undefined = typedModel.edges[0];
@@ -131,5 +141,9 @@ export function consumeSourceContracts(engine: GraphEngine, visibility: GraphVis
     + semanticVisibility.nodes.length
     + atlasSearch.matchIds.length
     + regularSearch.matchIds.length
+    + normalized.warnings.length
+    + inputProjection.warnings.length
+    + identityAlignment.warnings.length
+    + Number(Boolean(migrationWarning))
     + Number(Boolean(typedNode && typedEdge && typedCommunity && typedVisible.nodes.length && retainedSelection));
 }

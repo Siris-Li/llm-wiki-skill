@@ -5,7 +5,9 @@ import {
 	GRAPH_SSE_SCHEMA_VERSION,
 	GraphSseEventSchema,
 	type GraphSseEvent,
+	type GraphDiffContract,
 } from "@llm-wiki/workbench-contracts";
+import type { GraphDiff } from "@llm-wiki/graph-engine";
 
 import {
 	parseSseJson,
@@ -17,6 +19,25 @@ export type GraphNotificationEvent = Exclude<
 	GraphSseEvent,
 	{ type: "graph_stream_ready" }
 >;
+
+type AssertGraphEventDiffCompatibility<T extends true> = T;
+export type GraphEventDiffCompatibility = AssertGraphEventDiffCompatibility<
+	Omit<NonNullable<Extract<GraphSseEvent, { type: "graph_updated" }>["diff"]>, "migrationWarnings"> extends Omit<GraphDiff, "migrationWarnings">
+		? true
+		: false
+>;
+
+export function toEngineGraphDiff(diff: GraphDiffContract | null): GraphDiff | null {
+	if (!diff) return null;
+	return {
+		...diff,
+		migrationWarnings: diff.migrationWarnings.map((warning) => (
+			warning.code === "identity_alignment_ambiguous"
+				? { ...warning, previous_ids: [], next_ids: [] }
+				: { ...warning, semantic_key: "", previous_edge_ids: [], next_edge_ids: [] }
+		)),
+	};
+}
 
 export class GraphEventsProtocolError extends RecoverableSseProtocolError {
 	constructor(message: string) {
@@ -58,6 +79,7 @@ export interface EventSourceLike {
 }
 
 export interface GraphEventsSubscriptionOptions {
+	kbPath: string;
 	onEvent: (event: GraphNotificationEvent) => void;
 	onReady?: (
 		event: Extract<GraphSseEvent, { type: "graph_stream_ready" }>,
@@ -91,7 +113,7 @@ export function subscribeGraphEvents(
 
 	const connect = () => {
 		if (stopped || offline || source) return;
-		const current = createEventSource("/api/events");
+		const current = createEventSource(`/api/events?kb=${encodeURIComponent(options.kbPath)}`);
 		source = current;
 		current.onmessage = (message) => {
 			if (stopped || source !== current) return;

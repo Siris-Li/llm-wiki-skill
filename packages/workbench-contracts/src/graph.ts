@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { GraphWarningStateSchema, GraphWarningSummarySchema } from "./graph-warnings.js";
+
 const GraphMetaSchema = z
 	.object({
 		build_date: z.string(),
@@ -9,6 +11,7 @@ const GraphMetaSchema = z
 		initial_view: z.array(z.string()).optional(),
 		degraded: z.boolean().optional(),
 		insights_degraded: z.boolean().optional(),
+		warning_summary: GraphWarningSummarySchema.optional(),
 	})
 	.passthrough();
 
@@ -171,6 +174,7 @@ export const GraphReadDataSchema = z.union([
 			state: GraphReadyStateSchema,
 			needsBuild: z.literal(false),
 			data: GraphDataSchema,
+			warning_state: GraphWarningStateSchema,
 		})
 		.strict(),
 	z

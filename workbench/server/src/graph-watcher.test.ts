@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
+
+import type { GraphData, GraphLayoutFile } from "@llm-wiki/graph-engine";
 
 import {
 	graphRebuildFailureMessage,
@@ -7,8 +12,122 @@ import {
 	GRAPH_WATCH_STARTED_LOG_MESSAGE,
 	GraphRebuildQueue,
 	KnowledgeBaseGraphWatcher,
+	migrateGraphLayoutPinsForIdentity,
+	publishGraphRebuildResult,
 	shouldIgnoreGraphWatchPath,
 } from "./graph.js";
+
+test("first path-ID refresh migrates legacy pin keys and preserves existing path pins", () => {
+	const previous = graphWithNodes([
+		{ id: "foo", source_path: "wiki/entities/foo.md" },
+		{ id: "already-path", source_path: "wiki/topics/already-path.md" },
+	]);
+	const next = graphWithNodes([
+		{ id: "wiki/entities/foo.md", source_path: "wiki/entities/foo.md" },
+		{ id: "wiki/topics/already-path.md", source_path: "wiki/topics/already-path.md" },
+	]);
+	const layout: GraphLayoutFile = {
+		version: 2,
+		pins: {
+			foo: { x: 10, y: 20, coordinateSpace: "world" },
+			"wiki/topics/already-path.md": { x: 30, y: 40, coordinateSpace: "world" },
+		},
+		updatedAt: "before",
+	};
+
+	const result = migrateGraphLayoutPinsForIdentity(previous, next, layout);
+	assert.equal(result.changed, true);
+	assert.deepEqual(result.migrationWarnings, []);
+	assert.deepEqual(result.layout.pins, {
+		"wiki/entities/foo.md": { x: 10, y: 20, coordinateSpace: "world" },
+		"wiki/topics/already-path.md": { x: 30, y: 40, coordinateSpace: "world" },
+	});
+	assert.equal("foo" in result.layout.pins, false);
+
+	const targetWins = migrateGraphLayoutPinsForIdentity(previous, next, {
+		...layout,
+		pins: {
+			...layout.pins,
+			"wiki/entities/foo.md": { x: 99, y: 88, coordinateSpace: "world" },
+		},
+	});
+	assert.deepEqual(targetWins.layout.pins["wiki/entities/foo.md"], { x: 99, y: 88, coordinateSpace: "world" });
+});
+
+test("ambiguous source-path alignment retains legacy pins and reports migration warnings", () => {
+	const previous = graphWithNodes([
+		{ id: "foo-a", source_path: "wiki/entities/foo.md" },
+		{ id: "foo-b", source_path: "wiki/entities/foo.md" },
+	]);
+	const next = graphWithNodes([{ id: "wiki/entities/foo.md", source_path: "wiki/entities/foo.md" }]);
+	const layout: GraphLayoutFile = {
+		version: 2,
+		pins: { "foo-a": { x: 10, y: 20, coordinateSpace: "world" } },
+		updatedAt: "before",
+	};
+
+	const result = migrateGraphLayoutPinsForIdentity(previous, next, layout);
+	assert.equal(result.changed, false);
+	assert.deepEqual(result.layout, layout);
+	assert.equal(result.migrationWarnings[0]?.code, "identity_alignment_ambiguous");
+});
+
+test("one rebuild writes migrated layout before publishing a warning-aware no-growth event", async () => {
+	const kbPath = await mkdtemp(path.join(os.tmpdir(), "llm-wiki-pin-migration-"));
+	try {
+		const layoutPath = path.join(kbPath, ".wiki-graph-layout.json");
+		await mkdir(kbPath, { recursive: true });
+		await writeFile(layoutPath, JSON.stringify({
+			version: 2,
+			pins: {
+				foo: { x: 10, y: 20, coordinateSpace: "world" },
+				"wiki/topics/already-path.md": { x: 30, y: 40, coordinateSpace: "world" },
+			},
+			updatedAt: "before",
+		}), "utf8");
+		const previous = graphWithNodes([
+			{ id: "foo", source_path: "wiki/entities/foo.md" },
+			{ id: "already-path", source_path: "wiki/topics/already-path.md" },
+		]);
+		const next = graphWithNodes([
+			{ id: "wiki/entities/foo.md", source_path: "wiki/entities/foo.md" },
+			{ id: "wiki/topics/already-path.md", source_path: "wiki/topics/already-path.md" },
+		]);
+		const events: any[] = [];
+		await publishGraphRebuildResult({
+			kbPath,
+			previous,
+			next,
+			rebuiltAt: "2026-07-20T12:00:00.000Z",
+			warningState: {
+				summary: null,
+				details_status: "unavailable",
+				details_unavailable_reason: "legacy_without_summary",
+				engine_groups: [],
+			},
+			publish(event) {
+				events.push(event);
+			},
+		});
+
+		const stored = JSON.parse(await readFile(layoutPath, "utf8"));
+		assert.deepEqual(stored.pins, {
+			"wiki/entities/foo.md": { x: 10, y: 20, coordinateSpace: "world" },
+			"wiki/topics/already-path.md": { x: 30, y: 40, coordinateSpace: "world" },
+		});
+		assert.equal(events.length, 1);
+		assert.deepEqual(events[0].diff.addedNodes, []);
+		assert.deepEqual(events[0].diff.removedNodes, []);
+		assert.deepEqual(events[0].diff.addedEdges, []);
+		assert.deepEqual(events[0].diff.newCommunities, []);
+		assert.deepEqual(events[0].diff.migrationWarnings, []);
+		assert.equal(events[0].warning_summary, null);
+		assert.equal(events[0].warning_details_status, "unavailable");
+		assert.deepEqual(await readdir(kbPath), [".wiki-graph-layout.json"]);
+	} finally {
+		await rm(kbPath, { recursive: true, force: true });
+	}
+});
 
 test("graph watcher debounces rebuild triggers", async () => {
 	const clock = new FakeClock();
@@ -57,6 +176,9 @@ test("graph watcher ignores external noise and generated graph artifacts", async
 		"node_modules/pkg/index.js",
 		".DS_Store",
 		"wiki/graph-data.json",
+		"wiki/graph-warnings.json",
+		"generated/custom/graph-data.json",
+		"generated/custom/graph-warnings.json",
 		"wiki/knowledge-graph.html",
 		"wiki/knowledge-graph-dark.html",
 		".wiki-graph-layout.json",
@@ -64,6 +186,7 @@ test("graph watcher ignores external noise and generated graph artifacts", async
 		assert.equal(shouldIgnoreGraphWatchPath(filename), true, filename);
 		events.emit(filename);
 	}
+	assert.equal(shouldIgnoreGraphWatchPath("generated/custom/not-graph-data.json"), false);
 	await clock.advance(20);
 	assert.deepEqual(triggered, []);
 
@@ -286,4 +409,17 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 		await Promise.resolve();
 	}
 	assert.equal(predicate(), true);
+}
+
+function graphWithNodes(nodes: Array<{ id: string; source_path: string }>): GraphData {
+	return {
+		meta: {
+			build_date: "2026-07-20T00:00:00.000Z",
+			wiki_title: "Migration",
+			total_nodes: nodes.length,
+			total_edges: 0,
+		},
+		nodes: nodes.map((node) => ({ ...node, label: node.id, type: "topic" })),
+		edges: [],
+	};
 }

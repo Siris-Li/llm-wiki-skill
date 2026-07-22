@@ -31,7 +31,7 @@ describe("runtime graph input projection", () => {
     }
   });
 
-  it("keeps object order and legacy generated-ID collisions while making entries safe", () => {
+  it("keeps object order while avoiding generated-ID collisions and deduplicating communities", () => {
     const projection = projectGraphInput({
       future_top_level_field: { preserved: true },
       meta: { wiki_title: "Malformed", future_meta_field: "kept" },
@@ -55,19 +55,22 @@ describe("runtime graph input projection", () => {
       }
     });
 
-    assert.deepEqual(projection.data.nodes.map((node) => node.id), ["node-0", "node-1", "node-2", "node-1"]);
+    assert.deepEqual(projection.data.nodes.map((node) => node.id), ["node-0", "node-2", "node-3", "node-1"]);
     assert.equal(projection.data.nodes[1]?.future_node_field, "kept");
     assert.deepEqual(projection.data.edges.map((edge) => ({ id: edge.id, from: edge.from, to: edge.to })), [
-      { id: "edge-0", from: "", to: "" },
       { id: "edge-1", from: "node-0", to: "node-1" }
     ]);
-    assert.equal(projection.data.edges[1]?.future_edge_field, "kept");
-    assert.deepEqual(projection.data.learning?.communities.map((community) => community.id), ["c1", "c1"]);
+    assert.equal(projection.data.edges[0]?.future_edge_field, "kept");
+    assert.deepEqual(projection.data.learning?.communities.map((community) => community.id), ["c1"]);
+    assert.deepEqual(projection.warnings.map((warning) => warning.code), [
+      "generated_id_collision",
+      "duplicate_community_id"
+    ]);
     assert.deepEqual((projection.data as Record<string, unknown>).future_top_level_field, { preserved: true });
     assert.equal((projection.data.meta as unknown as Record<string, unknown>).future_meta_field, "kept");
 
     const drawing = prepareRendererAdapterDataForTest(projection.data);
-    assert.deepEqual(drawing.nodes.map((node) => node.id), ["node-0", "node-1", "node-2", "node-1"]);
+    assert.deepEqual(drawing.nodes.map((node) => node.id), ["node-0", "node-2", "node-3", "node-1"]);
     assert.deepEqual(drawing.edges.map((edge) => edge.id), ["edge-1"]);
   });
 

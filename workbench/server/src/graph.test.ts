@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -31,6 +31,25 @@ test("graph data without node source paths is treated as stale", async () => {
 	}
 });
 
+test("graph data rejects a symbolic-link artifact before reading its target", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "llm-wiki-graph-symlink-"));
+	const kbPath = path.join(root, "kb");
+	const outsideGraph = path.join(root, "outside-graph-data.json");
+	try {
+		await mkdir(path.dirname(graphDataPath(kbPath)), { recursive: true });
+		await writeFile(outsideGraph, JSON.stringify({
+			meta: { build_date: "2026-01-01T00:00:00Z", wiki_title: "Outside", total_nodes: 1, total_edges: 0 },
+			nodes: [{ id: "outside", label: "Outside", type: "topic", source_path: "wiki/outside.md" }],
+			edges: [],
+		}), "utf8");
+		await symlink(outsideGraph, graphDataPath(kbPath));
+
+		await assert.rejects(readGraphData(kbPath), /regular non-symlink file/);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("graph snapshot keeps the latest error and ready state authoritative across reconnect reads", async () => {
 	const kbPath = await tempKb();
 	const authority = new GraphAuthorityStore();
@@ -43,7 +62,7 @@ test("graph snapshot keeps the latest error and ready state authoritative across
 			rebuiltAt: "2026-07-15T12:00:00.000Z",
 		});
 
-		assert.deepEqual(await readGraphSnapshot(kbPath, authority), {
+		assert.deepEqual(await readGraphSnapshot(kbPath, authority, () => {}), {
 			state: {
 				status: "error",
 				message: "图谱重建失败",
@@ -52,20 +71,23 @@ test("graph snapshot keeps the latest error and ready state authoritative across
 		});
 
 		await writeGraphFixture(kbPath, "Current graph");
-		authority.record({
+			authority.record({
 			type: "graph_updated",
 			kbPath,
 			diff: null,
 			rebuiltAt: "2026-07-15T12:01:00.000Z",
 			stats: { nodeCount: 1, edgeCount: 0 },
+			warning_summary: null,
+			warning_details_status: "unavailable",
 		});
-		const recovered = await readGraphSnapshot(kbPath, authority);
+		const recovered = await readGraphSnapshot(kbPath, authority, () => {});
 
 		if (recovered.state.status !== "ready") assert.fail("expected recovered graph state");
 		if (!("needsBuild" in recovered)) assert.fail("expected recovered graph data");
 		assert.equal(recovered.state.rebuiltAt, "2026-07-15T12:01:00.000Z");
 		assert.equal(recovered.needsBuild, false);
 		assert.equal(recovered.needsBuild ? null : recovered.data.meta.wiki_title, "Current graph");
+		assert.equal(recovered.needsBuild ? null : recovered.warning_state.details_unavailable_reason, "legacy_without_summary");
 	} finally {
 		await rm(kbPath, { recursive: true, force: true });
 	}

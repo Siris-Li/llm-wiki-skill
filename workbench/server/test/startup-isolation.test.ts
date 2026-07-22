@@ -223,7 +223,7 @@ sleep 30
 		assert.equal((await apiRequest(port, secondToken, TRUSTED_ORIGIN)).status, 200);
 		assert.equal(running.child.exitCode, null);
 
-		const rebuildResponse = await graphRebuildRequest(port, secondToken);
+		const rebuildResponse = await graphRebuildRequest(port, secondToken, kbPath);
 		assert.equal(rebuildResponse.status, 200);
 		await waitForFile(rebuildPidFile, OPERATION_TIMEOUT_MS).catch((error) => {
 			throw new Error(`${String(error)}\n${running?.output() ?? ""}`);
@@ -248,7 +248,7 @@ sleep 30
 		const thirdToken = await readFile(tokenFile, "utf8");
 		assert.notEqual(thirdToken, secondToken);
 		const eventsController = new AbortController();
-		const eventsResponse = await eventStreamRequest(port, thirdToken, eventsController.signal);
+		const eventsResponse = await eventStreamRequest(port, thirdToken, kbPath, eventsController.signal);
 		assert.equal(eventsResponse.status, 200);
 		const eventsReader = eventsResponse.body?.getReader();
 		assert(eventsReader);
@@ -440,9 +440,10 @@ async function apiRequest(port: number, token: string, origin: string): Promise<
 async function eventStreamRequest(
 	port: number,
 	token: string,
+	kbPath: string,
 	signal: AbortSignal,
 ): Promise<Response> {
-	return fetch(`http://127.0.0.1:${port}/api/events`, {
+	return fetch(`http://127.0.0.1:${port}/api/events?kb=${encodeURIComponent(kbPath)}`, {
 		headers: {
 			[TOKEN_HEADER]: token,
 			origin: TRUSTED_ORIGIN,
@@ -462,8 +463,8 @@ async function frontendApiRequest(): Promise<Response> {
 	});
 }
 
-async function graphRebuildRequest(port: number, token: string): Promise<Response> {
-	return fetch(`http://127.0.0.1:${port}/api/graph/rebuild`, {
+async function graphRebuildRequest(port: number, token: string, kbPath: string): Promise<Response> {
+	return fetch(`http://127.0.0.1:${port}/api/graph/rebuild?kb=${encodeURIComponent(kbPath)}`, {
 		method: "POST",
 		headers: {
 			[TOKEN_HEADER]: token,

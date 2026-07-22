@@ -193,6 +193,7 @@ function graphStatusLabel(snapshot?: GraphStatusSnapshot): string {
 	if (snapshot?.status === "loading") return "图谱读取中";
 	if (snapshot?.status === "building") return "图谱构建中";
 	if (snapshot?.status === "ready") {
+		if ((snapshot.warningCount ?? 0) > 0) return "图谱可读·有告警";
 		if (snapshot.animation === "playing") return "图谱更新中";
 		if (snapshot.animation === "queued") return "图谱待更新";
 		return "图谱就绪";
