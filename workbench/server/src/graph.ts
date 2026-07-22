@@ -185,13 +185,16 @@ function graphNodesHavePagePaths(nodes: GraphData["nodes"]): boolean {
 	});
 }
 
-export function triggerGraphRebuild(kbPath: string): { ok: true; status: GraphBuildStatus } {
+export function triggerGraphRebuild(
+	kbPath: string,
+	options: { onFailure?: () => void } = {},
+): { ok: true; status: GraphBuildStatus } {
 	let queue = rebuilds.get(kbPath);
 	if (!queue) {
 		queue = createDefaultRebuildQueue(kbPath);
 		rebuilds.set(kbPath, queue);
 	}
-	return queue.trigger();
+	return queue.trigger(options);
 }
 
 export async function readGraphLayout(kbPath: string): Promise<{ ok: true; layoutPath: string; layout: GraphLayoutFile }> {
@@ -393,10 +396,12 @@ export class GraphRebuildQueue {
 	private stopping = false;
 	private activeRun: AbortController | null = null;
 	private idleResolvers: Array<() => void> = [];
+	private failureCallbacks = new Set<() => void>();
 
 	constructor(private readonly options: RebuildQueueOptions) {}
 
-	trigger(): { ok: true; status: GraphBuildStatus } {
+	trigger(options: { onFailure?: () => void } = {}): { ok: true; status: GraphBuildStatus } {
+		if (options.onFailure) this.failureCallbacks.add(options.onFailure);
 		if (this.running) {
 			this.pending = true;
 			return { ok: true, status: "queued" };
@@ -426,13 +431,19 @@ export class GraphRebuildQueue {
 				try {
 					await this.options.run(controller.signal);
 				} catch (err) {
-					if (!controller.signal.aborted) this.options.onError(err);
+					if (!controller.signal.aborted) {
+						const callbacks = [...this.failureCallbacks];
+						this.failureCallbacks.clear();
+						for (const callback of callbacks) callback();
+						this.options.onError(err);
+					}
 				} finally {
 					if (this.activeRun === controller) this.activeRun = null;
 				}
 			} while (this.pending && !this.stopping);
 		} finally {
 			this.running = false;
+			this.failureCallbacks.clear();
 			this.options.onIdle?.();
 			const resolvers = this.idleResolvers.splice(0);
 			for (const resolve of resolvers) resolve();

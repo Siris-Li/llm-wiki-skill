@@ -14,6 +14,7 @@ import {
 	paginateGraphWarningContext,
 	readGraphWarningContext,
 } from "./graph-warnings.js";
+import { GraphRebuildQueue } from "./graph.js";
 import type { GraphRouteService } from "./routes/graph.js";
 
 const require = createRequire(import.meta.url);
@@ -142,6 +143,10 @@ test("unverified warning files keep the graph summary readable and schedule one 
 		} },
 		{ name: "absolute details ref", reason: "invalid", mutate: async ({ graphPath, pair }) => {
 			pair.graphData.meta.warning_summary!.details_ref = "/tmp/graph-warnings.json";
+			await writeFile(graphPath, JSON.stringify(pair.graphData), "utf8");
+		} },
+		{ name: "drive-relative details ref", reason: "invalid", mutate: async ({ graphPath, pair }) => {
+			pair.graphData.meta.warning_summary!.details_ref = "C:wiki/graph-warnings.json";
 			await writeFile(graphPath, JSON.stringify(pair.graphData), "utf8");
 		} },
 		{ name: "escaping details ref", reason: "invalid", mutate: async ({ graphPath, pair }) => {
@@ -350,6 +355,50 @@ test("a rejected rebuild schedule is released so a later graph read retries", as
 		await new Promise((resolve) => setImmediate(resolve));
 		await read();
 		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(attempts, 2);
+	} finally {
+		await rm(kbPath, { recursive: true, force: true });
+	}
+});
+
+test("a failed background rebuild releases dedupe while concurrent reads still share one attempt", async () => {
+	const kbPath = await tempKb();
+	try {
+		const pair = makePair(1);
+		const graphPath = await writePair(kbPath, pair);
+		await writeFile(path.join(kbPath, "wiki", "graph-warnings.json"), "{damaged", "utf8");
+		let attempts = 0;
+		let scheduled = 0;
+		let releaseRun!: () => void;
+		const runGate = new Promise<void>((resolve) => { releaseRun = resolve; });
+		const queue = new GraphRebuildQueue({
+			run: async () => {
+				attempts += 1;
+				await runGate;
+				throw new Error("background build failed");
+			},
+			onError: () => {},
+		});
+		const read = () => readGraphWarningContext({
+			kbPath,
+			graphPath,
+			graphData: pair.graphData,
+			scheduleRebuild: (_value, options) => {
+				scheduled += 1;
+				return queue.trigger({ onFailure: options?.onFailure });
+			},
+		});
+
+		await Promise.all([read(), read(), read()]);
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(scheduled, 1);
+		assert.equal(attempts, 1);
+
+		releaseRun();
+		await queue.waitForIdle();
+		await read();
+		await queue.waitForIdle();
+		assert.equal(scheduled, 2);
 		assert.equal(attempts, 2);
 	} finally {
 		await rm(kbPath, { recursive: true, force: true });

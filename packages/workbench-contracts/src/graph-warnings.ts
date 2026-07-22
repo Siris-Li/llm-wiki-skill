@@ -19,7 +19,13 @@ export type GraphWarningSeverityContract = z.infer<typeof GraphWarningSeveritySc
 const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 
 function isRelativePosixPath(value: string): boolean {
-	if (!value || value.includes("\\") || value.startsWith("/") || /^[A-Za-z]:\//.test(value)) {
+	if (
+		!value
+		|| value.includes("\\")
+		|| value.startsWith("/")
+		|| /^[A-Za-z]:/.test(value)
+		|| value.startsWith("portable-key:")
+	) {
 		return false;
 	}
 	const segments = value.split("/");

@@ -163,6 +163,8 @@ test("warning paths are strict POSIX knowledge-base-relative paths", () => {
 		"",
 		"/tmp/graph-warnings.json",
 		"C:/tmp/graph-warnings.json",
+		"C:wiki/graph-warnings.json",
+		"C:wiki\\graph-warnings.json",
 		"wiki\\graph-warnings.json",
 		"./wiki/graph-warnings.json",
 		"wiki/../graph-warnings.json",
@@ -173,10 +175,26 @@ test("warning paths are strict POSIX knowledge-base-relative paths", () => {
 		assert.equal(GraphWarningSummarySchema.safeParse({ ...summary, details_ref }).success, false, details_ref);
 	}
 
-	for (const source_path of ["/Users/private/wiki/a.md", "../a.md", "wiki\\a.md", "wiki/./a.md"]) {
+	for (const source_path of [
+		"/Users/private/wiki/a.md",
+		"C:wiki/private.md",
+		"C:wiki\\private.md",
+		"../a.md",
+		"wiki\\a.md",
+		"portable-key:nfc|casefold",
+		"wiki/./a.md",
+	]) {
 		assert.equal(GraphWarningOccurrenceSchema.safeParse({ ...occurrence, source_path }).success, false, source_path);
 	}
-	assert.equal(GraphWarningCandidateSetSchema.safeParse({ ...candidateSet, candidates: ["/Users/private/a.md", "wiki/a.md"] }).success, false);
+	for (const candidates of [
+		["/Users/private/a.md", "wiki/a.md"],
+		["C:wiki/private.md"],
+		["C:wiki\\private.md"],
+		["portable-key:nfc|casefold"],
+		["wiki/../private.md"],
+	]) {
+		assert.equal(GraphWarningCandidateSetSchema.safeParse({ ...candidateSet, candidate_count: candidates.length, candidates }).success, false, candidates[0]);
+	}
 });
 
 test("warning positions and byte ranges reject impossible values", () => {

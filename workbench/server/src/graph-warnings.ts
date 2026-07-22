@@ -39,6 +39,15 @@ export interface GraphWarningContext {
 	bundle: GraphWarningBundle | null;
 }
 
+export interface GraphRebuildScheduleOptions {
+	onFailure?: () => void;
+}
+
+type ScheduleRebuild = (
+	kbPath: string,
+	options?: GraphRebuildScheduleOptions,
+) => unknown;
+
 type WarningUnavailableReason = Exclude<
 	GraphWarningStateContract["details_unavailable_reason"],
 	null
@@ -50,7 +59,7 @@ export async function readGraphWarningContext(input: {
 	kbPath: string;
 	graphPath: string;
 	graphData: GraphData;
-	scheduleRebuild: (kbPath: string) => unknown;
+	scheduleRebuild: ScheduleRebuild;
 }): Promise<GraphWarningContext> {
 	const rawSummary = input.graphData.meta?.warning_summary;
 	const parsedSummary = GraphWarningSummarySchema.safeParse(rawSummary);
@@ -152,7 +161,7 @@ function unavailableContext(
 	input: {
 		kbPath: string;
 		graphData: GraphData;
-		scheduleRebuild: (kbPath: string) => unknown;
+		scheduleRebuild: ScheduleRebuild;
 	},
 	summary: GraphWarningSummaryContract | null,
 	reason: WarningUnavailableReason,
@@ -171,7 +180,7 @@ function unavailableContext(
 }
 
 function scheduleRebuildOnce(
-	input: { kbPath: string; scheduleRebuild: (kbPath: string) => unknown },
+	input: { kbPath: string; scheduleRebuild: ScheduleRebuild },
 	buildId: string,
 	reason: WarningUnavailableReason,
 ): void {
@@ -183,8 +192,13 @@ function scheduleRebuildOnce(
 		if (scheduledRebuilds.get(key) === token) scheduledRebuilds.delete(key);
 	};
 	try {
-		const scheduled = input.scheduleRebuild(input.kbPath);
-		if (isPromiseLike(scheduled)) void Promise.resolve(scheduled).catch(release);
+		const scheduled = input.scheduleRebuild(input.kbPath, { onFailure: release });
+		if (isFailedScheduleResult(scheduled)) release();
+		if (isPromiseLike(scheduled)) {
+			void Promise.resolve(scheduled).then((result) => {
+				if (isFailedScheduleResult(result)) release();
+			}, release);
+		}
 	} catch {
 		release();
 	}
@@ -199,6 +213,12 @@ function clearScheduledRebuilds(kbPath: string): void {
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
 	return Boolean(value && typeof (value as { then?: unknown }).then === "function");
+}
+
+function isFailedScheduleResult(value: unknown): boolean {
+	if (!value || typeof value !== "object") return false;
+	const result = value as { ok?: unknown; status?: unknown };
+	return result.ok === false || result.status === "failed" || result.status === "failure";
 }
 
 function rawBuildId(graphData: GraphData): string {
