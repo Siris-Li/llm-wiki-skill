@@ -13,8 +13,9 @@ This is the core-only release for Tasks 1–4. Tasks 5–6 are deliberately defe
 - Regression fixture baseline refresh: `7dd71f45` (`test: refresh graph warning identity fixtures [task 4]`).
 - Paper graph fixture warning-state refresh: `e7b5c93c` (`test: keep Paper graph fixture warning-aware [task 4]`).
 - Offline warning path-redaction fix: `c189c4c5` (`fix: redact unsafe offline warning summary paths`).
-- The local matrix below ran at the current branch tip `c4255607`, which contains the implementation head, both fixture refreshes, and the review fix.
-- Pull-request CI ran successfully at `cfd80a9a` on PR #306.
+- Warning-only refresh fix: `33adcdf2` (`fix: clear animation state for warning-only refreshes`). This keeps a graph readable instead of leaving it in “update waiting to play” when a refresh adds migration notices but no visual graph change.
+- The local matrix below ran at the current implementation tip `33adcdf2`, which contains the implementation head, fixture refreshes, review fixes, and the warning-only refresh fix.
+- Pull-request CI previously ran successfully at `cfd80a9a` on PR #306; the new head is queued for the same required checks after this fix.
 - No Markdown source was modified by the graph build or read-only checks.
 
 ## Pull-request CI evidence
@@ -28,7 +29,7 @@ This is the core-only release for Tasks 1–4. Tasks 5–6 are deliberately defe
 | Command | Local result |
 |---|---|
 | `bash tests/regression.sh` | PASS — all regression checks passed, including path-identity build, warning exit codes, lint output, and offline warning browser coverage. |
-| `npm run quality-and-tests` | PASS — repository privacy, builds, boundaries, 809 graph-engine tests, 43 graph-path tests, contracts, server checks, web tests, type checks, and lint all passed; the command ended with `all checks passed`. |
+| `npm run quality-and-tests` | PASS — repository privacy, builds, boundaries, graph-engine and graph-path tests, contracts, server checks, web tests, type checks, and lint all passed; the command ended with `all checks passed`. |
 | `npm run test:browser:main-flows -w @llm-wiki-agent/web` | PASS — seven browser main flows passed; graph-host error recovery and offline-host browser acceptance also passed. |
 | `bash tests/graph-offline-warnings.regression-1.sh` | PASS — available, mismatched, missing-sidecar, legacy, and large read-only warning HTML cases passed in Chromium. |
 | `node --test tests/js/wiki-link-cli.test.js` | PASS — invalid warning summaries cannot copy an absolute machine path into the offline payload. |
@@ -53,7 +54,7 @@ The rows below follow the V3 design document in order. The required pull-request
 | Stage 3 | 预览失效 | Planned rename preview tests; no Task 5 implementation in this release | NOT PART OF THIS CORE RELEASE. No rename preview invalidation is claimed. |
 | Stage 1 | 引擎兜底 | `npm run quality-and-tests`; `bash tests/regression.sh` | PASS locally. Duplicate nodes, edges, and communities use first-wins behavior; generated IDs avoid occupied IDs; input and engine warnings reach one model. |
 | Stage 2 | 告警存储 | `npm run quality-and-tests`; `bash tests/graph-offline-warnings.regression-1.sh` | PASS locally. The graph summary and sibling warning sidecar share build identity and digest; candidate sets are deduplicated; stale or mismatched details stay unavailable without hiding the readable graph. |
-| Stage 2 | 工作台告警 | `npm run test:browser:main-flows -w @llm-wiki-agent/web`; `npm run quality-and-tests` | PASS in browser and focused coverage. A graph with content warnings remains ready and readable; warning meanings, relative paths, pagination, recovery scheduling, read-only details, and migration notices are covered. |
+| Stage 2 | 工作台告警 | `npm run test:browser:main-flows -w @llm-wiki-agent/web`; `npm run quality-and-tests` | PASS in browser and focused coverage. A graph with content warnings remains ready and readable; warning meanings, relative paths, pagination, recovery scheduling, read-only details, and migration notices are covered. A warning-only refresh also clears its pending animation state instead of leaving the graph stuck at “update waiting to play”. |
 | Stage 3 | 工作台改名 | Planned rename UI and recovery tests; no Task 5–6 implementation in this release | NOT PART OF THIS CORE RELEASE. No rename or recovery action is claimed. |
 | Stage 2 | 离线 HTML | `bash tests/regression.sh`; `bash tests/graph-offline-warnings.regression-1.sh` | PASS locally in Chromium. Offline output keeps warning summaries and bounded read-only details, handles unavailable sidecars, and never exposes absolute machine paths or write actions. |
 | Stage 2 | 首次迁移 | `npm run quality-and-tests`; `npm run test:browser:main-flows -w @llm-wiki-agent/web` | PASS locally. Refresh comparison aligns nodes, directed edges, communities, and existing pins by page path so an identity migration does not appear as false growth or loss. |
