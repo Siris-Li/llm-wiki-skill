@@ -19,7 +19,7 @@ This is the core-only release for Tasks 1–4. Tasks 5–6 are deliberately defe
 | Command | Local result |
 |---|---|
 | `bash tests/regression.sh` | PASS — all regression checks passed, including path-identity build, warning exit codes, lint output, and offline warning browser coverage. |
-| `npm run quality-and-tests` | PASS — repository privacy, builds, boundaries, 809 web tests, 43 graph-path tests, contracts, server checks, type checks, and lint all passed; the command ended with `all checks passed`. |
+| `npm run quality-and-tests` | PASS — repository privacy, builds, boundaries, 809 graph-engine tests, 43 graph-path tests, contracts, server checks, web tests, type checks, and lint all passed; the command ended with `all checks passed`. |
 | `npm run test:browser:main-flows -w @llm-wiki-agent/web` | PASS — seven browser main flows passed; graph-host error recovery and offline-host browser acceptance also passed. |
 | `bash tests/graph-offline-warnings.regression-1.sh` | PASS — available, mismatched, missing-sidecar, legacy, and large read-only warning HTML cases passed in Chromium. |
 | `node --import tsx --test workbench/server/src/graph-rename-portability.test.ts` | NOT APPLICABLE — the file does not exist. Stage 3 equivalent-name rename portability is deferred and is not claimed as passed. |
