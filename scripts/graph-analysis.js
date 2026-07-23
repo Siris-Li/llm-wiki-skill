@@ -37,14 +37,19 @@ function loadNodeDetails(nodes, degraded, maxLines) {
   const byId = {};
 
   for (const node of nodes) {
-    const filePath = node._file_path || node.source_path;
-    const raw = fs.readFileSync(filePath, "utf8");
+    const hasPreloadedContent = Object.prototype.hasOwnProperty.call(node, "_content");
+    const raw = hasPreloadedContent
+      ? String(node._content == null ? "" : node._content)
+      : fs.readFileSync(node._file_path || node.source_path, "utf8");
     const frontmatter = extractFrontmatter(raw);
     const parsedSources = parseSourcesFrontmatter(frontmatter.frontmatter);
+    const preloadedSignals = node._signals && typeof node._signals === "object"
+      ? node._signals
+      : null;
     const normalizedNode = {
       ...node,
       content: normalizeBody(raw, degraded, maxLines),
-      _signals: {
+      _signals: preloadedSignals || {
         sources: parsedSources.sources,
         sourceSignalAvailable: parsedSources.signalAvailable,
         sourceFieldPresent: parsedSources.hasField,

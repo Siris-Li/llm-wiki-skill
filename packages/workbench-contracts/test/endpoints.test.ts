@@ -170,12 +170,19 @@ test("isMigratedJsonPath 接受 migrated-json、拒绝专用响应路径", () =>
 	assert.equal(isMigratedJsonPath("/api/knowledge-base"), true);
 	assert.equal(isMigratedJsonPath("/api/commands"), true);
 	assert.equal(isMigratedJsonPath("/api/graph"), true);
+	assert.equal(isMigratedJsonPath("/api/graph/warnings"), true);
 	assert.equal(isMigratedJsonPath("/api/graph/rebuild"), true);
 	assert.equal(isMigratedJsonPath("/api/prompt"), false); // sse，不是 migrated-json
 	assert.equal(
 		isMigratedJsonPath("/api/artifacts/x/files/y.md"),
 		false, // file-download，不是 migrated-json
 	);
+});
+
+test("graph warning pages are a read-only migrated JSON endpoint", () => {
+	const endpoint = findEndpoint("GET", "/api/graph/warnings");
+	assert.equal(endpoint?.kind, "migrated-json");
+	assert.equal(endpoint?.safety, "read-only");
 });
 
 test("config / models / auth 已迁移为 migrated-json，并保持安全分类", () => {

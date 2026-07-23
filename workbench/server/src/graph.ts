@@ -1,12 +1,28 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { watch } from "node:fs";
-import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { diffGraphData, normalizeGraphLayoutFile, type GraphData, type GraphDiff, type GraphLayoutFile } from "@llm-wiki/graph-engine";
-import type { GraphAuthorityState } from "@llm-wiki/workbench-contracts";
+import {
+	alignGraphIdentityBySourcePath,
+	diffGraphData,
+	normalizeGraphLayoutFile,
+	type GraphData,
+	type GraphDiff,
+	type GraphLayoutFile,
+	type GraphMigrationWarning,
+} from "@llm-wiki/graph-engine";
+import type {
+	GraphAuthorityState,
+	GraphWarningPageContract,
+	GraphWarningStateContract,
+	GraphWarningSummaryContract,
+} from "@llm-wiki/workbench-contracts";
+
+import { paginateGraphWarningContext, readGraphWarningContext } from "./graph-warnings.js";
 
 const GRAPH_BUILD_STOP_TIMEOUT_MS = 1_000;
 const GRAPH_BUILD_ABORT_GRACE_MS = 100;
@@ -24,6 +40,8 @@ export type GraphEvent =
 			diff: GraphDiff | null;
 			rebuiltAt: string;
 			stats: { nodeCount: number; edgeCount: number };
+			warning_summary: GraphWarningSummaryContract | null;
+			warning_details_status: "available" | "unavailable";
 	  }
 	| {
 			type: "graph_error";
@@ -36,7 +54,7 @@ export type GraphSnapshot =
 	| { state: Extract<GraphAuthorityState, { status: "error" }> }
 	| ({ state: Extract<GraphAuthorityState, { status: "ready" }> } & (
 		| { needsBuild: true }
-		| { needsBuild: false; data: GraphData }
+		| { needsBuild: false; data: GraphData; warning_state: GraphWarningStateContract }
 	));
 
 type RebuildQueueOptions = {
@@ -77,11 +95,15 @@ export function graphLayoutPath(kbPath: string): string {
 
 export async function readGraphData(kbPath: string): Promise<GraphReadResult> {
 	const graphPath = graphDataPath(kbPath);
-	const content = await readFile(graphPath, "utf8").catch((err: NodeJS.ErrnoException) => {
+	const graphStat = await lstat(graphPath).catch((err: NodeJS.ErrnoException) => {
 		if (err.code === "ENOENT") return null;
 		throw err;
 	});
-	if (content === null) return { ok: true, needsBuild: true, graphPath };
+	if (graphStat === null) return { ok: true, needsBuild: true, graphPath };
+	if (graphStat.isSymbolicLink() || !graphStat.isFile()) {
+		throw new Error("graph-data.json must be a regular non-symlink file");
+	}
+	const content = await readFile(graphPath, "utf8");
 	const data = JSON.parse(content) as GraphData;
 	if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
 		throw new Error("graph-data.json 格式不完整");
@@ -118,13 +140,42 @@ const graphAuthority = new GraphAuthorityStore();
 export async function readGraphSnapshot(
 	kbPath: string,
 	authority: GraphAuthorityStore = graphAuthority,
+	scheduleRebuild: (kbPath: string) => unknown = triggerGraphRebuild,
 ): Promise<GraphSnapshot> {
 	const state = authority.read(kbPath);
 	if (state.status === "error") return { state };
 	const graph = await readGraphData(kbPath);
-	return graph.needsBuild
-		? { state, needsBuild: true }
-		: { state, needsBuild: false, data: graph.data };
+	if (graph.needsBuild) return { state, needsBuild: true };
+	const warningContext = await readGraphWarningContext({
+		kbPath,
+		graphPath: graph.graphPath,
+		graphData: graph.data,
+		scheduleRebuild,
+	});
+	return {
+		state,
+		needsBuild: false,
+		data: graph.data,
+		warning_state: warningContext.publicState,
+	};
+}
+
+export async function readGraphWarnings(
+	kbPath: string,
+	query: { cursor?: string; limit: number },
+	scheduleRebuild: (kbPath: string) => unknown = triggerGraphRebuild,
+): Promise<GraphWarningPageContract> {
+	const graph = await readGraphData(kbPath);
+	if (graph.needsBuild) {
+		throw Object.assign(new Error("graph data does not exist"), { code: "ENOENT" });
+	}
+	const context = await readGraphWarningContext({
+		kbPath,
+		graphPath: graph.graphPath,
+		graphData: graph.data,
+		scheduleRebuild,
+	});
+	return paginateGraphWarningContext(context, query);
 }
 
 function graphNodesHavePagePaths(nodes: GraphData["nodes"]): boolean {
@@ -134,13 +185,16 @@ function graphNodesHavePagePaths(nodes: GraphData["nodes"]): boolean {
 	});
 }
 
-export function triggerGraphRebuild(kbPath: string): { ok: true; status: GraphBuildStatus } {
+export function triggerGraphRebuild(
+	kbPath: string,
+	options: { onFailure?: () => void } = {},
+): { ok: true; status: GraphBuildStatus } {
 	let queue = rebuilds.get(kbPath);
 	if (!queue) {
 		queue = createDefaultRebuildQueue(kbPath);
 		rebuilds.set(kbPath, queue);
 	}
-	return queue.trigger();
+	return queue.trigger(options);
 }
 
 export async function readGraphLayout(kbPath: string): Promise<{ ok: true; layoutPath: string; layout: GraphLayoutFile }> {
@@ -164,6 +218,120 @@ export async function writeGraphLayout(kbPath: string, input: unknown): Promise<
 	await mkdir(path.dirname(layoutPath), { recursive: true });
 	await writeFile(layoutPath, `${JSON.stringify(layout, null, 2)}\n`, "utf8");
 	return { ok: true, layoutPath, layout };
+}
+
+export function migrateGraphLayoutPinsForIdentity(
+	previous: GraphData,
+	next: GraphData,
+	layout: GraphLayoutFile,
+): { layout: GraphLayoutFile; changed: boolean; migrationWarnings: GraphMigrationWarning[] } {
+	const alignment = alignGraphIdentityBySourcePath(previous, next);
+	const pins = { ...layout.pins };
+	let changed = false;
+	for (const [previousId, nextId] of alignment.previousToNext) {
+		if (previousId === nextId || !Object.hasOwn(pins, previousId)) continue;
+		if (!Object.hasOwn(pins, nextId)) pins[nextId] = pins[previousId]!;
+		delete pins[previousId];
+		changed = true;
+	}
+	return {
+		layout: changed ? { ...layout, pins } : layout,
+		changed,
+		migrationWarnings: alignment.warnings,
+	};
+}
+
+export async function publishGraphRebuildResult(input: {
+	kbPath: string;
+	previous: GraphData | null;
+	next: GraphData;
+	rebuiltAt: string;
+	warningState: GraphWarningStateContract;
+	publish?: (event: Extract<GraphEvent, { type: "graph_updated" }>) => void;
+}): Promise<void> {
+	const diff = input.previous ? diffGraphData(input.previous, input.next) : null;
+	if (input.previous) {
+		const currentLayout = await readGraphLayoutForIdentityMigration(input.kbPath);
+		const migration = migrateGraphLayoutPinsForIdentity(input.previous, input.next, currentLayout);
+		if (migration.changed) {
+			await writeGraphLayoutAtomically(input.kbPath, {
+				...migration.layout,
+				updatedAt: input.rebuiltAt,
+			});
+		}
+	}
+
+	const event: Extract<GraphEvent, { type: "graph_updated" }> = {
+		type: "graph_updated",
+		kbPath: input.kbPath,
+		diff,
+		rebuiltAt: input.rebuiltAt,
+		stats: {
+			nodeCount: Number(input.next.meta?.total_nodes ?? input.next.nodes?.length ?? 0),
+			edgeCount: Number(input.next.meta?.total_edges ?? input.next.edges?.length ?? 0),
+		},
+		warning_summary: input.warningState.summary,
+		warning_details_status: input.warningState.details_status,
+	};
+	(input.publish ?? emitGraphEvent)(event);
+}
+
+async function writeGraphLayoutAtomically(kbPath: string, layout: GraphLayoutFile): Promise<void> {
+	const layoutPath = graphLayoutPath(kbPath);
+	await mkdir(path.dirname(layoutPath), { recursive: true });
+	const temporaryPath = path.join(
+		path.dirname(layoutPath),
+		`.${path.basename(layoutPath)}.${randomUUID()}.tmp`,
+	);
+	try {
+		await writeFile(temporaryPath, `${JSON.stringify(layout, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+		await rename(temporaryPath, layoutPath);
+	} finally {
+		await unlink(temporaryPath).catch((error: NodeJS.ErrnoException) => {
+			if (error.code !== "ENOENT") throw error;
+		});
+	}
+}
+
+async function readGraphLayoutForIdentityMigration(kbPath: string): Promise<GraphLayoutFile> {
+	const layoutPath = graphLayoutPath(kbPath);
+	const content = await readFile(layoutPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+		if (error.code === "ENOENT") return null;
+		throw error;
+	});
+	if (content === null) return emptyGraphLayout();
+	try {
+		const raw = JSON.parse(content) as {
+			version?: unknown;
+			pins?: Record<string, unknown>;
+			updatedAt?: unknown;
+		};
+		const normalized = normalizeGraphLayout(raw);
+		for (const [key, value] of Object.entries(raw.pins ?? {})) {
+			if (Object.hasOwn(normalized.pins, key) || !isSafeLegacyPinKey(key)) continue;
+			const pin = legacyPinPosition(value, raw.version);
+			if (pin) normalized.pins[key] = pin;
+		}
+		return normalized;
+	} catch {
+		return emptyGraphLayout();
+	}
+}
+
+function isSafeLegacyPinKey(key: string): boolean {
+	return key.trim() === key && key.length > 0 && !key.includes("/") && !key.includes("\\") && key !== "." && key !== "..";
+}
+
+function legacyPinPosition(value: unknown, version: unknown): GraphLayoutFile["pins"][string] | null {
+	if (!value || typeof value !== "object") return null;
+	const pin = value as { x?: unknown; y?: unknown; coordinateSpace?: unknown };
+	const x = Number(pin.x);
+	const y = Number(pin.y);
+	if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+	const coordinateSpace = pin.coordinateSpace === "world" || pin.coordinateSpace === "legacy-percent"
+		? pin.coordinateSpace
+		: version === 1 ? "legacy-percent" : "world";
+	return { x, y, coordinateSpace };
 }
 
 export function subscribeGraphEvents(listener: (event: GraphEvent) => void): () => void {
@@ -213,7 +381,11 @@ export function shouldIgnoreGraphWatchPath(filename: string | null): boolean {
 		return true;
 	}
 	if (normalized === ".wiki-graph-layout.json") return true;
-	if (normalized === "wiki/graph-data.json") return true;
+	if (
+		!segments.includes("..") &&
+		!segments.includes(".") &&
+		["graph-data.json", "graph-warnings.json"].includes(segments.at(-1) ?? "")
+	) return true;
 	if (/^wiki\/knowledge-graph.*\.html$/.test(normalized)) return true;
 	return false;
 }
@@ -224,10 +396,12 @@ export class GraphRebuildQueue {
 	private stopping = false;
 	private activeRun: AbortController | null = null;
 	private idleResolvers: Array<() => void> = [];
+	private failureCallbacks = new Set<() => void>();
 
 	constructor(private readonly options: RebuildQueueOptions) {}
 
-	trigger(): { ok: true; status: GraphBuildStatus } {
+	trigger(options: { onFailure?: () => void } = {}): { ok: true; status: GraphBuildStatus } {
+		if (options.onFailure) this.failureCallbacks.add(options.onFailure);
 		if (this.running) {
 			this.pending = true;
 			return { ok: true, status: "queued" };
@@ -257,13 +431,19 @@ export class GraphRebuildQueue {
 				try {
 					await this.options.run(controller.signal);
 				} catch (err) {
-					if (!controller.signal.aborted) this.options.onError(err);
+					if (!controller.signal.aborted) {
+						const callbacks = [...this.failureCallbacks];
+						this.failureCallbacks.clear();
+						for (const callback of callbacks) callback();
+						this.options.onError(err);
+					}
 				} finally {
 					if (this.activeRun === controller) this.activeRun = null;
 				}
 			} while (this.pending && !this.stopping);
 		} finally {
 			this.running = false;
+			this.failureCallbacks.clear();
 			this.options.onIdle?.();
 			const resolvers = this.idleResolvers.splice(0);
 			for (const resolve of resolvers) resolve();
@@ -430,15 +610,18 @@ function createDefaultRebuildQueue(kbPath: string): GraphRebuildQueue {
 			const graph = await readGraphData(kbPath);
 			signal.throwIfAborted();
 			if (graph.needsBuild) return;
-			emitGraphEvent({
-				type: "graph_updated",
+			const warningContext = await readGraphWarningContext({
 				kbPath,
-				diff: previous && !previous.needsBuild ? diffGraphData(previous.data, graph.data) : null,
+				graphPath: graph.graphPath,
+				graphData: graph.data,
+				scheduleRebuild: triggerGraphRebuild,
+			});
+			await publishGraphRebuildResult({
+				kbPath,
+				previous: previous && !previous.needsBuild ? previous.data : null,
+				next: graph.data,
 				rebuiltAt: new Date().toISOString(),
-				stats: {
-					nodeCount: Number(graph.data.meta?.total_nodes ?? graph.data.nodes?.length ?? 0),
-					edgeCount: Number(graph.data.meta?.total_edges ?? graph.data.edges?.length ?? 0),
-				},
+				warningState: warningContext.publicState,
 			});
 		},
 		onError: (err) => {

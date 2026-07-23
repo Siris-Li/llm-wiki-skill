@@ -50,6 +50,72 @@ export interface GraphMeta {
   initial_view?: NodeId[];
   degraded?: boolean;
   insights_degraded?: boolean;
+  warning_summary?: GraphWarningSummary;
+}
+
+export type GraphWarningCode =
+  | "duplicate_node_id"
+  | "duplicate_edge_id"
+  | "duplicate_community_id"
+  | "generated_id_collision"
+  | "ambiguous_wikilink"
+  | "broken_wikilink"
+  | "pending_wikilink"
+  | "noncanonical_wikilink"
+  | "portable_path_collision";
+
+export type GraphWarningSeverity = "error" | "warning";
+
+export interface GraphWarningSummary {
+  build_id: string;
+  total_groups: number;
+  total_occurrences: number;
+  error_occurrences: number;
+  warning_occurrences: number;
+  by_code: Partial<Record<GraphWarningCode, number>>;
+  details_ref: string;
+  details_sha256: string;
+}
+
+export interface GraphWarningCandidateSet {
+  candidate_set_id: string;
+  candidate_count: number;
+  candidates: string[];
+}
+
+export type GraphWarningLinkKind = "page_wikilink" | "same_page_anchor" | "attachment_wikilink";
+
+export interface GraphWarningOccurrence {
+  occurrence_id: string;
+  source_path: string;
+  line: number;
+  column: number;
+  start_byte: number;
+  end_byte: number;
+  raw_link: string;
+  file_sha256: string;
+  link_kind: GraphWarningLinkKind;
+  read_only: boolean;
+}
+
+export interface GraphWarningGroup {
+  warning_id: string;
+  code: GraphWarningCode;
+  severity: GraphWarningSeverity;
+  message: string;
+  id?: string;
+  target_key?: string;
+  candidate_set_id?: string;
+  occurrence_count: number;
+  occurrences: GraphWarningOccurrence[];
+}
+
+export interface GraphWarningBundle {
+  version: 1;
+  build_id: string;
+  summary: GraphWarningSummary;
+  candidate_sets: GraphWarningCandidateSet[];
+  groups: GraphWarningGroup[];
 }
 
 export interface GraphNode {
@@ -229,12 +295,27 @@ export interface GraphDiff {
   addedEdges: EdgeId[];
   removedEdges: EdgeId[];
   newCommunities: CommunityId[];
+  migrationWarnings: GraphMigrationWarning[];
   stats: {
     nodeCount: number;
     edgeCount: number;
     communityCount: number;
   };
 }
+
+export type GraphMigrationWarning =
+  | {
+      code: "identity_alignment_ambiguous";
+      source_path: string | null;
+      previous_ids: NodeId[];
+      next_ids: NodeId[];
+    }
+  | {
+      code: "legacy_semantic_edge_duplicate";
+      semantic_key: string;
+      previous_edge_ids: EdgeId[];
+      next_edge_ids: EdgeId[];
+    };
 
 export interface SelectionFacts {
   pageCount: number;

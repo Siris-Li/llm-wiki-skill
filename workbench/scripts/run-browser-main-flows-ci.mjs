@@ -54,11 +54,18 @@ export const BROWSER_CI_STAGES = {
 	},
 	"browser-tests": {
 		timeoutMs: 270_000,
-		invocation: {
-			command: npmCommand(),
-			args: ["run", "test:browser:main-flows", "-w", "@llm-wiki-agent/web"],
-			cwd: REPO_ROOT,
-		},
+		invocations: [
+			{
+				command: npmCommand(),
+				args: ["run", "test:browser:main-flows", "-w", "@llm-wiki-agent/web"],
+				cwd: REPO_ROOT,
+			},
+			{
+				command: "bash",
+				args: ["tests/graph-offline-warnings.regression-1.sh"],
+				cwd: REPO_ROOT,
+			},
+		],
 	},
 };
 
@@ -103,6 +110,7 @@ export async function runBrowserCiStage(stageId, {
 	evidenceDir,
 	environment,
 	invocation,
+	invocations,
 	signal,
 	timeoutMs,
 }) {
@@ -120,17 +128,26 @@ export async function runBrowserCiStage(stageId, {
 	};
 	let result;
 	let executionError;
-	try {
-		result = await runInvocation(invocation, environment, timeoutMs, undefined, {
-			onOutput: observeOutput,
-			signal,
-		});
-	} catch (error) {
-		executionError = error;
+	const outputs = [];
+	const commands = invocations ?? (invocation ? [invocation] : []);
+	const deadline = Date.now() + timeoutMs;
+	if (commands.length === 0) executionError = new Error(`browser CI stage ${stageId} has no command`);
+	for (const current of commands) {
+		if (executionError) break;
+		try {
+			result = await runInvocation(current, environment, Math.max(1, deadline - Date.now()), undefined, {
+				onOutput: observeOutput,
+				signal,
+			});
+			outputs.push(result.output ?? "");
+			if (result.code !== 0 || result.timedOut || result.aborted) break;
+		} catch (error) {
+			executionError = error;
+		}
 	}
 	const finishedAt = new Date();
 	const output = sanitizeOutput([
-		result?.output ?? "",
+		outputs.filter(Boolean).join("\n"),
 		executionError instanceof Error ? executionError.stack ?? executionError.message : executionError ? String(executionError) : "",
 	].filter(Boolean).join("\n"), { home: environment.HOME });
 	const aborted = result?.aborted ?? signal?.aborted ?? false;

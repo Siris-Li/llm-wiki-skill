@@ -3,8 +3,12 @@
     "GraphData",
     "GraphDiff",
     "GraphLayoutFile",
+    "GraphMigrationWarning",
+    "GraphWarningBundle",
+    "alignGraphIdentityBySourcePath",
     "diffGraphData",
-    "normalizeGraphLayoutFile"
+    "normalizeGraphLayoutFile",
+    "projectGraphInput"
   ],
   "workbenchWeb": [
     "GraphCommunitySummaryPayload",
@@ -52,7 +56,8 @@
     "createGraphEngine",
     "createGraphOfflineCapabilities",
     "normalizeGraphLayoutFile",
-    "normalizeGraphPinMap"
+    "normalizeGraphPinMap",
+    "projectGraphInput"
   ],
   "supportedPublicCompatibility": [
     "createGraphEngine",

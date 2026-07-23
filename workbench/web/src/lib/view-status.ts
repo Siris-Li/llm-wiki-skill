@@ -10,7 +10,8 @@ export interface GraphStatusSnapshot {
 	status: GraphStatusKind;
 	summary?: string | null;
 	animation?: "idle" | "playing" | "queued";
+	warningCount: number;
 }
 
 export const DEFAULT_CHAT_STATUS: ChatStatusSnapshot = { status: "idle", summary: null };
-export const DEFAULT_GRAPH_STATUS: GraphStatusSnapshot = { status: "idle", summary: null, animation: "idle" };
+export const DEFAULT_GRAPH_STATUS: GraphStatusSnapshot = { status: "idle", summary: null, animation: "idle", warningCount: 0 };

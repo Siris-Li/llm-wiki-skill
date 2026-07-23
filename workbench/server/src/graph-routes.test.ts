@@ -5,6 +5,7 @@ import type {
 	GraphLayoutData,
 	GraphReadData,
 	GraphRebuildData,
+	GraphWarningPageContract,
 } from "@llm-wiki/workbench-contracts";
 
 import { createApp } from "./app.js";
@@ -29,6 +30,22 @@ const graphData = {
 	edges: [],
 };
 const emptyLayout = { version: 2 as const, pins: {}, updatedAt: "" };
+const warningSummary = {
+	build_id: "b".repeat(64),
+	total_groups: 1,
+	total_occurrences: 1,
+	error_occurrences: 1,
+	warning_occurrences: 0,
+	by_code: { broken_wikilink: 1 },
+	details_ref: "wiki/graph-warnings.json",
+	details_sha256: "d".repeat(64),
+};
+const warningState = {
+	summary: warningSummary,
+	details_status: "available" as const,
+	details_unavailable_reason: null,
+	engine_groups: [],
+};
 
 function createGraphService(
 	overrides: Partial<GraphRouteService> = {},
@@ -54,6 +71,15 @@ function createGraphService(
 			state: { status: "ready", rebuiltAt: null },
 			needsBuild: false,
 			data: graphData,
+			warning_state: warningState,
+		}),
+		readGraphWarnings: async (): Promise<GraphWarningPageContract> => ({
+			details_status: "available",
+			build_id: warningSummary.build_id,
+			summary: warningSummary,
+			groups: [],
+			candidate_sets: [],
+			next_cursor: null,
 		}),
 		readGraphLayout: async (): Promise<GraphLayoutData> => emptyLayout,
 		writeGraphLayout: async (_path, input): Promise<GraphLayoutData> => ({
@@ -179,6 +205,7 @@ test("graph read 与 layout read/save 返回统一 success envelope", async () =
 			state: { status: "ready", rebuiltAt: null },
 			needsBuild: false,
 			data: graphData,
+			warning_state: warningState,
 		},
 	});
 
@@ -209,6 +236,79 @@ test("graph read 与 layout read/save 返回统一 success envelope", async () =
 			},
 		},
 	]);
+});
+
+test("graph warnings route parses pagination and supports active or explicit registered KB", async () => {
+	const calls: Array<{ kbPath: string; query: unknown }> = [];
+	const page: GraphWarningPageContract = {
+		details_status: "available",
+		build_id: warningSummary.build_id,
+		summary: warningSummary,
+		groups: [],
+		candidate_sets: [],
+		next_cursor: "next-cursor",
+	};
+	const app = createApp({
+		graphService: createGraphService({
+			assertRegisteredKnowledgeBase: async (requested) => requested,
+			readGraphWarnings: async (resolvedPath, query) => {
+				calls.push({ kbPath: resolvedPath, query });
+				return page;
+			},
+		}),
+	});
+
+	let res = await app.request("/api/graph/warnings?limit=1&cursor=opaque-cursor");
+	assert.equal(res.status, 200);
+	assert.deepEqual(await json(res), { ok: true, data: page });
+
+	const explicit = "/fake/explicit";
+	res = await app.request(`/api/graph/warnings?kb=${encodeURIComponent(explicit)}&limit=100`);
+	assert.equal(res.status, 200);
+	assert.deepEqual(calls, [
+		{ kbPath, query: { limit: 1, cursor: "opaque-cursor" } },
+		{ kbPath: explicit, query: { limit: 100 } },
+	]);
+});
+
+test("graph warning data failures remain success responses while invalid requests are rejected", async () => {
+	const unavailable: GraphWarningPageContract = {
+		details_status: "unavailable",
+		summary: warningSummary,
+		details_unavailable_reason: "details_sha256_mismatch",
+	};
+	let calls = 0;
+	const app = createApp({
+		graphService: createGraphService({
+			readGraphWarnings: async () => {
+				calls++;
+				return unavailable;
+			},
+		}),
+	});
+
+	let res = await app.request("/api/graph/warnings");
+	assert.equal(res.status, 200);
+	assert.deepEqual(await json(res), { ok: true, data: unavailable });
+
+	for (const query of ["cursor=", "limit=", "limit=0", "limit=101", "limit=1.5", "limit=oops"]) {
+		res = await app.request(`/api/graph/warnings?${query}`);
+		assert.equal(res.status, 400, query);
+		assert.equal((await json(res)).code, "INVALID_REQUEST", query);
+	}
+	assert.equal(calls, 1);
+});
+
+test("graph with error-level data warnings stays readable and keeps full details out of graph GET", async () => {
+	const app = createApp({ graphService: createGraphService() });
+	const res = await app.request("/api/graph");
+	assert.equal(res.status, 200);
+	const payload = await json(res) as any;
+	assert.equal(payload.data.state.status, "ready");
+	assert.equal(payload.data.needsBuild, false);
+	assert.equal(payload.data.warning_state.summary.error_occurrences, 1);
+	assert.equal("groups" in payload.data.warning_state, false);
+	assert.equal("candidate_sets" in payload.data.warning_state, false);
 });
 
 test("graph read returns the saved safe error as authoritative state", async () => {

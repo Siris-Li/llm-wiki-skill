@@ -91,7 +91,7 @@ describe("render position and range policy", () => {
     assert.ok(policy.contentBounds.maxY >= 980);
   });
 
-  it("keeps duplicate ids at the initial position selected by the active type filter", () => {
+  it("keeps the first duplicate id and filters it by its retained type", () => {
     const data = {
       nodes: [
         { id: "duplicate", label: "Entity", type: "entity", community: "one", x: 10, y: 20 },
@@ -108,13 +108,9 @@ describe("render position and range policy", () => {
     });
 
     assert.deepEqual(entity.nodes.map((node) => node.point), [
-      { x: 100, y: 136 },
       { x: 100, y: 136 }
     ]);
-    assert.deepEqual(topic.nodes.map((node) => node.point), [
-      { x: 900, y: 544 },
-      { x: 900, y: 544 }
-    ]);
+    assert.deepEqual(topic.nodes.map((node) => node.point), []);
 
     const model = buildAtlasModel(data);
     const layout = deriveAtlasLayout(model);

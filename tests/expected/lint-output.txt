@@ -4,13 +4,16 @@
 
 --- 孤立页面（没有被其他页面引用） ---
   孤立: entities/Lonely
-  孤立: topics/AIbasic
   孤立: sources/2026-01-01-test-source
   孤立: sources/2026-02-01-inline-img
 
 --- 断链（被链接但不存在的页面） ---
-  断链: [[Missing]]
   断链: [[Target]]
+    wiki/entities/Other.md:8:3 [[Target|显示]]
+  断链: [[Missing]]
+    wiki/entities/Other.md:7:3 [[Missing]]
+  断链: [[Ghost]]
+    index.md:10:3 [[Ghost]]
 
 --- index 一致性（index.md 有记录但文件缺失） ---
   index 有但文件缺失: Ghost
@@ -37,8 +40,23 @@
   - wiki/entities/Lonely.md
   - wiki/entities/Other.md
   - wiki/entities/Real.md
-  - wiki/topics/AIbasic.md
   - wiki/sources/2026-01-01-test-source.md
   - wiki/sources/2026-02-01-inline-img.md
+  - wiki/topics/AIbasic.md
+
+--- 歧义链接（同名候选，未建边） ---
+  （无歧义链接）
+
+--- 待创建链接（尚未建边） ---
+  （无待创建链接）
+
+--- 非规范路径链接（已按实际路径建边） ---
+  （无非规范路径链接）
+
+--- 可移植路径冲突 ---
+  （无可移植路径冲突）
+
+--- 待创建包装清理（目标现已存在） ---
+  （无待清理包装）
 
 === 机械检查完成。矛盾检测、交叉引用、置信度抽查由 AI 继续执行 ===

@@ -231,16 +231,42 @@ test("browser CI stages have separate commands and measured failure boundaries",
 	assert.deepEqual(BROWSER_CI_STAGES["system-dependencies"].invocation.args.slice(-2), ["install-deps", "chromium"]);
 	assert.deepEqual(BROWSER_CI_STAGES["browser-install"].invocation.args.slice(-2), ["install", "chromium"]);
 	assert.match(BROWSER_CI_STAGES["browser-verify"].invocation.args.at(-1), /chromium\.launch/);
-	assert.deepEqual(BROWSER_CI_STAGES["browser-tests"].invocation.args, [
-		"run",
-		"test:browser:main-flows",
-		"-w",
-		"@llm-wiki-agent/web",
+	assert.deepEqual(BROWSER_CI_STAGES["browser-tests"].invocations.map((item) => item.args), [
+		["run", "test:browser:main-flows", "-w", "@llm-wiki-agent/web"],
+		["tests/graph-offline-warnings.regression-1.sh"],
 	]);
 	assert.equal(
-		Object.values(BROWSER_CI_STAGES).some((stage) => path.basename(stage.invocation.command) === "npx"),
+		Object.values(BROWSER_CI_STAGES).flatMap((stage) => stage.invocations ?? [stage.invocation])
+			.some((invocation) => path.basename(invocation.command) === "npx"),
 		false,
 	);
+});
+
+test("either browser test command failure fails the browser-tests stage", async (t) => {
+	const directory = await mkdtemp(path.join(tmpdir(), "browser-ci-multi-command-"));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	const marker = path.join(directory, "second-ran");
+	const firstFailure = await runBrowserCiStage("browser-tests", {
+		evidenceDir: directory,
+		environment: minimalEnvironment(directory),
+		invocations: [
+			nodeInvocation("process.exit(17)"),
+			nodeInvocation(`require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`),
+		],
+		timeoutMs: 1_000,
+	});
+	assert.equal(firstFailure.status, "failed");
+	assert.equal(firstFailure.exitCode, 17);
+	await assert.rejects(readFile(marker), /ENOENT/);
+
+	const secondFailure = await runBrowserCiStage("browser-tests", {
+		evidenceDir: directory,
+		environment: minimalEnvironment(directory),
+		invocations: [nodeInvocation("process.exit(0)"), nodeInvocation("process.exit(23)")],
+		timeoutMs: 1_000,
+	});
+	assert.equal(secondFailure.status, "failed");
+	assert.equal(secondFailure.exitCode, 23);
 });
 
 test("GitHub browser workflow reserves formal tests and diagnostic upload after bounded preparation", async () => {

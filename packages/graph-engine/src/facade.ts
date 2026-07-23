@@ -216,6 +216,7 @@ export function createGraphFacade(container: HTMLElement, options: GraphEngineOp
   const facadeState: GraphFacadeState = {
     data: projection.data,
     regularSearchByNode: projection.regularSearchByNode,
+    warnings: projection.warnings,
     pins: options.pins || {},
     theme: options.theme,
     edgeStyle: options.edgeStyle,
@@ -745,6 +746,7 @@ export function createGraphFacadeRouteManager(
     const rendererOptions: GraphFacadeRouteRendererOptions = {
         data: state.data,
         regularSearchByNode: state.regularSearchByNode,
+        warnings: state.warnings,
         pins: state.pins,
         theme: state.theme || "shan-shui",
         edgeStyle: state.edgeStyle,
@@ -1113,6 +1115,7 @@ export function createGraphFacadeFromRenderer(
     facadeState = {
       data: projection.data,
       regularSearchByNode: projection.regularSearchByNode,
+      warnings: projection.warnings,
       pins: options.pins || {}
     };
   }
@@ -1143,6 +1146,7 @@ export function createGraphFacadeFromRenderer(
       const data = projection.data;
       facadeState.data = data;
       facadeState.regularSearchByNode = projection.regularSearchByNode;
+      facadeState.warnings = projection.warnings;
       if (pins) facadeState.pins = pins;
       let clearedSourceCommunity = false;
       if (facadeState.sourceCommunityId && !dataHasCommunity(data, facadeState.sourceCommunityId)) {

@@ -657,14 +657,15 @@ bash ${SKILL_DIR}/scripts/adapter-state.sh classify-run <source_id> <exit_code> 
    bash ${SKILL_DIR}/scripts/lint-runner.sh <wiki_root>
    ```
 
-   脚本负责三项**机械检查**（只需要精确匹配，不需要判断）：
-   - 孤立页面（`entities/` 下没有被其他页面引用的实体）
-   - 断链（`[[X]]` 链接指向的 `X.md` 不存在，支持 `[[X|别名]]` 语法）
-   - index 一致性（index.md 里有记录但文件缺失的条目）
+   脚本一次读取后统一检查孤立页、index、图片、来源信息和全部 wikilink。明确路径和唯一裸名会按实际页面路径解析；同名页面不会被合并。歧义链接不猜目标、不计入关系，并列出全部候选；“待创建”和真正断链分开报告，代码示例不会被当成链接。
 
-   退出码：`0` = 运行完成，`1` = 脚本自身错误（路径不存在、index.md 缺失）。
-   如果 exit 1，向用户报告错误，不要继续。
-   如果 exit 0，把脚本 stdout 读进上下文，作为后续 AI 判断类检查的基础素材。
+   普通检查只读并完整报告数据问题，退出码为 `0`；路径、参数、解析或读取失败返回 `1`。需要让 CI 因歧义、真正断链或路径冲突而阻断时，显式运行：
+
+   ```bash
+   bash ${SKILL_DIR}/scripts/lint-runner.sh <wiki_root> --strict
+   ```
+
+   严格模式完成报告后，有 `error` 返回 `2`，只有“待创建”等提示仍返回 `0`。可在末尾加 `--json` 获取同一份结构化完整报告。所有这些检查都不会修改知识库 Markdown。
 
 3. **逐项检查**（AI 判断类，脚本做不了）：
 
@@ -988,10 +989,12 @@ bash ${SKILL_DIR}/scripts/adapter-state.sh classify-run <source_id> <exit_code> 
    bash scripts/build-graph-data.sh "$WIKI_ROOT"
    ```
 
-   脚本会扫描 `wiki/{entities,topics,sources,comparisons,synthesis,queries}/*.md`，
-   解析同行 `[[双向链接]]` 与 `<!-- confidence: EXTRACTED|INFERRED|AMBIGUOUS -->` 注释，
+   脚本会递归扫描 `wiki/{entities,topics,sources,comparisons,synthesis,queries}/**/*.md`，
+   解析 wikilink 与 `<!-- confidence: EXTRACTED|INFERRED|AMBIGUOUS -->` 注释，
    调用本地 Node helper 计算 3 信号边权重（共引强度 / 来源重叠 / 类型亲和度）、Louvain 社区和规则 insights，
-   并写入 `wiki/graph-data.json`（内容 >2MB 自动降级，单节点只留 500 行；图规模超预算时 insights 自动降级）。
+   并把 `wiki/graph-data.json` 与同目录唯一的 `wiki/graph-warnings.json` 成对写入（内容 >2MB 自动降级，单节点只留 500 行；图规模超预算时 insights 自动降级）。节点身份使用实际知识库相对路径，因此六类正式目录中的同名页面都会保留。明确路径和唯一裸名正常建边；歧义链接不建边并报告候选；“待创建”和真正断链分别报告。
+
+   正常构建即使发现数据问题也返回 `0`，只有工具、输入或写入失败返回 `1`，并且绝不修改 Markdown。CI 要阻断数据错误时，另运行 `node scripts/wiki-link-cli.js check "$WIKI_ROOT" --strict`；严格检查有 `error` 返回 `2`。自定义输出必须仍在知识库内、文件名保持 `graph-data.json`，并使用自己的目录；该目录中的 `graph-warnings.json` 是它唯一的配对详情文件，两个自定义输出要放在两个不同目录。
    依赖 `jq` + `node`（如缺失可运行 `brew install jq node`）。
 
 2c. **图谱运行时说明**：
@@ -1005,10 +1008,10 @@ bash ${SKILL_DIR}/scripts/adapter-state.sh classify-run <source_id> <exit_code> 
    bash scripts/build-graph-html.sh "$WIKI_ROOT"
    ```
 
-   生成 `wiki/knowledge-graph.html`。脚本把 `graph-data.json`（已做 `</script>` 转义）
-   内嵌进 `<script id="graph-data" type="application/json">`，离线双击即可打开。
+   生成 `wiki/knowledge-graph.html`。脚本会先验证成对告警，再安全内嵌图谱和最多 2 MiB（gzip level 9）的告警详情，离线双击即可打开。详情超过上限时会稳定精简并保留全部总数；详情缺失或与图谱不是同一代时仍显示图谱，并提示重新构建。
    页面保持三栏国风布局：左侧文献索引，中间数字山水图谱，右侧常驻节点详情。
    包含搜索、社区筛选、节点视觉分层、首屏推荐预览、摘要、正文、相邻节点、洞察、小地图和关系置信度图例。
+   离线页只负责解释告警，不提供改名、解决或其他写入操作。
 
 3. **读取 insights 并向用户展示结果**（按 `WIKI_LANG` 切换语言）：
 

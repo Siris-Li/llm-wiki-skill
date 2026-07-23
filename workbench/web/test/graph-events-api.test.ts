@@ -14,6 +14,56 @@ import {
 } from "../src/lib/api/events";
 
 describe("graph EventSource client", () => {
+	it("accepts the real server graph diff with migration warnings", () => {
+		const parser = readyParser();
+		const received = parser.parse(JSON.stringify(event("graph_updated", 2, {
+			kbPath: "/fake/kb",
+			diff: {
+				addedNodes: [],
+				removedNodes: [],
+				recoloredNodes: [],
+				addedEdges: [],
+				removedEdges: [],
+				newCommunities: [],
+				migrationWarnings: [{
+					code: "legacy_semantic_edge_duplicate",
+				}],
+				stats: { nodeCount: 2, edgeCount: 1, communityCount: 1 },
+			},
+			rebuiltAt: "2026-07-11T12:01:00.000Z",
+			stats: { nodeCount: 2, edgeCount: 1 },
+		})));
+
+		assert.equal(received.type, "graph_updated");
+		assert.deepEqual(received.diff?.migrationWarnings, [{
+			code: "legacy_semantic_edge_duplicate",
+		}]);
+	});
+
+	it("rejects migration events that expose internal comparison values or legacy identifiers", () => {
+		const parser = readyParser();
+		assert.throws(() => parser.parse(JSON.stringify(event("graph_updated", 2, {
+			kbPath: "/fake/kb",
+			diff: {
+				addedNodes: [],
+				removedNodes: [],
+				recoloredNodes: [],
+				addedEdges: [],
+				removedEdges: [],
+				newCommunities: [],
+				migrationWarnings: [{
+					code: "legacy_semantic_edge_duplicate",
+					semantic_key: "portable-key:nfc|casefold",
+					previous_edge_ids: ["/Users/private", "C:\\private"],
+					next_edge_ids: ["arbitrary raw text"],
+				}],
+				stats: { nodeCount: 2, edgeCount: 1, communityCount: 1 },
+			},
+			rebuiltAt: "2026-07-11T12:01:00.000Z",
+			stats: { nodeCount: 2, edgeCount: 1 },
+		}) as GraphSseEvent)), isRecoverableGraphError);
+	});
+
 	it("accepts ready, graph_error, and later graph_updated with contiguous seq", () => {
 		const parser = new GraphEventParser();
 		const fixture = [
@@ -73,6 +123,7 @@ describe("graph EventSource client", () => {
 		const received: GraphSseEvent[] = [];
 		const errors: Error[] = [];
 		const close = subscribeGraphEvents({
+			kbPath: "/fake/kb",
 			onEvent: (item) => received.push(item),
 			onProtocolError: (error) => errors.push(error),
 			reconnectDelayMs: 0,
@@ -102,6 +153,7 @@ describe("graph EventSource client", () => {
 		const sources: FakeEventSource[] = [];
 		const errors: Error[] = [];
 		const close = subscribeGraphEvents({
+			kbPath: "/fake/kb",
 			onEvent: () => {},
 			onProtocolError: (error) => errors.push(error),
 			reconnectDelayMs: 0,
@@ -131,6 +183,7 @@ describe("graph EventSource client", () => {
 		const sources: FakeEventSource[] = [];
 		const received: GraphSseEvent[] = [];
 		const close = subscribeGraphEvents({
+			kbPath: "/fake/kb",
 			onEvent: (event) => received.push(event),
 			reconnectDelayMs: 0,
 			eventSourceFactory: () => {
@@ -162,6 +215,7 @@ describe("graph EventSource client", () => {
 		try {
 			const sources: FakeEventSource[] = [];
 			const close = subscribeGraphEvents({
+				kbPath: "/fake/kb",
 				onEvent: () => {},
 				onProtocolError: () => close(),
 				eventSourceFactory: () => {
@@ -185,6 +239,7 @@ describe("graph EventSource client", () => {
 		const sources: FakeEventSource[] = [];
 		const received: GraphSseEvent[] = [];
 		const close = subscribeGraphEvents({
+			kbPath: "/fake/kb",
 			onEvent: (item) => received.push(item),
 			eventSourceFactory: () => {
 				const source = new FakeEventSource();
@@ -206,6 +261,7 @@ describe("graph EventSource client", () => {
 		const sources: FakeEventSource[] = [];
 		const readyStates: Array<{ streamId: string; reconnected: boolean }> = [];
 		const close = subscribeGraphEvents({
+			kbPath: "/fake/kb",
 			onEvent: () => {},
 			onReady: (ready, context) => readyStates.push({
 				streamId: ready.streamId,
@@ -234,6 +290,7 @@ describe("graph EventSource client", () => {
 		const sources: FakeEventSource[] = [];
 		const readyStates: Array<{ streamId: string; reconnected: boolean }> = [];
 		const close = subscribeGraphEvents({
+			kbPath: "/fake/kb",
 			onEvent: () => {},
 			onReady: (ready, context) => readyStates.push({
 				streamId: ready.streamId,
@@ -264,6 +321,7 @@ describe("graph EventSource client", () => {
 		const readyStates: Array<{ streamId: string; reconnected: boolean }> = [];
 		const received: GraphSseEvent[] = [];
 		const close = subscribeGraphEvents({
+			kbPath: "/fake/kb",
 			onEvent: (item) => received.push(item),
 			onReady: (ready, context) => readyStates.push({
 				streamId: ready.streamId,
@@ -315,6 +373,7 @@ describe("graph EventSource client", () => {
 			resolveReconnect = resolve;
 		});
 		const close = subscribeGraphEvents({
+			kbPath: "/fake/kb",
 			onEvent: (item) => received.push(item),
 			reconnectDelayMs: 0,
 			eventSourceFactory: () => {
@@ -368,7 +427,19 @@ function event(
 	extra: Record<string, unknown>,
 	streamId = "stream-1",
 ): GraphSseEvent {
-	return { schemaVersion: 1, streamId, seq, type, ...extra } as GraphSseEvent;
+	const publicExtra = { ...extra };
+	delete publicExtra.kbPath;
+	return {
+		schemaVersion: 1,
+		streamId,
+		seq,
+		type,
+		...(type === "graph_updated" ? {
+			warning_summary: null,
+			warning_details_status: "unavailable",
+		} : {}),
+		...publicExtra,
+	} as GraphSseEvent;
 }
 
 function isRecoverableGraphError(error: unknown): boolean {
