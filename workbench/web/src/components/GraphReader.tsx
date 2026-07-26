@@ -8,6 +8,7 @@ import {
 	graphReaderMetaItems,
 	type GraphReaderActionId,
 } from "../lib/graph-reader";
+import { isFormalGraphRenamePagePath } from "../lib/graph-rename-paths";
 
 interface Props {
 	payload: GraphOpenPagePayload;
@@ -17,10 +18,12 @@ interface Props {
 	onOpenPage: (path: string) => void;
 	onWikiLinkSeen: (path: string) => void;
 	onAction: (actionId: GraphReaderActionId) => void;
+	onRenamePage?: (sourcePath: string) => void;
 }
 
-export function GraphReader({ payload, content, loading, error, onOpenPage, onWikiLinkSeen, onAction }: Props) {
+export function GraphReader({ payload, content, loading, error, onOpenPage, onWikiLinkSeen, onAction, onRenamePage }: Props) {
 	const metaItems = graphReaderMetaItems(payload);
+	const canRename = isFormalGraphRenamePagePath(payload.node.sourcePath);
 	return (
 		<React.Fragment>
 		<article className="graph-reader-drawer">
@@ -40,6 +43,15 @@ export function GraphReader({ payload, content, loading, error, onOpenPage, onWi
 						{action.label}
 					</button>
 				))}
+				{canRename && onRenamePage && (
+					<button
+						type="button"
+						className="graph-reader-action graph-reader-rename-action"
+						onClick={() => onRenamePage(payload.node.sourcePath)}
+					>
+						安全改名
+					</button>
+				)}
 			</div>
 			{loading && <div className="text-muted-foreground">加载中...</div>}
 			{error && <div className="whitespace-pre-wrap text-destructive">{error}</div>}

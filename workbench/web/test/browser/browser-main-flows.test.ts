@@ -32,14 +32,24 @@ import {
 	closeBrowserResources,
 	createConversation,
 	createKnowledgeBase as createBaseKnowledgeBase,
+	diffFileHashes,
+	graphRebuildOutcomes,
+	hashKnowledgeBaseFiles,
+	hashKnowledgeFiles,
+	incompleteWikilinkTargets,
 	isolatedEnvironment,
 	platformSandboxEnvironment,
 	prepareSandboxDirectories,
+	listRenameOperationIds,
+	listRenameResidues,
+	summarizeRenameTerminalReceipts,
 	sanitizeBrowserOutput,
 	startNetworkGuardedProcess,
 	stopProcess,
 	type RunningProcess,
 	waitForFile,
+	waitForExit,
+	waitForRenameJournalState,
 	waitUntil,
 } from "./support/browser-harness";
 
@@ -55,6 +65,87 @@ const FORBIDDEN_PARENT_ENV = [
 	"PI_CONFIG_DIR",
 	"XDG_CONFIG_HOME",
 ] as const;
+
+test("browser rename summaries expose every changed path and incomplete wikilink", () => {
+	assert.deepEqual(diffFileHashes(
+		{
+			"wiki/entities/source.md": "source-hash",
+			"wiki/synthesis/changed.md": "before-hash",
+			"wiki/topics/untouched.md": "same-hash",
+		},
+		{
+			"wiki/entities/target.md": "source-hash",
+			"wiki/synthesis/changed.md": "after-hash",
+			"wiki/topics/untouched.md": "same-hash",
+		},
+	), {
+		added: ["wiki/entities/target.md"],
+		removed: ["wiki/entities/source.md"],
+		changed: ["wiki/synthesis/changed.md"],
+		unchanged: ["wiki/topics/untouched.md"],
+	});
+	assert.deepEqual(incompleteWikilinkTargets([
+		"[[wiki/entities/complete.md]]",
+		"[[wiki/topics/complete.md#section|标题]]",
+		"[[short-name]]",
+		"[[wiki/incomplete.md]]",
+	].join("\n")), ["short-name", "wiki/incomplete.md"]);
+	assert.deepEqual(graphRebuildOutcomes([
+		{ event: "source_rename_started" },
+		{ event: "graph_rebuild", outcome: "failed" },
+		{ event: "graph_rebuild", outcome: "failed" },
+		{ event: "graph_rebuild", outcome: "started" },
+	]), ["failed", "failed", "started"]);
+	assert.throws(
+		() => graphRebuildOutcomes([{ event: "graph_rebuild" }]),
+		/missing a result/,
+	);
+});
+
+test("browser rename filesystem helpers expose journals, residues, and the complete durable file set", async () => {
+	const root = await mkdtemp(join(tmpdir(), "llm-wiki-browser-rename-helper-"));
+	try {
+		const receiptOperationId = "11111111-1111-4111-8111-111111111111";
+		await mkdir(join(root, ".wiki-tmp", "rename-ops", "operation-one", "stages"), { recursive: true });
+		await mkdir(join(root, ".wiki-tmp", "rename-ops", receiptOperationId), { recursive: true });
+		await mkdir(join(root, "wiki", "entities"), { recursive: true });
+		await writeFile(join(root, ".wiki-graph-layout.json"), "layout\n");
+		await writeFile(join(root, "wiki", "entities", "page.md"), "# Page\n");
+		await writeFile(join(root, "wiki", "entities", ".llm-wiki-rename-operation-one-0.md"), "transit\n");
+		await writeFile(join(root, "wiki", "entities", "ordinary.bak"), "backup\n");
+		await writeFile(join(root, ".wiki-tmp", "rename-ops", "operation-one", "stages", "page.stage"), "stage\n");
+		await writeFile(join(root, ".wiki-tmp", "rename-ops", receiptOperationId, "manifest.json"), `${JSON.stringify({
+			kind: "receipt",
+			operation_id: receiptOperationId,
+			state: "committed",
+			graph_rebuild: "succeeded",
+			retained_evidence: [],
+		})}\n`);
+
+		assert.deepEqual(await listRenameOperationIds(root), [receiptOperationId, "operation-one"]);
+		assert.deepEqual(await summarizeRenameTerminalReceipts(root), [{
+			operation_id: receiptOperationId,
+			state: "committed",
+			graph_rebuild: "succeeded",
+			retained_evidence: [],
+			data_files: [],
+			working_copy_fields: [],
+		}]);
+		assert.deepEqual(await listRenameResidues(root), [
+			".wiki-tmp/rename-ops/operation-one/stages/page.stage",
+			"wiki/entities/.llm-wiki-rename-operation-one-0.md",
+			"wiki/entities/ordinary.bak",
+		]);
+		assert.deepEqual(Object.keys(await hashKnowledgeBaseFiles(root)), [
+			".wiki-graph-layout.json",
+			"wiki/entities/.llm-wiki-rename-operation-one-0.md",
+			"wiki/entities/ordinary.bak",
+			"wiki/entities/page.md",
+		]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
 
 test("seven browser main flows cross the real frontend and backend", { timeout: 210_000 }, async (t) => {
 	for (const name of FORBIDDEN_PARENT_ENV) assert.equal(process.env[name], undefined, `${name} was not cleared`);
@@ -315,7 +406,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		assert.match(warningApiText, /wiki\/synthesis\/browser-warning-source\.md/);
 		assert.match(warningApiText, /wiki\/entities\/foo\.md/);
 		assert.equal((await warningBanner.textContent())?.includes(home), false, "warning UI must show only relative paths");
-		assert.equal(await warningBanner.getByText("解决此告警", { exact: true }).count(), 0);
+		assert.equal(await warningBanner.getByText("解决此告警", { exact: true }).count(), 1, "only the editable ambiguity should expose rename resolution");
 		await page.evaluate((selectedKb) => {
 			const receipts: Array<{ type: string; seq: number; [key: string]: unknown }> = [];
 			const source = new EventSource(`/api/events?kb=${encodeURIComponent(selectedKb)}`);
@@ -369,7 +460,7 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 		const migrationResponsePromise = waitForGraphRebuildResponse(page, kbA);
 		await page.getByRole("button", { name: "重构" }).click();
 		const migrationResponse = await migrationResponsePromise;
-		assert.equal(migrationResponse.status, "started", JSON.stringify({
+		assert.equal(["started", "queued"].includes(migrationResponse.status), true, JSON.stringify({
 			busyStatuses: busyResponses.map((response) => response.body.data.status),
 			completedUpdates: graphEventReceipts.slice(initialRebuildBaseline).filter((event) => event.type === "graph_updated").length,
 		}));
@@ -712,6 +803,498 @@ test("seven browser main flows cross the real frontend and backend", { timeout: 
 	}
 });
 
+test("graph rename journeys cross the real warning, dialog, and backend seams", { timeout: 120_000 }, async (t) => {
+	await assertPortAvailable(WEB_PORT);
+	const sandbox = await mkdtemp(join(tmpdir(), "llm-wiki-browser-main-flows-rename-"));
+	const home = join(sandbox, "home");
+	const appDir = join(home, ".llm-wiki-agent");
+	const renameEventsFile = join(appDir, "browser-rename-events.jsonl");
+	const kbPath = join(home, "llm-wiki", "rename-notes");
+	const equivalentKbPath = join(home, "llm-wiki", "equivalent-notes");
+	const crashRollbackKbPath = join(home, "llm-wiki", "crash-rollback-notes");
+	const crashCommitKbPath = join(home, "llm-wiki", "crash-commit-notes");
+	const rebuildFailureKbPath = join(home, "llm-wiki", "rebuild-failure-notes");
+	const serverNetworkProbe = join(home, "rename-server-network-probe.txt");
+	const viteNetworkProbe = join(home, "rename-vite-network-probe.txt");
+	const backendPort = await availablePort();
+	const webOrigin = `http://127.0.0.1:${WEB_PORT}`;
+	const resources: {
+		server?: RunningProcess;
+		vite?: RunningProcess;
+		browser?: Browser;
+		context?: BrowserContext;
+	} = {};
+
+	t.after(async () => {
+		const errors: unknown[] = [];
+		await closeBrowserResources({ context: resources.context, browser: resources.browser }).catch((error) => errors.push(error));
+		if (resources.vite) await stopProcess(resources.vite, [0, 143]).catch((error) => errors.push(error));
+		if (resources.server) await stopProcess(resources.server, [0, 86, 143]).catch((error) => errors.push(error));
+		await assertPortAvailable(WEB_PORT).catch((error) => errors.push(error));
+		await assertPortAvailable(backendPort).catch((error) => errors.push(error));
+		await rm(sandbox, { recursive: true, force: true }).catch((error) => errors.push(error));
+		if (errors.length > 0) throw new AggregateError(errors, "graph rename browser cleanup failed");
+	});
+
+	await prepareSandboxDirectories(home);
+	await createRenameKnowledgeBase(kbPath);
+	await createEquivalentRenameKnowledgeBase(equivalentKbPath);
+	await createCrashRenameKnowledgeBase(crashRollbackKbPath);
+	await createSinglePageRenameKnowledgeBase(crashCommitKbPath, "Crash Commit Notes", "commit");
+	await createSinglePageRenameKnowledgeBase(rebuildFailureKbPath, "Rebuild Failure Notes", "rebuild");
+	await mkdir(appDir, { recursive: true });
+	const authDir = join(home, ".pi", "agent");
+	await mkdir(authDir, { recursive: true });
+	await writeFile(join(authDir, "auth.json"), `${JSON.stringify({
+		anthropic: { type: "api_key", key: "fictional-browser-credential" },
+	}, null, 2)}\n`);
+	await chmod(join(authDir, "auth.json"), 0o600);
+	await writeFile(join(appDir, "config.json"), `${JSON.stringify({
+		version: 1,
+		externalKnowledgeBases: [kbPath, equivalentKbPath, crashRollbackKbPath, crashCommitKbPath, rebuildFailureKbPath],
+		lastUsedKbPath: kbPath,
+		modelRoles: { main: { provider: "browser-test-provider", modelId: "browser-test-model" } },
+	}, null, 2)}\n`);
+
+	resources.server = await startBackend(home, backendPort, kbPath, serverNetworkProbe);
+	resources.vite = await startNetworkGuardedProcess(
+		process.execPath,
+		[VITE_ENTRY, "--host", "127.0.0.1", "--port", String(WEB_PORT), "--strictPort"],
+		WEB_ROOT,
+		{
+			HOME: home,
+			LANG: "C.UTF-8",
+			PATH: process.env.PATH ?? "/usr/bin:/bin",
+			TMPDIR: join(home, "tmp"),
+			LLM_WIKI_AGENT_API_ORIGIN: `http://127.0.0.1:${backendPort}`,
+			LLM_WIKI_AGENT_DISABLE_HMR: "1",
+			...platformSandboxEnvironment(home),
+		},
+		(output) => output.includes("Local:"),
+		"rename Vite frontend",
+		viteNetworkProbe,
+	);
+
+	resources.browser = await chromium.launch({ headless: true, env: isolatedEnvironment(home, 0, kbPath) });
+	resources.context = await resources.browser.newContext({ serviceWorkers: "block" });
+	const blockedExternalRequests: string[] = [];
+	await blockExternalBrowserTraffic(resources.context, blockedExternalRequests);
+	const page = await resources.context.newPage();
+	let renameApplyRequests = 0;
+	const renameApplyOperationIds: string[] = [];
+	page.on("request", (request) => {
+		const url = new URL(request.url());
+		if (url.pathname === "/api/graph/renames/apply" && request.method() === "POST") {
+			renameApplyRequests += 1;
+			const body = request.postDataJSON() as { operation_id?: unknown };
+			if (typeof body.operation_id === "string") renameApplyOperationIds.push(body.operation_id);
+		}
+	});
+	const startupRecovery = page.waitForResponse((response) => (
+		new URL(response.url()).pathname === "/api/graph/renames/recovery"
+		&& response.request().method() === "GET"
+	));
+	await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+	assert.equal((await startupRecovery).status(), 200);
+	await page.getByLabel("当前知识库").getByText("rename-notes").waitFor({ timeout: START_TIMEOUT_MS });
+	const startupDialogs = await page.getByRole("dialog").allTextContents();
+	assert.deepEqual(startupDialogs, [], `unexpected startup dialog: ${JSON.stringify(startupDialogs)}`);
+	await page.getByRole("tab", { name: "图谱" }).click();
+	await page.locator("[data-graph-status='ready']").waitFor({ timeout: START_TIMEOUT_MS });
+	const warningBanner = page.getByRole("region", { name: "图谱告警" });
+	await warningBanner.getByRole("button", { name: "查看详情" }).click();
+	await warningBanner.getByRole("button", { name: "解决此告警" }).click();
+	await page.getByRole("heading", { name: "先选择要改名的页面" }).waitFor();
+	await page.getByRole("radio", { name: "wiki/entities/foo.md" }).check();
+	await page.getByRole("button", { name: "下一步" }).click();
+	await page.getByRole("textbox", { name: "新文件名" }).fill("已改名 页面");
+	const previewResponse = page.waitForResponse((response) => (
+		new URL(response.url()).pathname === "/api/graph/renames/preview"
+		&& response.request().method() === "POST"
+	));
+	await page.getByRole("button", { name: "生成预览" }).click();
+	const previewEnvelope = await (await previewResponse).json() as {
+		data: { source_path: string; target_path: string; editable_files: Array<{ source_path: string }> };
+	};
+	await page.getByRole("heading", { name: "确认影响" }).waitFor({ timeout: OPERATION_TIMEOUT_MS });
+	await page.getByText("wiki/entities/已改名 页面.md", { exact: true }).waitFor();
+	await page.getByRole("note", { name: "只读引用" }).waitFor();
+	const ambiguity = page.getByRole("group", { name: /歧义引用 1/ });
+	await ambiguity.waitFor();
+	await ambiguity.getByRole("radio", { name: "wiki/entities/foo.md" }).check();
+	await page.getByRole("checkbox", { name: /我已核对完整预览/ }).check();
+	const durableHashesBeforeApply = await hashKnowledgeBaseFiles(kbPath);
+	const knowledgeHashesBeforeApply = await hashKnowledgeFiles(kbPath);
+	await rm(renameEventsFile, { force: true });
+	const pauseFlag = join(appDir, "browser-rename-pause-before-commit");
+	const pausedFlag = join(appDir, "browser-rename-paused");
+	const resumeFlag = join(appDir, "browser-rename-resume");
+	await writeFile(pauseFlag, "pause\n");
+	await page.getByRole("button", { name: "确认并改名" }).evaluate((button) => {
+		(button as HTMLButtonElement).click();
+		(button as HTMLButtonElement).click();
+	});
+	await waitForFile(pausedFlag);
+	assert.equal(renameApplyRequests, 1, "two immediate clicks must share one apply request");
+	assert.equal(renameApplyOperationIds.length, 1, "double click must carry one operation ID");
+	const applyOperationId = renameApplyOperationIds[0]!;
+	assert.deepEqual(await listRenameOperationIds(kbPath), [applyOperationId], "one apply must create one journal directory");
+	await waitForRenameJournalState(kbPath, applyOperationId, { state: "applying" });
+	await rm(pauseFlag, { force: true });
+	await writeFile(resumeFlag, "resume\n");
+	const targetPath = join(kbPath, "wiki", "entities", "已改名 页面.md");
+	await waitUntil(
+		() => readFile(targetPath).then(() => true, () => false),
+		OPERATION_TIMEOUT_MS,
+		"rename target did not appear after the paused operation resumed",
+	);
+	assert.equal(await readFile(targetPath, "utf8"), "# Entity Foo\n\nEntity source page.\n");
+	assert.equal(
+		await readFile(join(kbPath, "wiki", "synthesis", "rename-links.md"), "utf8"),
+		"# Rename links\n\n[[wiki/entities/已改名 页面.md]]\n[[wiki/entities/已改名 页面.md]]\n",
+	);
+	assert.equal(
+		await readFile(join(kbPath, "raw", "rename-reference.md"), "utf8"),
+		"# Read only\n\n[[wiki/entities/foo.md]]\n",
+	);
+	const layout = JSON.parse(await readFile(join(kbPath, ".wiki-graph-layout.json"), "utf8")) as { pins: Record<string, unknown> };
+	assert.equal(Object.hasOwn(layout.pins, "wiki/entities/foo.md"), false);
+	assert.equal(Object.hasOwn(layout.pins, "wiki/entities/已改名 页面.md"), true);
+	await waitUntil(async () => {
+		const response = JSON.parse((await browserJson(page!, `/api/graph/renames/recovery?kb=${encodeURIComponent(kbPath)}`)).text) as {
+			data?: { status?: string };
+		};
+		return response.data?.status === "clear";
+	}, OPERATION_TIMEOUT_MS, "rename did not reach published clear recovery state");
+	const renameEvents = (await readFile(renameEventsFile, "utf8"))
+		.trim()
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line) as unknown);
+	assert.deepEqual(renameEvents, [
+		{ event: "source_rename_started" },
+		{ event: "source_rename_step", state: "target" },
+		{ event: "graph_rebuild", outcome: "started" },
+	], "one apply must rename and rebuild exactly once without a transit rename");
+	assert.deepEqual(await listRenameOperationIds(kbPath), [applyOperationId], "successful publication must retain exactly one terminal receipt");
+	assert.deepEqual(await summarizeRenameTerminalReceipts(kbPath), [{
+		operation_id: applyOperationId,
+		state: "committed",
+		graph_rebuild: "succeeded",
+		retained_evidence: [],
+		data_files: [],
+		working_copy_fields: [],
+	}], "successful publication must retain only a byte-free terminal receipt");
+	assert.deepEqual(await listRenameResidues(kbPath), [], "successful publication must remove stages, backups, transit names, and evidence");
+	await page.getByRole("dialog", { name: "安全改名" }).getByRole("button", { name: "完成" }).click();
+	await page.getByRole("dialog", { name: "安全改名" }).waitFor({ state: "detached" });
+	const durableHashesAfterApply = await hashKnowledgeBaseFiles(kbPath);
+	assert.deepEqual(diffFileHashes(durableHashesBeforeApply, durableHashesAfterApply), {
+		added: ["wiki/entities/已改名 页面.md"],
+		removed: ["wiki/entities/foo.md"],
+		changed: [
+			".wiki-graph-layout.json",
+			"wiki/graph-data.json",
+			"wiki/graph-warnings.json",
+			"wiki/synthesis/rename-links.md",
+		],
+		unchanged: [
+			".wiki-schema.md",
+			"raw/rename-reference.md",
+			"wiki/entities/stale.md",
+			"wiki/synthesis/stale-reference.md",
+			"wiki/topics/CaseName.md",
+			"wiki/topics/foo.md",
+		],
+	}, "the complete durable filesystem summary must match the previewed rename");
+	const knowledgeHashesAfterApply = await hashKnowledgeFiles(kbPath);
+	const knowledgeDiff = diffFileHashes(knowledgeHashesBeforeApply, knowledgeHashesAfterApply);
+	assert.deepEqual(knowledgeDiff, {
+		added: ["wiki/entities/已改名 页面.md"],
+		removed: ["wiki/entities/foo.md"],
+		changed: ["wiki/synthesis/rename-links.md"],
+		unchanged: [
+			".wiki-schema.md",
+			"raw/rename-reference.md",
+			"wiki/entities/stale.md",
+			"wiki/synthesis/stale-reference.md",
+			"wiki/topics/CaseName.md",
+			"wiki/topics/foo.md",
+		],
+	});
+	assert.deepEqual(knowledgeDiff.removed, [previewEnvelope.data.source_path]);
+	assert.deepEqual(knowledgeDiff.added, [previewEnvelope.data.target_path]);
+	assert.deepEqual(
+		knowledgeDiff.changed,
+		previewEnvelope.data.editable_files.map((file) => file.source_path).sort(),
+		"every previewed editable Markdown file and only those files must change",
+	);
+	for (const relativePath of [...knowledgeDiff.added, ...knowledgeDiff.changed]) {
+		const markdown = await readFile(join(kbPath, ...relativePath.split("/")), "utf8");
+		assert.deepEqual(incompleteWikilinkTargets(markdown), [], `${relativePath} contains an incomplete wikilink target`);
+	}
+	await assert.rejects(readFile(join(kbPath, "wiki", "entities", "foo.md")));
+	const renamedEntityEntries = (await readdir(join(kbPath, "wiki", "entities"))).sort();
+	assert.deepEqual(renamedEntityEntries.filter((name) => !name.startsWith(".")), ["stale.md", "已改名 页面.md"]);
+	assert.equal(renamedEntityEntries.some((name) => name.endsWith(".stage")), false);
+
+	// Preview invalidation: an external edit after preview prevents every planned write.
+	await openGraphRenameForSource(page, "wiki/entities/stale.md");
+	const staleDialog = page.getByRole("dialog", { name: "安全改名" });
+	await staleDialog.getByRole("textbox", { name: "新文件名" }).fill("stale-renamed");
+	await staleDialog.getByRole("button", { name: "生成预览" }).click();
+	await staleDialog.getByRole("heading", { name: "确认影响" }).waitFor();
+	const staleReferencePath = join(kbPath, "wiki", "synthesis", "stale-reference.md");
+	await writeFile(staleReferencePath, "# Externally changed after preview\n\n[[wiki/entities/stale.md]]\n");
+	await staleDialog.getByRole("checkbox", { name: /我已核对完整预览/ }).check();
+	await staleDialog.getByRole("button", { name: "确认并改名" }).click();
+	await staleDialog.getByRole("heading", { name: "预览已失效" }).waitFor({ timeout: OPERATION_TIMEOUT_MS });
+	assert.equal(await readFile(join(kbPath, "wiki", "entities", "stale.md"), "utf8"), "# Stale page\n");
+	await assert.rejects(readFile(join(kbPath, "wiki", "entities", "stale-renamed.md")));
+	assert.equal(await readFile(staleReferencePath, "utf8"), "# Externally changed after preview\n\n[[wiki/entities/stale.md]]\n");
+	await staleDialog.getByRole("button", { name: "取消" }).click();
+
+	// Portable-equivalent rename: a case-only target completes through transit and migrates its pin.
+	await page.getByText("equivalent-notes", { exact: true }).click();
+	await page.getByLabel("当前知识库").getByText("equivalent-notes").waitFor();
+	await page.locator("[data-graph-status='ready']").waitFor({ timeout: OPERATION_TIMEOUT_MS });
+	await openGraphRenameForSource(page, "wiki/topics/CaseName.md");
+	const equivalentDialog = page.getByRole("dialog", { name: "安全改名" });
+	await equivalentDialog.getByRole("textbox", { name: "新文件名" }).fill("casename");
+	await equivalentDialog.getByRole("button", { name: "生成预览" }).click();
+	await equivalentDialog.getByRole("heading", { name: "确认影响" }).waitFor();
+	await equivalentDialog.getByRole("checkbox", { name: /我已核对完整预览/ }).check();
+	const equivalentApplyResponse = page.waitForResponse((response) => (
+		new URL(response.url()).pathname === "/api/graph/renames/apply"
+		&& response.request().method() === "POST"
+	));
+	await equivalentDialog.getByRole("button", { name: "确认并改名" }).click();
+	assert.equal((await equivalentApplyResponse).status(), 200);
+	await waitUntil(async () => {
+		const response = JSON.parse((await browserJson(page, `/api/graph/renames/recovery?kb=${encodeURIComponent(equivalentKbPath)}`)).text) as {
+			data?: { status?: string };
+		};
+		return response.data?.status === "clear";
+	}, OPERATION_TIMEOUT_MS, "equivalent rename did not publish");
+	const equivalentEntries = await readdir(join(equivalentKbPath, "wiki", "topics"));
+	assert.deepEqual(equivalentEntries.filter((name) => !name.startsWith(".")), ["casename.md"]);
+	assert.equal(equivalentEntries.some((name) => name.startsWith(".llm-wiki-rename-")), false);
+	assert.equal(await readFile(join(equivalentKbPath, "wiki", "topics", "casename.md"), "utf8"), "# Case page\n\n[[wiki/topics/casename.md]]\n");
+	const equivalentLayout = JSON.parse(await readFile(join(equivalentKbPath, ".wiki-graph-layout.json"), "utf8")) as { pins: Record<string, unknown> };
+		assert.equal(Object.hasOwn(equivalentLayout.pins, "wiki/topics/CaseName.md"), false);
+		assert.equal(Object.hasOwn(equivalentLayout.pins, "wiki/topics/casename.md"), true);
+		await equivalentDialog.getByRole("heading", { name: /页面已安全改名|恢复处理完成/ }).waitFor({ timeout: OPERATION_TIMEOUT_MS });
+		await equivalentDialog.getByRole("button", { name: "完成" }).click();
+	await equivalentDialog.waitFor({ state: "detached" });
+
+	// Crash recovery: a changed conflict set refreshes before a confirmed rollback preserves evidence.
+	await page.getByText("crash-rollback-notes", { exact: true }).click();
+	await page.getByLabel("当前知识库").getByText("crash-rollback-notes").waitFor();
+	await page.locator("[data-graph-status='ready']").waitFor({ timeout: OPERATION_TIMEOUT_MS });
+	await openGraphRenameForSource(page, "wiki/entities/crash.md");
+	const crashDialog = page.getByRole("dialog", { name: "安全改名" });
+	await crashDialog.getByRole("textbox", { name: "新文件名" }).fill("crash-renamed");
+	await crashDialog.getByRole("button", { name: "生成预览" }).click();
+	await crashDialog.getByRole("heading", { name: "确认影响" }).waitFor();
+	await crashDialog.getByRole("checkbox", { name: /我已核对完整预览/ }).check();
+	await writeFile(join(appDir, "browser-rename-crash-after-write"), "crash\n");
+	const crashedServer = resources.server;
+	assert.ok(crashedServer);
+	await crashDialog.getByRole("button", { name: "确认并改名" }).click();
+	const crashed = await waitForExit(crashedServer.child, OPERATION_TIMEOUT_MS, crashedServer.output);
+	assert.equal(crashed.code, 86, crashedServer.output());
+	resources.server = undefined;
+	const crashReference = join(crashRollbackKbPath, "wiki", "synthesis", "crash-reference.md");
+	await writeFile(crashReference, "# External version after crash\n\n[[wiki/entities/crash.md]]\n");
+	resources.server = await startBackend(home, backendPort, crashRollbackKbPath, serverNetworkProbe);
+	const startupConflictResponse = page.waitForResponse((response) => (
+		new URL(response.url()).pathname === "/api/graph/renames/recovery"
+		&& response.request().method() === "GET"
+	));
+	await page.reload({ waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+	assert.equal((await startupConflictResponse).status(), 200);
+	const recoveryDialog = page.getByRole("dialog", { name: "安全改名" });
+	await recoveryDialog.getByRole("heading", { name: "需要处理改名冲突" }).waitFor();
+	await recoveryDialog.getByText("wiki/synthesis/crash-reference.md", { exact: true }).waitFor();
+	const crashSource = join(crashRollbackKbPath, "wiki", "entities", "crash.md");
+	const crashTarget = join(crashRollbackKbPath, "wiki", "entities", "crash-renamed.md");
+	await writeFile(crashTarget, "# Additional external target conflict\n");
+	await rm(crashSource, { force: true });
+	await recoveryDialog.getByRole("radio", { name: "恢复原状" }).check();
+	await recoveryDialog.getByRole("button", { name: "确认恢复" }).click();
+	await recoveryDialog.getByText("冲突集合已变化，已刷新为当前完整状态。请重新核对后确认。", { exact: true }).waitFor();
+	await recoveryDialog.getByText("wiki/entities/crash.md", { exact: true }).waitFor();
+	await recoveryDialog.getByText("wiki/entities/crash-renamed.md", { exact: true }).waitFor();
+	assert.match(await recoveryDialog.textContent() ?? "", /crash\.md已被外部删除/);
+	assert.match(await recoveryDialog.textContent() ?? "", /crash-renamed\.md当前文件存在/);
+	await recoveryDialog.getByRole("radio", { name: "恢复原状" }).check();
+	await recoveryDialog.getByRole("button", { name: "确认恢复" }).click();
+	await waitUntil(async () => {
+		const response = JSON.parse((await browserJson(page, `/api/graph/renames/recovery?kb=${encodeURIComponent(crashRollbackKbPath)}`)).text) as {
+			data?: { status?: string };
+		};
+		return response.data?.status === "clear";
+	}, OPERATION_TIMEOUT_MS, "rollback recovery did not publish");
+	assert.equal(await readFile(crashSource, "utf8"), "# Crash source\n");
+	assert.equal(await readFile(crashReference, "utf8"), "# Crash reference\n\n[[wiki/entities/crash.md]]\n");
+	await assert.rejects(readFile(crashTarget));
+	const evidenceNotice = page.getByRole("region", { name: "保留的改名冲突证据" });
+	await evidenceNotice.waitFor({ timeout: OPERATION_TIMEOUT_MS });
+	assert.match(await evidenceNotice.textContent() ?? "", /摘要 [a-f0-9]{64}/);
+	assert.match(await evidenceNotice.textContent() ?? "", /自动删除时间/);
+	await page.goto("about:blank");
+	resources.server = await restartBackend(resources.server!, home, backendPort, crashRollbackKbPath, serverNetworkProbe);
+	await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+	await page.getByRole("region", { name: "保留的改名冲突证据" }).waitFor({ timeout: OPERATION_TIMEOUT_MS });
+	await page.getByRole("tab", { name: "图谱" }).click();
+	await openGraphRenameForSource(page, "wiki/entities/crash.md");
+	await page.getByRole("dialog", { name: "安全改名" }).getByRole("textbox", { name: "新文件名" }).waitFor();
+	await page.keyboard.press("Escape");
+
+	// A separate crash fixture can finish the intended commit while retaining the external version.
+	await page.getByText("crash-commit-notes", { exact: true }).click();
+	await page.getByLabel("当前知识库").getByText("crash-commit-notes").waitFor();
+	await page.locator("[data-graph-status='ready']").waitFor({ timeout: OPERATION_TIMEOUT_MS });
+	await openGraphRenameForSource(page, "wiki/entities/commit.md");
+	const commitDialog = page.getByRole("dialog", { name: "安全改名" });
+	await commitDialog.getByRole("textbox", { name: "新文件名" }).fill("commit-renamed");
+	await commitDialog.getByRole("button", { name: "生成预览" }).click();
+	await commitDialog.getByRole("heading", { name: "确认影响" }).waitFor();
+	await commitDialog.getByRole("checkbox", { name: /我已核对完整预览/ }).check();
+	await writeFile(join(appDir, "browser-rename-crash-after-write"), "crash\n");
+	const commitCrashServer = resources.server;
+	assert.ok(commitCrashServer);
+	await commitDialog.getByRole("button", { name: "确认并改名" }).click();
+	const commitCrash = await waitForExit(commitCrashServer.child, OPERATION_TIMEOUT_MS, commitCrashServer.output);
+	assert.equal(commitCrash.code, 86, commitCrashServer.output());
+	resources.server = undefined;
+	const commitReference = join(crashCommitKbPath, "wiki", "synthesis", "commit-reference.md");
+	const externalCommitVersion = "# External commit version\n\n[[wiki/entities/commit.md]]\n";
+	await writeFile(commitReference, externalCommitVersion);
+	resources.server = await startBackend(home, backendPort, crashCommitKbPath, serverNetworkProbe);
+	await page.reload({ waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+	const commitRecoveryDialog = page.getByRole("dialog", { name: "安全改名" });
+	await commitRecoveryDialog.getByRole("heading", { name: "需要处理改名冲突" }).waitFor();
+	const commitRecoverySnapshot = JSON.parse((await browserJson(page, `/api/graph/renames/recovery?kb=${encodeURIComponent(crashCommitKbPath)}`)).text) as {
+		data: { operation: { operation_id: string } };
+	};
+	const commitOperationId = commitRecoverySnapshot.data.operation.operation_id;
+	await waitForRenameJournalState(crashCommitKbPath, commitOperationId, { state: "conflicted" });
+	await commitRecoveryDialog.getByRole("radio", { name: "完成提交" }).check();
+	await commitRecoveryDialog.getByRole("button", { name: "确认恢复" }).click();
+	let commitReceipt: { operation_id: string; retained_evidence: Array<{ relative_path: string }> } | undefined;
+	await waitUntil(async () => {
+		const response = JSON.parse((await browserJson(page, `/api/graph/renames/recovery?kb=${encodeURIComponent(crashCommitKbPath)}`)).text) as {
+			data?: {
+				status?: string;
+				retained_evidence_receipts?: Array<{ operation_id: string; retained_evidence: Array<{ relative_path: string }> }>;
+			};
+		};
+		commitReceipt = response.data?.retained_evidence_receipts?.find((receipt) => receipt.operation_id === commitOperationId);
+		return response.data?.status === "clear" && commitReceipt !== undefined;
+	}, OPERATION_TIMEOUT_MS, "commit recovery did not publish its retained evidence receipt");
+	await assert.rejects(readFile(join(crashCommitKbPath, "wiki", "entities", "commit.md")));
+	assert.equal(await readFile(join(crashCommitKbPath, "wiki", "entities", "commit-renamed.md"), "utf8"), "# Commit source\n");
+	assert.equal(await readFile(commitReference, "utf8"), "# Commit reference\n\n[[wiki/entities/commit-renamed.md]]\n");
+	assert.ok(commitReceipt);
+	const externalEvidence = commitReceipt.retained_evidence.find((item) => item.relative_path.includes("current"));
+	assert.ok(externalEvidence);
+	assert.equal(await readFile(join(crashCommitKbPath, ...externalEvidence.relative_path.split("/")), "utf8"), externalCommitVersion);
+	await commitRecoveryDialog.getByRole("button", { name: "完成" }).click();
+	await commitRecoveryDialog.waitFor({ state: "detached" });
+
+	// A failed post-commit rebuild survives restart; retry changes only the derived graph.
+	await page.getByText("rebuild-failure-notes", { exact: true }).click();
+	await page.getByLabel("当前知识库").getByText("rebuild-failure-notes").waitFor();
+	await page.locator("[data-graph-status='ready']").waitFor({ timeout: OPERATION_TIMEOUT_MS });
+	await openGraphRenameForSource(page, "wiki/entities/rebuild.md");
+	const rebuildDialog = page.getByRole("dialog", { name: "安全改名" });
+	await rebuildDialog.getByRole("textbox", { name: "新文件名" }).fill("rebuild-renamed");
+	await rebuildDialog.getByRole("button", { name: "生成预览" }).click();
+	await rebuildDialog.getByRole("heading", { name: "确认影响" }).waitFor();
+	await rebuildDialog.getByRole("checkbox", { name: /我已核对完整预览/ }).check();
+	await rm(renameEventsFile, { force: true });
+	await writeFile(join(appDir, "browser-rename-rebuild-fail-once"), "fail\n");
+	const rebuildApplyResponse = page.waitForResponse((response) => (
+		new URL(response.url()).pathname === "/api/graph/renames/apply"
+		&& response.request().method() === "POST"
+	));
+	await rebuildDialog.getByRole("button", { name: "确认并改名" }).click();
+	const rebuildApply = await rebuildApplyResponse;
+	assert.equal(rebuildApply.status(), 200);
+	const rebuildOperation = await rebuildApply.json() as { data: { operation: { operation_id: string } } };
+	await rebuildDialog.getByRole("heading", { name: "内容已保存，图谱尚未更新" }).waitFor();
+	await waitForRenameJournalState(rebuildFailureKbPath, rebuildOperation.data.operation.operation_id, { state: "committed", graphRebuild: "failed" });
+	const rebuiltSource = join(rebuildFailureKbPath, "wiki", "entities", "rebuild.md");
+	const rebuiltTarget = join(rebuildFailureKbPath, "wiki", "entities", "rebuild-renamed.md");
+	const rebuiltReference = join(rebuildFailureKbPath, "wiki", "synthesis", "rebuild-reference.md");
+	await assert.rejects(readFile(rebuiltSource));
+	assert.equal(await readFile(rebuiltTarget, "utf8"), "# Rebuild source\n");
+	assert.equal(await readFile(rebuiltReference, "utf8"), "# Rebuild reference\n\n[[wiki/entities/rebuild-renamed.md]]\n");
+	const knowledgeHashesBeforeRetry = await hashKnowledgeFiles(rebuildFailureKbPath);
+	assert.deepEqual(graphRebuildOutcomes(await readRenameEvents(renameEventsFile)), ["failed"]);
+	await writeFile(join(appDir, "browser-rename-rebuild-fail-once"), "fail\n");
+	await page.goto("about:blank");
+	resources.server = await restartBackend(resources.server!, home, backendPort, rebuildFailureKbPath, serverNetworkProbe);
+	await waitUntil(async () => (
+		graphRebuildOutcomes(await readRenameEvents(renameEventsFile)).length === 2
+	), OPERATION_TIMEOUT_MS, "startup did not make its deterministic failed rebuild attempt");
+	assert.deepEqual(graphRebuildOutcomes(await readRenameEvents(renameEventsFile)), ["failed", "failed"]);
+	assert.deepEqual(await hashKnowledgeFiles(rebuildFailureKbPath), knowledgeHashesBeforeRetry);
+	await page.goto(webOrigin, { waitUntil: "domcontentloaded", timeout: START_TIMEOUT_MS });
+	const restoredRebuildDialog = page.getByRole("dialog", { name: "安全改名" });
+	await restoredRebuildDialog.getByRole("heading", { name: "内容已保存，图谱尚未更新" }).waitFor();
+	await restoredRebuildDialog.getByRole("button", { name: "重试更新图谱" }).click();
+	await waitUntil(async () => {
+		const response = JSON.parse((await browserJson(page, `/api/graph/renames/recovery?kb=${encodeURIComponent(rebuildFailureKbPath)}`)).text) as {
+			data?: { status?: string };
+		};
+		return response.data?.status === "clear";
+	}, OPERATION_TIMEOUT_MS, "rebuild retry did not publish the renamed graph");
+	await waitUntil(async () => (
+		graphRebuildOutcomes(await readRenameEvents(renameEventsFile)).length === 3
+	), OPERATION_TIMEOUT_MS, "manual retry did not record its successful rebuild attempt");
+	assert.deepEqual(await readRenameEvents(renameEventsFile), [
+		{ event: "source_rename_started" },
+		{ event: "source_rename_step", state: "target" },
+		{ event: "graph_rebuild", outcome: "failed" },
+		{ event: "graph_rebuild", outcome: "failed" },
+		{ event: "graph_rebuild", outcome: "started" },
+	]);
+	const rebuildOperationId = rebuildOperation.data.operation.operation_id;
+	assert.deepEqual(await listRenameOperationIds(rebuildFailureKbPath), [rebuildOperationId]);
+	assert.deepEqual(await summarizeRenameTerminalReceipts(rebuildFailureKbPath), [{
+		operation_id: rebuildOperationId,
+		state: "committed",
+		graph_rebuild: "succeeded",
+		retained_evidence: [],
+		data_files: [],
+		working_copy_fields: [],
+	}]);
+	assert.deepEqual(await listRenameResidues(rebuildFailureKbPath), []);
+	await restoredRebuildDialog.getByRole("button", { name: "完成" }).click();
+	await restoredRebuildDialog.waitFor({ state: "detached" });
+	await openGraphRenameForSource(page, "wiki/entities/rebuild-renamed.md");
+	await page.getByRole("dialog", { name: "安全改名" }).getByRole("textbox", { name: "新文件名" }).waitFor();
+	assert.deepEqual(await hashKnowledgeFiles(rebuildFailureKbPath), knowledgeHashesBeforeRetry);
+	assert.equal(await readFile(rebuiltTarget, "utf8"), "# Rebuild source\n");
+	assert.equal(await readFile(rebuiltReference, "utf8"), "# Rebuild reference\n\n[[wiki/entities/rebuild-renamed.md]]\n");
+	assert.equal((await page.locator("body").textContent())?.includes(home), false);
+	assert.equal(
+		blockedExternalRequests.every((origin) => origin === "https://fonts.googleapis.com" || origin === "https://fonts.gstatic.com"),
+		true,
+	);
+	await assertProductionBuildExcludesBrowserFakes();
+});
+
+async function readRenameEvents(path: string): Promise<Array<Record<string, unknown>>> {
+	return (await readFile(path, "utf8"))
+		.trim()
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
 async function assertSharedGraphHostFailures(context: BrowserContext, webOrigin: string): Promise<void> {
 	for (const failure of [
 		{ mode: "shared-create-failure", message: "共享图谱首次创建失败" },
@@ -785,6 +1368,183 @@ async function createKnowledgeBase(path: string, title: string, sharedText: stri
 	});
 	await writeFile(join(path, "wiki/graph-data.json"), `${JSON.stringify(pair.graphData, null, 2)}\n`);
 	await writeFile(join(path, "wiki/graph-warnings.json"), `${JSON.stringify(pair.warningBundle, null, 2)}\n`);
+}
+
+async function createRenameKnowledgeBase(path: string): Promise<void> {
+	await mkdir(join(path, "wiki", "entities"), { recursive: true });
+	await mkdir(join(path, "wiki", "topics"), { recursive: true });
+	await mkdir(join(path, "wiki", "synthesis"), { recursive: true });
+	await mkdir(join(path, "raw"), { recursive: true });
+	await writeFile(join(path, ".wiki-schema.md"), "# Rename browser schema\n");
+	await writeFile(join(path, "wiki", "entities", "foo.md"), "# Entity Foo\n\nEntity source page.\n");
+	await writeFile(join(path, "wiki", "entities", "stale.md"), "# Stale page\n");
+	await writeFile(join(path, "wiki", "topics", "foo.md"), "# Topic Foo\n\nOther ambiguous page.\n");
+	await writeFile(join(path, "wiki", "topics", "CaseName.md"), "# Case page\n\n[[wiki/topics/CaseName.md]]\n");
+	const linkSource = "# Rename links\n\n[[wiki/entities/foo.md]]\n[[foo]]\n";
+	await writeFile(join(path, "wiki", "synthesis", "rename-links.md"), linkSource);
+	await writeFile(join(path, "wiki", "synthesis", "stale-reference.md"), "# Stale reference\n\n[[wiki/entities/stale.md]]\n");
+	await writeFile(join(path, "raw", "rename-reference.md"), "# Read only\n\n[[wiki/entities/foo.md]]\n");
+	await writeFile(join(path, ".wiki-graph-layout.json"), `${JSON.stringify({
+		version: 2,
+		pins: {
+			"wiki/entities/foo.md": { x: 24, y: 36, coordinateSpace: "world" },
+			"wiki/topics/CaseName.md": { x: 40, y: 52, coordinateSpace: "world" },
+		},
+		updatedAt: "2026-07-22T00:00:00.000Z",
+	}, null, 2)}\n`);
+	const graphData = {
+		meta: {
+			build_date: "2026-07-22T00:00:00Z",
+			wiki_title: "Rename Notes",
+			total_nodes: 6,
+			total_edges: 0,
+			initial_view: [
+				"wiki/entities/foo.md",
+				"wiki/entities/stale.md",
+				"wiki/topics/foo.md",
+				"wiki/topics/CaseName.md",
+				"wiki/synthesis/rename-links.md",
+				"wiki/synthesis/stale-reference.md",
+			],
+			degraded: true,
+		},
+		nodes: [
+			{ id: "wiki/entities/foo.md", label: "Entity Foo", type: "entity", community: null, content: "Entity source page.", source_path: "wiki/entities/foo.md" },
+			{ id: "wiki/entities/stale.md", label: "Stale page", type: "entity", community: null, content: "Stale page.", source_path: "wiki/entities/stale.md" },
+			{ id: "wiki/topics/foo.md", label: "Topic Foo", type: "topic", community: null, content: "Other ambiguous page.", source_path: "wiki/topics/foo.md" },
+			{ id: "wiki/topics/CaseName.md", label: "Case page", type: "topic", community: null, content: "Case page.", source_path: "wiki/topics/CaseName.md" },
+			{ id: "wiki/synthesis/rename-links.md", label: "Rename links", type: "synthesis", community: null, content: "Rename links.", source_path: "wiki/synthesis/rename-links.md" },
+			{ id: "wiki/synthesis/stale-reference.md", label: "Stale reference", type: "synthesis", community: null, content: "Stale reference.", source_path: "wiki/synthesis/stale-reference.md" },
+		],
+		edges: [],
+	};
+	const rawLink = "[[foo]]";
+	const pair = assembleGraphArtifactPair({
+		graphData,
+		candidateSets: [{
+			candidate_set_id: "rename-foo-candidates",
+			candidate_count: 2,
+			candidates: ["wiki/entities/foo.md", "wiki/topics/foo.md"],
+		}],
+		groups: [{
+			warning_id: "rename-ambiguous-foo",
+			code: "ambiguous_wikilink",
+			severity: "error",
+			message: "Ambiguous foo link",
+			target_key: "foo",
+			candidate_set_id: "rename-foo-candidates",
+			occurrence_count: 1,
+			occurrences: [{
+				occurrence_id: "rename-foo-occurrence",
+				source_path: "wiki/synthesis/rename-links.md",
+				line: 4,
+				column: 1,
+				start_byte: Buffer.byteLength("# Rename links\n\n[[wiki/entities/foo.md]]\n"),
+				end_byte: Buffer.byteLength(linkSource) - 1,
+				raw_link: rawLink,
+				file_sha256: createHash("sha256").update(linkSource).digest("hex"),
+				link_kind: "page_wikilink",
+				read_only: false,
+			}],
+		}],
+	});
+	await writeFile(join(path, "wiki", "graph-data.json"), `${JSON.stringify(pair.graphData, null, 2)}\n`);
+	await writeFile(join(path, "wiki", "graph-warnings.json"), `${JSON.stringify(pair.warningBundle, null, 2)}\n`);
+}
+
+async function createEquivalentRenameKnowledgeBase(path: string): Promise<void> {
+	await mkdir(join(path, "wiki", "topics"), { recursive: true });
+	await writeFile(join(path, ".wiki-schema.md"), "# Equivalent rename schema\n");
+	await writeFile(join(path, "wiki", "topics", "CaseName.md"), "# Case page\n\n[[wiki/topics/CaseName.md]]\n");
+	await writeFile(join(path, ".wiki-graph-layout.json"), `${JSON.stringify({
+		version: 2,
+		pins: { "wiki/topics/CaseName.md": { x: 20, y: 30, coordinateSpace: "world" } },
+		updatedAt: "2026-07-22T00:00:00.000Z",
+	}, null, 2)}\n`);
+	const pair = assembleGraphArtifactPair({
+		graphData: {
+			meta: {
+				build_date: "2026-07-22T00:00:00Z",
+				wiki_title: "Equivalent Notes",
+				total_nodes: 1,
+				total_edges: 0,
+				initial_view: ["wiki/topics/CaseName.md"],
+				degraded: false,
+			},
+			nodes: [{
+				id: "wiki/topics/CaseName.md",
+				label: "Case page",
+				type: "topic",
+				community: null,
+				content: "Case page",
+				source_path: "wiki/topics/CaseName.md",
+			}],
+			edges: [],
+		},
+		groups: [],
+		candidateSets: [],
+	});
+	await writeFile(join(path, "wiki", "graph-data.json"), `${JSON.stringify(pair.graphData, null, 2)}\n`);
+	await writeFile(join(path, "wiki", "graph-warnings.json"), `${JSON.stringify(pair.warningBundle, null, 2)}\n`);
+}
+
+async function createCrashRenameKnowledgeBase(path: string): Promise<void> {
+	await mkdir(join(path, "wiki", "entities"), { recursive: true });
+	await mkdir(join(path, "wiki", "synthesis"), { recursive: true });
+	await writeFile(join(path, ".wiki-schema.md"), "# Crash recovery schema\n");
+	await writeFile(join(path, "wiki", "entities", "crash.md"), "# Crash source\n");
+	await writeFile(join(path, "wiki", "synthesis", "crash-reference.md"), "# Crash reference\n\n[[wiki/entities/crash.md]]\n");
+	const pair = assembleGraphArtifactPair({
+		graphData: {
+			meta: {
+				build_date: "2026-07-22T00:00:00Z",
+				wiki_title: "Crash Rollback Notes",
+				total_nodes: 2,
+				total_edges: 0,
+				initial_view: ["wiki/entities/crash.md", "wiki/synthesis/crash-reference.md"],
+				degraded: false,
+			},
+			nodes: [
+				{ id: "wiki/entities/crash.md", label: "Crash source", type: "entity", community: null, content: "Crash source", source_path: "wiki/entities/crash.md" },
+				{ id: "wiki/synthesis/crash-reference.md", label: "Crash reference", type: "synthesis", community: null, content: "Crash reference", source_path: "wiki/synthesis/crash-reference.md" },
+			],
+			edges: [],
+		},
+		groups: [],
+		candidateSets: [],
+	});
+	await writeFile(join(path, "wiki", "graph-data.json"), `${JSON.stringify(pair.graphData, null, 2)}\n`);
+	await writeFile(join(path, "wiki", "graph-warnings.json"), `${JSON.stringify(pair.warningBundle, null, 2)}\n`);
+}
+
+async function createSinglePageRenameKnowledgeBase(path: string, title: string, stem: "commit" | "rebuild"): Promise<void> {
+	await mkdir(join(path, "wiki", "entities"), { recursive: true });
+	await mkdir(join(path, "wiki", "synthesis"), { recursive: true });
+	const label = stem === "commit" ? "Commit" : "Rebuild";
+	await writeFile(join(path, ".wiki-schema.md"), `# ${title} schema\n`);
+	await writeFile(join(path, "wiki", "entities", `${stem}.md`), `# ${label} source\n`);
+	await writeFile(join(path, "wiki", "synthesis", `${stem}-reference.md`), `# ${label} reference\n\n[[wiki/entities/${stem}.md]]\n`);
+	const pair = assembleGraphArtifactPair({
+		graphData: {
+			meta: {
+				build_date: "2026-07-22T00:00:00Z",
+				wiki_title: title,
+				total_nodes: 2,
+				total_edges: 0,
+				initial_view: [`wiki/entities/${stem}.md`, `wiki/synthesis/${stem}-reference.md`],
+				degraded: false,
+			},
+			nodes: [
+				{ id: `wiki/entities/${stem}.md`, label: `${label} source`, type: "entity", community: null, content: `${label} source`, source_path: `wiki/entities/${stem}.md` },
+				{ id: `wiki/synthesis/${stem}-reference.md`, label: `${label} reference`, type: "synthesis", community: null, content: `${label} reference`, source_path: `wiki/synthesis/${stem}-reference.md` },
+			],
+			edges: [],
+		},
+		groups: [],
+		candidateSets: [],
+	});
+	await writeFile(join(path, "wiki", "graph-data.json"), `${JSON.stringify(pair.graphData, null, 2)}\n`);
+	await writeFile(join(path, "wiki", "graph-warnings.json"), `${JSON.stringify(pair.warningBundle, null, 2)}\n`);
 }
 
 function browserWarningFixture() {
@@ -957,4 +1717,16 @@ async function assertBrowserJson(page: Page, path: string, expectedStatus: numbe
 
 async function browserJson(page: Page, path: string): Promise<{ status: number; text: string }> {
 	return page.evaluate((url) => fetch(url, { signal: AbortSignal.timeout(8_000) }).then(async (response) => ({ status: response.status, text: await response.text() })), path);
+}
+
+async function openGraphRenameForSource(page: Page, sourcePath: string): Promise<void> {
+	await openGraphRenameForNode(page, sourcePath);
+}
+
+async function openGraphRenameForNode(page: Page, nodeId: string): Promise<void> {
+	const target = page.locator(`.sigma-global-node-hit-target[data-id="${nodeId}"]`);
+	await target.waitFor({ state: "attached", timeout: OPERATION_TIMEOUT_MS });
+	await target.evaluate((button) => (button as HTMLButtonElement).click());
+	await page.getByRole("button", { name: "打开详情" }).click();
+	await page.getByRole("button", { name: "安全改名" }).click();
 }

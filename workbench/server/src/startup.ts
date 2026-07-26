@@ -12,6 +12,7 @@ import {
 	stopKnowledgeBaseGraphWatcher,
 	watchKnowledgeBaseGraph,
 } from "./graph.js";
+import { defaultGraphRenameRouteService } from "./routes/graph-renames.js";
 import { localHostOnly } from "./security/host.js";
 import {
 	generateCapabilityToken,
@@ -48,7 +49,9 @@ export async function startWorkbenchServer(
 		await bootstrapFromConfig();
 		const bootstrappedActive = getActive();
 		if (bootstrappedActive) {
+			const recovery = await defaultGraphRenameRouteService.recoverGraphRenameOperations(bootstrappedActive.kb.path);
 			watchKnowledgeBaseGraph(bootstrappedActive.kb.path);
+			if (recovery.needsRebuild) await defaultGraphRenameRouteService.triggerPendingGraphRebuild?.(bootstrappedActive.kb.path);
 		}
 
 		const listeningPort = await new Promise<number>((resolve, reject) => {
