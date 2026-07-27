@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Browser, BrowserContext, BrowserServer } from "playwright";
@@ -27,6 +27,53 @@ export interface RunningProcess {
 export interface NetworkGuardLaunch {
 	generation: string;
 	probeFile: string;
+}
+
+export interface FileHashDiff {
+	added: string[];
+	removed: string[];
+	changed: string[];
+	unchanged: string[];
+}
+
+export interface RenameTerminalReceiptSummary {
+	operation_id: string;
+	state: unknown;
+	graph_rebuild: unknown;
+	retained_evidence: unknown;
+	data_files: string[];
+	working_copy_fields: string[];
+}
+
+export function graphRebuildOutcomes(events: Array<Record<string, unknown>>): Array<"failed" | "started"> {
+	return events
+		.filter((event) => event.event === "graph_rebuild")
+		.map((event) => {
+			if (event.outcome === "failed" || event.outcome === "started") return event.outcome;
+			throw new Error("graph rebuild event is missing a result");
+		});
+}
+
+export function diffFileHashes(before: Record<string, string>, after: Record<string, string>): FileHashDiff {
+	const paths = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+	const result: FileHashDiff = { added: [], removed: [], changed: [], unchanged: [] };
+	for (const path of paths) {
+		if (!(path in before)) result.added.push(path);
+		else if (!(path in after)) result.removed.push(path);
+		else if (before[path] === after[path]) result.unchanged.push(path);
+		else result.changed.push(path);
+	}
+	return result;
+}
+
+export function incompleteWikilinkTargets(markdown: string): string[] {
+	const incomplete: string[] = [];
+	for (const match of markdown.matchAll(/\[\[([^\]\r\n]+)\]\]/g)) {
+		const rawTarget = match[1]!;
+		const pageTarget = rawTarget.split("|", 1)[0]!.split("#", 1)[0]!;
+		if (!/^wiki\/[^/\]\r\n]+\/(?:[^/\]\r\n]+\/)*[^/\]\r\n]+\.md$/.test(pageTarget)) incomplete.push(pageTarget);
+	}
+	return incomplete;
 }
 
 export async function createKnowledgeBase(path: string, title: string, sharedText: string): Promise<void> {
@@ -245,6 +292,114 @@ export async function waitForFile(path: string, timeoutMs = OPERATION_TIMEOUT_MS
 	await waitUntil(() => stat(path).then(() => true, () => false), timeoutMs, `file did not appear: ${path}`);
 }
 
+export async function waitForRenameJournalState(
+	kbPath: string,
+	operationId: string,
+	expected: { state: string; graphRebuild?: string },
+): Promise<void> {
+	const manifestPath = join(kbPath, ".wiki-tmp", "rename-ops", operationId, "manifest.json");
+	await waitUntil(async () => {
+		try {
+			const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { state?: unknown; graph_rebuild?: unknown };
+			return manifest.state === expected.state
+				&& (expected.graphRebuild === undefined || manifest.graph_rebuild === expected.graphRebuild);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) return false;
+			throw error;
+		}
+	}, OPERATION_TIMEOUT_MS, `rename journal did not reach ${expected.state}`);
+}
+
+export async function hashKnowledgeFiles(kbPath: string): Promise<Record<string, string>> {
+	const files = await collectKnowledgeFiles(kbPath);
+	const hashes = await Promise.all(files.map(async (file) => [
+		relative(kbPath, file).split(sep).join("/"),
+		createHash("sha256").update(await readFile(file)).digest("hex"),
+	] as const));
+	return Object.fromEntries(hashes);
+}
+
+export async function hashKnowledgeBaseFiles(kbPath: string): Promise<Record<string, string>> {
+	const files = (await collectFiles(kbPath)).filter((file) => (
+		!toPortableRelative(kbPath, file).startsWith(".wiki-tmp/")
+	));
+	const hashes = await Promise.all(files.map(async (file) => [
+		toPortableRelative(kbPath, file),
+		createHash("sha256").update(await readFile(file)).digest("hex"),
+	] as const));
+	return Object.fromEntries(hashes.sort(([left], [right]) => left.localeCompare(right)));
+}
+
+export async function listRenameOperationIds(kbPath: string): Promise<string[]> {
+	try {
+		const entries = await readdir(join(kbPath, ".wiki-tmp", "rename-ops"), { withFileTypes: true });
+		return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+		throw error;
+	}
+}
+
+export async function summarizeRenameTerminalReceipts(kbPath: string): Promise<RenameTerminalReceiptSummary[]> {
+	const root = join(kbPath, ".wiki-tmp", "rename-ops");
+	let entries;
+	try {
+		entries = await readdir(root, { withFileTypes: true });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+		throw error;
+	}
+	const summaries: RenameTerminalReceiptSummary[] = [];
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue;
+		const directory = join(root, entry.name);
+		let manifest: Record<string, unknown>;
+		try {
+			manifest = JSON.parse(await readFile(join(directory, "manifest.json"), "utf8")) as Record<string, unknown>;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) continue;
+			throw error;
+		}
+		if (manifest.kind !== "receipt" || manifest.operation_id !== entry.name) continue;
+		const dataFiles = (await collectFiles(directory))
+			.map((file) => toPortableRelative(directory, file))
+			.filter((file) => file !== "manifest.json")
+			.sort();
+		const workingCopyFields = [
+			"original_hashes",
+			"intended_hashes",
+			"stage_paths",
+			"backup_paths",
+			"intended_paths",
+			"conflicts",
+		].filter((field) => Object.hasOwn(manifest, field));
+		summaries.push({
+			operation_id: entry.name,
+			state: manifest.state,
+			graph_rebuild: manifest.graph_rebuild,
+			retained_evidence: manifest.retained_evidence,
+			data_files: dataFiles,
+			working_copy_fields: workingCopyFields,
+		});
+	}
+	return summaries.sort((left, right) => left.operation_id.localeCompare(right.operation_id));
+}
+
+export async function listRenameResidues(kbPath: string): Promise<string[]> {
+	const files = await collectFiles(kbPath);
+	const receiptManifests = new Set((await summarizeRenameTerminalReceipts(kbPath)).map((receipt) => (
+		`.wiki-tmp/rename-ops/${receipt.operation_id}/manifest.json`
+	)));
+	return files
+		.map((file) => toPortableRelative(kbPath, file))
+		.filter((relativePath) => (
+			(relativePath.startsWith(".wiki-tmp/rename-ops/") && !receiptManifests.has(relativePath))
+			|| relativePath.split("/").at(-1)?.startsWith(".llm-wiki-rename-")
+			|| /\.(?:stage|bak|backup)$/.test(relativePath)
+		))
+		.sort();
+}
+
 export async function waitForExit(child: ChildProcess, timeoutMs: number, output: () => string): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
 	if (child.exitCode !== null || child.signalCode !== null) return { code: child.exitCode, signal: child.signalCode };
 	return new Promise((resolvePromise, reject) => {
@@ -305,6 +460,7 @@ export async function assertProductionBuildExcludesBrowserFakes(): Promise<void>
 		const content = await readFile(file, "utf8");
 		assert.equal(content.includes(FAKE_MODEL_MARKER), false);
 		assert.equal(content.includes("LLM_WIKI_BROWSER_"), false);
+		assert.equal(content.includes("browser-rename-"), false);
 	}
 }
 
@@ -317,4 +473,20 @@ async function collectFiles(path: string): Promise<string[]> {
 		else files.push(entryPath);
 	}
 	return files;
+}
+
+async function collectKnowledgeFiles(path: string): Promise<string[]> {
+	const entries = await readdir(path, { withFileTypes: true });
+	const files: string[] = [];
+	for (const entry of entries) {
+		if (entry.name === ".wiki-tmp") continue;
+		const entryPath = join(path, entry.name);
+		if (entry.isDirectory()) files.push(...await collectKnowledgeFiles(entryPath));
+		else if (entry.isFile() && entry.name.endsWith(".md")) files.push(entryPath);
+	}
+	return files.sort();
+}
+
+function toPortableRelative(root: string, file: string): string {
+	return relative(root, file).split(sep).join("/");
 }

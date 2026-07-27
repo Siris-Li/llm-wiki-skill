@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { appendFile, writeFile } from "node:fs/promises";
+import { appendFileSync, existsSync, unlinkSync } from "node:fs";
+import { appendFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -12,6 +12,10 @@ import {
 } from "@earendil-works/pi-ai";
 
 import { modelRegistry } from "../src/agent.js";
+import { triggerGraphRebuild } from "../src/graph.js";
+import { createGraphRenameService } from "../src/graph-renames.js";
+import { defaultGraphRenameRouteService } from "../src/routes/graph-renames.js";
+import { defaultGraphRouteService } from "../src/routes/graph.js";
 import { createRuntimeApplication } from "../src/runtime-app.js";
 import { startWorkbenchServer } from "../src/startup.js";
 
@@ -24,6 +28,13 @@ const modelCancelStartedFlag = path.join(process.env.HOME ?? "", ".llm-wiki-agen
 const modelCancelSettledFlag = path.join(process.env.HOME ?? "", ".llm-wiki-agent", "browser-model-cancel-settled");
 const modelDisconnectStartedFlag = path.join(process.env.HOME ?? "", ".llm-wiki-agent", "browser-model-disconnect-started");
 const modelDisconnectSettledFlag = path.join(process.env.HOME ?? "", ".llm-wiki-agent", "browser-model-disconnect-settled");
+const browserAppDir = path.join(process.env.HOME ?? "", ".llm-wiki-agent");
+const renamePauseBeforeCommitFlag = path.join(browserAppDir, "browser-rename-pause-before-commit");
+const renamePausedFlag = path.join(browserAppDir, "browser-rename-paused");
+const renameResumeFlag = path.join(browserAppDir, "browser-rename-resume");
+const renameCrashAfterWriteFlag = path.join(browserAppDir, "browser-rename-crash-after-write");
+const renameRebuildFailOnceFlag = path.join(browserAppDir, "browser-rename-rebuild-fail-once");
+const renameEventsFile = path.join(browserAppDir, "browser-rename-events.jsonl");
 const selectedDirectory = process.env.LLM_WIKI_BROWSER_SELECTED_DIRECTORY;
 if (!selectedDirectory) {
 	throw new Error("browser test entry requires LLM_WIKI_BROWSER_SELECTED_DIRECTORY");
@@ -63,9 +74,62 @@ modelRegistry.hasConfiguredAuth = (model) => {
 	return hasConfiguredAuth(model);
 };
 
+const browserGraphRenameService = {
+	...createGraphRenameService({
+		beforeFileCommit: async () => {
+			if (!existsSync(renamePauseBeforeCommitFlag)) return;
+			await writeFile(renamePausedFlag, "paused\n");
+			await waitForRenameResume();
+			await Promise.all([
+				rm(renamePauseBeforeCommitFlag, { force: true }),
+				rm(renamePausedFlag, { force: true }),
+				rm(renameResumeFlag, { force: true }),
+			]);
+		},
+		afterFileCommit: () => {
+			if (!existsSync(renameCrashAfterWriteFlag)) return;
+			unlinkSync(renameCrashAfterWriteFlag);
+			process.exit(86);
+		},
+		beforeSourceRename: () => recordRenameEvent({ event: "source_rename_started" }),
+		afterSourceRenameStep: (state) => recordRenameEvent({ event: "source_rename_step", state }),
+		triggerRebuild: (kbPath) => {
+			if (existsSync(renameRebuildFailOnceFlag)) {
+				unlinkSync(renameRebuildFailOnceFlag);
+				recordRenameEvent({ event: "graph_rebuild", outcome: "failed" });
+				throw new Error("browser-controlled graph rebuild failure");
+			}
+			try {
+				const result = triggerGraphRebuild(kbPath);
+				recordRenameEvent({ event: "graph_rebuild", outcome: "started" });
+				return result;
+			} catch (error) {
+				recordRenameEvent({ event: "graph_rebuild", outcome: "failed" });
+				throw error;
+			}
+		},
+	}),
+	getActiveKnowledgeBasePath: defaultGraphRenameRouteService.getActiveKnowledgeBasePath,
+};
+Object.assign(defaultGraphRenameRouteService, browserGraphRenameService);
+defaultGraphRouteService.triggerGraphRebuild = (kbPath) => {
+	const result = triggerGraphRebuild(kbPath);
+	recordRenameEvent({ event: "graph_rebuild", outcome: "started" });
+	return { status: result.status };
+};
+
+function recordRenameEvent(event: {
+	event: string;
+	state?: "old" | "transit" | "target";
+	outcome?: "failed" | "started";
+}): void {
+	appendFileSync(renameEventsFile, `${JSON.stringify(event)}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
 const runningServer = await startWorkbenchServer({
 	createApplication: (token) => createRuntimeApplication(token, {
 		chooseDirectory: async () => selectedDirectory,
+		graphRenameService: browserGraphRenameService,
 	}),
 });
 
@@ -198,4 +262,12 @@ async function waitForAbortOrTimeout(signal: AbortSignal | undefined, timeoutMs:
 			resolve();
 		}
 	});
+}
+
+async function waitForRenameResume(): Promise<void> {
+	const deadline = Date.now() + 30_000;
+	while (!existsSync(renameResumeFlag)) {
+		if (Date.now() >= deadline) throw new Error("browser rename resume flag did not appear");
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
 }

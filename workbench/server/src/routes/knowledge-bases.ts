@@ -55,6 +55,7 @@ import {
 	stopKnowledgeBaseGraphWatcher,
 	watchKnowledgeBaseGraph,
 } from "../graph.js";
+import { defaultGraphRenameRouteService } from "./graph-renames.js";
 import {
 	createWiki,
 	InitConflictError,
@@ -89,6 +90,8 @@ export interface KnowledgeBaseRouteService {
 	clearActiveKnowledgeBase: () => Promise<void>;
 	watchKnowledgeBaseGraph: (kbPath: string) => void;
 	stopKnowledgeBaseGraphWatcher: () => void;
+	recoverGraphRenameOperations?: (kbPath: string) => Promise<{ needsRebuild: boolean }>;
+	triggerPendingGraphRebuild?: (kbPath: string) => Promise<{ status: "started" | "queued" | "failed" }>;
 }
 
 export const defaultKnowledgeBaseRouteService: KnowledgeBaseRouteService = {
@@ -132,6 +135,8 @@ export const defaultKnowledgeBaseRouteService: KnowledgeBaseRouteService = {
 	clearActiveKnowledgeBase: clearActive,
 	watchKnowledgeBaseGraph,
 	stopKnowledgeBaseGraphWatcher,
+	recoverGraphRenameOperations: (kbPath) => defaultGraphRenameRouteService.recoverGraphRenameOperations(kbPath),
+	triggerPendingGraphRebuild: (kbPath) => defaultGraphRenameRouteService.triggerPendingGraphRebuild?.(kbPath) ?? Promise.resolve({ status: "failed" as const }),
 };
 
 export function createKnowledgeBaseRoutes(
@@ -267,7 +272,9 @@ export function createKnowledgeBaseRoutes(
 			if (!data.active) {
 				throw new Error("selectKnowledgeBase returned no active context");
 			}
+			const recovery = await service.recoverGraphRenameOperations?.(data.active.kb.path);
 			service.watchKnowledgeBaseGraph(data.active.kb.path);
+			if (recovery?.needsRebuild) await service.triggerPendingGraphRebuild?.(data.active.kb.path);
 			return jsonOk(c, data);
 		} catch (err) {
 			if (err instanceof HttpContractError) throw err;
